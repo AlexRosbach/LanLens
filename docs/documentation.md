@@ -1,0 +1,566 @@
+# LanLens — Technical Documentation
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [Database Schema](#database-schema)
+4. [API Reference](#api-reference)
+5. [Scanning Logic](#scanning-logic)
+6. [Authentication](#authentication)
+7. [Telegram Integration](#telegram-integration)
+8. [Connection Launch](#connection-launch)
+9. [Docker Details](#docker-details)
+10. [CLI Tools](#cli-tools)
+11. [Frontend Structure](#frontend-structure)
+12. [Configuration Reference](#configuration-reference)
+13. [Troubleshooting](#troubleshooting)
+
+---
+
+## Overview
+
+LanLens is a single-container Docker application that:
+
+- Periodically scans the local network via ARP broadcast
+- Identifies device vendors from MAC addresses using the offline IEEE OUI database
+- Classifies devices heuristically (Server, VM, IoT, Router, etc.)
+- Performs per-device port scans using nmap
+- Provides a React-based dark-themed web UI for management
+- Sends Telegram notifications for newly discovered devices
+- Supports SSH link, RDP file download, and web browser connection
+
+---
+
+## Architecture
+
+```
+Dockerfile (multi-stage build):
+  Stage 1 — Node 20 Alpine: npm ci && npm run build → /app/frontend/dist/
+  Stage 2 — Python 3.12 Slim:
+    - nginx (reverse proxy + static files)
+    - uvicorn (FastAPI application server on 127.0.0.1:8000)
+    - SQLite database at /data/lanlens.db (Docker volume)
+
+Request flow:
+  Browser → nginx:80 → /api/* → uvicorn:8000 → FastAPI
+                     → /ws/*  → uvicorn:8000 → WebSocket
+                     → /*     → /app/frontend/dist/ (static)
+```
+
+### Directory Structure
+
+```
+backend/
+  main.py           FastAPI application, lifespan, WebSocket endpoint
+  config.py         Pydantic settings from environment variables
+  database.py       SQLAlchemy engine + SessionLocal factory
+  models.py         ORM models (User, Device, PortScan, ScanRun, Setting, Notification, TokenBlacklist)
+  schemas.py        Pydantic request/response models
+  auth/
+    jwt_handler.py  create_access_token, decode_token
+    password.py     hash_password, verify_password (bcrypt)
+    dependencies.py get_current_user FastAPI dependency
+  routers/
+    auth.py         /api/auth/* — login, logout, me, change-password
+    devices.py      /api/devices/* — CRUD, port scan trigger
+    scan.py         /api/scan/* — start, status, history
+    settings.py     /api/settings/* — dhcp, telegram, schedule
+    notifications.py /api/notifications/* — list, read-all, delete
+    connect.py      /api/connect/* — RDP file download
+  services/
+    scanner.py      ARP scan with scapy, device upsert logic
+    port_scanner.py nmap port scan, returns open ports + protocol flags
+    mac_vendor.py   OUI lookup via manuf library
+    device_classifier.py  Vendor/hostname/port heuristics → device class
+    notification.py Telegram message sending via httpx
+    scheduler.py    APScheduler background scan loop
+  cli/
+    init_db.py      Create SQLite tables (idempotent)
+    init_admin.py   Create default admin user if none exists
+    reset_password.py  CLI tool for password reset
+
+frontend/
+  src/
+    api/            Axios-based typed API clients per domain
+    store/          Zustand state stores (auth, devices)
+    components/
+      ui/           Button, Input, Modal, Badge, Card, Spinner
+      layout/       Sidebar, TopBar, Layout
+      devices/      DeviceTable, ConnectButtons, DeviceClassIcon, RegisterDeviceModal
+    pages/          Login, ForcePasswordChange, Dashboard, DeviceDetail, Settings, Notifications
+    utils/          formatters, connectionUtils
+    assets/         logo.svg (original SVG design)
+```
+
+---
+
+## Database Schema
+
+### `users`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER PK | Auto-increment |
+| username | TEXT UNIQUE | Login username |
+| password_hash | TEXT | bcrypt hash (cost 12) |
+| force_password_change | BOOLEAN | True on first login |
+| created_at | DATETIME | UTC |
+| last_login | DATETIME | UTC, nullable |
+
+### `devices`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER PK | Auto-increment |
+| mac_address | TEXT UNIQUE | Uppercase colon-separated (XX:XX:XX:XX:XX:XX) |
+| ip_address | TEXT | Last seen IPv4 address |
+| hostname | TEXT | PTR DNS reverse lookup |
+| label | TEXT | User-assigned name |
+| device_class | TEXT | Server / VM / IoT / Router / Switch / Workstation / NAS / Printer / Unknown |
+| vendor | TEXT | From OUI database |
+| notes | TEXT | Free text |
+| is_registered | BOOLEAN | User has explicitly labeled this device |
+| is_online | BOOLEAN | Seen in last ARP scan |
+| first_seen | DATETIME | UTC |
+| last_seen | DATETIME | UTC |
+
+### `port_scans`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER PK | |
+| device_id | INTEGER FK | → devices.id (CASCADE DELETE) |
+| scanned_at | DATETIME | UTC |
+| open_ports | TEXT | JSON array of `{port, protocol, service, state}` |
+| ssh_available | BOOLEAN | Port 22 open |
+| rdp_available | BOOLEAN | Port 3389 open |
+| http_available | BOOLEAN | Port 80 open |
+| https_available | BOOLEAN | Port 443 open |
+
+### `scan_runs`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER PK | |
+| started_at | DATETIME | |
+| finished_at | DATETIME | Nullable |
+| scan_type | TEXT | `arp` / `full` / `scheduled` / `manual` |
+| devices_found | INTEGER | Total hosts in this scan |
+| devices_new | INTEGER | New MACs discovered |
+| devices_offline | INTEGER | Previously online, now absent |
+| status | TEXT | `running` / `done` / `error` |
+| error_message | TEXT | Nullable |
+
+### `settings`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| key | TEXT PK | Setting name |
+| value | TEXT | String value |
+| updated_at | DATETIME | |
+
+**Known keys:**
+- `dhcp_start` — Network scan start IP
+- `dhcp_end` — Network scan end IP
+- `scan_interval_minutes` — Scheduler interval
+- `telegram_bot_token` — Telegram bot API token
+- `telegram_chat_id` — Target chat/group ID
+- `telegram_enabled` — `"true"` / `"false"`
+- `notify_on_device_online` — `"true"` / `"false"`
+- `notify_on_device_offline` — `"true"` / `"false"`
+
+### `notifications`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | INTEGER PK | |
+| device_id | INTEGER FK | → devices.id (SET NULL on delete) |
+| event_type | TEXT | `new_device` / `device_online` / `device_offline` |
+| message | TEXT | Human-readable description |
+| is_read | BOOLEAN | UI read status |
+| telegram_sent | BOOLEAN | Whether Telegram delivery succeeded |
+| created_at | DATETIME | |
+
+### `token_blacklist`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| jti | TEXT UNIQUE | JWT ID claim |
+| expires_at | DATETIME | For cleanup |
+
+---
+
+## API Reference
+
+### Authentication — `/api/auth`
+
+#### `POST /api/auth/login`
+
+```json
+// Request
+{ "username": "admin", "password": "secret" }
+
+// Response 200
+{
+  "access_token": "eyJ...",
+  "token_type": "bearer",
+  "force_password_change": false
+}
+```
+
+#### `GET /api/auth/me`
+
+Returns current user. Requires `Authorization: Bearer <token>`.
+
+#### `POST /api/auth/change-password`
+
+```json
+{ "current_password": "old", "new_password": "newpass123" }
+```
+
+---
+
+### Devices — `/api/devices`
+
+#### `GET /api/devices`
+
+Query params: `online_only`, `unregistered_only`, `device_class`, `search`
+
+Returns `DeviceListResponse` with `items`, `total`, `online`, `offline`, `unregistered`.
+
+#### `PUT /api/devices/{id}`
+
+```json
+{
+  "label": "My NAS",
+  "device_class": "NAS",
+  "notes": "Synology DS920+",
+  "is_registered": true
+}
+```
+
+#### `POST /api/devices/{id}/scan-ports`
+
+Triggers background nmap port scan. Returns immediately with `202`-like response.
+
+#### `GET /api/devices/{id}/ports`
+
+Returns last 5 port scan results.
+
+---
+
+### Scan — `/api/scan`
+
+#### `POST /api/scan/start`
+
+Triggers immediate ARP scan in background.
+
+#### `GET /api/scan/status`
+
+```json
+{
+  "is_running": false,
+  "last_scan": {
+    "id": 42,
+    "started_at": "2026-04-04T12:00:00",
+    "finished_at": "2026-04-04T12:00:03",
+    "devices_found": 14,
+    "devices_new": 0,
+    "devices_offline": 1,
+    "status": "done"
+  }
+}
+```
+
+---
+
+### Settings — `/api/settings`
+
+#### `GET /api/settings` — Returns all settings as `AllSettings`
+
+#### `PUT /api/settings/dhcp`
+```json
+{ "dhcp_start": "192.168.1.1", "dhcp_end": "192.168.1.254" }
+```
+
+#### `PUT /api/settings/scan-schedule`
+```json
+{ "scan_interval_minutes": 5 }
+```
+
+#### `PUT /api/settings/telegram`
+```json
+{
+  "telegram_bot_token": "1234567890:ABCdef...",
+  "telegram_chat_id": "-1001234567890",
+  "telegram_enabled": true
+}
+```
+
+#### `POST /api/settings/telegram/test` — Sends a test Telegram message
+
+---
+
+### Connect — `/api/connect`
+
+#### `GET /api/connect/{id}/rdp`
+
+Returns a `.rdp` file download with the device's IP pre-configured.
+
+---
+
+## Scanning Logic
+
+### ARP Scan Flow
+
+```
+1. APScheduler triggers run_scan() every N minutes
+2. scanner.py reads dhcp_start/dhcp_end from DB settings
+3. Derives /24 network from dhcp_start (e.g., 192.168.1.0/24)
+4. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=network)
+   srp() with timeout=3s
+5. For each (ip, mac) in responses:
+   a. Normalize MAC to XX:XX:XX:XX:XX:XX
+   b. mac_vendor.py: manuf.MacParser().get_manuf(mac) → vendor string
+   c. DB upsert:
+      - If MAC exists: update ip, last_seen, is_online=True
+      - If new MAC: insert with is_registered=False, create Notification
+   d. Reverse DNS lookup (socket.gethostbyaddr) in thread pool
+6. MACs not in current scan: is_online = False
+7. Write ScanRun summary to DB
+8. Send pending Telegram notifications
+```
+
+### Port Scan Flow
+
+```
+1. Triggered by: POST /api/devices/{id}/scan-ports OR manual
+2. port_scanner.py: nmap.PortScanner()
+3. Arguments: "-sS -T4 --top-ports 1000" (SYN scan, fast)
+   Fallback: "-sT -T4 --top-ports 1000" (TCP connect, no root needed)
+4. Parse results: extract open ports, service names
+5. Set flags: ssh_available, rdp_available, http_available, https_available
+6. Write PortScan row to DB
+```
+
+---
+
+## Authentication
+
+### JWT Flow
+
+1. Client sends `POST /api/auth/login` with credentials
+2. Server verifies bcrypt hash, creates access token (8h expiry) with `jti` claim
+3. Client stores token in localStorage
+4. Every request includes `Authorization: Bearer <token>`
+5. FastAPI's `get_current_user` dependency decodes + validates token
+6. Logout: token is not explicitly blacklisted (stateless) — frontend clears it from localStorage
+
+### Force Password Change
+
+- New users have `force_password_change = True` in the DB
+- `/api/auth/me` returns this flag
+- Frontend route guard: if `force_password_change`, redirect all routes to `/change-password`
+- After changing password: flag set to `False`, guard removed
+
+---
+
+## Telegram Integration
+
+### Setup
+
+1. Create bot: message `@BotFather` on Telegram, send `/newbot`
+2. Get Chat ID:
+   - Personal: `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending a message to the bot
+   - Group: Add bot to group, send message, check `getUpdates` for negative chat ID (e.g., `-1001234567890`)
+3. Configure in LanLens Settings → Notifications
+
+### Message Format
+
+```
+LanLens — New Device Detected
+
+IP: 192.168.1.42
+MAC: AA:BB:CC:DD:EE:FF
+Vendor: Raspberry Pi Foundation
+Class: IoT
+Hostname: raspberrypi.local
+
+Open LanLens to register this device.
+```
+
+### Failure Handling
+
+- Failed Telegram sends are logged
+- `telegram_sent = False` visible in the Notifications page
+- No automatic retry (manual retry: save settings again and trigger a new scan)
+
+---
+
+## Connection Launch
+
+### SSH
+
+Frontend renders an `<a href="ssh://ip">` link. Clicking opens the system's default SSH client:
+- macOS: Terminal
+- Linux: depends on xdg-open configuration
+- Windows: requires SSH URI handler (e.g., PuTTY configured as default)
+
+### RDP
+
+Frontend calls `GET /api/connect/{id}/rdp` which returns a `.rdp` file with:
+```
+full address:s:<ip>
+authentication level:i:2
+prompt for credentials:i:1
+```
+The browser downloads the file. Double-clicking opens:
+- Windows: built-in Remote Desktop Connection (mstsc.exe)
+- macOS: Microsoft Remote Desktop (if installed)
+- Linux: Remmina or similar
+
+### Web
+
+Opens `http://ip` or `https://ip` in a new browser tab based on which ports are open.
+
+---
+
+## Docker Details
+
+### Why `network_mode: host`
+
+ARP scanning requires sending raw Ethernet frames to the broadcast address. This requires:
+1. A raw socket (`AF_PACKET`)
+2. Access to the host's physical network interface
+
+`network_mode: host` makes the container share the host's network stack, giving it direct access to the physical NIC. This is the simplest and most reliable approach for ARP scanning.
+
+**Alternative (bridge mode)**: Remove `network_mode: host` and add `ports: ["8080:80"]`. ARP scanning will not work from a bridge network. You would need to replace scapy ARP with nmap ping sweep (`-sn`) which uses ICMP and works without raw sockets.
+
+### Capabilities
+
+- `NET_ADMIN`: Required for interface configuration
+- `NET_RAW`: Required for raw socket creation (ARP)
+
+### Volume
+
+`/data` is a Docker named volume containing:
+- `lanlens.db` — SQLite database (all persistent state)
+
+**Backup:** `docker run --rm -v lanlens_data:/data -v $(pwd):/backup alpine tar czf /backup/lanlens-backup.tar.gz /data`
+
+---
+
+## CLI Tools
+
+### `reset-password`
+
+Located at `/usr/local/bin/reset-password` inside the container.
+
+```bash
+# Interactive
+docker exec -it lanlens reset-password
+
+# Non-interactive
+docker exec lanlens reset-password --password "MyNewPass123"
+```
+
+Implementation: directly connects to SQLite with `sqlite3` module, updates `password_hash` and sets `force_password_change=1`. Does not depend on FastAPI or any other running service.
+
+### `init_db.py`
+
+Creates all database tables if they don't exist. Safe to run repeatedly.
+
+### `init_admin.py`
+
+Creates the `admin` user with the default password if no users exist in the database. Safe to run repeatedly.
+
+---
+
+## Frontend Structure
+
+### State Management (Zustand)
+
+| Store | Contents |
+|-------|---------|
+| `authStore` | JWT token, user object, login/logout/refresh actions |
+| `deviceStore` | Device list, stats (total/online/offline/unregistered), fetchDevices |
+
+### Route Guards
+
+```
+/login          → AuthRoute: redirects to / if already logged in
+/change-password → PasswordChangeRoute: requires token, no other guard
+/*              → ProtectedRoute: requires token, force_password_change=false
+```
+
+### Real-time Updates
+
+The `TopBar` polls `GET /api/scan/status` every 2 seconds while a scan is running to detect completion. A future enhancement would use the WebSocket endpoint (`/ws/scan-updates`) for push-based updates.
+
+---
+
+## Configuration Reference
+
+### docker-compose.yml Environment Variables
+
+```yaml
+environment:
+  SECRET_KEY: "your-64-char-random-string"   # Required
+  DEFAULT_ADMIN_PASSWORD: "admin"             # First-run only
+  TZ: "Europe/Berlin"                         # Container timezone
+  DB_PATH: "/data/lanlens.db"                 # SQLite file path
+```
+
+### Supported Timezones
+
+Any standard TZ database name: `UTC`, `Europe/Berlin`, `America/New_York`, `Asia/Tokyo`, etc.
+
+---
+
+## Troubleshooting
+
+### ARP scan returns no devices
+
+1. Verify `network_mode: host` is set in docker-compose.yml
+2. Verify `cap_add: [NET_ADMIN, NET_RAW]` is set
+3. Check that `dhcp_start` and `dhcp_end` match your actual network range
+4. Run `docker exec lanlens ip route` — should show your host's routing table
+5. Run `docker exec lanlens arp -a` — should show ARP cache
+
+### "SECRET_KEY environment variable is not set"
+
+Set a proper `SECRET_KEY` in `docker-compose.yml`. Generate one with:
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+### Telegram test fails
+
+1. Verify bot token format: `1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ`
+2. Verify you have sent at least one message to the bot (for private chats)
+3. For groups: ensure the bot is a member and the chat ID starts with `-100`
+4. Check container logs: `docker logs lanlens`
+
+### Port scan returns no results
+
+nmap requires the SYN scan to run as root (which it does inside the container). If it still fails:
+- Check target device firewall rules
+- Try from the host: `nmap -sS -T4 --top-ports 100 <device-ip>`
+
+### Database corruption
+
+```bash
+# Restore from backup
+docker-compose down
+docker run --rm -v lanlens_data:/data -v $(pwd):/backup alpine tar xzf /backup/lanlens-backup.tar.gz -C /
+docker-compose up -d
+```
+
+### Reset everything (fresh start)
+
+```bash
+docker-compose down -v   # WARNING: deletes all data
+docker-compose up -d
+```

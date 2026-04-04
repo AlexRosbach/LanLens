@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="#1a1d2e" stroke="#2d3152" stroke-width="1.5"/>
+
+  <!-- Concentric radar rings -->
+  <circle cx="32" cy="32" r="22" stroke="#6366f1" stroke-width="0.8" stroke-opacity="0.35"/>
+  <circle cx="32" cy="32" r="14" stroke="#6366f1" stroke-width="0.8" stroke-opacity="0.5"/>
+  <circle cx="32" cy="32" r="7"  stroke="#6366f1" stroke-width="0.8" stroke-opacity="0.7"/>
+
+  <!-- Cross hairs -->
+  <line x1="32" y1="6"  x2="32" y2="58" stroke="#6366f1" stroke-width="0.5" stroke-opacity="0.2"/>
+  <line x1="6"  y1="32" x2="58" y2="32" stroke="#6366f1" stroke-width="0.5" stroke-opacity="0.2"/>
+
+  <!-- Sweep line (45°) with gradient glow -->
+  <defs>
+    <linearGradient id="sweep" x1="32" y1="32" x2="54" y2="10" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Sweep sector fill -->
+    <radialGradient id="sector" cx="32" cy="32" r="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Faint sweep sector -->
+  <path d="M32 32 L54 10 A22 22 0 0 0 32 10 Z" fill="url(#sector)"/>
+
+  <!-- Sweep line -->
+  <line x1="32" y1="32" x2="54" y2="10" stroke="url(#sweep)" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Device nodes at ring intersections -->
+  <!-- Node at outer ring, ~315° (upper right of sweep) -->
+  <circle cx="47.6" cy="16.4" r="2.2" fill="#6366f1" opacity="0.9"/>
+  <circle cx="47.6" cy="16.4" r="3.8" fill="none" stroke="#6366f1" stroke-width="0.6" opacity="0.4"/>
+
+  <!-- Node at mid ring, ~200° -->
+  <circle cx="18.8" cy="37.0" r="1.8" fill="#22c55e" opacity="0.85"/>
+  <circle cx="18.8" cy="37.0" r="3.0" fill="none" stroke="#22c55e" stroke-width="0.5" opacity="0.35"/>
+
+  <!-- Node at inner ring, ~110° -->
+  <circle cx="27.6" cy="25.4" r="1.4" fill="#f59e0b" opacity="0.85"/>
+
+  <!-- Center dot -->
+  <circle cx="32" cy="32" r="2.5" fill="#6366f1"/>
+  <circle cx="32" cy="32" r="1.2" fill="#e2e8f0"/>
+</svg>

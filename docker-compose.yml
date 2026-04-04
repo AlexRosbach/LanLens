@@ -1,0 +1,46 @@
+services:
+  lanlens:
+    build: .
+    image: lanlens:latest
+    container_name: lanlens
+    restart: unless-stopped
+
+    # Required for ARP scanning: container must share the host network stack
+    # so scapy can send raw Ethernet frames via the host's physical NIC.
+    # Remove this and uncomment 'ports' below to use bridge networking —
+    # but note that ARP scanning will not work in bridge mode.
+    network_mode: host
+    cap_add:
+      - NET_ADMIN  # network interface configuration
+      - NET_RAW    # raw socket access for ARP broadcast
+
+    volumes:
+      - lanlens_data:/data  # SQLite database + persistent state
+
+    environment:
+      # ── REQUIRED ────────────────────────��─────────────────��───────────────────
+      # Replace with a strong random key (min 32 chars). App refuses to start otherwise.
+      # Generate: python3 -c "import secrets; print(secrets.token_hex(32))"
+      - SECRET_KEY=CHANGE_THIS_TO_A_LONG_RANDOM_STRING
+
+      # ── OPTIONAL ──────────────────────────────────────────────────────────────
+      # Initial admin password (will be changed on first login)
+      - DEFAULT_ADMIN_PASSWORD=admin
+      # Timezone (e.g. Europe/Berlin, America/New_York, UTC)
+      - TZ=Europe/Berlin
+
+    # ── Bridge networking alternative (ARP scanning disabled) ─────────────────
+    # Comment out network_mode and cap_add above, then uncomment:
+    # ports:
+    #   - "8080:80"
+
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  lanlens_data:
+    driver: local

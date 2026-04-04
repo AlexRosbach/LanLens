@@ -1,0 +1,43 @@
+MIT License
+
+Copyright (c) 2026 LanLens Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+───────────────────────────────────────────────────────────────────────────────
+
+THIRD-PARTY DEPENDENCY NOTICE
+
+This software uses the following GPL-licensed libraries. When distributing
+this software or a derivative work, you must comply with the terms of the
+GNU General Public License v2.0 for those dependencies:
+
+  - scapy (https://scapy.net/) — GPL-2.0
+    Used for: ARP network scanning
+    Source: https://github.com/secdev/scapy
+
+  - python-nmap (https://pypi.org/project/python-nmap/) — GPL-2.0
+    Used for: Per-device port scanning
+    Source: https://bitbucket.org/xael/python-nmap
+
+All other dependencies are licensed under permissive licenses (MIT, BSD,
+Apache 2.0) and do not impose additional distribution requirements.
+
+The full text of the GPL-2.0 license is available at:
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
