@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring & documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.1.1-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -331,6 +331,13 @@ Your data volume (`lanlens_data`) is preserved across upgrades.
 ---
 
 ## Changelog
+
+### v1.1.1 — Bug fixes
+
+- **SQLAlchemy 2.x compatibility** — raw SQL in the migration script now wrapped in `text()` (fixes startup crash on existing databases)
+- **SQLAlchemy relationship** — `foreign_keys` on `Device.segment` corrected to reference the Column object instead of a string
+- **SQLite foreign key enforcement** — `PRAGMA foreign_keys=ON` set on every connection so `ON DELETE SET NULL` works correctly
+- **Segment delete** — deleting a segment now explicitly nulls `devices.segment_id` as an additional safety measure
 
 ### v1.1.0 — UI overhaul, Segments & DHCP tagging
 
