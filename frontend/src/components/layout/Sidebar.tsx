@@ -1,5 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useDeviceStore } from '../../store/deviceStore'
+import { APP_VERSION, GITHUB_REPO } from '../../version'
+import { dismissUpdate, useUpdateCheck } from '../../hooks/useUpdateCheck'
 
 const navItems = [
   {
@@ -37,6 +39,7 @@ const navItems = [
 
 export default function Sidebar() {
   const { stats } = useDeviceStore()
+  const update = useUpdateCheck()
 
   return (
     <aside className="w-56 bg-surface border-r border-border flex flex-col h-screen sticky top-0">
@@ -90,9 +93,46 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Version */}
-      <div className="px-5 py-4 border-t border-border">
-        <p className="text-xs text-text-subtle">LanLens v1.0.0</p>
+      {/* Version + update notification */}
+      <div className="px-4 py-4 border-t border-border flex flex-col gap-2">
+        {update ? (
+          <div className="bg-warning/10 border border-warning/30 rounded-lg px-3 py-2.5 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-warning flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <span className="text-xs font-semibold text-warning">Update available</span>
+            </div>
+            <p className="text-xs text-text-subtle">v{update.latestVersion} is out</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <a
+                href={update.releaseUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-warning hover:text-warning/80 font-medium transition-colors"
+              >
+                View release →
+              </a>
+              <button
+                onClick={() => dismissUpdate(update.latestVersion)}
+                className="text-xs text-text-subtle hover:text-text-muted transition-colors ml-auto"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <p className="text-xs text-text-subtle">
+          LanLens{' '}
+          <a
+            href={`https://github.com/${GITHUB_REPO}/releases/tag/v${APP_VERSION}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-text-muted transition-colors"
+          >
+            v{APP_VERSION}
+          </a>
+        </p>
       </div>
     </aside>
   )

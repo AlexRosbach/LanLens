@@ -78,9 +78,11 @@ async def lifespan(app: FastAPI):
     logger.info("LanLens stopped")
 
 
+APP_VERSION = "1.0.0"
+
 app = FastAPI(
     title="LanLens",
-    version="1.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
     # Disable auto-generated docs in production (security hardening)
     docs_url="/api/docs",
@@ -118,4 +120,4 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "service": "LanLens", "version": "1.0.0"}
+    return {"status": "ok", "service": "LanLens", "version": APP_VERSION}

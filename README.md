@@ -1,24 +1,40 @@
+<div align="center">
+
+<img src="frontend/public/logo.svg" alt="LanLens Logo" width="80" height="80" />
+
 # LanLens
 
-**LanLens** is a self-hosted network monitoring dashboard running as a single Docker container. It continuously scans your local network, identifies devices by MAC address, and provides a modern dark-themed web UI to manage and connect to your devices.
+**Self-hosted network monitoring & documentation dashboard**
 
-![LanLens Dashboard](docs/screenshot-placeholder.png)
+[![Version](https://img.shields.io/github/v/release/AlexRosbach/LanLens?label=version&color=6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
+[![Docker](https://img.shields.io/badge/docker-ready-0ea5e9)](https://github.com/AlexRosbach/LanLens/pkgs/container/lanlens)
+
+LanLens continuously scans your local network, identifies every device by MAC address, and gives you a clean dark-themed web UI to manage, document, and connect to them — all in a single Docker container.
+
+</div>
+
+---
+
+## Screenshots
+
+> _Dashboard, Device Detail with documentation fields, and the service preset picker._
 
 ---
 
 ## Features
 
-- **Automatic Network Scanning** — ARP broadcast scan at configurable intervals
-- **MAC Vendor Lookup** — Identifies device vendors offline (no cloud dependency)
-- **Smart Device Classification** — Heuristic detection: Server, VM, IoT, Router, Switch, Workstation, NAS, Printer
-- **One-Click Connect** — SSH link, RDP file download, or direct web browser open — based on port scan results
-- **Port Scanning** — nmap-based per-device port scan with service detection
-- **Device Management** — Label, classify, and add notes to devices
-- **DHCP Range Configuration** — Define your network scan range in the UI
-- **Telegram Notifications** — Get notified when new devices join your network
-- **Secure Auth** — Forced password change on first login, JWT sessions
-- **CLI Password Reset** — `docker exec lanlens reset-password`
-- **Dark UI** — Modern React + Tailwind interface
+| Category | What LanLens does |
+|---|---|
+| **Network Scanning** | ARP broadcast scan at configurable intervals — finds every device on the LAN |
+| **Device Identification** | Offline MAC vendor lookup (no cloud dependency) + heuristic device class detection |
+| **Documentation** | Per-device fields: label, purpose, location, responsible, OS/firmware, asset tag, password location, notes |
+| **Services** | Document all services running on a device (Grafana, Portainer, N8N …) with URL, credentials hint, and notes. 20 built-in presets. |
+| **One-click Connect** | SSH link, RDP file download, or direct browser open — based on open port scan results |
+| **Port Scanning** | nmap-based per-device scan with service detection |
+| **Telegram Notifications** | Get alerted when a new, unknown device joins your network |
+| **Auth** | JWT sessions, forced password change on first login, CLI password reset |
+| **Update Check** | The sidebar automatically notifies you when a new version is available on GitHub |
 
 ---
 
@@ -27,172 +43,187 @@
 ### Prerequisites
 
 - Docker & Docker Compose
-- Linux host (required for ARP scanning with `network_mode: host`)
+- A **Linux host** (raw ARP socket scanning requires `network_mode: host`)
 
-### 1. Clone and configure
+### 1 — Clone
 
 ```bash
-git clone https://github.com/AlexRosbach/Network-docu.git
-cd Network-docu
+git clone https://github.com/AlexRosbach/LanLens.git
+cd LanLens
 ```
 
-Edit `docker-compose.yml` and set a strong `SECRET_KEY`:
+### 2 — Generate a secret key
 
 ```bash
-# Generate a secure key
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml` with the generated value.
+Open `docker-compose.yml` and replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` with the output.
 
-### 2. Start LanLens
+### 3 — Start
 
 ```bash
 docker-compose up -d
 ```
 
-### 3. Open the web interface
+### 4 — Open the UI
 
-Navigate to `http://<your-host-ip>` (port 80).
+Navigate to **`http://<your-host-ip>`** (port 80).
 
-**Default credentials:** `admin` / `admin`
+Default credentials: **`admin` / `admin`**
 
-You will be prompted to change the password on first login.
+You will be redirected to a forced password-change screen on first login.
 
 ---
 
 ## Configuration
 
-### Environment Variables
+### Environment variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SECRET_KEY` | *(required)* | JWT signing key — must be set to a long random string |
-| `DEFAULT_ADMIN_PASSWORD` | `admin` | Initial admin password |
-| `DB_PATH` | `/data/lanlens.db` | SQLite database path (inside container) |
-| `TZ` | `UTC` | Container timezone (e.g. `Europe/Berlin`) |
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `SECRET_KEY` | — | **Yes** | JWT signing key — must be ≥ 32 random characters. App refuses to start otherwise. |
+| `DEFAULT_ADMIN_PASSWORD` | `admin` | No | Initial admin password (set before first run) |
+| `DB_PATH` | `/data/lanlens.db` | No | SQLite database path inside the container |
+| `TZ` | `UTC` | No | Container timezone, e.g. `Europe/Berlin` |
 
-### First Login
-
-1. Open `http://<host-ip>` in your browser
-2. Login with `admin` / `admin` (or your custom `DEFAULT_ADMIN_PASSWORD`)
-3. You will be redirected to a **forced password change** screen
-4. Set a new password (minimum 8 characters)
-5. You're in!
-
-### Setting Up Telegram Notifications
-
-1. Open **Settings → Notifications** in LanLens
-2. Create a Telegram bot via [@BotFather](https://t.me/BotFather) — send `/newbot`
-3. Copy the bot token (format: `1234567890:ABCdefGHIjkl...`)
-4. Find your Chat ID:
-   - Personal: Start a chat with your bot, then visit `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - Group: Add your bot to a group, send a message, check `getUpdates` for the negative chat ID
-5. Paste the token and chat ID into LanLens Settings
-6. Click **Send Test** to verify
-7. Enable the toggle and save
-
-### Configuring the Scan Range
+### Scan range
 
 1. Open **Settings → Network**
-2. Set **Start IP** and **End IP** to match your DHCP range (e.g. `192.168.1.1` – `192.168.1.254`)
-3. Set the **scan interval** (default: every 5 minutes)
-4. Save — the scheduler updates immediately
+2. Set **Start IP** and **End IP** to cover your DHCP range (e.g. `192.168.1.1` – `192.168.1.254`)
+3. Adjust the **scan interval** (default: every 5 minutes)
+4. Save — the scheduler reloads immediately
 
-### Manual Scan
+### Telegram notifications
 
-Click **Scan Now** in the top bar at any time to trigger an immediate scan.
+1. Create a bot via [@BotFather](https://t.me/BotFather) — send `/newbot`, copy the token
+2. Find your Chat ID:
+   - _Personal:_ start a chat with the bot, open `https://api.telegram.org/bot<TOKEN>/getUpdates`
+   - _Group:_ add the bot, send a message, look for the negative chat ID in `getUpdates`
+3. Open **Settings → Notifications**, paste both values, click **Send Test**
+4. Enable notifications and save
 
 ---
 
 ## Password Reset
 
-If you lose access, reset the admin password directly via the Docker CLI:
+If you lose access, reset the admin password directly without going through the API:
 
 ```bash
-# Interactive (prompts for new password)
+# Interactive — prompts for a new password
 docker exec -it lanlens reset-password
 
-# Non-interactive (provide password directly)
+# Non-interactive
 docker exec -it lanlens reset-password --password "MyNewPassword123"
 ```
 
-This bypasses the API entirely and works even if the app is misconfigured. The admin will be required to change the password again on next login.
+The admin account will require a password change again on next login.
 
 ---
 
-## Device Classes
+## Services Documentation
 
-| Class | Icon | Description |
-|-------|------|-------------|
-| Server | Rack server | Physical or bare-metal servers |
-| VM | Stacked layers | Virtual machines |
-| IoT | Circuit board | Raspberry Pi, smart home devices, sensors |
-| Router | WiFi waves | Routers and access points |
-| Switch | Network arrows | Network switches |
-| Workstation | Monitor | Desktops and laptops |
-| NAS | Database | Network-attached storage (Synology, QNAP) |
-| Printer | Printer | Network printers |
-| Unknown | Question mark | Unidentified devices |
+Each device in LanLens can have any number of **services** attached to it — handy for building a living network documentation:
+
+- Choose from **20 built-in presets**: Grafana, Portainer, Proxmox, N8N, Nextcloud, Home Assistant, Vaultwarden, Pi-hole, Plex, Jellyfin, and more
+- Store the **URL**, port, protocol, and version
+- Add **login hints** and a **password location** reference (e.g. _"Vaultwarden → Servers"_)
+- Free-text notes per service
+- Click **Open** to jump directly to the service URL
 
 ---
 
 ## Connecting to Devices
 
-After a port scan, LanLens shows connection buttons based on open ports:
+After a port scan, LanLens displays one-click connection buttons based on open ports:
 
-| Button | Protocol | Port | Opens |
-|--------|----------|------|-------|
-| SSH | SSH | 22 | System SSH client (`ssh://ip`) |
-| RDP | RDP | 3389 | Downloads `.rdp` file → Remote Desktop |
-| HTTPS / HTTP | Web | 443 / 80 | Browser new tab |
-| :8443 / :8080 | Web | 8443 / 8080 | Browser new tab |
+| Button | Protocol | Port | Action |
+|---|---|---|---|
+| SSH | SSH | 22 | Opens `ssh://ip` — launches your system SSH client |
+| RDP | RDP | 3389 | Downloads a `.rdp` file — open with Remote Desktop |
+| HTTPS | Web | 443 | Opens a new browser tab |
+| HTTP | Web | 80 | Opens a new browser tab |
+| :8443 / :8080 / … | Web | any | Opens a new browser tab |
 
-If no port scan has been run, a **Scan Ports** button is shown instead.
+If no port scan has been run yet, a **Scan Ports** button is shown instead.
+
+---
+
+## Update Notifications
+
+LanLens checks the [GitHub Releases API](https://github.com/AlexRosbach/LanLens/releases) once on load and every 6 hours.
+When a newer version is found, a **yellow banner** appears in the sidebar showing the version and a direct link to the release notes.
+Click **Dismiss** to hide it until the next release.
+
+To update:
+
+```bash
+docker-compose pull
+docker-compose up -d
+```
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Docker Container                                   │
-│                                                     │
-│  ┌─────────┐     ┌──────────────────────────────┐  │
-│  │  nginx  │────▶│  FastAPI (uvicorn :8000)     │  │
-│  │  :80    │     │                              │  │
-│  └────┬────┘     │  Routers: auth, devices,    │  │
-│       │          │  scan, settings, notifs,    │  │
-│  ┌────▼────┐     │  connect                    │  │
-│  │ React   │     │                              │  │
-│  │ (dist/) │     │  Services: scanner, nmap,   │  │
-│  └─────────┘     │  mac_vendor, telegram,      │  │
-│                  │  scheduler (APScheduler)     │  │
-│                  └──────────┬───────────────────┘  │
-│                             │                       │
-│                  ┌──────────▼──────────┐            │
-│                  │  SQLite (/data/)    │            │
-│                  └─────────────────────┘            │
-│                                                     │
-│  Host network (ARP scanning requires NET_RAW)       │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Docker Container  (network_mode: host)                  │
+│                                                          │
+│  ┌──────────┐    /         ┌──────────────────────────┐  │
+│  │  nginx   │──────────── ▶│  React SPA  (dist/)      │  │
+│  │  :80     │    /api  /ws │                          │  │
+│  └──────────┘──────────── ▶│  FastAPI + uvicorn :8000 │  │
+│                            │                          │  │
+│                            │  Routers:                │  │
+│                            │    auth · devices        │  │
+│                            │    scan · services       │  │
+│                            │    settings · connect    │  │
+│                            │    notifications         │  │
+│                            │                          │  │
+│                            │  Services:               │  │
+│                            │    ARP scanner (scapy)   │  │
+│                            │    Port scanner (nmap)   │  │
+│                            │    MAC vendor lookup     │  │
+│                            │    Telegram notifier     │  │
+│                            │    APScheduler           │  │
+│                            └──────────┬───────────────┘  │
+│                                       │                   │
+│                            ┌──────────▼──────────┐        │
+│                            │  SQLite  /data/      │        │
+│                            └─────────────────────┘        │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### Tech Stack
+### Tech stack
 
-| Component | Technology |
-|-----------|-----------|
-| Backend | Python 3.12 + FastAPI |
-| Database | SQLite (SQLAlchemy ORM) |
-| Network scan | scapy (ARP) + python-nmap |
-| MAC lookup | manuf (offline IEEE OUI database) |
-| Auth | JWT (python-jose) + bcrypt (passlib) |
+| Layer | Technology |
+|---|---|
+| Backend | Python 3.12 · FastAPI · SQLAlchemy (SQLite) |
+| Network scanning | scapy (ARP) · python-nmap (port scan) |
+| MAC lookup | manuf — offline IEEE OUI database |
+| Auth | python-jose (JWT) · passlib/bcrypt |
 | Scheduler | APScheduler |
 | Notifications | httpx → Telegram Bot API |
-| Frontend | React 18 + TypeScript + Tailwind CSS |
-| State management | Zustand |
-| Build | Vite + Node 20 |
-| Server | nginx + uvicorn |
+| Frontend | React 18 · TypeScript · Tailwind CSS · Vite |
+| State | Zustand |
+| Serving | nginx + uvicorn (single container) |
+
+---
+
+## Device Classes
+
+| Class | Description |
+|---|---|
+| Server | Physical or bare-metal servers |
+| VM | Virtual machines |
+| IoT | Raspberry Pi, smart home devices, sensors |
+| Router | Routers and wireless access points |
+| Switch | Network switches |
+| Workstation | Desktops and laptops |
+| NAS | Network-attached storage (Synology, QNAP, TrueNAS) |
+| Printer | Network printers and MFDs |
+| Unknown | Unidentified or uncategorised devices |
 
 ---
 
@@ -201,12 +232,10 @@ If no port scan has been run, a **Scan Ports** button is shown instead.
 ### Backend
 
 ```bash
-cd Network-docu
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
 
-export SECRET_KEY=dev-secret-key
+export SECRET_KEY=dev-secret-key-at-least-32-chars-long
 export DB_PATH=./data/lanlens.db
 mkdir -p data
 
@@ -220,23 +249,54 @@ uvicorn backend.main:app --reload --port 8000
 ```bash
 cd frontend
 npm install
-npm run dev
-# Vite dev server on :5173, proxies /api to localhost:8000
+npm run dev    # Vite dev server on :5173 — proxies /api → localhost:8000
 ```
 
 ---
 
 ## Security Notes
 
-- **`SECRET_KEY`**: Must be set to a long random string. The app refuses to start with the default value.
-- **`NET_RAW` capability**: Required for ARP scanning with scapy. Only grant this to trusted containers.
-- **HTTPS**: LanLens itself serves HTTP. For HTTPS, place it behind a reverse proxy (Traefik, Caddy, nginx).
+- **`SECRET_KEY`** — the application exits at startup if the key is missing, set to a known placeholder, or shorter than 32 characters.
+- **`NET_RAW` capability** — required for ARP scanning with scapy. Only grant this to trusted containers on trusted networks.
+- **HTTPS** — LanLens speaks plain HTTP internally. For HTTPS, put it behind a reverse proxy (Traefik, Caddy, nginx).
   ```yaml
-  # Example: remove network_mode: host and use bridge + proxy
+  # Remove network_mode: host and expose a port instead:
   ports:
     - "127.0.0.1:8080:80"
   ```
-- **JWT tokens**: Stored in localStorage for persistence across page refreshes. Logout invalidates the session client-side.
+- **JWT tokens** — access tokens are stored in memory (Zustand), not `localStorage`. Logout blacklists the token server-side.
+
+---
+
+## Versioning
+
+LanLens follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`
+
+| Change | Version bump |
+|---|---|
+| Breaking change / major rework | MAJOR |
+| New feature, backwards-compatible | MINOR |
+| Bug fix, security patch | PATCH |
+
+The current version is visible in the **sidebar** of the UI and at `GET /api/health`.
+All releases are tagged on GitHub and listed on the [Releases page](https://github.com/AlexRosbach/LanLens/releases).
+
+---
+
+## Changelog
+
+### v1.0.0 — Initial Release
+
+- Full network scanning (ARP + nmap) in a single Docker container
+- Device management: label, classify, notes
+- **Device documentation**: purpose, location, responsible, OS/firmware, asset tag, password location, description
+- **Services sub-system**: document every service running on a device with 20 presets (Grafana, Portainer, Proxmox, N8N, …)
+- One-click connect: SSH link, RDP file, web browser
+- Telegram notifications for new devices
+- JWT authentication with forced first-login password change
+- CLI password reset (`docker exec lanlens reset-password`)
+- Update notification in sidebar (checks GitHub Releases every 6 hours)
+- Dark-themed React + Tailwind UI
 
 ---
 
@@ -244,4 +304,4 @@ npm run dev
 
 MIT License — see [LICENSE](LICENSE) for full text.
 
-**Note:** This project depends on `scapy` and `python-nmap`, which are licensed under GPL-2.0. When redistributing this software, you must also comply with the GPL-2.0 terms for those dependencies.
+> **Dependency notice:** This project depends on [`scapy`](https://scapy.net/) and [`python-nmap`](https://pypi.org/project/python-nmap/), both licensed under **GPL-2.0**. When redistributing this software as a compiled or bundled artifact, you must comply with GPL-2.0 terms for those dependencies. The LanLens source code itself is MIT-licensed.
