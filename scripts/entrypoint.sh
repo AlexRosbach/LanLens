@@ -55,7 +55,7 @@ nginx -g "daemon off;" &
 echo "Starting LanLens API..."
 exec uvicorn backend.main:app \
     --host 127.0.0.1 \
-    --port 8000 \
+    --port 17765 \
     --workers 1 \
     --log-level info \
     --no-access-log

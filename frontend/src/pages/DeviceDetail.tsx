@@ -10,7 +10,7 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
-import { formatDateTime, formatMac, formatRelativeTime } from '../utils/formatters'
+import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
 
 interface EditState {
   label: string
@@ -142,7 +142,7 @@ export default function DeviceDetail() {
             <DeviceClassIcon deviceClass={device.device_class} className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-text-base">{device.label ?? device.mac_address}</h1>
+            <h1 className="text-xl font-bold text-text-base">{formatDeviceLabel(device)}</h1>
             <p className="text-sm text-text-muted">{device.device_class} · {device.vendor ?? 'Unknown vendor'}</p>
           </div>
         </div>

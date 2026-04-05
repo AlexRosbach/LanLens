@@ -24,6 +24,6 @@ export function formatDateTime(dateStr: string): string {
   }
 }
 
-export function formatDeviceLabel(device: { label: string | null; mac_address: string }): string {
-  return device.label || device.mac_address
+export function formatDeviceLabel(device: { label: string | null; hostname: string | null; mac_address: string }): string {
+  return device.label || device.hostname || device.mac_address
 }

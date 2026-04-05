@@ -240,3 +240,34 @@ class NotificationResponse(BaseModel):
 class MessageResponse(BaseModel):
     message: str
     success: bool = True
+
+
+# ── Segments ──────────────────────────────────────────────────────────────────
+
+class SegmentCreate(BaseModel):
+    name: str
+    color: str = "#6366f1"
+    ip_start: str
+    ip_end: str
+    description: Optional[str] = None
+
+
+class SegmentUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    ip_start: Optional[str] = None
+    ip_end: Optional[str] = None
+    description: Optional[str] = None
+
+
+class SegmentResponse(BaseModel):
+    id: int
+    name: str
+    color: str
+    ip_start: str
+    ip_end: str
+    description: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -147,3 +147,15 @@ class TokenBlacklist(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     jti = Column(String(64), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
+
+
+class Segment(Base):
+    __tablename__ = "segments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    color = Column(String(16), default="#6366f1")
+    ip_start = Column(String(45), nullable=False)
+    ip_end = Column(String(45), nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings  # validates SECRET_KEY on import — must be first
 from .database import SessionLocal
 from .models import Setting, TokenBlacklist
-from .routers import auth, connect, devices, notifications, scan, services
+from .routers import auth, connect, devices, notifications, scan, segments, services
 from .routers import settings as settings_router
 from .services import scheduler
 
@@ -105,6 +105,7 @@ app.include_router(settings_router.router)
 app.include_router(notifications.router)
 app.include_router(services.router)
 app.include_router(connect.router)
+app.include_router(segments.router)
 
 
 @app.websocket("/ws/scan-updates")
