@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device } from '../api/devices'
 import { Segment, segmentsApi } from '../api/segments'
@@ -10,6 +11,22 @@ import { useDeviceStore } from '../store/deviceStore'
 import { useI18n } from '../i18n'
 import { DEVICE_CLASSES } from '../components/devices/DeviceClassIcon'
 
+function ipToInt(ip: string): number {
+  const parts = ip.split('.').map(Number)
+  return parts.length === 4 ? ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0 : 0
+}
+
+function ipInRange(ip: string, start: string, end: string): boolean {
+  return ipToInt(ip) >= ipToInt(start) && ipToInt(ip) <= ipToInt(end)
+}
+
+function getViewedIds(): Set<number> {
+  try {
+    const raw = localStorage.getItem('lanlens_viewed_devices')
+    return new Set(raw ? JSON.parse(raw) : [])
+  } catch { return new Set() }
+}
+
 type Filter = 'all' | 'online' | 'offline' | 'new'
 
 export default function Dashboard() {
@@ -18,9 +35,13 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('')
-  const [segmentFilter, setSegmentFilter] = useState('')
+  const [searchParams] = useSearchParams()
+  const [segmentFilter, setSegmentFilter] = useState(() => searchParams.get('segment') ?? '')
   const [registerDevice, setRegisterDevice] = useState<Device | null>(null)
   const [segments, setSegments] = useState<Segment[]>([])
+
+  const viewedIds = getViewedIds()
+  const newDevicesCount = devices.filter((d) => !d.is_registered && !viewedIds.has(d.id)).length
 
   useEffect(() => {
     fetchDevices()
@@ -39,7 +60,14 @@ export default function Dashboard() {
     if (filter === 'offline' && d.is_online) return false
     if (filter === 'new' && d.is_registered) return false
     if (classFilter && d.device_class !== classFilter) return false
-    if (segmentFilter && String(d.segment_id) !== segmentFilter) return false
+    if (segmentFilter) {
+      const seg = segments.find((s) => String(s.id) === segmentFilter)
+      if (seg) {
+        const byId = d.segment_id === seg.id
+        const byIp = d.ip_address != null && ipInRange(d.ip_address, seg.ip_start, seg.ip_end)
+        if (!byId && !byIp) return false
+      }
+    }
     if (search) {
       const term = search.toLowerCase()
       return (
@@ -57,7 +85,7 @@ export default function Dashboard() {
     { labelKey: 'total' as const, value: stats.total, color: 'text-text-base' },
     { labelKey: 'online' as const, value: stats.online, color: 'text-success' },
     { labelKey: 'offline' as const, value: stats.offline, color: 'text-danger' },
-    { labelKey: 'unregistered' as const, value: stats.unregistered, color: 'text-warning' },
+    { labelKey: 'unregistered' as const, value: newDevicesCount, color: 'text-warning' },
   ]
 
   return (

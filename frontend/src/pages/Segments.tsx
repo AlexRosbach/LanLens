@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { Device, devicesApi } from '../api/devices'
 import { Segment, SegmentCreate, segmentsApi } from '../api/segments'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -13,6 +15,19 @@ const DEFAULT_COLORS = [
   '#f97316', '#eab308', '#22c55e', '#14b8a6',
   '#3b82f6', '#06b6d4',
 ]
+
+function ipToInt(ip: string): number {
+  const parts = ip.split('.').map(Number)
+  return parts.length === 4 ? ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0 : 0
+}
+
+function ipInRange(ip: string, start: string, end: string): boolean {
+  return ipToInt(ip) >= ipToInt(start) && ipToInt(ip) <= ipToInt(end)
+}
+
+function rangeSize(start: string, end: string): number {
+  return Math.max(0, ipToInt(end) - ipToInt(start) + 1)
+}
 
 interface FormState {
   name: string
@@ -32,7 +47,9 @@ const EMPTY_FORM: FormState = {
 
 export default function Segments() {
   const { t } = useI18n()
+  const navigate = useNavigate()
   const [segments, setSegments] = useState<Segment[]>([])
+  const [devices, setDevices] = useState<Device[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editSegment, setEditSegment] = useState<Segment | null>(null)
@@ -43,8 +60,14 @@ export default function Segments() {
 
   async function load() {
     setLoading(true)
-    try { setSegments(await segmentsApi.list()) }
-    finally { setLoading(false) }
+    try {
+      const [segs, devRes] = await Promise.all([
+        segmentsApi.list(),
+        devicesApi.list().catch(() => ({ items: [] as Device[] })),
+      ])
+      setSegments(segs)
+      setDevices(devRes.items)
+    } finally { setLoading(false) }
   }
 
   function openCreate() {
@@ -131,32 +154,58 @@ export default function Segments() {
         </Card>
       ) : (
         <div className="flex flex-col gap-3">
-          {segments.map((seg) => (
-            <Card key={seg.id} className="flex items-center gap-4">
-              {/* Color swatch */}
-              <div
-                className="w-3 h-10 rounded-full flex-shrink-0"
-                style={{ backgroundColor: seg.color }}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-text-base">{seg.name}</p>
-                <p className="text-xs text-text-subtle font-mono">
-                  {seg.ip_start} — {seg.ip_end}
-                </p>
-                {seg.description && (
-                  <p className="text-xs text-text-muted mt-0.5">{seg.description}</p>
-                )}
-              </div>
-              <div className="flex gap-2 flex-shrink-0">
-                <Button variant="ghost" size="sm" onClick={() => openEdit(seg)}>
-                  {t('edit_segment')}
-                </Button>
-                <Button variant="danger" size="sm" onClick={() => handleDelete(seg)}>
-                  {t('delete_segment')}
-                </Button>
-              </div>
-            </Card>
-          ))}
+          {segments.map((seg) => {
+            const total = rangeSize(seg.ip_start, seg.ip_end)
+            const used = devices.filter(
+              (d) => d.ip_address != null && ipInRange(d.ip_address, seg.ip_start, seg.ip_end)
+            ).length
+            const free = total - used
+            const pct = total > 0 ? Math.round((used / total) * 100) : 0
+            return (
+              <Card key={seg.id} className="flex flex-col gap-3">
+                <div className="flex items-center gap-4">
+                  {/* Color swatch */}
+                  <div
+                    className="w-3 h-10 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: seg.color }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-text-base">{seg.name}</p>
+                    <p className="text-xs text-text-subtle font-mono">
+                      {seg.ip_start} — {seg.ip_end}
+                    </p>
+                    {seg.description && (
+                      <p className="text-xs text-text-muted mt-0.5">{seg.description}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => navigate(`/?segment=${seg.id}`)}>
+                      Geräte →
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(seg)}>
+                      {t('edit_segment')}
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={() => handleDelete(seg)}>
+                      {t('delete_segment')}
+                    </Button>
+                  </div>
+                </div>
+                {/* IP usage bar */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between text-xs text-text-subtle">
+                    <span>{used} belegt · {free} frei · {total} gesamt</span>
+                    <span>{pct}%</span>
+                  </div>
+                  <div className="h-1.5 bg-surface2 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${pct}%`, backgroundColor: seg.color }}
+                    />
+                  </div>
+                </div>
+              </Card>
+            )
+          })}
         </div>
       )}
 

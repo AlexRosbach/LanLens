@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring & documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.2.0-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.2.1-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -331,6 +331,18 @@ Your data volume (`lanlens_data`) is preserved across upgrades.
 ---
 
 ## Changelog
+
+### v1.2.1 — Bug fixes & segment enhancements
+
+#### Bug fixes
+- **Unregistered counter now reflects viewed devices** — the "Unregistered" stat card counts devices that still show a **NEW** badge (unregistered + not yet viewed); clicking a device removes it from the count on return to Dashboard
+- **Segment filter now includes IP-range devices** — filtering by a segment in the Dashboard now also shows devices whose IP address falls within the segment's configured IP range, not only devices with an explicit segment assignment
+
+#### Improvements
+- **IP usage bar in Segments** — each segment card now shows a progress bar with *used / free / total* IP address counts based on how many devices are detected within the IP range
+- **"Geräte →" button on segments** — clicking the new button navigates directly to the Dashboard with that segment pre-selected in the filter
+
+---
 
 ### v1.2.0 — Server URL, Telegram update notifications, sortable table & more device classes
 
