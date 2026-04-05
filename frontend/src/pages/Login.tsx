@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
+import { withBasePath } from '../utils/basePath'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -46,7 +47,7 @@ export default function Login() {
       <div className="w-full max-w-sm relative">
         {/* Logo + title */}
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.svg" alt="LanLens" className="w-16 h-16 mb-4" />
+          <img src={withBasePath('/logo.svg')} alt="LanLens" className="w-16 h-16 mb-4" />
           <h1 className="text-2xl font-bold text-text-base tracking-tight">LanLens</h1>
           <p className="text-sm text-text-muted mt-1">Network Monitoring Dashboard</p>
         </div>

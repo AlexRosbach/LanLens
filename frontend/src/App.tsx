@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { getBasePath } from './utils/basePath'
 import Layout from './components/layout/Layout'
 import Dashboard from './pages/Dashboard'
 import DeviceDetail from './pages/DeviceDetail'
@@ -56,7 +57,7 @@ export default function App() {
 
   return (
     <I18nProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={getBasePath() || undefined}>
         <Routes>
           <Route
             path="/login"

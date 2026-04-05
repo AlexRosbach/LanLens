@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring & documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.2.2-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.2.3-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -339,6 +339,13 @@ Your data volume (`lanlens_data`) is preserved across upgrades.
 ---
 
 ## Changelog
+
+### v1.2.3 — Reverse-proxy path fix
+
+- **Frontend base-path handling hardened** — BrowserRouter now respects the deployed Vite base path instead of assuming LanLens always runs at `/`
+- **Login redirect fixed for subpath deployments** — 401 handling now redirects to the correct proxied login URL instead of forcing `/login` at the domain root
+- **Asset URLs fixed for proxied installs** — logo and direct RDP download URLs now use the configured frontend base path so reverse-proxy/subpath setups keep working consistently
+- **Build typing fix** — added `vite-env.d.ts` so `import.meta.env.BASE_URL` builds cleanly in TypeScript
 
 ### v1.2.2 — Bug fix: TopBar new-device counter
 

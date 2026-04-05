@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { withBasePath } from '../utils/basePath'
 
 const apiClient = axios.create({
   baseURL: '/api',
@@ -21,7 +22,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('lanlens_token')
       localStorage.removeItem('lanlens_user')
-      window.location.href = '/login'
+      window.location.href = withBasePath('/login')
     }
     return Promise.reject(error)
   },
