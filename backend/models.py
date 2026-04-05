@@ -58,7 +58,7 @@ class Device(Base):
     notifications = relationship("Notification", back_populates="device")
     services = relationship("Service", back_populates="device", cascade="all, delete-orphan",
                             order_by="Service.sort_order")
-    segment = relationship("Segment", back_populates="devices", foreign_keys=["Device.segment_id"])
+    segment = relationship("Segment", back_populates="devices", foreign_keys=[segment_id])
 
 
 class Service(Base):
