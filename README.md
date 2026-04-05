@@ -18,7 +18,15 @@ LanLens continuously scans your local network, identifies every device by MAC ad
 
 ## Screenshots
 
-> _Dashboard, Device Detail with documentation fields, and the service preset picker._
+> **Note:** IP and MAC addresses in the screenshots have been modified for privacy reasons and may appear unusual. In a real installation everything is displayed correctly and cleanly.
+
+| Dashboard | Device Detail |
+|---|---|
+| ![Dashboard](docs/screenshots/lanlens_04_dashboard.png) | ![Device Detail](docs/screenshots/lanlens_03_unifi.png) |
+
+| Segments with IP usage | Device documentation |
+|---|---|
+| ![Segments](docs/screenshots/lanlens_02_segments.png) | ![Device Detail 2](docs/screenshots/lanlens_01_homeassistant.png) |
 
 ---
 
