@@ -27,9 +27,18 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const { user, logout } = useAuthStore()
-  const { fetchDevices, stats } = useDeviceStore()
+  const { fetchDevices, stats, devices } = useDeviceStore()
   const { lang, setLang, t } = useI18n()
   const navigate = useNavigate()
+
+  // Count only devices that still show a NEW badge (unregistered + not yet viewed)
+  function getViewedIds(): Set<number> {
+    try {
+      const raw = localStorage.getItem('lanlens_viewed_devices')
+      return new Set(raw ? JSON.parse(raw) : [])
+    } catch { return new Set() }
+  }
+  const newCount = devices.filter((d) => !d.is_registered && !getViewedIds().has(d.id)).length
 
   // Apply saved theme on mount
   useEffect(() => { applyTheme(theme) }, [theme])
@@ -89,8 +98,8 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
           <span className="font-mono">{stats.total}</span>
           <span className="ml-2">{t('devices_online')}</span>
         </h1>
-        {stats.unregistered > 0 && (
-          <span className="badge-new hidden sm:inline-flex">{stats.unregistered} {t('filter_new').toLowerCase()}</span>
+        {newCount > 0 && (
+          <span className="badge-new hidden sm:inline-flex">{newCount} {t('filter_new').toLowerCase()}</span>
         )}
       </div>
 
