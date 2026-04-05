@@ -1,7 +1,7 @@
 services:
   lanlens:
     build: .
-    image: lanlens:latest
+    image: lanlens:1.0.0
     container_name: lanlens
     restart: unless-stopped
 
@@ -35,7 +35,7 @@ services:
     #   - "8080:80"
 
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost/api/health"]
+      test: ["CMD", "curl", "-fs", "http://localhost:7765/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

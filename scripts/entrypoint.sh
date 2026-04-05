@@ -13,6 +13,29 @@ if [ -z "${SECRET_KEY}" ] || [ "${SECRET_KEY}" = "CHANGE_THIS_TO_A_LONG_RANDOM_S
     exit 1
 fi
 
+# Show network interfaces, IP addresses and access info
+echo "──────────────────────────────────────────────────────"
+echo " LanLens is starting up"
+echo "──────────────────────────────────────────────────────"
+echo " Network interfaces:"
+ip -4 addr show scope global | awk '
+  /^[0-9]+:/ { iface = $2 }
+  /inet /    { printf "   %-14s %s\n", iface, $2 }
+'
+echo ""
+FIRST_IP=$(ip -4 addr show scope global | awk '/inet / { print $2 }' | head -1 | cut -d'/' -f1)
+echo " Access LanLens at:"
+if [ -n "$FIRST_IP" ]; then
+    echo "   http://${FIRST_IP}:7765"
+fi
+echo "   http://localhost:7765  (from this host)"
+echo ""
+echo " Default credentials:"
+echo "   Username: admin"
+echo "   Password: ${DEFAULT_ADMIN_PASSWORD:-admin}"
+echo "   (you will be prompted to change the password on first login)"
+echo "──────────────────────────────────────────────────────"
+
 # Ensure data directory exists (mounted volume)
 mkdir -p /data
 

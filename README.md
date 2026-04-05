@@ -42,7 +42,7 @@ LanLens continuously scans your local network, identifies every device by MAC ad
 
 ### Prerequisites
 
-- Docker & Docker Compose
+- Docker ≥ 20.10 with the **Compose plugin** (`docker compose`) or standalone Docker Compose v2
 - A **Linux host** (raw ARP socket scanning requires `network_mode: host`)
 
 ### 1 — Clone
@@ -63,12 +63,21 @@ Open `docker-compose.yml` and replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` with
 ### 3 — Start
 
 ```bash
+# Modern Docker (plugin syntax — recommended)
+docker compose up -d
+
+# Legacy standalone docker-compose
 docker-compose up -d
 ```
 
 ### 4 — Open the UI
 
-Navigate to **`http://<your-host-ip>`** (port 80).
+Navigate to **`http://<your-host-ip>:7765`**
+
+The exact URL is printed in the container logs on every start:
+```
+docker logs lanlens
+```
 
 Default credentials: **`admin` / `admin`**
 
@@ -158,8 +167,8 @@ Click **Dismiss** to hide it until the next release.
 To update:
 
 ```bash
-docker-compose pull
-docker-compose up -d
+git pull
+docker compose up -d --build
 ```
 
 ---
@@ -284,6 +293,15 @@ All releases are tagged on GitHub and listed on the [Releases page](https://gith
 ---
 
 ## Changelog
+
+### v1.0.2 — Port & startup log
+
+- Changed default port from `80` to **`7765`** to avoid conflicts with other services already bound to port 80 on the host
+- Startup log now shows all host IP addresses, the direct access URL (`http://<ip>:7765`), and the default credentials
+
+### v1.0.1 — Build fix
+
+- Fixed Docker image build failure: `gcc` and `python3-dev` are now installed temporarily during `pip install` to compile the `netifaces` C extension, then removed to keep the image lean
 
 ### v1.0.0 — Initial Release
 

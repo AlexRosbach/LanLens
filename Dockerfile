@@ -18,11 +18,13 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.version="1.0.2" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.source="https://github.com/AlexRosbach/Network-docu"
+      org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 
-# System dependencies
+# System dependencies + Python build tools (gcc needed for netifaces C extension).
+# Build tools are removed after pip install to keep the image lean.
+COPY backend/requirements.txt /tmp/requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     nmap \
@@ -31,15 +33,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     net-tools \
     iproute2 \
     curl \
-  && rm -rf /var/lib/apt/lists/* \
-  && rm -f /etc/nginx/sites-enabled/default
+    gcc \
+    python3-dev \
+  && rm -f /etc/nginx/sites-enabled/default \
+  && pip install --no-cache-dir --upgrade pip \
+  && pip install --no-cache-dir -r /tmp/requirements.txt \
+  && apt-get purge -y --auto-remove gcc python3-dev \
+  && rm -rf /var/lib/apt/lists/* /tmp/requirements.txt
 
 WORKDIR /app
 
-# Install Python dependencies as a separate layer (cached unless requirements change)
+# Copy requirements again for explicit layer documentation (already installed above)
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip \
-  && pip install --no-cache-dir -r /app/backend/requirements.txt
 
 # Copy backend source
 COPY backend/ /app/backend/
@@ -72,9 +77,9 @@ ENV DB_PATH=/data/lanlens.db \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-EXPOSE 80
+EXPOSE 7765
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD curl -fs http://localhost/api/health || exit 1
+    CMD curl -fs http://localhost:7765/api/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
