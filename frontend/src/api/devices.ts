@@ -1,4 +1,5 @@
 import apiClient from './client'
+import type { Service } from './services'
 
 export interface PortInfo { port: number; protocol: string; service: string; state: string }
 export interface PortScanResult {
@@ -10,21 +11,35 @@ export interface PortScanResult {
   http_available: boolean
   https_available: boolean
 }
+
 export interface Device {
   id: number
   mac_address: string
   ip_address: string | null
   hostname: string | null
+  // Identification
   label: string | null
   device_class: string
   vendor: string | null
+  // Documentation
+  purpose: string | null
+  description: string | null
+  location: string | null
+  responsible: string | null
+  password_location: string | null
+  os_info: string | null
+  asset_tag: string | null
   notes: string | null
+  // State
   is_registered: boolean
   is_online: boolean
   first_seen: string
   last_seen: string
+  // Relations
   latest_scan: PortScanResult | null
+  services: Service[]
 }
+
 export interface DeviceListResponse {
   items: Device[]
   total: number
@@ -32,11 +47,19 @@ export interface DeviceListResponse {
   offline: number
   unregistered: number
 }
+
 export interface DeviceUpdate {
   label?: string
   device_class?: string
-  notes?: string
   is_registered?: boolean
+  purpose?: string
+  description?: string
+  location?: string
+  responsible?: string
+  password_location?: string
+  os_info?: string
+  asset_tag?: string
+  notes?: string
 }
 
 export const devicesApi = {

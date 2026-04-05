@@ -16,6 +16,9 @@ interface Props {
 export default function RegisterDeviceModal({ device, onClose, onSaved }: Props) {
   const [label, setLabel] = useState(device?.label ?? '')
   const [deviceClass, setDeviceClass] = useState(device?.device_class ?? 'Unknown')
+  const [purpose, setPurpose] = useState(device?.purpose ?? '')
+  const [location, setLocation] = useState(device?.location ?? '')
+  const [passwordLocation, setPasswordLocation] = useState(device?.password_location ?? '')
   const [notes, setNotes] = useState(device?.notes ?? '')
   const [saving, setSaving] = useState(false)
 
@@ -28,6 +31,9 @@ export default function RegisterDeviceModal({ device, onClose, onSaved }: Props)
       const updated = await devicesApi.update(device!.id, {
         label: label.trim(),
         device_class: deviceClass,
+        purpose: purpose.trim() || undefined,
+        location: location.trim() || undefined,
+        password_location: passwordLocation.trim() || undefined,
         notes: notes.trim() || undefined,
         is_registered: true,
       })
@@ -91,6 +97,28 @@ export default function RegisterDeviceModal({ device, onClose, onSaved }: Props)
             ))}
           </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Purpose"
+            placeholder="e.g. Virtualisation host"
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+          />
+          <Input
+            label="Location"
+            placeholder="e.g. Server rack, Shelf 2"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+          />
+        </div>
+
+        <Input
+          label="Password Location"
+          placeholder="e.g. Vaultwarden → Servers"
+          value={passwordLocation}
+          onChange={(e) => setPasswordLocation(e.target.value)}
+        />
 
         <Input
           label="Notes"

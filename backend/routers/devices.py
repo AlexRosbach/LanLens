@@ -44,6 +44,7 @@ def _latest_scan_response(device: Device) -> Optional[PortScanResponse]:
 
 
 def _device_to_response(device: Device) -> DeviceResponse:
+    from ..schemas import ServiceResponse
     return DeviceResponse(
         id=device.id,
         mac_address=device.mac_address,
@@ -52,12 +53,20 @@ def _device_to_response(device: Device) -> DeviceResponse:
         label=device.label,
         device_class=device.device_class,
         vendor=device.vendor,
+        purpose=device.purpose,
+        description=device.description,
+        location=device.location,
+        responsible=device.responsible,
+        password_location=device.password_location,
+        os_info=device.os_info,
+        asset_tag=device.asset_tag,
         notes=device.notes,
         is_registered=device.is_registered,
         is_online=device.is_online,
         first_seen=device.first_seen,
         last_seen=device.last_seen,
         latest_scan=_latest_scan_response(device),
+        services=[ServiceResponse.model_validate(s) for s in device.services],
     )
 
 
@@ -149,14 +158,8 @@ def update_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    if update.label is not None:
-        device.label = update.label
-    if update.device_class is not None:
-        device.device_class = update.device_class
-    if update.notes is not None:
-        device.notes = update.notes
-    if update.is_registered is not None:
-        device.is_registered = update.is_registered
+    for field, value in update.model_dump(exclude_unset=True).items():
+        setattr(device, field, value)
 
     db.commit()
     db.refresh(device)

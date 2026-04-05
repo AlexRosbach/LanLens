@@ -31,6 +31,63 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+# ── Services ──────────────────────────────────────────────────────────────────
+
+SERVICE_TYPES = ["web", "api", "ssh", "rdp", "database", "monitoring", "storage", "automation", "other"]
+
+
+class ServiceCreate(BaseModel):
+    name: str
+    service_type: str = "web"
+    icon_key: Optional[str] = None
+    url: Optional[str] = None
+    port: Optional[int] = None
+    protocol: str = "https"
+    description: Optional[str] = None
+    version: Optional[str] = None
+    username_hint: Optional[str] = None
+    password_location: Optional[str] = None
+    notes: Optional[str] = None
+    sort_order: int = 0
+
+
+class ServiceUpdate(BaseModel):
+    name: Optional[str] = None
+    service_type: Optional[str] = None
+    icon_key: Optional[str] = None
+    url: Optional[str] = None
+    port: Optional[int] = None
+    protocol: Optional[str] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    username_hint: Optional[str] = None
+    password_location: Optional[str] = None
+    notes: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class ServiceResponse(BaseModel):
+    id: int
+    device_id: int
+    name: str
+    service_type: str
+    icon_key: Optional[str]
+    url: Optional[str]
+    port: Optional[int]
+    protocol: str
+    description: Optional[str]
+    version: Optional[str]
+    username_hint: Optional[str]
+    password_location: Optional[str]
+    notes: Optional[str]
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [
@@ -39,14 +96,20 @@ DEVICE_CLASSES = [
 ]
 
 
-class DeviceBase(BaseModel):
+class DeviceUpdate(BaseModel):
+    # Identification
     label: Optional[str] = None
-    device_class: Optional[str] = "Unknown"
-    notes: Optional[str] = None
-
-
-class DeviceUpdate(DeviceBase):
+    device_class: Optional[str] = None
     is_registered: Optional[bool] = None
+    # Documentation
+    purpose: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    responsible: Optional[str] = None
+    password_location: Optional[str] = None
+    os_info: Optional[str] = None
+    asset_tag: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class PortInfo(BaseModel):
@@ -74,15 +137,27 @@ class DeviceResponse(BaseModel):
     mac_address: str
     ip_address: Optional[str]
     hostname: Optional[str]
+    # Identification
     label: Optional[str]
     device_class: str
     vendor: Optional[str]
+    # Documentation
+    purpose: Optional[str]
+    description: Optional[str]
+    location: Optional[str]
+    responsible: Optional[str]
+    password_location: Optional[str]
+    os_info: Optional[str]
+    asset_tag: Optional[str]
     notes: Optional[str]
+    # State
     is_registered: bool
     is_online: bool
     first_seen: datetime
     last_seen: datetime
+    # Relations
     latest_scan: Optional[PortScanResponse] = None
+    services: List[ServiceResponse] = []
 
     class Config:
         from_attributes = True
@@ -157,7 +232,6 @@ class NotificationResponse(BaseModel):
     is_read: bool
     telegram_sent: bool
     created_at: datetime
-    device: Optional[DeviceResponse] = None
 
     class Config:
         from_attributes = True
