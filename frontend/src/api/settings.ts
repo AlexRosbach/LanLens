@@ -7,9 +7,11 @@ export interface AllSettings {
   telegram_bot_token: string
   telegram_chat_id: string
   telegram_enabled: boolean
+  notify_telegram_update: boolean
   network_interface: string
   notify_on_device_online: boolean
   notify_on_device_offline: boolean
+  server_url: string
 }
 
 export const settingsApi = {
@@ -25,7 +27,14 @@ export const settingsApi = {
     telegram_bot_token: string
     telegram_chat_id: string
     telegram_enabled: boolean
+    notify_telegram_update: boolean
   }) => apiClient.put('/settings/telegram', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),
+
+  notifyUpdateAvailable: () =>
+    apiClient.post('/settings/telegram/notify-update').then((r) => r.data),
+
+  updateServerUrl: (server_url: string) =>
+    apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),
 }

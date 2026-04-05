@@ -91,8 +91,11 @@ class ServiceResponse(BaseModel):
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [
-    "Server", "VM", "IoT", "Router", "Switch",
-    "Workstation", "NAS", "Printer", "Unknown",
+    "Server", "VM", "Workstation", "NAS",
+    "Router", "Switch", "AP", "Firewall",
+    "Mobile", "TV", "VoIP",
+    "IoT", "Printer", "Camera",
+    "Unknown",
 ]
 
 
@@ -215,6 +218,11 @@ class TelegramSettings(BaseModel):
     telegram_bot_token: str
     telegram_chat_id: str
     telegram_enabled: bool
+    notify_telegram_update: bool = False
+
+
+class ServerUrlSettings(BaseModel):
+    server_url: str
 
 
 class AllSettings(BaseModel):
@@ -224,9 +232,11 @@ class AllSettings(BaseModel):
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""
     telegram_enabled: bool = False
+    notify_telegram_update: bool = False
     network_interface: Optional[str] = ""
     notify_on_device_online: bool = False
     notify_on_device_offline: bool = False
+    server_url: Optional[str] = ""
 
 
 # ── Notifications ─────────────────────────────────────────────────────────────

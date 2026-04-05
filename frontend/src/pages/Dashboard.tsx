@@ -148,6 +148,7 @@ export default function Dashboard() {
         onClose={() => setRegisterDevice(null)}
         onSaved={(updated) => {
           updateDevice(updated.id, updated)
+          fetchDevices()  // refresh stats + segment data
           toast.success(`${updated.label} registered`)
         }}
       />

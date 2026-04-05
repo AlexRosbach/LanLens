@@ -33,8 +33,15 @@ export const useDeviceStore = create<DeviceState>((set) => ({
   },
 
   updateDevice: (id, update) => {
-    set((state) => ({
-      devices: state.devices.map((d) => (d.id === id ? { ...d, ...update } : d)),
-    }))
+    set((state) => {
+      const old = state.devices.find((d) => d.id === id)
+      const justRegistered = old && !old.is_registered && (update as Partial<Device>).is_registered === true
+      return {
+        devices: state.devices.map((d) => (d.id === id ? { ...d, ...update } : d)),
+        stats: justRegistered
+          ? { ...state.stats, unregistered: Math.max(0, state.stats.unregistered - 1) }
+          : state.stats,
+      }
+    })
   },
 }))

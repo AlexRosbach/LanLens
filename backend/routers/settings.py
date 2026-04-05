@@ -13,17 +13,19 @@ from ..schemas import (
     DhcpSettings,
     MessageResponse,
     ScanScheduleSettings,
+    ServerUrlSettings,
     TelegramSettings,
 )
-from ..services.notification import send_test_message
+from ..services.notification import send_test_message, send_update_notification
 from ..services.scheduler import update_interval
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_interval_minutes",
-    "telegram_bot_token", "telegram_chat_id", "telegram_enabled",
+    "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
+    "server_url",
 ]
 
 
@@ -55,9 +57,11 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         telegram_bot_token=_get(db, "telegram_bot_token", ""),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
+        notify_telegram_update=_get(db, "notify_telegram_update", "false") == "true",
         network_interface=_get(db, "network_interface", ""),
         notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
+        server_url=_get(db, "server_url", ""),
     )
 
 
@@ -103,8 +107,21 @@ def update_telegram(
     _set(db, "telegram_bot_token", data.telegram_bot_token)
     _set(db, "telegram_chat_id", data.telegram_chat_id)
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
+    _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
     db.commit()
     return MessageResponse(message="Telegram settings updated")
+
+
+@router.put("/server-url", response_model=MessageResponse)
+def update_server_url(
+    data: ServerUrlSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    url = data.server_url.rstrip("/")
+    _set(db, "server_url", url)
+    db.commit()
+    return MessageResponse(message="Server URL updated")
 
 
 @router.post("/telegram/test", response_model=MessageResponse)
@@ -121,3 +138,31 @@ async def test_telegram(
     if success:
         return MessageResponse(message="Test message sent successfully")
     raise HTTPException(status_code=502, detail="Failed to send test message — check token and chat ID")
+
+
+@router.post("/telegram/notify-update", response_model=MessageResponse)
+async def notify_update_available(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Called by the frontend when a new GitHub release is detected — sends a Telegram message if enabled."""
+    from ..main import APP_VERSION
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(
+                "https://api.github.com/repos/AlexRosbach/LanLens/releases/latest",
+                headers={"Accept": "application/vnd.github+json"},
+            )
+        if res.status_code != 200:
+            raise HTTPException(status_code=502, detail="Could not fetch release info")
+        data = res.json()
+        latest = data.get("tag_name", "").lstrip("v")
+        release_url = data.get("html_url", "https://github.com/AlexRosbach/LanLens/releases/latest")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {e}")
+
+    sent = await send_update_notification(db, APP_VERSION, latest, release_url)
+    if sent:
+        return MessageResponse(message="Update notification sent")
+    return MessageResponse(message="Notification skipped (disabled or not configured)", success=False)

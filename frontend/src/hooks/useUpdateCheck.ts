@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { APP_VERSION, GITHUB_REPO } from '../version'
+import { settingsApi } from '../api/settings'
 
 interface UpdateInfo {
   latestVersion: string
@@ -21,6 +22,7 @@ function isNewer(latest: string, current: string): boolean {
 }
 
 const DISMISS_KEY = 'lanlens_update_dismissed'
+const NOTIFIED_KEY = 'lanlens_update_notified'
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000 // re-check every 6 hours
 
 export function useUpdateCheck(): UpdateInfo | null {
@@ -44,6 +46,12 @@ export function useUpdateCheck(): UpdateInfo | null {
           // Only show if the user hasn't dismissed this exact version
           if (dismissed !== tag) {
             setUpdate({ latestVersion: tag.replace(/^v/, ''), releaseUrl: url })
+          }
+          // Send Telegram notification once per version (backend checks if enabled)
+          const notifiedVersion = localStorage.getItem(NOTIFIED_KEY)
+          if (notifiedVersion !== tag) {
+            settingsApi.notifyUpdateAvailable().catch(() => {})
+            localStorage.setItem(NOTIFIED_KEY, tag)
           }
         }
       } catch {

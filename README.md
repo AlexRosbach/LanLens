@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring & documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.1.1-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.2.0-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -331,6 +331,20 @@ Your data volume (`lanlens_data`) is preserved across upgrades.
 ---
 
 ## Changelog
+
+### v1.2.0 — Server URL, Telegram update notifications, sortable table & more device classes
+
+#### New features
+- **Server URL setting** — configure the public base URL of your LanLens instance (e.g. for reverse-proxy setups); the URL is appended as a direct device link in every Telegram new-device notification
+- **Telegram: update notifications** — new toggle in Settings → Notifications; when enabled, a Telegram message is sent once whenever a new LanLens version is available on GitHub
+- **Sortable device table** — click any column header (Device, IP, Vendor, Status, Last Seen) to sort ascending or descending; IP addresses are sorted numerically, not lexicographically; default sort is *Last Seen* descending
+- **More device classes** — six new classes: `AP` (Access Point), `Firewall`, `Mobile`, `Camera`, `TV`, `VoIP`; all supported by the automatic heuristic classifier (vendor rules + port hints + hostname patterns)
+
+#### Bug fixes
+- **Unregistered count not decrementing** — the sidebar/Dashboard unregistered counter now decrements immediately when a device is registered without requiring a page reload
+- **Segment filter showing no devices** — after registering a device from the Dashboard the full device list is refreshed so the new segment assignment is reflected immediately in the segment filter
+
+---
 
 ### v1.1.1 — Bug fixes
 
