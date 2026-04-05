@@ -43,6 +43,10 @@ mkdir -p /data
 echo "Initializing database..."
 python /app/backend/cli/init_db.py
 
+# Apply incremental schema migrations (idempotent)
+echo "Running database migrations..."
+python /app/backend/cli/migrate_db.py
+
 # Create default admin user if no users exist
 echo "Checking admin user..."
 python /app/backend/cli/init_admin.py

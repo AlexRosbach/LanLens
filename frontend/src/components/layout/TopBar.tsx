@@ -1,35 +1,65 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { scanApi } from '../../api/scan'
 import { useAuthStore } from '../../store/authStore'
 import { useDeviceStore } from '../../store/deviceStore'
+import { useI18n } from '../../i18n'
 import Button from '../ui/Button'
 
-export default function TopBar() {
+type Theme = 'dark' | 'light'
+
+function getInitialTheme(): Theme {
+  return (localStorage.getItem('lanlens_theme') as Theme) ?? 'dark'
+}
+
+function applyTheme(theme: Theme) {
+  if (theme === 'light') {
+    document.documentElement.classList.add('light')
+  } else {
+    document.documentElement.classList.remove('light')
+  }
+  localStorage.setItem('lanlens_theme', theme)
+}
+
+export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const [scanning, setScanning] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const { user, logout } = useAuthStore()
   const { fetchDevices, stats } = useDeviceStore()
+  const { lang, setLang, t } = useI18n()
   const navigate = useNavigate()
+
+  // Apply saved theme on mount
+  useEffect(() => { applyTheme(theme) }, [theme])
+
+  function toggleTheme() {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    applyTheme(next)
+  }
 
   async function handleScan() {
     setScanning(true)
     try {
       await scanApi.start()
-      toast.success('Network scan started')
-      // Poll for completion
+      toast.success(lang === 'de' ? 'Netzwerkscan gestartet' : 'Network scan started')
       const poll = setInterval(async () => {
         const status = await scanApi.status()
         if (!status.is_running) {
           clearInterval(poll)
           setScanning(false)
           await fetchDevices()
-          toast.success(`Scan complete — ${status.last_scan?.devices_found ?? 0} devices found`)
+          toast.success(
+            lang === 'de'
+              ? `Scan abgeschlossen — ${status.last_scan?.devices_found ?? 0} Geräte gefunden`
+              : `Scan complete — ${status.last_scan?.devices_found ?? 0} devices found`
+          )
         }
       }, 2000)
     } catch {
-      toast.error('Failed to start scan')
+      toast.error(lang === 'de' ? 'Scan konnte nicht gestartet werden' : 'Failed to start scan')
       setScanning(false)
     }
   }
@@ -40,33 +70,68 @@ export default function TopBar() {
   }
 
   return (
-    <header className="h-14 bg-surface border-b border-border flex items-center justify-between px-6 sticky top-0 z-10">
-      <div className="flex items-center gap-4">
-        <h1 className="text-sm font-medium text-text-muted">
+    <header className="h-14 bg-surface border-b border-border flex items-center justify-between px-4 sm:px-6 sticky top-0 z-10">
+      {/* Left: hamburger (mobile) + stats */}
+      <div className="flex items-center gap-3">
+        {/* Mobile menu button */}
+        <button
+          onClick={onMenuToggle}
+          className="md:hidden text-text-subtle hover:text-text-base p-1.5 rounded-lg hover:bg-surface2 transition-colors"
+          aria-label="Open menu"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <h1 className="text-sm font-medium text-text-muted hidden sm:block">
           <span className="text-success font-mono">{stats.online}</span>
           <span className="text-text-subtle mx-1">/</span>
           <span className="font-mono">{stats.total}</span>
-          <span className="ml-2">devices online</span>
+          <span className="ml-2">{t('devices_online')}</span>
         </h1>
         {stats.unregistered > 0 && (
-          <span className="badge-new">{stats.unregistered} new</span>
+          <span className="badge-new hidden sm:inline-flex">{stats.unregistered} {t('filter_new').toLowerCase()}</span>
         )}
       </div>
 
-      <div className="flex items-center gap-3">
-        <Button
-          variant="primary"
-          size="sm"
-          loading={scanning}
-          onClick={handleScan}
+      <div className="flex items-center gap-2">
+        {/* Language toggle */}
+        <button
+          onClick={() => setLang(lang === 'en' ? 'de' : 'en')}
+          className="text-xs font-medium text-text-subtle hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors border border-border"
+          title="Switch language"
         >
-          {scanning ? 'Scanning…' : (
+          {lang === 'en' ? 'DE' : 'EN'}
+        </button>
+
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          className="text-text-subtle hover:text-text-base p-2 rounded-lg hover:bg-surface2 transition-colors"
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          )}
+        </button>
+
+        {/* Scan button */}
+        <Button variant="primary" size="sm" loading={scanning} onClick={handleScan}>
+          {scanning ? t('scanning') : (
             <>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              Scan Now
+              <span className="hidden sm:inline">{t('scan_now')}</span>
             </>
           )}
         </Button>
@@ -75,7 +140,7 @@ export default function TopBar() {
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-2 text-sm text-text-muted hover:text-text-base px-3 py-1.5 rounded-lg hover:bg-surface2 transition-colors"
+            className="flex items-center gap-2 text-sm text-text-muted hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors"
           >
             <div className="w-7 h-7 rounded-full bg-primary-dim border border-primary/30 flex items-center justify-center text-primary text-xs font-bold">
               {user?.username?.[0]?.toUpperCase() ?? 'A'}
@@ -94,14 +159,14 @@ export default function TopBar() {
                   onClick={() => { navigate('/settings'); setShowUserMenu(false) }}
                   className="w-full text-left px-4 py-2.5 text-sm text-text-muted hover:text-text-base hover:bg-surface transition-colors"
                 >
-                  Settings
+                  {t('settings')}
                 </button>
                 <div className="border-t border-border" />
                 <button
                   onClick={handleLogout}
                   className="w-full text-left px-4 py-2.5 text-sm text-danger hover:bg-surface transition-colors"
                 >
-                  Sign out
+                  {t('sign_out')}
                 </button>
               </div>
             </>

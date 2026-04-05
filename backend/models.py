@@ -52,10 +52,13 @@ class Device(Base):
     first_seen = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)
 
+    segment_id = Column(Integer, ForeignKey("segments.id", ondelete="SET NULL"), nullable=True)
+
     port_scans = relationship("PortScan", back_populates="device", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="device")
     services = relationship("Service", back_populates="device", cascade="all, delete-orphan",
                             order_by="Service.sort_order")
+    segment = relationship("Segment", back_populates="devices", foreign_keys=["Device.segment_id"])
 
 
 class Service(Base):
@@ -159,3 +162,5 @@ class Segment(Base):
     ip_end = Column(String(45), nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    devices = relationship("Device", back_populates="segment", foreign_keys="Device.segment_id")

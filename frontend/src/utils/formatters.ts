@@ -1,4 +1,5 @@
 import { formatDistanceToNow, format } from 'date-fns'
+import { de, enUS } from 'date-fns/locale'
 
 export function formatMac(mac: string): string {
   return mac.toUpperCase()
@@ -8,9 +9,24 @@ export function formatIp(ip: string | null): string {
   return ip ?? '—'
 }
 
-export function formatRelativeTime(dateStr: string): string {
+/**
+ * Parse a date string from the backend. The backend stores UTC times without
+ * timezone info, so we append 'Z' to ensure correct interpretation.
+ */
+function parseDateStr(dateStr: string): Date {
+  const normalized =
+    dateStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateStr)
+      ? dateStr
+      : dateStr + 'Z'
+  return new Date(normalized)
+}
+
+export function formatRelativeTime(dateStr: string, lang = 'en'): string {
   try {
-    return formatDistanceToNow(new Date(dateStr), { addSuffix: true })
+    return formatDistanceToNow(parseDateStr(dateStr), {
+      addSuffix: true,
+      locale: lang === 'de' ? de : enUS,
+    })
   } catch {
     return dateStr
   }
@@ -18,7 +34,7 @@ export function formatRelativeTime(dateStr: string): string {
 
 export function formatDateTime(dateStr: string): string {
   try {
-    return format(new Date(dateStr), 'dd.MM.yyyy HH:mm')
+    return format(parseDateStr(dateStr), 'dd.MM.yyyy HH:mm')
   } catch {
     return dateStr
   }

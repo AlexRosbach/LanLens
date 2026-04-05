@@ -101,6 +101,7 @@ class DeviceUpdate(BaseModel):
     label: Optional[str] = None
     device_class: Optional[str] = None
     is_registered: Optional[bool] = None
+    segment_id: Optional[int] = None
     # Documentation
     purpose: Optional[str] = None
     description: Optional[str] = None
@@ -141,6 +142,12 @@ class DeviceResponse(BaseModel):
     label: Optional[str]
     device_class: str
     vendor: Optional[str]
+    # Segment
+    segment_id: Optional[int] = None
+    segment_name: Optional[str] = None
+    segment_color: Optional[str] = None
+    # DHCP
+    is_dhcp: bool = False
     # Documentation
     purpose: Optional[str]
     description: Optional[str]

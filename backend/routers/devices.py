@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import Device, PortScan, User
+from ..models import Device, Notification, PortScan, Setting, User
 from ..schemas import (
     DeviceListResponse,
     DeviceResponse,
@@ -28,6 +28,31 @@ def _parse_ports(raw: str) -> List[PortInfo]:
         return []
 
 
+def _get_dhcp_range(db: Session):
+    """Return (dhcp_start_int, dhcp_end_int) as integers for IP comparison, or None."""
+    try:
+        start_row = db.query(Setting).filter(Setting.key == "dhcp_start").first()
+        end_row = db.query(Setting).filter(Setting.key == "dhcp_end").first()
+        if start_row and start_row.value and end_row and end_row.value:
+            return (
+                int(ipaddress.IPv4Address(start_row.value)),
+                int(ipaddress.IPv4Address(end_row.value)),
+            )
+    except Exception:
+        pass
+    return None
+
+
+def _is_dhcp(ip: Optional[str], dhcp_range) -> bool:
+    if not ip or not dhcp_range:
+        return False
+    try:
+        ip_int = int(ipaddress.IPv4Address(ip))
+        return dhcp_range[0] <= ip_int <= dhcp_range[1]
+    except Exception:
+        return False
+
+
 def _latest_scan_response(device: Device) -> Optional[PortScanResponse]:
     if not device.port_scans:
         return None
@@ -43,7 +68,7 @@ def _latest_scan_response(device: Device) -> Optional[PortScanResponse]:
     )
 
 
-def _device_to_response(device: Device) -> DeviceResponse:
+def _device_to_response(device: Device, dhcp_range=None) -> DeviceResponse:
     from ..schemas import ServiceResponse
     return DeviceResponse(
         id=device.id,
@@ -53,6 +78,10 @@ def _device_to_response(device: Device) -> DeviceResponse:
         label=device.label,
         device_class=device.device_class,
         vendor=device.vendor,
+        segment_id=device.segment_id,
+        segment_name=device.segment.name if device.segment else None,
+        segment_color=device.segment.color if device.segment else None,
+        is_dhcp=_is_dhcp(device.ip_address, dhcp_range),
         purpose=device.purpose,
         description=device.description,
         location=device.location,
@@ -108,9 +137,10 @@ def list_devices(
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
     unregistered = db.query(Device).filter(Device.is_registered == False).count()
+    dhcp_range = _get_dhcp_range(db)
 
     return DeviceListResponse(
-        items=[_device_to_response(d) for d in all_devices],
+        items=[_device_to_response(d, dhcp_range) for d in all_devices],
         total=total,
         online=online,
         offline=total - online,
@@ -126,8 +156,9 @@ def get_new_devices(
     devices = db.query(Device).filter(Device.is_registered == False).all()
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
+    dhcp_range = _get_dhcp_range(db)
     return DeviceListResponse(
-        items=[_device_to_response(d) for d in devices],
+        items=[_device_to_response(d, dhcp_range) for d in devices],
         total=total,
         online=online,
         offline=total - online,
@@ -144,7 +175,8 @@ def get_device(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    return _device_to_response(device)
+    dhcp_range = _get_dhcp_range(db)
+    return _device_to_response(device, dhcp_range)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -158,12 +190,23 @@ def update_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
 
+    registering_now = update.is_registered is True and not device.is_registered
+
     for field, value in update.model_dump(exclude_unset=True).items():
         setattr(device, field, value)
 
+    # When a device is explicitly registered, auto-mark its new_device notifications as read
+    if registering_now:
+        db.query(Notification).filter(
+            Notification.device_id == device.id,
+            Notification.event_type == "new_device",
+            Notification.is_read == False,
+        ).update({"is_read": True})
+
     db.commit()
     db.refresh(device)
-    return _device_to_response(device)
+    dhcp_range = _get_dhcp_range(db)
+    return _device_to_response(device, dhcp_range)
 
 
 @router.delete("/{device_id}", response_model=MessageResponse)

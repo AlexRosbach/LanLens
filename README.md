@@ -6,9 +6,9 @@
 
 **Self-hosted network monitoring & documentation dashboard**
 
-[![Version](https://img.shields.io/github/v/release/AlexRosbach/LanLens?label=version&color=6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.1.0-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
-[![Docker](https://img.shields.io/badge/docker-ready-0ea5e9)](https://github.com/AlexRosbach/LanLens/pkgs/container/lanlens)
+[![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
 LanLens continuously scans your local network, identifies every device by MAC address, and gives you a clean dark-themed web UI to manage, document, and connect to them — all in a single Docker container.
 
@@ -28,12 +28,17 @@ LanLens continuously scans your local network, identifies every device by MAC ad
 |---|---|
 | **Network Scanning** | ARP broadcast scan at configurable intervals — finds every device on the LAN |
 | **Device Identification** | Offline MAC vendor lookup (no cloud dependency) + heuristic device class detection |
+| **DHCP Tagging** | Devices within the configured DHCP range are automatically tagged with a **DHCP** badge |
+| **Segments** | Group devices into named segments (e.g. _Server_, _IoT_, _DMZ_) with a colour, IP range, and description |
 | **Documentation** | Per-device fields: label, purpose, location, responsible, OS/firmware, asset tag, password location, notes |
 | **Services** | Document all services running on a device (Grafana, Portainer, N8N …) with URL, credentials hint, and notes. 20 built-in presets. |
 | **One-click Connect** | SSH link, RDP file download, or direct browser open — based on open port scan results |
 | **Port Scanning** | nmap-based per-device scan with service detection |
 | **Telegram Notifications** | Get alerted when a new, unknown device joins your network |
 | **Auth** | JWT sessions, forced password change on first login, CLI password reset |
+| **Dark / Light Mode** | Toggle between dark and light themes — preference is saved in the browser |
+| **Language** | UI available in **English** and **German** — switch in the top navigation bar |
+| **Mobile Optimised** | Responsive layout with a slide-in sidebar — fully usable on phones and tablets |
 | **Update Check** | The sidebar automatically notifies you when a new version is available on GitHub |
 
 ---
@@ -45,7 +50,15 @@ LanLens continuously scans your local network, identifies every device by MAC ad
 - Docker ≥ 20.10 with the **Compose plugin** (`docker compose`) or standalone Docker Compose v2
 - A **Linux host** (raw ARP socket scanning requires `network_mode: host`)
 
-### 1 — Clone
+### 1 — Get the compose file
+
+**Option A — Pull from Docker Hub (recommended, no Git required)**
+
+```bash
+curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
+```
+
+**Option B — Clone the repository (for local development / custom builds)**
 
 ```bash
 git clone https://github.com/AlexRosbach/LanLens.git
@@ -61,6 +74,8 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 Open `docker-compose.yml` and replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` with the output.
 
 ### 3 — Start
+
+The compose file uses `image: alexrosbach/lanlens:latest` — Docker pulls the image automatically on first start.
 
 ```bash
 # Modern Docker (plugin syntax — recommended)
@@ -167,7 +182,11 @@ Click **Dismiss** to hide it until the next release.
 To update:
 
 ```bash
-git pull
+# Docker Hub image — pull latest and restart (data volume is preserved)
+docker compose pull
+docker compose up -d
+
+# Local build — rebuild and restart
 docker compose up -d --build
 ```
 
@@ -189,6 +208,7 @@ docker compose up -d --build
 │                            │    scan · services       │  │
 │                            │    settings · connect    │  │
 │                            │    notifications         │  │
+│                            │    segments              │  │
 │                            │                          │  │
 │                            │  Services:               │  │
 │                            │    ARP scanner (scapy)   │  │
@@ -208,7 +228,7 @@ docker compose up -d --build
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.12 · FastAPI · SQLAlchemy (SQLite) |
+| Backend | Python 3.12 · FastAPI · SQLAlchemy (SQLite) · incremental migrations |
 | Network scanning | scapy (ARP) · python-nmap (port scan) |
 | MAC lookup | manuf — offline IEEE OUI database |
 | Auth | python-jose (JWT) · passlib/bcrypt |
@@ -289,10 +309,48 @@ LanLens follows [Semantic Versioning](https://semver.org/): `MAJOR.MINOR.PATCH`
 
 The current version is visible in the **sidebar** of the UI and at `GET /api/health`.
 All releases are tagged on GitHub and listed on the [Releases page](https://github.com/AlexRosbach/LanLens/releases).
+Docker Hub images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens).
+
+---
+
+## Upgrading
+
+LanLens applies schema migrations automatically on every container start — no manual SQL steps required.
+The migration script (`backend/cli/migrate_db.py`) is idempotent and safe to run multiple times.
+
+```bash
+# Docker Hub (recommended)
+docker compose pull && docker compose up -d
+
+# Local build
+docker compose up -d --build
+```
+
+Your data volume (`lanlens_data`) is preserved across upgrades.
 
 ---
 
 ## Changelog
+
+### v1.1.0 — UI overhaul, Segments & DHCP tagging
+
+#### New features
+- **Dark / Light mode** — theme toggle in the top navigation bar; preference persisted in `localStorage`
+- **Language switcher** — switch between English and German at any time from the top bar
+- **Segments** — create named network segments (e.g. _Server_, _IoT_, _DMZ_) with a custom colour and optional IP range; assign devices to segments and filter the device list by segment
+- **DHCP tagging** — devices within the configured DHCP range are automatically tagged with a coloured **DHCP** badge in the device list and on the detail page
+- **Mobile optimisation** — responsive layout with a slide-in overlay sidebar and hamburger menu; device table collapses non-essential columns on small screens
+
+#### Bug fixes
+- **Add Services popup cut off** — modal now scrolls internally (`max-height: 90vh`) and no longer clips on small screens
+- **Time displayed incorrectly** — UTC timestamps stored without a `Z` suffix are now parsed correctly, fixing wrong relative-time display in non-UTC locales
+- **Known devices shown as “new device detected”** — registering a device now automatically marks its pending `new_device` notification as read
+- **LanLens logo did not navigate home** — clicking the logo in the sidebar now always navigates to `/`
+- **“New” badge persisted after viewing** — viewed device IDs are stored in `localStorage`; the badge disappears as soon as the detail page is opened
+- **Notification counter not decrementing** — sidebar badge reads the real unread count from the API and updates correctly on mark-as-read and delete
+
+#### Database migration
+- `devices.segment_id` column is added automatically on container startup via `backend/cli/migrate_db.py` — safe for existing installations, no data loss
 
 ### v1.0.2 — Port & startup log
 

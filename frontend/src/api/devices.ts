@@ -21,6 +21,12 @@ export interface Device {
   label: string | null
   device_class: string
   vendor: string | null
+  // Segment
+  segment_id: number | null
+  segment_name: string | null
+  segment_color: string | null
+  // DHCP
+  is_dhcp: boolean
   // Documentation
   purpose: string | null
   description: string | null
@@ -52,6 +58,7 @@ export interface DeviceUpdate {
   label?: string
   device_class?: string
   is_registered?: boolean
+  segment_id?: number | null
   purpose?: string
   description?: string
   location?: string

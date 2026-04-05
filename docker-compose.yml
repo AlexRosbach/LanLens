@@ -1,7 +1,8 @@
 services:
   lanlens:
-    build: .
-    image: lanlens:1.0.0
+    image: alexrosbach/lanlens:latest
+    # To build locally instead of pulling from Docker Hub, uncomment:
+    # build: .
     container_name: lanlens
     restart: unless-stopped
 

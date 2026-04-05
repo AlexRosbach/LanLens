@@ -1,0 +1,240 @@
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+
+export type Lang = 'en' | 'de'
+
+const translations = {
+  en: {
+    // Navigation
+    nav_dashboard: 'Dashboard',
+    nav_notifications: 'Notifications',
+    nav_settings: 'Settings',
+    nav_segments: 'Segments',
+    // TopBar
+    devices_online: 'devices online',
+    scan_now: 'Scan Now',
+    scanning: 'Scanning…',
+    sign_out: 'Sign out',
+    settings: 'Settings',
+    // Dashboard
+    total: 'Total',
+    online: 'Online',
+    offline: 'Offline',
+    unregistered: 'Unregistered',
+    filter_all: 'All',
+    filter_online: 'Online',
+    filter_offline: 'Offline',
+    filter_new: 'New',
+    search_placeholder: 'Search by IP, MAC, label, vendor…',
+    all_classes: 'All Classes',
+    all_segments: 'All Segments',
+    no_devices_found: 'No devices found',
+    // DeviceTable headers
+    col_device: 'Device',
+    col_ip: 'IP Address',
+    col_vendor: 'Vendor',
+    col_status: 'Status',
+    col_last_seen: 'Last Seen',
+    col_connect: 'Connect',
+    col_segment: 'Segment',
+    // Badges
+    badge_online: 'Online',
+    badge_offline: 'Offline',
+    badge_new: 'NEW',
+    badge_dhcp: 'DHCP',
+    // Device Detail
+    back: 'Back',
+    edit: 'Edit',
+    save: 'Save',
+    cancel: 'Cancel',
+    delete_device: 'Delete Device',
+    scan_ports: 'Scan Ports',
+    add_service: 'Add Service',
+    label: 'Label / Name',
+    device_class: 'Device Class',
+    segment: 'Segment',
+    no_segment: 'No Segment',
+    ip_address: 'IP Address',
+    mac_address: 'MAC Address',
+    hostname: 'Hostname',
+    vendor: 'Vendor',
+    first_seen: 'First Seen',
+    last_seen: 'Last Seen',
+    purpose: 'Purpose',
+    description: 'Description',
+    location: 'Location',
+    responsible: 'Responsible',
+    password_location: 'Password Location',
+    os_info: 'OS / Version',
+    asset_tag: 'Asset Tag',
+    notes: 'Notes',
+    open_ports: 'Open Ports',
+    services: 'Services',
+    documentation: 'Documentation',
+    connection_info: 'Connection Info',
+    register_device: 'Register Device',
+    device_registered: 'Registered',
+    not_registered: 'Unregistered',
+    // Notifications
+    notifications: 'Notifications',
+    unread: 'unread',
+    mark_all_read: 'Mark all read',
+    no_notifications: 'No notifications yet',
+    event_new_device: 'New Device',
+    event_online: 'Online',
+    event_offline: 'Offline',
+    // Segments
+    segments: 'Segments',
+    new_segment: 'New Segment',
+    segment_name: 'Segment Name',
+    segment_color: 'Color',
+    ip_start: 'IP Start',
+    ip_end: 'IP End',
+    segment_description: 'Description',
+    save_segment: 'Save Segment',
+    delete_segment: 'Delete',
+    edit_segment: 'Edit',
+    no_segments: 'No segments yet',
+    // Settings
+    dhcp_range: 'DHCP Range',
+    scan_interval: 'Scan Interval',
+    telegram: 'Telegram',
+    // General
+    save_changes: 'Save Changes',
+    delete_confirm: 'Are you sure?',
+  },
+  de: {
+    // Navigation
+    nav_dashboard: 'Dashboard',
+    nav_notifications: 'Benachrichtigungen',
+    nav_settings: 'Einstellungen',
+    nav_segments: 'Segmente',
+    // TopBar
+    devices_online: 'Geräte online',
+    scan_now: 'Jetzt scannen',
+    scanning: 'Scanne…',
+    sign_out: 'Abmelden',
+    settings: 'Einstellungen',
+    // Dashboard
+    total: 'Gesamt',
+    online: 'Online',
+    offline: 'Offline',
+    unregistered: 'Unregistriert',
+    filter_all: 'Alle',
+    filter_online: 'Online',
+    filter_offline: 'Offline',
+    filter_new: 'Neu',
+    search_placeholder: 'Suche nach IP, MAC, Name, Hersteller…',
+    all_classes: 'Alle Klassen',
+    all_segments: 'Alle Segmente',
+    no_devices_found: 'Keine Geräte gefunden',
+    // DeviceTable headers
+    col_device: 'Gerät',
+    col_ip: 'IP-Adresse',
+    col_vendor: 'Hersteller',
+    col_status: 'Status',
+    col_last_seen: 'Zuletzt gesehen',
+    col_connect: 'Verbinden',
+    col_segment: 'Segment',
+    // Badges
+    badge_online: 'Online',
+    badge_offline: 'Offline',
+    badge_new: 'NEU',
+    badge_dhcp: 'DHCP',
+    // Device Detail
+    back: 'Zurück',
+    edit: 'Bearbeiten',
+    save: 'Speichern',
+    cancel: 'Abbrechen',
+    delete_device: 'Gerät löschen',
+    scan_ports: 'Ports scannen',
+    add_service: 'Service hinzufügen',
+    label: 'Bezeichnung / Name',
+    device_class: 'Geräteklasse',
+    segment: 'Segment',
+    no_segment: 'Kein Segment',
+    ip_address: 'IP-Adresse',
+    mac_address: 'MAC-Adresse',
+    hostname: 'Hostname',
+    vendor: 'Hersteller',
+    first_seen: 'Erstmals gesehen',
+    last_seen: 'Zuletzt gesehen',
+    purpose: 'Zweck / Funktion',
+    description: 'Beschreibung',
+    location: 'Standort',
+    responsible: 'Verantwortlicher',
+    password_location: 'Passwort-Speicherort',
+    os_info: 'Betriebssystem / Version',
+    asset_tag: 'Inventarnummer',
+    notes: 'Notizen',
+    open_ports: 'Offene Ports',
+    services: 'Dienste',
+    documentation: 'Dokumentation',
+    connection_info: 'Verbindungsinfo',
+    register_device: 'Gerät registrieren',
+    device_registered: 'Registriert',
+    not_registered: 'Nicht registriert',
+    // Notifications
+    notifications: 'Benachrichtigungen',
+    unread: 'ungelesen',
+    mark_all_read: 'Alle als gelesen markieren',
+    no_notifications: 'Noch keine Benachrichtigungen',
+    event_new_device: 'Neues Gerät',
+    event_online: 'Online',
+    event_offline: 'Offline',
+    // Segments
+    segments: 'Segmente',
+    new_segment: 'Neues Segment',
+    segment_name: 'Segmentname',
+    segment_color: 'Farbe',
+    ip_start: 'IP-Start',
+    ip_end: 'IP-Ende',
+    segment_description: 'Beschreibung',
+    save_segment: 'Segment speichern',
+    delete_segment: 'Löschen',
+    edit_segment: 'Bearbeiten',
+    no_segments: 'Noch keine Segmente',
+    // Settings
+    dhcp_range: 'DHCP-Bereich',
+    scan_interval: 'Scan-Intervall',
+    telegram: 'Telegram',
+    // General
+    save_changes: 'Änderungen speichern',
+    delete_confirm: 'Bist du sicher?',
+  },
+} as const
+
+type TranslationKey = keyof typeof translations.en
+
+interface I18nContextType {
+  lang: Lang
+  setLang: (l: Lang) => void
+  t: (key: TranslationKey) => string
+}
+
+const I18nContext = createContext<I18nContextType>({
+  lang: 'en',
+  setLang: () => {},
+  t: (k) => k,
+})
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [lang, setLangState] = useState<Lang>(() => {
+    return (localStorage.getItem('lanlens_lang') as Lang) ?? 'en'
+  })
+
+  const setLang = useCallback((l: Lang) => {
+    localStorage.setItem('lanlens_lang', l)
+    setLangState(l)
+  }, [])
+
+  const t = useCallback(
+    (key: TranslationKey): string => translations[lang][key] ?? translations.en[key] ?? key,
+    [lang]
+  )
+
+  return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>
+}
+
+export function useI18n() {
+  return useContext(I18nContext)
+}
