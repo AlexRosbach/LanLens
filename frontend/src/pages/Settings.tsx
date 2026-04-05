@@ -256,6 +256,3 @@ export default function Settings() {
     </div>
   )
 }
-
-
-type Tab = 'network' | 'notifications' | 'security'
