@@ -47,10 +47,14 @@ async def _fetch_latest_release_info() -> tuple[str, str]:
     import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             res = await client.get(
                 "https://api.github.com/repos/AlexRosbach/LanLens/releases/latest",
-                headers={"Accept": "application/vnd.github+json"},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "lanlens-update-check",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
             )
         if res.status_code != 200:
             raise HTTPException(status_code=502, detail="Could not fetch release info")
