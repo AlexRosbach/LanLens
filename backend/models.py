@@ -7,6 +7,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -21,6 +22,8 @@ class User(Base):
     force_password_change = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
+
+    device_views = relationship("DeviceView", back_populates="user", cascade="all, delete-orphan")
 
 
 class Device(Base):
@@ -59,6 +62,7 @@ class Device(Base):
     services = relationship("Service", back_populates="device", cascade="all, delete-orphan",
                             order_by="Service.sort_order")
     segment = relationship("Segment", back_populates="devices", foreign_keys=[segment_id])
+    device_views = relationship("DeviceView", back_populates="device", cascade="all, delete-orphan")
 
 
 class Service(Base):
@@ -150,6 +154,21 @@ class TokenBlacklist(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     jti = Column(String(64), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
+
+
+class DeviceView(Base):
+    __tablename__ = "device_views"
+    __table_args__ = (
+        UniqueConstraint("user_id", "device_id", name="uq_device_views_user_device"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    viewed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="device_views")
+    device = relationship("Device", back_populates="device_views")
 
 
 class Segment(Base):

@@ -39,6 +39,7 @@ export interface Device {
   notes: string | null
   // State
   is_registered: boolean
+  is_new: boolean
   is_online: boolean
   first_seen: string
   last_seen: string
@@ -79,6 +80,8 @@ export const devicesApi = {
   }) => apiClient.get<DeviceListResponse>('/devices', { params }).then((r) => r.data),
 
   get: (id: number) => apiClient.get<Device>(`/devices/${id}`).then((r) => r.data),
+
+  markViewed: (id: number) => apiClient.post(`/devices/${id}/mark-viewed`).then((r) => r.data),
 
   update: (id: number, data: DeviceUpdate) =>
     apiClient.put<Device>(`/devices/${id}`, data).then((r) => r.data),

@@ -2,12 +2,12 @@ import ipaddress
 import json
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import Device, Notification, PortScan, Setting, User
+from ..models import Device, DeviceView, Notification, PortScan, Setting, User
 from ..schemas import (
     DeviceListResponse,
     DeviceResponse,
@@ -68,8 +68,13 @@ def _latest_scan_response(device: Device) -> Optional[PortScanResponse]:
     )
 
 
-def _device_to_response(device: Device, dhcp_range=None) -> DeviceResponse:
+def _device_to_response(device: Device, dhcp_range=None, current_user: Optional[User] = None) -> DeviceResponse:
     from ..schemas import ServiceResponse
+
+    is_new = False
+    if current_user is not None and not device.is_registered:
+        is_new = not any(view.user_id == current_user.id for view in device.device_views)
+
     return DeviceResponse(
         id=device.id,
         mac_address=device.mac_address,
@@ -91,6 +96,7 @@ def _device_to_response(device: Device, dhcp_range=None) -> DeviceResponse:
         asset_tag=device.asset_tag,
         notes=device.notes,
         is_registered=device.is_registered,
+        is_new=is_new,
         is_online=device.is_online,
         first_seen=device.first_seen,
         last_seen=device.last_seen,
@@ -106,7 +112,7 @@ def list_devices(
     device_class: Optional[str] = None,
     search: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     query = db.query(Device)
 
@@ -133,14 +139,13 @@ def list_devices(
 
     all_devices = query.order_by(Device.last_seen.desc()).all()
 
-    # Global network stats (unfiltered) for sidebar display
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
     unregistered = db.query(Device).filter(Device.is_registered == False).count()
     dhcp_range = _get_dhcp_range(db)
 
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range) for d in all_devices],
+        items=[_device_to_response(d, dhcp_range, current_user) for d in all_devices],
         total=total,
         online=online,
         offline=total - online,
@@ -151,14 +156,15 @@ def list_devices(
 @router.get("/new", response_model=DeviceListResponse)
 def get_new_devices(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     devices = db.query(Device).filter(Device.is_registered == False).all()
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
     dhcp_range = _get_dhcp_range(db)
+    unseen_devices = [d for d in devices if not any(v.user_id == current_user.id for v in d.device_views)]
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range) for d in devices],
+        items=[_device_to_response(d, dhcp_range, current_user) for d in unseen_devices],
         total=total,
         online=online,
         offline=total - online,
@@ -170,13 +176,13 @@ def get_new_devices(
 def get_device(
     device_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     dhcp_range = _get_dhcp_range(db)
-    return _device_to_response(device, dhcp_range)
+    return _device_to_response(device, dhcp_range, current_user)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -184,7 +190,7 @@ def update_device(
     device_id: int,
     update: DeviceUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
@@ -195,7 +201,6 @@ def update_device(
     for field, value in update.model_dump(exclude_unset=True).items():
         setattr(device, field, value)
 
-    # When a device is explicitly registered, auto-mark its new_device notifications as read
     if registering_now:
         db.query(Notification).filter(
             Notification.device_id == device.id,
@@ -206,7 +211,27 @@ def update_device(
     db.commit()
     db.refresh(device)
     dhcp_range = _get_dhcp_range(db)
-    return _device_to_response(device, dhcp_range)
+    return _device_to_response(device, dhcp_range, current_user)
+
+
+@router.post("/{device_id}/mark-viewed", response_model=MessageResponse)
+def mark_device_viewed(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    existing = db.query(DeviceView).filter(
+        DeviceView.user_id == current_user.id,
+        DeviceView.device_id == device.id,
+    ).first()
+    if not existing:
+        db.add(DeviceView(user_id=current_user.id, device_id=device.id))
+        db.commit()
+    return MessageResponse(message="Device marked as viewed")
 
 
 @router.delete("/{device_id}", response_model=MessageResponse)
@@ -236,7 +261,6 @@ async def trigger_port_scan(
     if not device.ip_address:
         raise HTTPException(status_code=400, detail="Device has no IP address")
 
-    # Validate IP format before passing to nmap
     try:
         ipaddress.IPv4Address(device.ip_address)
     except ValueError:

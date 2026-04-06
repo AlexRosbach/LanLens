@@ -10,7 +10,7 @@ import Button from '../ui/Button'
 type Theme = 'dark' | 'light'
 
 function getInitialTheme(): Theme {
-  return (localStorage.getItem('lanlens_theme') as Theme) ?? 'dark'
+  return 'dark'
 }
 
 function applyTheme(theme: Theme) {
@@ -19,7 +19,6 @@ function applyTheme(theme: Theme) {
   } else {
     document.documentElement.classList.remove('light')
   }
-  localStorage.setItem('lanlens_theme', theme)
 }
 
 export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
@@ -31,14 +30,7 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
   const { lang, setLang, t } = useI18n()
   const navigate = useNavigate()
 
-  // Count only devices that still show a NEW badge (unregistered + not yet viewed)
-  function getViewedIds(): Set<number> {
-    try {
-      const raw = localStorage.getItem('lanlens_viewed_devices')
-      return new Set(raw ? JSON.parse(raw) : [])
-    } catch { return new Set() }
-  }
-  const newCount = devices.filter((d) => !d.is_registered && !getViewedIds().has(d.id)).length
+  const newCount = devices.filter((d) => d.is_new).length
 
   // Apply saved theme on mount
   useEffect(() => { applyTheme(theme) }, [theme])
@@ -73,8 +65,8 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
     }
   }
 
-  function handleLogout() {
-    logout()
+  async function handleLogout() {
+    await logout()
     navigate('/login')
   }
 

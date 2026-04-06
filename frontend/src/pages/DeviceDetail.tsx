@@ -71,19 +71,15 @@ export default function DeviceDetail() {
     Promise.all([
       devicesApi.get(Number(id)),
       segmentsApi.list().catch(() => [] as Segment[]),
-    ]).then(([d, segs]) => {
+    ]).then(async ([d, segs]) => {
       setDevice(d)
       setForm(toEditState(d))
       setSegments(segs)
-      // Mark as viewed in localStorage
       try {
-        const raw = localStorage.getItem('lanlens_viewed_devices')
-        const viewed: number[] = raw ? JSON.parse(raw) : []
-        if (!viewed.includes(d.id)) {
-          viewed.push(d.id)
-          localStorage.setItem('lanlens_viewed_devices', JSON.stringify(viewed))
-        }
-      } catch { /* ignore */ }
+        await devicesApi.markViewed(d.id)
+      } catch {
+        // best effort
+      }
     }).finally(() => setLoading(false))
   }, [id])
 

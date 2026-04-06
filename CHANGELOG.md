@@ -2,6 +2,15 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.2.4 — Server-side sessions & NEW badge state
+
+- Removed browser `localStorage` / `sessionStorage` persistence from the LanLens app flow.
+- Switched authentication to HTTP-only cookie-based session handling instead of browser-stored bearer tokens.
+- Added server-side per-user device view tracking via `device_views`.
+- NEW badge state is now computed on the backend and stays consistent across direct access and reverse-proxy access.
+- Added `/api/devices/{id}/mark-viewed` for server-side viewed-state updates.
+- Hardened migration logic so the `device_views` unique index is created even when the table already exists.
+
 ## v1.2.3 — Reverse-proxy path fix
 
 - Fixed frontend base-path handling for reverse-proxy / subpath deployments.

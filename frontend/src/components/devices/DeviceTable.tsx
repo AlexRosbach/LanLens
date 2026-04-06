@@ -22,14 +22,6 @@ function ipToInt(ip: string | null): number {
   return parts.length === 4 ? ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0 : -1
 }
 
-function getViewedIds(): Set<number> {
-  try {
-    const raw = localStorage.getItem('lanlens_viewed_devices')
-    return new Set(raw ? JSON.parse(raw) : [])
-  } catch {
-    return new Set()
-  }
-}
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
@@ -47,7 +39,6 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
   const navigate = useNavigate()
   const { t, lang } = useI18n()
-  const viewedIds = getViewedIds()
   const [sortKey, setSortKey] = useState<SortKey>('last_seen')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
@@ -81,9 +72,6 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
   }
 
   function handleRowClick(id: number) {
-    const viewed = getViewedIds()
-    viewed.add(id)
-    localStorage.setItem('lanlens_viewed_devices', JSON.stringify([...viewed]))
     navigate(`/devices/${id}`)
   }
 
@@ -128,7 +116,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
         </thead>
         <tbody>
           {sorted.map((device, i) => {
-            const isNew = !device.is_registered && !viewedIds.has(device.id)
+            const isNew = device.is_new
             return (
               <tr
                 key={device.id}

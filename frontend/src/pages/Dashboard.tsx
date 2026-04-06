@@ -20,13 +20,6 @@ function ipInRange(ip: string, start: string, end: string): boolean {
   return ipToInt(ip) >= ipToInt(start) && ipToInt(ip) <= ipToInt(end)
 }
 
-function getViewedIds(): Set<number> {
-  try {
-    const raw = localStorage.getItem('lanlens_viewed_devices')
-    return new Set(raw ? JSON.parse(raw) : [])
-  } catch { return new Set() }
-}
-
 type Filter = 'all' | 'online' | 'offline' | 'new'
 
 export default function Dashboard() {
@@ -40,8 +33,7 @@ export default function Dashboard() {
   const [registerDevice, setRegisterDevice] = useState<Device | null>(null)
   const [segments, setSegments] = useState<Segment[]>([])
 
-  const viewedIds = getViewedIds()
-  const newDevicesCount = devices.filter((d) => !d.is_registered && !viewedIds.has(d.id)).length
+  const newDevicesCount = devices.filter((d) => d.is_new).length
 
   useEffect(() => {
     fetchDevices()
@@ -58,7 +50,7 @@ export default function Dashboard() {
   const filtered = devices.filter((d) => {
     if (filter === 'online' && !d.is_online) return false
     if (filter === 'offline' && d.is_online) return false
-    if (filter === 'new' && d.is_registered) return false
+    if (filter === 'new' && !d.is_new) return false
     if (classFilter && d.device_class !== classFilter) return false
     if (segmentFilter) {
       const seg = segments.find((s) => String(s.id) === segmentFilter)
@@ -85,12 +77,11 @@ export default function Dashboard() {
     { labelKey: 'total' as const, value: stats.total, color: 'text-text-base' },
     { labelKey: 'online' as const, value: stats.online, color: 'text-success' },
     { labelKey: 'offline' as const, value: stats.offline, color: 'text-danger' },
-    { labelKey: 'unregistered' as const, value: newDevicesCount, color: 'text-warning' },
+    { labelKey: 'unregistered' as const, value: stats.unregistered, color: 'text-warning' },
   ]
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {summaryCards.map((card) => (
           <Card key={card.labelKey} className="flex flex-col gap-1">
@@ -100,9 +91,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Status filter tabs */}
         <div className="flex gap-1 bg-surface border border-border rounded-lg p-1">
           {(['all', 'online', 'offline', 'new'] as Filter[]).map((f) => (
             <button
@@ -116,7 +105,10 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Search */}
+        {newDevicesCount > 0 && (
+          <span className="badge-new">{newDevicesCount} {t('filter_new').toLowerCase()}</span>
+        )}
+
         <div className="relative flex-1 min-w-40">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-subtle pointer-events-none"
             fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -132,7 +124,6 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Class filter */}
         <select
           value={classFilter}
           onChange={(e) => setClassFilter(e.target.value)}
@@ -142,7 +133,6 @@ export default function Dashboard() {
           {DEVICE_CLASSES.map((c) => <option key={c}>{c}</option>)}
         </select>
 
-        {/* Segment filter */}
         {segments.length > 0 && (
           <select
             value={segmentFilter}
@@ -157,7 +147,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Device table */}
       {loading ? (
         <div className="flex justify-center py-16">
           <Spinner size="lg" />
@@ -170,13 +159,12 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Register modal */}
       <RegisterDeviceModal
         device={registerDevice}
         onClose={() => setRegisterDevice(null)}
         onSaved={(updated) => {
           updateDevice(updated.id, updated)
-          fetchDevices()  // refresh stats + segment data
+          fetchDevices()
           toast.success(`${updated.label} registered`)
         }}
       />
