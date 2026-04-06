@@ -1,23 +1,10 @@
 import { useEffect, useState } from 'react'
-import { APP_VERSION, GITHUB_REPO } from '../version'
+import { APP_VERSION } from '../version'
 import { settingsApi } from '../api/settings'
 
 interface UpdateInfo {
   latestVersion: string
   releaseUrl: string
-}
-
-function parseSemver(tag: string): [number, number, number] {
-  const parts = tag.replace(/^v/, '').split('.').map(Number)
-  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0]
-}
-
-function isNewer(latest: string, current: string): boolean {
-  const [lMaj, lMin, lPat] = parseSemver(latest)
-  const [cMaj, cMin, cPat] = parseSemver(current)
-  if (lMaj !== cMaj) return lMaj > cMaj
-  if (lMin !== cMin) return lMin > cMin
-  return lPat > cPat
 }
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -30,18 +17,14 @@ export function useUpdateCheck(): UpdateInfo | null {
   useEffect(() => {
     async function check() {
       try {
-        const res = await fetch(
-          `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
-          { headers: { Accept: 'application/vnd.github+json' } }
-        )
-        if (!res.ok) return
-        const data = await res.json()
-        const tag: string = data.tag_name ?? ''
-        const url: string = data.html_url ?? `https://github.com/${GITHUB_REPO}/releases/latest`
+        const data = await settingsApi.checkUpdate()
+        const latest = data.latest_version
+        const url = data.release_url
 
-        if (isNewer(tag, APP_VERSION)) {
+        if (data.update_available && latest && latest !== APP_VERSION) {
+          const tag = `v${latest}`
           if (dismissedVersion !== tag) {
-            setUpdate({ latestVersion: tag.replace(/^v/, ''), releaseUrl: url })
+            setUpdate({ latestVersion: latest, releaseUrl: url })
           }
           if (notifiedVersion !== tag) {
             settingsApi.notifyUpdateAvailable().catch(() => {})

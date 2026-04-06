@@ -1,258 +1,234 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { AllSettings, settingsApi } from '../api/settings'
-import { authApi } from '../api/auth'
-import { useAuthStore } from '../store/authStore'
 import Button from '../components/ui/Button'
-import Input from '../components/ui/Input'
 import Card from '../components/ui/Card'
+import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
-
-type Tab = 'network' | 'notifications' | 'security'
-
-function Toggle({ enabled, onToggle, label }: { enabled: boolean; onToggle: () => void; label: string }) {
-  return (
-    <label className="flex items-center gap-3 cursor-pointer">
-      <div
-        onClick={onToggle}
-        className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${enabled ? 'bg-primary' : 'bg-surface2 border border-border'}`}
-      >
-        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-      </div>
-      <span className="text-sm text-text-muted">{label}</span>
-    </label>
-  )
-}
+import { settingsApi, type AllSettings } from '../api/settings'
+import { useI18n } from '../i18n'
 
 export default function Settings() {
-  const [tab, setTab] = useState<Tab>('network')
+  const { t, lang, setLang } = useI18n()
   const [settings, setSettings] = useState<AllSettings | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  // Network
-  const [dhcpStart, setDhcpStart] = useState('')
-  const [dhcpEnd, setDhcpEnd] = useState('')
-  const [interval, setInterval] = useState(5)
-
-  // Server URL
-  const [serverUrl, setServerUrl] = useState('')
-  const [savingUrl, setSavingUrl] = useState(false)
-
-  // Telegram
-  const [botToken, setBotToken] = useState('')
-  const [chatId, setChatId] = useState('')
-  const [telegramEnabled, setTelegramEnabled] = useState(false)
-  const [notifyTelegramUpdate, setNotifyTelegramUpdate] = useState(false)
-  const [testing, setTesting] = useState(false)
-
-  // Security
-  const [currentPw, setCurrentPw] = useState('')
-  const [newPw, setNewPw] = useState('')
-  const [confirmPw, setConfirmPw] = useState('')
-  const [savingPw, setSavingPw] = useState(false)
-
   const [saving, setSaving] = useState(false)
-  const { logout } = useAuthStore()
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
 
   useEffect(() => {
-    settingsApi.get().then((s) => {
-      setSettings(s)
-      setDhcpStart(s.dhcp_start)
-      setDhcpEnd(s.dhcp_end)
-      setInterval(s.scan_interval_minutes)
-      setBotToken(s.telegram_bot_token)
-      setChatId(s.telegram_chat_id)
-      setTelegramEnabled(s.telegram_enabled)
-      setNotifyTelegramUpdate(s.notify_telegram_update)
-      setServerUrl(s.server_url ?? '')
-    }).finally(() => setLoading(false))
-  }, [])
+    settingsApi.get().then(setSettings).catch(() => {
+      toast.error(lang === 'de' ? 'Einstellungen konnten nicht geladen werden' : 'Failed to load settings')
+    })
+  }, [lang])
 
-  async function saveDhcp() {
-    setSaving(true)
-    try {
-      await settingsApi.updateDhcp(dhcpStart, dhcpEnd)
-      toast.success('DHCP range saved')
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail ?? 'Failed to save')
-    } finally { setSaving(false) }
+  if (!settings) {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner size="lg" />
+      </div>
+    )
   }
 
-  async function saveSchedule() {
-    setSaving(true)
-    try {
-      await settingsApi.updateScanSchedule(interval)
-      toast.success('Scan schedule saved')
-    } catch { toast.error('Failed to save') } finally { setSaving(false) }
-  }
-
-  async function saveServerUrl() {
-    setSavingUrl(true)
-    try {
-      await settingsApi.updateServerUrl(serverUrl)
-      toast.success('Server URL saved')
-    } catch { toast.error('Failed to save') } finally { setSavingUrl(false) }
-  }
+  const current = settings
 
   async function saveTelegram() {
     setSaving(true)
     try {
       await settingsApi.updateTelegram({
-        telegram_bot_token: botToken,
-        telegram_chat_id: chatId,
-        telegram_enabled: telegramEnabled,
-        notify_telegram_update: notifyTelegramUpdate,
+        telegram_bot_token: current.telegram_bot_token,
+        telegram_chat_id: current.telegram_chat_id,
+        telegram_enabled: current.telegram_enabled,
+        notify_telegram_update: current.notify_telegram_update,
       })
-      toast.success('Telegram settings saved')
-    } catch { toast.error('Failed to save') } finally { setSaving(false) }
+      toast.success(lang === 'de' ? 'Telegram-Einstellungen gespeichert' : 'Telegram settings saved')
+    } catch {
+      toast.error(lang === 'de' ? 'Telegram-Einstellungen konnten nicht gespeichert werden' : 'Failed to save Telegram settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveDhcp() {
+    setSaving(true)
+    try {
+      await settingsApi.updateDhcp(current.dhcp_start, current.dhcp_end)
+      toast.success(lang === 'de' ? 'DHCP-Bereich gespeichert' : 'DHCP range saved')
+    } catch {
+      toast.error(lang === 'de' ? 'DHCP-Bereich konnte nicht gespeichert werden' : 'Failed to save DHCP range')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveSchedule() {
+    setSaving(true)
+    try {
+      await settingsApi.updateScanSchedule(current.scan_interval_minutes)
+      toast.success(lang === 'de' ? 'Scan-Intervall gespeichert' : 'Scan interval saved')
+    } catch {
+      toast.error(lang === 'de' ? 'Scan-Intervall konnte nicht gespeichert werden' : 'Failed to save scan interval')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveServerUrl() {
+    setSaving(true)
+    try {
+      await settingsApi.updateServerUrl(current.server_url)
+      toast.success(lang === 'de' ? 'Server-URL gespeichert' : 'Server URL saved')
+    } catch {
+      toast.error(lang === 'de' ? 'Server-URL konnte nicht gespeichert werden' : 'Failed to save server URL')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function testTelegram() {
-    setTesting(true)
     try {
       await settingsApi.testTelegram()
-      toast.success('Test message sent!')
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail ?? 'Test failed')
-    } finally { setTesting(false) }
+      toast.success(lang === 'de' ? 'Testnachricht gesendet' : 'Test message sent')
+    } catch {
+      toast.error(lang === 'de' ? 'Telegram-Test fehlgeschlagen' : 'Telegram test failed')
+    }
   }
 
-  async function changePassword() {
-    if (newPw !== confirmPw) { toast.error('Passwords do not match'); return }
-    if (newPw.length < 8) { toast.error('Password must be at least 8 characters'); return }
-    setSavingPw(true)
+  async function checkForUpdates() {
+    setCheckingUpdate(true)
     try {
-      await authApi.changePassword(currentPw, newPw)
-      toast.success('Password changed')
-      setCurrentPw(''); setNewPw(''); setConfirmPw('')
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail ?? 'Failed to change password')
-    } finally { setSavingPw(false) }
+      const result = await settingsApi.checkUpdate()
+      if (result.update_available) {
+        toast.success(
+          lang === 'de'
+            ? `Update verfügbar: v${result.latest_version}`
+            : `Update available: v${result.latest_version}`
+        )
+      } else {
+        toast.success(
+          lang === 'de'
+            ? `Kein neueres Update verfügbar (aktuell: v${result.current_version})`
+            : `No newer update available (current: v${result.current_version})`
+        )
+      }
+    } catch {
+      toast.error(lang === 'de' ? 'Update-Prüfung fehlgeschlagen' : 'Update check failed')
+    } finally {
+      setCheckingUpdate(false)
+    }
   }
-
-  if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
 
   return (
-    <div className="max-w-2xl mx-auto flex flex-col gap-5">
-      <h1 className="text-xl font-bold text-text-base">Settings</h1>
-
-      {/* Tabs */}
-      <div className="flex gap-1 bg-surface border border-border rounded-lg p-1 w-fit">
-        {(['network', 'notifications', 'security'] as Tab[]).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize
-              ${tab === t ? 'bg-surface2 text-text-base' : 'text-text-subtle hover:text-text-muted'}`}>
-            {t}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'network' && (
-        <>
-          <Card>
-            <h2 className="text-sm font-semibold text-text-muted mb-4">DHCP Scan Range</h2>
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <Input label="Start IP" value={dhcpStart} onChange={(e) => setDhcpStart(e.target.value)} placeholder="192.168.1.1" />
-              <Input label="End IP" value={dhcpEnd} onChange={(e) => setDhcpEnd(e.target.value)} placeholder="192.168.1.254" />
-            </div>
-            <Button onClick={saveDhcp} loading={saving} size="sm">Save Range</Button>
-          </Card>
-
-          <Card>
-            <h2 className="text-sm font-semibold text-text-muted mb-4">Scan Schedule</h2>
-            <div className="flex items-end gap-4">
-              <div className="flex-1">
-                <Input
-                  label="Interval (minutes)"
-                  type="number"
-                  min={1}
-                  max={1440}
-                  value={interval}
-                  onChange={(e) => setInterval(Number(e.target.value))}
-                  hint="How often to scan the network automatically"
-                />
-              </div>
-              <Button onClick={saveSchedule} loading={saving} size="sm">Save</Button>
-            </div>
-          </Card>
-
-          <Card>
-            <h2 className="text-sm font-semibold text-text-muted mb-1">Server URL</h2>
-            <p className="text-xs text-text-subtle mb-4">
-              The public URL of this LanLens instance (e.g. behind a reverse proxy). Used to generate direct links in Telegram notifications.
+    <div className="space-y-6">
+      <Card>
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base">LanLens</h2>
+            <p className="text-sm text-text-subtle">
+              {lang === 'de' ? 'Allgemeine Instanz- und Update-Einstellungen' : 'General instance and update settings'}
             </p>
-            <div className="flex items-end gap-4">
-              <div className="flex-1">
-                <Input
-                  label="URL"
-                  placeholder="https://lanlens.example.com"
-                  value={serverUrl}
-                  onChange={(e) => setServerUrl(e.target.value)}
-                  hint="Leave empty to omit links from notifications"
-                />
-              </div>
-              <Button onClick={saveServerUrl} loading={savingUrl} size="sm">Save</Button>
-            </div>
-          </Card>
-        </>
-      )}
-
-      {tab === 'notifications' && (
-        <Card>
-          <h2 className="text-sm font-semibold text-text-muted mb-1">Telegram Notifications</h2>
-          <p className="text-xs text-text-subtle mb-4">
-            Get notified on Telegram when new devices are detected.
-            Create a bot via <span className="text-primary">@BotFather</span> and find your Chat ID via <span className="text-primary">@userinfobot</span>.
-          </p>
-
-          <div className="flex flex-col gap-4">
-            <Input
-              label="Bot Token"
-              type="password"
-              placeholder="1234567890:ABCdef..."
-              value={botToken}
-              onChange={(e) => setBotToken(e.target.value)}
-            />
-            <Input
-              label="Chat ID"
-              placeholder="-1001234567890 or 123456789"
-              value={chatId}
-              onChange={(e) => setChatId(e.target.value)}
-            />
-
-            <div className="flex flex-col gap-3 pt-1">
-              <Toggle
-                enabled={telegramEnabled}
-                onToggle={() => setTelegramEnabled(!telegramEnabled)}
-                label="Enable Telegram notifications (new devices)"
-              />
-              <Toggle
-                enabled={notifyTelegramUpdate}
-                onToggle={() => setNotifyTelegramUpdate(!notifyTelegramUpdate)}
-                label="Notify via Telegram when a new LanLens version is available"
-              />
-            </div>
-
-            <div className="flex gap-3 pt-1">
-              <Button onClick={saveTelegram} loading={saving} size="sm">Save Settings</Button>
-              <Button variant="outline" onClick={testTelegram} loading={testing} size="sm">Send Test</Button>
-            </div>
           </div>
-        </Card>
-      )}
+          <Button onClick={checkForUpdates} loading={checkingUpdate}>
+            {lang === 'de' ? 'Jetzt auf Updates prüfen' : 'Check for updates now'}
+          </Button>
+        </div>
 
-      {tab === 'security' && (
-        <Card>
-          <h2 className="text-sm font-semibold text-text-muted mb-4">Change Password</h2>
-          <div className="flex flex-col gap-4">
-            <Input label="Current Password" type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
-            <Input label="New Password" type="password" placeholder="Minimum 8 characters" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
-            <Input label="Confirm New Password" type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)}
-              error={confirmPw && newPw !== confirmPw ? 'Passwords do not match' : undefined} />
-            <Button onClick={changePassword} loading={savingPw} size="sm">Change Password</Button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Sprache' : 'Language'}</label>
+            <select
+              className="input-field"
+              value={lang}
+              onChange={(e) => setLang(e.target.value as 'de' | 'en')}
+            >
+              <option value="en">English</option>
+              <option value="de">Deutsch</option>
+            </select>
           </div>
-        </Card>
-      )}
+
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">Server URL</label>
+            <Input
+              value={current.server_url}
+              onChange={(e) => setSettings({ ...current, server_url: e.target.value })}
+              placeholder="https://lanlens.example.com"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <Button onClick={saveServerUrl} loading={saving}>{t('save_changes')}</Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-text-base mb-4">DHCP</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Start' : 'DHCP start'}</label>
+            <Input value={current.dhcp_start} onChange={(e) => setSettings({ ...current, dhcp_start: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Ende' : 'DHCP end'}</label>
+            <Input value={current.dhcp_end} onChange={(e) => setSettings({ ...current, dhcp_end: e.target.value })} />
+          </div>
+        </div>
+        <div className="mt-4">
+          <Button onClick={saveDhcp} loading={saving}>{t('save_changes')}</Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-text-base mb-4">{lang === 'de' ? 'Scan-Zeitplan' : 'Scan schedule'}</h2>
+        <div>
+          <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Intervall in Minuten' : 'Interval in minutes'}</label>
+          <Input
+            type="number"
+            value={String(current.scan_interval_minutes)}
+            onChange={(e) => setSettings({ ...current, scan_interval_minutes: Number(e.target.value) || 1 })}
+          />
+        </div>
+        <div className="mt-4">
+          <Button onClick={saveSchedule} loading={saving}>{t('save_changes')}</Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-text-base mb-4">Telegram</h2>
+        <div className="grid gap-4">
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">Bot Token</label>
+            <Input
+              value={current.telegram_bot_token}
+              onChange={(e) => setSettings({ ...current, telegram_bot_token: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">Chat ID</label>
+            <Input
+              value={current.telegram_chat_id}
+              onChange={(e) => setSettings({ ...current, telegram_chat_id: e.target.value })}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-text-base">
+            <input
+              type="checkbox"
+              checked={current.telegram_enabled}
+              onChange={(e) => setSettings({ ...current, telegram_enabled: e.target.checked })}
+            />
+            {lang === 'de' ? 'Telegram-Benachrichtigungen aktivieren' : 'Enable Telegram notifications'}
+          </label>
+          <label className="flex items-center gap-2 text-sm text-text-base">
+            <input
+              type="checkbox"
+              checked={current.notify_telegram_update}
+              onChange={(e) => setSettings({ ...current, notify_telegram_update: e.target.checked })}
+            />
+            {lang === 'de' ? 'Update-Benachrichtigungen senden' : 'Send update notifications'}
+          </label>
+        </div>
+        <div className="mt-4 flex gap-3">
+          <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
+          <Button onClick={testTelegram} variant="outline">{lang === 'de' ? 'Telegram testen' : 'Test Telegram'}</Button>
+        </div>
+      </Card>
     </div>
   )
 }

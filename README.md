@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring & documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.2.4-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.2.5-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -339,6 +339,13 @@ Your data volume (`lanlens_data`) is preserved across upgrades.
 ---
 
 ## Changelog
+
+### v1.2.5 — Update detection & notification hardening
+
+- **Server-side update check endpoint** — update availability is now resolved through the backend instead of relying only on a frontend GitHub fetch path
+- **Notification only for real newer versions** — Telegram update notification now explicitly skips when no newer release exists
+- **Clearer detection flow** — frontend update banner now consumes backend release-check data so update state is more robust in real deployments
+- **Notification dedupe retained server-side** — duplicate update alerts for the same version remain suppressed via persisted state
 
 ### v1.2.4 — Server-side sessions & NEW badge state
 

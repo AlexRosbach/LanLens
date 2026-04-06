@@ -43,6 +43,25 @@ def _set(db: Session, key: str, value: str):
         db.add(Setting(key=key, value=value, updated_at=datetime.utcnow()))
 
 
+async def _fetch_latest_release_info() -> tuple[str, str]:
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.get(
+                "https://api.github.com/repos/AlexRosbach/LanLens/releases/latest",
+                headers={"Accept": "application/vnd.github+json"},
+            )
+        if res.status_code != 200:
+            raise HTTPException(status_code=502, detail="Could not fetch release info")
+        data = res.json()
+        latest = data.get("tag_name", "").lstrip("v")
+        release_url = data.get("html_url", "https://github.com/AlexRosbach/LanLens/releases/latest")
+        return latest, release_url
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {e}")
+
+
 @router.get("", response_model=AllSettings)
 def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     try:
@@ -140,27 +159,35 @@ async def test_telegram(
     raise HTTPException(status_code=502, detail="Failed to send test message — check token and chat ID")
 
 
+@router.get("/update/check")
+async def check_update(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    from ..main import APP_VERSION
+
+    latest, release_url = await _fetch_latest_release_info()
+    update_available = latest != "" and latest != APP_VERSION
+    return {
+        "current_version": APP_VERSION,
+        "latest_version": latest,
+        "release_url": release_url,
+        "update_available": update_available,
+    }
+
+
 @router.post("/telegram/notify-update", response_model=MessageResponse)
 async def notify_update_available(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Called by the frontend when a new GitHub release is detected — sends a Telegram message if enabled."""
+    """Called when a new GitHub release is detected — sends a Telegram message if enabled."""
     from ..main import APP_VERSION
-    import httpx
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            res = await client.get(
-                "https://api.github.com/repos/AlexRosbach/LanLens/releases/latest",
-                headers={"Accept": "application/vnd.github+json"},
-            )
-        if res.status_code != 200:
-            raise HTTPException(status_code=502, detail="Could not fetch release info")
-        data = res.json()
-        latest = data.get("tag_name", "").lstrip("v")
-        release_url = data.get("html_url", "https://github.com/AlexRosbach/LanLens/releases/latest")
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"GitHub API error: {e}")
+
+    latest, release_url = await _fetch_latest_release_info()
+
+    if not latest or latest == APP_VERSION:
+        return MessageResponse(message="Notification skipped (no newer update available)", success=False)
 
     already_notified_version = _get(db, "last_update_notified_version", "")
     if already_notified_version == latest:
