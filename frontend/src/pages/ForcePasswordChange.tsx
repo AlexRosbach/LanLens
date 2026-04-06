@@ -5,6 +5,7 @@ import { authApi } from '../api/auth'
 import { useAuthStore } from '../store/authStore'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
+import { withBasePath } from '../utils/basePath'
 
 export default function ForcePasswordChange() {
   const [current, setCurrent] = useState('')
@@ -45,7 +46,7 @@ export default function ForcePasswordChange() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-6">
-          <img src="/logo.svg" alt="LanLens" className="w-12 h-12 mb-3" />
+          <img src={withBasePath('/logo.svg')} alt="LanLens" className="w-12 h-12 mb-3" />
           <h1 className="text-xl font-bold text-text-base">Set Your Password</h1>
           <p className="text-sm text-text-muted mt-1 text-center">
             For security, please change the default password before continuing.

@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
+import { withBasePath } from '../../utils/basePath'
 import { useDeviceStore } from '../../store/deviceStore'
 import { useNotificationStore } from '../../store/notificationStore'
 import { useI18n } from '../../i18n'
@@ -73,7 +74,7 @@ export default function Sidebar({ onClose }: Props) {
           onClick={() => { navigate('/'); handleNavClick() }}
           className="flex items-center gap-3 hover:opacity-80 transition-opacity"
         >
-          <img src="/logo.svg" alt="LanLens" className="w-8 h-8" />
+          <img src={withBasePath('/logo.svg')} alt="LanLens" className="w-8 h-8" />
           <span className="text-lg font-bold text-text-base tracking-tight">LanLens</span>
         </button>
         {/* Close button on mobile */}

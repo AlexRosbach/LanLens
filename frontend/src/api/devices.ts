@@ -1,5 +1,6 @@
 import apiClient from './client'
 import type { Service } from './services'
+import { withBasePath } from '../utils/basePath'
 
 export interface PortInfo { port: number; protocol: string; service: string; state: string }
 export interface PortScanResult {
@@ -89,5 +90,5 @@ export const devicesApi = {
   getPorts: (id: number) =>
     apiClient.get<PortScanResult[]>(`/devices/${id}/ports`).then((r) => r.data),
 
-  getRdpUrl: (id: number) => `/api/connect/${id}/rdp`,
+  getRdpUrl: (id: number) => withBasePath(`/api/connect/${id}/rdp`),
 }
