@@ -14,6 +14,13 @@ export interface AllSettings {
   server_url: string
 }
 
+export interface UpdateCheckResponse {
+  current_version: string
+  latest_version: string
+  release_url: string
+  update_available: boolean
+}
+
 export const settingsApi = {
   get: () => apiClient.get<AllSettings>('/settings').then((r) => r.data),
 
@@ -31,6 +38,8 @@ export const settingsApi = {
   }) => apiClient.put('/settings/telegram', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),
+
+  checkUpdate: () => apiClient.get<UpdateCheckResponse>('/settings/update/check').then((r) => r.data),
 
   notifyUpdateAvailable: () =>
     apiClient.post('/settings/telegram/notify-update').then((r) => r.data),

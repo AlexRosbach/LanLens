@@ -2,6 +2,13 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.2.5 — Update detection & notification hardening
+
+- Added backend `/api/settings/update/check` endpoint so update detection no longer depends only on a direct frontend GitHub call.
+- Frontend update hook now consumes backend update-check results instead of hitting GitHub directly.
+- Update notification endpoint now skips cleanly when no newer release exists.
+- Existing server-side dedupe for already-notified versions remains in place.
+
 ## v1.2.4 — Server-side sessions & NEW badge state
 
 - Removed browser `localStorage` / `sessionStorage` persistence from the LanLens app flow.
