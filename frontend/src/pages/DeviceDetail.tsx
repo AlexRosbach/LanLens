@@ -72,14 +72,18 @@ export default function DeviceDetail() {
       devicesApi.get(Number(id)),
       segmentsApi.list().catch(() => [] as Segment[]),
     ]).then(async ([d, segs]) => {
-      setDevice(d)
-      setForm(toEditState(d))
+      let currentDevice = d
       setSegments(segs)
       try {
         await devicesApi.markViewed(d.id)
+        if (!d.is_registered) {
+          currentDevice = await devicesApi.update(d.id, { is_registered: true })
+        }
       } catch {
         // best effort
       }
+      setDevice(currentDevice)
+      setForm(toEditState(currentDevice))
     }).finally(() => setLoading(false))
   }, [id])
 
