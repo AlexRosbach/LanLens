@@ -7,12 +7,17 @@ const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Redirect to login on 401
+// Redirect to login on 401, but let auth/session bootstrap failures be handled by route guards
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      window.location.href = withBasePath('/login')
+    const requestUrl = String(error.config?.url ?? '')
+    const loginPath = withBasePath('/login')
+    const isAuthBootstrapCall = requestUrl.includes('/auth/me')
+    const alreadyOnLogin = window.location.pathname === loginPath
+
+    if (error.response?.status === 401 && !isAuthBootstrapCall && !alreadyOnLogin) {
+      window.location.href = loginPath
     }
     return Promise.reject(error)
   },

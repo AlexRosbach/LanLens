@@ -50,7 +50,7 @@ def login(request: LoginRequest, response: Response, http_request: Request, db: 
         max_age=settings.access_token_expire_minutes * 60,
     )
     return TokenResponse(
-        access_token="",
+        access_token=access_token,
         force_password_change=user.force_password_change,
     )
 

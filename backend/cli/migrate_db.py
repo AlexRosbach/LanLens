@@ -28,6 +28,20 @@ def _index_exists(conn, index: str) -> bool:
     return result.first() is not None
 
 
+def _has_unique_device_views_constraint(conn) -> bool:
+    indexes = conn.execute(text("PRAGMA index_list(device_views)"))
+    for row in indexes:
+        # row[2] = unique flag in SQLite PRAGMA index_list output
+        if not row[2]:
+            continue
+        idx_name = row[1]
+        columns = conn.execute(text(f"PRAGMA index_info({idx_name})")).fetchall()
+        column_names = [col[2] for col in columns]
+        if column_names == ["user_id", "device_id"]:
+            return True
+    return False
+
+
 def migrate():
     with engine.connect() as conn:
         # ── v1.1.0 ── Add segment_id to devices ──────────────────────────────
@@ -59,7 +73,7 @@ def migrate():
         else:
             print("Migration: device_views already exists — skipped")
 
-        if not _index_exists(conn, "ix_device_views_user_device"):
+        if not _has_unique_device_views_constraint(conn):
             conn.execute(text(
                 "CREATE UNIQUE INDEX ix_device_views_user_device ON device_views(user_id, device_id)"
             ))
@@ -67,9 +81,9 @@ def migrate():
             conn.commit()
         elif created_device_views:
             conn.commit()
-            print("Migration: ix_device_views_user_device already exists — skipped")
+            print("Migration: device_views uniqueness already exists — skipped")
         else:
-            print("Migration: ix_device_views_user_device already exists — skipped")
+            print("Migration: device_views uniqueness already exists — skipped")
 
 
 if __name__ == "__main__":
