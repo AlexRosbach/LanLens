@@ -3,6 +3,7 @@ import json
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -247,8 +248,11 @@ def mark_device_viewed(
         DeviceView.device_id == device.id,
     ).first()
     if not existing:
-        db.add(DeviceView(user_id=current_user.id, device_id=device.id))
-        db.commit()
+        try:
+            db.add(DeviceView(user_id=current_user.id, device_id=device.id))
+            db.commit()
+        except IntegrityError:
+            db.rollback()
     return MessageResponse(message="Device marked as viewed")
 
 
