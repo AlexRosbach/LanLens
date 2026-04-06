@@ -80,7 +80,8 @@ def _get_viewed_device_ids(db: Session, current_user: User) -> Set[int]:
 def _device_to_response(device: Device, dhcp_range=None, viewed_device_ids: Optional[Set[int]] = None) -> DeviceResponse:
     from ..schemas import ServiceResponse
 
-    viewed_device_ids = viewed_device_ids or set()
+    if viewed_device_ids is None:
+        viewed_device_ids = set()
     is_new = not device.is_registered and device.id not in viewed_device_ids
 
     return DeviceResponse(
