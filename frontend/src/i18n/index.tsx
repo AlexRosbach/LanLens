@@ -4,18 +4,15 @@ export type Lang = 'en' | 'de'
 
 const translations = {
   en: {
-    // Navigation
     nav_dashboard: 'Dashboard',
     nav_notifications: 'Notifications',
     nav_settings: 'Settings',
     nav_segments: 'Segments',
-    // TopBar
     devices_online: 'devices online',
     scan_now: 'Scan Now',
     scanning: 'Scanning…',
     sign_out: 'Sign out',
     settings: 'Settings',
-    // Dashboard
     total: 'Total',
     online: 'Online',
     offline: 'Offline',
@@ -28,7 +25,6 @@ const translations = {
     all_classes: 'All Classes',
     all_segments: 'All Segments',
     no_devices_found: 'No devices found',
-    // DeviceTable headers
     col_device: 'Device',
     col_ip: 'IP Address',
     col_vendor: 'Vendor',
@@ -36,12 +32,10 @@ const translations = {
     col_last_seen: 'Last Seen',
     col_connect: 'Connect',
     col_segment: 'Segment',
-    // Badges
     badge_online: 'Online',
     badge_offline: 'Offline',
     badge_new: 'NEW',
     badge_dhcp: 'DHCP',
-    // Device Detail
     back: 'Back',
     edit: 'Edit',
     save: 'Save',
@@ -74,7 +68,6 @@ const translations = {
     register_device: 'Register Device',
     device_registered: 'Registered',
     not_registered: 'Unregistered',
-    // Notifications
     notifications: 'Notifications',
     unread: 'unread',
     mark_all_read: 'Mark all read',
@@ -82,7 +75,6 @@ const translations = {
     event_new_device: 'New Device',
     event_online: 'Online',
     event_offline: 'Offline',
-    // Segments
     segments: 'Segments',
     new_segment: 'New Segment',
     segment_name: 'Segment Name',
@@ -94,27 +86,22 @@ const translations = {
     delete_segment: 'Delete',
     edit_segment: 'Edit',
     no_segments: 'No segments yet',
-    // Settings
     dhcp_range: 'DHCP Range',
     scan_interval: 'Scan Interval',
     telegram: 'Telegram',
-    // General
     save_changes: 'Save Changes',
     delete_confirm: 'Are you sure?',
   },
   de: {
-    // Navigation
     nav_dashboard: 'Dashboard',
     nav_notifications: 'Benachrichtigungen',
     nav_settings: 'Einstellungen',
     nav_segments: 'Segmente',
-    // TopBar
     devices_online: 'Geräte online',
     scan_now: 'Jetzt scannen',
     scanning: 'Scanne…',
     sign_out: 'Abmelden',
     settings: 'Einstellungen',
-    // Dashboard
     total: 'Gesamt',
     online: 'Online',
     offline: 'Offline',
@@ -127,7 +114,6 @@ const translations = {
     all_classes: 'Alle Klassen',
     all_segments: 'Alle Segmente',
     no_devices_found: 'Keine Geräte gefunden',
-    // DeviceTable headers
     col_device: 'Gerät',
     col_ip: 'IP-Adresse',
     col_vendor: 'Hersteller',
@@ -135,12 +121,10 @@ const translations = {
     col_last_seen: 'Zuletzt gesehen',
     col_connect: 'Verbinden',
     col_segment: 'Segment',
-    // Badges
     badge_online: 'Online',
     badge_offline: 'Offline',
     badge_new: 'NEU',
     badge_dhcp: 'DHCP',
-    // Device Detail
     back: 'Zurück',
     edit: 'Bearbeiten',
     save: 'Speichern',
@@ -173,7 +157,6 @@ const translations = {
     register_device: 'Gerät registrieren',
     device_registered: 'Registriert',
     not_registered: 'Nicht registriert',
-    // Notifications
     notifications: 'Benachrichtigungen',
     unread: 'ungelesen',
     mark_all_read: 'Alle als gelesen markieren',
@@ -181,7 +164,6 @@ const translations = {
     event_new_device: 'Neues Gerät',
     event_online: 'Online',
     event_offline: 'Offline',
-    // Segments
     segments: 'Segmente',
     new_segment: 'Neues Segment',
     segment_name: 'Segmentname',
@@ -193,11 +175,9 @@ const translations = {
     delete_segment: 'Löschen',
     edit_segment: 'Bearbeiten',
     no_segments: 'Noch keine Segmente',
-    // Settings
     dhcp_range: 'DHCP-Bereich',
     scan_interval: 'Scan-Intervall',
     telegram: 'Telegram',
-    // General
     save_changes: 'Änderungen speichern',
     delete_confirm: 'Bist du sicher?',
   },
@@ -218,12 +198,9 @@ const I18nContext = createContext<I18nContextType>({
 })
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(() => {
-    return (localStorage.getItem('lanlens_lang') as Lang) ?? 'en'
-  })
+  const [lang, setLangState] = useState<Lang>('en')
 
   const setLang = useCallback((l: Lang) => {
-    localStorage.setItem('lanlens_lang', l)
     setLangState(l)
   }, [])
 

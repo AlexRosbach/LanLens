@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -7,14 +7,22 @@ from ..database import get_db
 from ..models import TokenBlacklist, User
 from .jwt_handler import decode_token
 
-bearer_scheme = HTTPBearer()
+SESSION_COOKIE_NAME = "lanlens_session"
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    token = credentials.credentials
+    token = credentials.credentials if credentials else request.cookies.get(SESSION_COOKIE_NAME)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     payload = decode_token(token)
 
     if payload is None:

@@ -162,7 +162,13 @@ async def notify_update_available(
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"GitHub API error: {e}")
 
+    already_notified_version = _get(db, "last_update_notified_version", "")
+    if already_notified_version == latest:
+        return MessageResponse(message="Notification skipped (already sent for this version)", success=False)
+
     sent = await send_update_notification(db, APP_VERSION, latest, release_url)
     if sent:
+        _set(db, "last_update_notified_version", latest)
+        db.commit()
         return MessageResponse(message="Update notification sent")
     return MessageResponse(message="Notification skipped (disabled or not configured)", success=False)

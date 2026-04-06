@@ -18,7 +18,7 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version="1.2.3" \
+      org.opencontainers.image.version="1.2.4" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 

@@ -162,6 +162,7 @@ class DeviceResponse(BaseModel):
     notes: Optional[str]
     # State
     is_registered: bool
+    is_new: bool = False
     is_online: bool
     first_seen: datetime
     last_seen: datetime

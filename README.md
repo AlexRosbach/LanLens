@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring & documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.2.3-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.2.4-6366f1)](https://github.com/AlexRosbach/LanLens/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -339,6 +339,14 @@ Your data volume (`lanlens_data`) is preserved across upgrades.
 ---
 
 ## Changelog
+
+### v1.2.4 — Server-side sessions & NEW badge state
+
+- **No browser storage for app state** — removed `localStorage` / `sessionStorage` usage from the LanLens application flow
+- **HTTP-only session cookie auth** — frontend auth now relies on cookie-based session handling instead of storing bearer tokens in the browser
+- **Server-side NEW badge tracking** — device viewed/new state is now stored in the database (`device_views`) per user, so direct access and reverse-proxy access stay consistent
+- **Origin-independent counters** — unregistered counts remain backend-driven, while NEW badges are computed server-side and no longer diverge by domain/origin
+- **Migration hardening** — ensured the `device_views` unique index is created even when the table already exists from initial schema creation
 
 ### v1.2.3 — Reverse-proxy path fix
 
