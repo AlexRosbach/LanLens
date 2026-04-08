@@ -194,7 +194,7 @@ LanLens follows **Semantic Versioning**.
 - Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
 - Project history is maintained in [CHANGELOG.md](CHANGELOG.md)
 
-Note: the repository may use tags and changelog-based version history even when no populated GitHub Releases page exists yet.
+Note: version history may also be reflected through Git tags and the changelog, but GitHub Releases must be populated for release-based update checks and Telegram update notifications to work.
 
 ---
 
