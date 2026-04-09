@@ -2,6 +2,14 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.2.6 — Configurable host-mode port and release docs
+
+- Added configurable `LANLENS_PORT` support so LanLens can listen on a custom HTTP port even when running in `network_mode: host`.
+- Added `BACKEND_PORT` environment override for the internal nginx → FastAPI hop.
+- Updated entrypoint startup output to show the configured host-mode URL instead of assuming port 7765.
+- Updated Docker Compose and image healthchecks to use the configured external port.
+- Clarified README release documentation so GitHub Releases are explicitly documented as required for release-based update checks and Telegram update notifications.
+
 ## v1.2.5 — Update detection & notification hardening
 
 - Added backend `/api/settings/update/check` endpoint so update detection no longer depends only on a direct frontend GitHub call.
