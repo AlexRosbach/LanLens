@@ -13,6 +13,28 @@ if [ -z "${SECRET_KEY}" ] || [ "${SECRET_KEY}" = "CHANGE_THIS_TO_A_LONG_RANDOM_S
     exit 1
 fi
 
+LANLENS_PORT="${LANLENS_PORT:-7765}"
+BACKEND_PORT="${BACKEND_PORT:-17765}"
+
+case "$LANLENS_PORT" in
+    ''|*[!0-9]*)
+        echo "ERROR: LANLENS_PORT must be a numeric TCP port."
+        exit 1
+        ;;
+esac
+
+case "$BACKEND_PORT" in
+    ''|*[!0-9]*)
+        echo "ERROR: BACKEND_PORT must be a numeric TCP port."
+        exit 1
+        ;;
+esac
+
+# Render nginx config with the selected host-mode HTTP port
+sed "s/__LANLENS_PORT__/${LANLENS_PORT}/g; s/__BACKEND_PORT__/${BACKEND_PORT}/g" \
+    /etc/nginx/nginx.conf > /tmp/lanlens-nginx.conf
+mv /tmp/lanlens-nginx.conf /etc/nginx/nginx.conf
+
 # Show network interfaces, IP addresses and access info
 echo "──────────────────────────────────────────────────────"
 echo " LanLens is starting up"
@@ -26,9 +48,9 @@ echo ""
 FIRST_IP=$(ip -4 addr show scope global | awk '/inet / { print $2 }' | head -1 | cut -d'/' -f1)
 echo " Access LanLens at:"
 if [ -n "$FIRST_IP" ]; then
-    echo "   http://${FIRST_IP}:7765"
+    echo "   http://${FIRST_IP}:${LANLENS_PORT}"
 fi
-echo "   http://localhost:7765  (from this host)"
+echo "   http://localhost:${LANLENS_PORT}  (from this host)"
 echo ""
 echo " Default credentials:"
 echo "   Username: admin"
@@ -59,7 +81,7 @@ nginx -g "daemon off;" &
 echo "Starting LanLens API..."
 exec uvicorn backend.main:app \
     --host 127.0.0.1 \
-    --port 17765 \
+    --port "${BACKEND_PORT}" \
     --workers 1 \
     --log-level info \
     --no-access-log
