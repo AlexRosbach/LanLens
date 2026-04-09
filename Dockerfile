@@ -72,6 +72,8 @@ VOLUME ["/data"]
 ENV DB_PATH=/data/lanlens.db \
     SECRET_KEY="" \
     DEFAULT_ADMIN_PASSWORD=admin \
+    LANLENS_PORT=7765 \
+    BACKEND_PORT=17765 \
     TZ=UTC \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
@@ -80,6 +82,6 @@ ENV DB_PATH=/data/lanlens.db \
 EXPOSE 7765
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD curl -fs http://localhost:7765/api/health || exit 1
+    CMD sh -c 'curl -fs "http://localhost:${LANLENS_PORT:-7765}/api/health" || exit 1'
 
 ENTRYPOINT ["/entrypoint.sh"]

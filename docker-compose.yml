@@ -27,16 +27,24 @@ services:
       # ── OPTIONAL ──────────────────────────────────────────────────────────────
       # Initial admin password (will be changed on first login)
       - DEFAULT_ADMIN_PASSWORD=admin
+      # Host-mode HTTP port for the LanLens UI (for example 80, 8080, 7765)
+      - LANLENS_PORT=7765
+      # Internal API port used behind nginx (leave as-is unless you know why)
+      - BACKEND_PORT=17765
       # Timezone (e.g. Europe/Berlin, America/New_York, UTC)
       - TZ=Europe/Berlin
+
+    # Host mode still allows a custom HTTP port.
+    # Example: set LANLENS_PORT=80 above if you want LanLens on port 80.
 
     # ── Bridge networking alternative (ARP scanning disabled) ─────────────────
     # Comment out network_mode and cap_add above, then uncomment:
     # ports:
-    #   - "8080:80"
+    #   - "8080:8080"
+    # and set LANLENS_PORT=8080 above so nginx listens on the same port.
 
     healthcheck:
-      test: ["CMD", "curl", "-fs", "http://localhost:7765/api/health"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:$${LANLENS_PORT:-7765}/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
