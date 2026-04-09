@@ -12,17 +12,19 @@ from ..schemas import (
     AllSettings,
     DhcpSettings,
     MessageResponse,
+    ScanRangeSettings,
     ScanScheduleSettings,
     ServerUrlSettings,
     TelegramSettings,
 )
 from ..services.notification import send_test_message, send_update_notification
 from ..services.scheduler import update_interval
+from ..services.scanner import _detect_host_network, _network_host_bounds
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 SETTING_KEYS = [
-    "dhcp_start", "dhcp_end", "scan_interval_minutes",
+    "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_interval_minutes",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
     "server_url",
@@ -73,9 +75,28 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
     except (ValueError, TypeError):
         interval_minutes = 5
 
+    dhcp_start = _get(db, "dhcp_start", "192.168.1.1")
+    dhcp_end = _get(db, "dhcp_end", "192.168.1.254")
+
+    scan_start_row = db.query(Setting).filter(Setting.key == "scan_start").first()
+    scan_end_row = db.query(Setting).filter(Setting.key == "scan_end").first()
+
+    if scan_start_row and scan_end_row and scan_start_row.value and scan_end_row.value:
+        effective_scan_start = scan_start_row.value
+        effective_scan_end = scan_end_row.value
+    else:
+        detected_network = _detect_host_network()
+        if detected_network:
+            effective_scan_start, effective_scan_end = _network_host_bounds(detected_network)
+        else:
+            effective_scan_start = "192.168.1.1"
+            effective_scan_end = "192.168.1.254"
+
     return AllSettings(
-        dhcp_start=_get(db, "dhcp_start", "192.168.1.1"),
-        dhcp_end=_get(db, "dhcp_end", "192.168.1.254"),
+        dhcp_start=dhcp_start,
+        dhcp_end=dhcp_end,
+        scan_start=effective_scan_start,
+        scan_end=effective_scan_end,
         scan_interval_minutes=interval_minutes,
         telegram_bot_token=_get(db, "telegram_bot_token", ""),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
@@ -96,15 +117,40 @@ def update_dhcp(
 ):
     import ipaddress
     try:
-        ipaddress.IPv4Address(data.dhcp_start)
-        ipaddress.IPv4Address(data.dhcp_end)
+        start_ip = ipaddress.IPv4Address(data.dhcp_start)
+        end_ip = ipaddress.IPv4Address(data.dhcp_end)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid IP address: {e}")
+
+    if int(start_ip) > int(end_ip):
+        raise HTTPException(status_code=400, detail="DHCP start must be less than or equal to DHCP end")
 
     _set(db, "dhcp_start", data.dhcp_start)
     _set(db, "dhcp_end", data.dhcp_end)
     db.commit()
     return MessageResponse(message="DHCP range updated")
+
+
+@router.put("/scan-range", response_model=MessageResponse)
+def update_scan_range(
+    data: ScanRangeSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    import ipaddress
+    try:
+        start_ip = ipaddress.IPv4Address(data.scan_start)
+        end_ip = ipaddress.IPv4Address(data.scan_end)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid IP address: {e}")
+
+    if int(start_ip) > int(end_ip):
+        raise HTTPException(status_code=400, detail="Scan start must be less than or equal to scan end")
+
+    _set(db, "scan_start", data.scan_start)
+    _set(db, "scan_end", data.scan_end)
+    db.commit()
+    return MessageResponse(message="Scan range updated")
 
 
 @router.put("/scan-schedule", response_model=MessageResponse)

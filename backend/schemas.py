@@ -211,6 +211,11 @@ class DhcpSettings(BaseModel):
     dhcp_end: str
 
 
+class ScanRangeSettings(BaseModel):
+    scan_start: str
+    scan_end: str
+
+
 class ScanScheduleSettings(BaseModel):
     scan_interval_minutes: int
 
@@ -229,6 +234,8 @@ class ServerUrlSettings(BaseModel):
 class AllSettings(BaseModel):
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"
+    scan_start: Optional[str] = "192.168.1.1"
+    scan_end: Optional[str] = "192.168.1.254"
     scan_interval_minutes: int = 5
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""

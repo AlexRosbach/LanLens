@@ -58,6 +58,18 @@ export default function Settings() {
     }
   }
 
+  async function saveScanRange() {
+    setSaving(true)
+    try {
+      await settingsApi.updateScanRange(current.scan_start, current.scan_end)
+      toast.success(lang === 'de' ? 'Scan-Bereich gespeichert' : 'Scan range saved')
+    } catch {
+      toast.error(lang === 'de' ? 'Scan-Bereich konnte nicht gespeichert werden' : 'Failed to save scan range')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function saveSchedule() {
     setSaving(true)
     try {
@@ -159,7 +171,12 @@ export default function Settings() {
       </Card>
 
       <Card>
-        <h2 className="text-lg font-semibold text-text-base mb-4">DHCP</h2>
+        <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'DHCP-Bereich' : 'DHCP range'}</h2>
+        <p className="text-sm text-text-subtle mb-4">
+          {lang === 'de'
+            ? 'Dieser Bereich wird nur für DHCP-Markierung und Einordnung der Geräte genutzt.'
+            : 'This range is only used for DHCP tagging and device classification.'}
+        </p>
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Start' : 'DHCP start'}</label>
@@ -172,6 +189,28 @@ export default function Settings() {
         </div>
         <div className="mt-4">
           <Button onClick={saveDhcp} loading={saving}>{t('save_changes')}</Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Scan-Bereich' : 'Scan range'}</h2>
+        <p className="text-sm text-text-subtle mb-4">
+          {lang === 'de'
+            ? 'Dieser IPv4-Bereich wird aktiv per ARP gescannt. Das funktioniert direkt nur im lokal erreichbaren Layer-2-Netz.'
+            : 'This IPv4 range is actively scanned via ARP. This works directly only on the locally reachable Layer 2 network.'}
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Start' : 'Scan start'}</label>
+            <Input value={current.scan_start} onChange={(e) => setSettings({ ...current, scan_start: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Ende' : 'Scan end'}</label>
+            <Input value={current.scan_end} onChange={(e) => setSettings({ ...current, scan_end: e.target.value })} />
+          </div>
+        </div>
+        <div className="mt-4">
+          <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
         </div>
       </Card>
 
