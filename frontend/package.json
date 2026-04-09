@@ -1,7 +1,7 @@
 {
   "name": "lanlens",
   "private": true,
-  "version": "1.2.5",
+  "version": "1.3.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
