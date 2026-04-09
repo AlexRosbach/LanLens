@@ -67,18 +67,30 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml` with the generated value.
 
-### 3. Start LanLens
+### 3. Optional: choose the HTTP port
+
+In `docker-compose.yml` you can change:
+
+```yaml
+- LANLENS_PORT=7765
+```
+
+Examples:
+- `LANLENS_PORT=80` for direct port 80 in host mode
+- `LANLENS_PORT=8080` for port 8080
+
+### 4. Start LanLens
 
 ```bash
 docker compose up -d
 ```
 
-### 4. Open the UI
+### 5. Open the UI
 
 Open:
 
 ```text
-http://<your-host-ip>:7765
+http://<your-host-ip>:<LANLENS_PORT>
 ```
 
 Default credentials:
@@ -99,6 +111,8 @@ You will be forced to change the password on first login.
 |---|---|---|
 | `SECRET_KEY` | — | Required, at least 32 random characters |
 | `DEFAULT_ADMIN_PASSWORD` | `admin` | Initial admin password |
+| `LANLENS_PORT` | `7765` | HTTP port exposed by nginx, also usable in host mode |
+| `BACKEND_PORT` | `17765` | Internal FastAPI port behind nginx |
 | `DB_PATH` | `/data/lanlens.db` | SQLite database path |
 | `TZ` | `UTC` | Container timezone |
 
@@ -138,6 +152,12 @@ docker compose up -d --build
 ```
 
 Database migrations run automatically on container start.
+
+## Releases
+
+- Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
+- GitHub releases should be maintained for release-based update checks and Telegram update notifications
+- Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -197,10 +217,8 @@ npm run dev
 LanLens follows **Semantic Versioning**.
 
 - Current app version is shown in the UI and via `GET /api/health`
-- Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
 - Project history is maintained in [CHANGELOG.md](CHANGELOG.md)
-
-Note: version history may also be reflected through Git tags and the changelog, but GitHub Releases must be populated for release-based update checks and Telegram update notifications to work.
+- Release-based update checks and Telegram update notifications rely on populated GitHub Releases
 
 ---
 
