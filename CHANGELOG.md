@@ -2,6 +2,14 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.3.1 — Separate scan range from DHCP tagging
+
+- Added dedicated `scan_start` and `scan_end` settings so scan targeting is no longer coupled to the DHCP range.
+- Restored DHCP settings to their intended role for DHCP tagging only.
+- Settings UI now exposes separate sections for DHCP tagging and ARP scan range.
+- Clarified in the UI and docs that ARP scanning works directly only on the locally reachable Layer-2 network, not automatically across routed subnets.
+- Keeps auto-detected host subnet defaults for the scan range when no explicit scan range is saved.
+
 ## v1.3.0 — Flexible scan ranges and smarter subnet defaults
 
 - Added automatic host network detection via `netifaces` so LanLens no longer defaults to `192.168.1.0/24` when deployed on a different subnet.

@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
     logger.info("LanLens stopped")
 
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 
 app = FastAPI(
     title="LanLens",

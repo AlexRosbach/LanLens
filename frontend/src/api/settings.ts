@@ -3,6 +3,8 @@ import apiClient from './client'
 export interface AllSettings {
   dhcp_start: string
   dhcp_end: string
+  scan_start: string
+  scan_end: string
   scan_interval_minutes: number
   telegram_bot_token: string
   telegram_chat_id: string
@@ -26,6 +28,9 @@ export const settingsApi = {
 
   updateDhcp: (dhcp_start: string, dhcp_end: string) =>
     apiClient.put('/settings/dhcp', { dhcp_start, dhcp_end }).then((r) => r.data),
+
+  updateScanRange: (scan_start: string, scan_end: string) =>
+    apiClient.put('/settings/scan-range', { scan_start, scan_end }).then((r) => r.data),
 
   updateScanSchedule: (scan_interval_minutes: number) =>
     apiClient.put('/settings/scan-schedule', { scan_interval_minutes }).then((r) => r.data),

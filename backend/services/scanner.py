@@ -115,13 +115,13 @@ def _summarize_range(start: str, end: str) -> List[str]:
     start_ip = ipaddress.IPv4Address(start)
     end_ip = ipaddress.IPv4Address(end)
     if int(start_ip) > int(end_ip):
-        raise ValueError("dhcp_start must be less than or equal to dhcp_end")
+        raise ValueError("scan_start must be less than or equal to scan_end")
     return [str(net) for net in ipaddress.summarize_address_range(start_ip, end_ip)]
 
 
 def _derive_scan_targets(db: Session) -> tuple[List[str], str, str, str]:
-    start_row = _get_setting_row(db, "dhcp_start")
-    end_row = _get_setting_row(db, "dhcp_end")
+    start_row = _get_setting_row(db, "scan_start")
+    end_row = _get_setting_row(db, "scan_end")
 
     if start_row and end_row and start_row.value and end_row.value:
         try:
@@ -137,7 +137,7 @@ def _derive_scan_targets(db: Session) -> tuple[List[str], str, str, str]:
             start, end = _network_host_bounds(network)
             return [str(network)], start, end, "configured-start-/24"
         except Exception as e:
-            logger.warning(f"Configured dhcp_start is invalid, ignoring it: {e}")
+            logger.warning(f"Configured scan_start is invalid, ignoring it: {e}")
 
     detected = _detect_host_network()
     if detected:

@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.3.0-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.3.1-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -102,17 +102,18 @@ You will be forced to change the password on first login.
 | `DB_PATH` | `/data/lanlens.db` | SQLite database path |
 | `TZ` | `UTC` | Container timezone |
 
-### Scan range
+### DHCP tagging and scan range
 
-Set the scan range in **Settings → Network**:
-- start IP
-- end IP
-- scan interval
+In **Settings → Network** LanLens now keeps these concerns separate:
+
+- **DHCP range**: used for DHCP tagging / classification only
+- **Scan range**: used for the active ARP network scan
+- **Scan interval**: controls the schedule
 
 Notes:
-- LanLens now auto-detects the host subnet as the default scan range when no explicit range was saved yet.
-- The configured `start IP` and `end IP` define the actual IPv4 scan range, so larger subnet masks and non-`/24` ranges are supported.
-- Scanning works best on directly reachable local network segments. Routed remote LANs may require additional network reachability beyond ARP alone.
+- LanLens auto-detects the host subnet as the default scan range when no explicit scan range was saved yet.
+- The configured `scan start` and `scan end` define the actual IPv4 scan range, so larger ranges inside the directly reachable local network are supported.
+- ARP scanning works directly only on the locally reachable Layer-2 network. A routed remote subnet is not automatically reachable just by entering another IP range.
 
 ### Telegram
 
