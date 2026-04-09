@@ -2,6 +2,16 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.2.7 — Auto-detect host network for scan range
+
+- Added automatic host network detection via `netifaces` so LanLens no longer defaults to `192.168.1.0/24` when deployed on a different subnet.
+- Scan range derivation now:
+  1. Uses explicitly configured `dhcp_start` if set and different from the old default
+  2. Otherwise auto-detects the host's primary IPv4 network
+  3. Falls back to `192.168.1.0/24` only if both fail
+- Improved logging to show which scan range source was used (configured / auto-detected / fallback).
+- Fixes issue #17 where LanLens would silently scan the wrong network on non-`192.168.1.x` deployments.
+
 ## v1.2.5 — Update detection & notification hardening
 
 - Added backend `/api/settings/update/check` endpoint so update detection no longer depends only on a direct frontend GitHub call.

@@ -63,15 +63,54 @@ def _get_hostname(ip: str) -> Optional[str]:
         socket.setdefaulttimeout(old_timeout)
 
 
-def _derive_network_range(db: Session) -> str:
-    dhcp_start = _get_setting(db, "dhcp_start", "192.168.1.1")
-
+def _detect_host_network() -> Optional[str]:
+    """Detect the host's primary IPv4 network by inspecting active interfaces."""
     try:
-        ipaddress.IPv4Address(dhcp_start)
-        network = ipaddress.IPv4Network(f"{dhcp_start}/24", strict=False)
-        return str(network)
-    except Exception:
-        return "192.168.1.0/24"
+        import netifaces
+        for iface in netifaces.interfaces():
+            if iface == 'lo':
+                continue
+            addrs = netifaces.ifaddresses(iface)
+            if netifaces.AF_INET not in addrs:
+                continue
+            for addr_info in addrs[netifaces.AF_INET]:
+                ip = addr_info.get('addr')
+                netmask = addr_info.get('netmask')
+                if not ip or not netmask or ip.startswith('127.'):
+                    continue
+                try:
+                    network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                    logger.info(f"Detected host network: {network} on interface {iface}")
+                    return str(network)
+                except Exception:
+                    continue
+    except Exception as e:
+        logger.warning(f"Host network detection failed: {e}")
+    return None
+
+
+def _derive_network_range(db: Session) -> str:
+    dhcp_start = _get_setting(db, "dhcp_start", "")
+
+    # If dhcp_start is explicitly set and valid, use it
+    if dhcp_start and dhcp_start != "192.168.1.1":
+        try:
+            ipaddress.IPv4Address(dhcp_start)
+            network = ipaddress.IPv4Network(f"{dhcp_start}/24", strict=False)
+            logger.info(f"Using configured scan range: {network}")
+            return str(network)
+        except Exception:
+            pass
+
+    # Otherwise, try to auto-detect the host network
+    detected = _detect_host_network()
+    if detected:
+        logger.info(f"Using auto-detected scan range: {detected}")
+        return detected
+
+    # Last resort: fall back to 192.168.1.0/24
+    logger.warning("No scan range configured and auto-detection failed, falling back to 192.168.1.0/24")
+    return "192.168.1.0/24"
 
 
 async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
