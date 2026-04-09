@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.2.7-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.3.0-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -108,6 +108,11 @@ Set the scan range in **Settings → Network**:
 - start IP
 - end IP
 - scan interval
+
+Notes:
+- LanLens now auto-detects the host subnet as the default scan range when no explicit range was saved yet.
+- The configured `start IP` and `end IP` define the actual IPv4 scan range, so larger subnet masks and non-`/24` ranges are supported.
+- Scanning works best on directly reachable local network segments. Routed remote LANs may require additional network reachability beyond ARP alone.
 
 ### Telegram
 

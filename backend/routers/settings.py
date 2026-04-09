@@ -18,6 +18,7 @@ from ..schemas import (
 )
 from ..services.notification import send_test_message, send_update_notification
 from ..services.scheduler import update_interval
+from ..services.scanner import _detect_host_network, _network_host_bounds
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -73,9 +74,23 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
     except (ValueError, TypeError):
         interval_minutes = 5
 
+    dhcp_start_row = db.query(Setting).filter(Setting.key == "dhcp_start").first()
+    dhcp_end_row = db.query(Setting).filter(Setting.key == "dhcp_end").first()
+
+    if dhcp_start_row and dhcp_end_row and dhcp_start_row.value and dhcp_end_row.value:
+        effective_dhcp_start = dhcp_start_row.value
+        effective_dhcp_end = dhcp_end_row.value
+    else:
+        detected_network = _detect_host_network()
+        if detected_network:
+            effective_dhcp_start, effective_dhcp_end = _network_host_bounds(detected_network)
+        else:
+            effective_dhcp_start = "192.168.1.1"
+            effective_dhcp_end = "192.168.1.254"
+
     return AllSettings(
-        dhcp_start=_get(db, "dhcp_start", "192.168.1.1"),
-        dhcp_end=_get(db, "dhcp_end", "192.168.1.254"),
+        dhcp_start=effective_dhcp_start,
+        dhcp_end=effective_dhcp_end,
         scan_interval_minutes=interval_minutes,
         telegram_bot_token=_get(db, "telegram_bot_token", ""),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
@@ -96,10 +111,13 @@ def update_dhcp(
 ):
     import ipaddress
     try:
-        ipaddress.IPv4Address(data.dhcp_start)
-        ipaddress.IPv4Address(data.dhcp_end)
+        start_ip = ipaddress.IPv4Address(data.dhcp_start)
+        end_ip = ipaddress.IPv4Address(data.dhcp_end)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid IP address: {e}")
+
+    if int(start_ip) > int(end_ip):
+        raise HTTPException(status_code=400, detail="DHCP start must be less than or equal to DHCP end")
 
     _set(db, "dhcp_start", data.dhcp_start)
     _set(db, "dhcp_end", data.dhcp_end)

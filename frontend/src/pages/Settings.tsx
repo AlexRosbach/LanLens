@@ -159,7 +159,12 @@ export default function Settings() {
       </Card>
 
       <Card>
-        <h2 className="text-lg font-semibold text-text-base mb-4">DHCP</h2>
+        <h2 className="text-lg font-semibold text-text-base mb-2">DHCP / Scan Range</h2>
+        <p className="text-sm text-text-subtle mb-4">
+          {lang === 'de'
+            ? 'Der Scan nutzt diesen IPv4-Bereich. Damit lassen sich auch größere Subnetze oder andere Zielbereiche konfigurieren.'
+            : 'The scan uses this IPv4 range. This also allows larger subnets or other target ranges to be configured.'}
+        </p>
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Start' : 'DHCP start'}</label>

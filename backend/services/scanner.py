@@ -32,20 +32,33 @@ def is_scan_running() -> bool:
     return _scan_running
 
 
-def _get_setting(db: Session, key: str, default: str = "") -> str:
-    row = db.query(Setting).filter(Setting.key == key).first()
-    return row.value if row else default
+DEFAULT_SCAN_START = "192.168.1.1"
+DEFAULT_SCAN_END = "192.168.1.254"
 
 
-def _arp_scan(network_range: str) -> List[Tuple[str, str]]:
-    """Perform ARP scan and return list of (ip, mac) tuples."""
+def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
+    return db.query(Setting).filter(Setting.key == key).first()
+
+
+def _arp_scan(targets: List[str]) -> List[Tuple[str, str]]:
+    """Perform ARP scan over one or more target CIDRs/ranges."""
     try:
         from scapy.layers.l2 import ARP, Ether
         from scapy.sendrecv import srp
 
-        packet = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=network_range)
-        answered, _ = srp(packet, timeout=3, verbose=False)
-        return [(rcv.psrc, rcv.hwsrc) for _, rcv in answered]
+        results: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+
+        for target in targets:
+            packet = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=target)
+            answered, _ = srp(packet, timeout=3, verbose=False)
+            for _, rcv in answered:
+                item = (rcv.psrc, rcv.hwsrc)
+                if item not in seen:
+                    seen.add(item)
+                    results.append(item)
+
+        return results
     except Exception as e:
         logger.error(f"ARP scan failed: {e}")
         return []
@@ -63,25 +76,26 @@ def _get_hostname(ip: str) -> Optional[str]:
         socket.setdefaulttimeout(old_timeout)
 
 
-def _detect_host_network() -> Optional[str]:
+def _detect_host_network() -> Optional[ipaddress.IPv4Network]:
     """Detect the host's primary IPv4 network by inspecting active interfaces."""
     try:
         import netifaces
+
         for iface in netifaces.interfaces():
-            if iface == 'lo':
+            if iface == "lo":
                 continue
             addrs = netifaces.ifaddresses(iface)
             if netifaces.AF_INET not in addrs:
                 continue
             for addr_info in addrs[netifaces.AF_INET]:
-                ip = addr_info.get('addr')
-                netmask = addr_info.get('netmask')
-                if not ip or not netmask or ip.startswith('127.'):
+                ip = addr_info.get("addr")
+                netmask = addr_info.get("netmask")
+                if not ip or not netmask or ip.startswith("127."):
                     continue
                 try:
                     network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
                     logger.info(f"Detected host network: {network} on interface {iface}")
-                    return str(network)
+                    return network
                 except Exception:
                     continue
     except Exception as e:
@@ -89,28 +103,52 @@ def _detect_host_network() -> Optional[str]:
     return None
 
 
-def _derive_network_range(db: Session) -> str:
-    dhcp_start = _get_setting(db, "dhcp_start", "")
+def _network_host_bounds(network: ipaddress.IPv4Network) -> tuple[str, str]:
+    if network.num_addresses <= 2:
+        return str(network.network_address), str(network.broadcast_address)
+    start = ipaddress.IPv4Address(int(network.network_address) + 1)
+    end = ipaddress.IPv4Address(int(network.broadcast_address) - 1)
+    return str(start), str(end)
 
-    # If dhcp_start is explicitly set and valid, use it
-    if dhcp_start and dhcp_start != "192.168.1.1":
+
+def _summarize_range(start: str, end: str) -> List[str]:
+    start_ip = ipaddress.IPv4Address(start)
+    end_ip = ipaddress.IPv4Address(end)
+    if int(start_ip) > int(end_ip):
+        raise ValueError("dhcp_start must be less than or equal to dhcp_end")
+    return [str(net) for net in ipaddress.summarize_address_range(start_ip, end_ip)]
+
+
+def _derive_scan_targets(db: Session) -> tuple[List[str], str, str, str]:
+    start_row = _get_setting_row(db, "dhcp_start")
+    end_row = _get_setting_row(db, "dhcp_end")
+
+    if start_row and end_row and start_row.value and end_row.value:
         try:
-            ipaddress.IPv4Address(dhcp_start)
-            network = ipaddress.IPv4Network(f"{dhcp_start}/24", strict=False)
-            logger.info(f"Using configured scan range: {network}")
-            return str(network)
-        except Exception:
-            pass
+            targets = _summarize_range(start_row.value, end_row.value)
+            return targets, start_row.value, end_row.value, "configured"
+        except Exception as e:
+            logger.warning(f"Configured scan range invalid, ignoring it: {e}")
 
-    # Otherwise, try to auto-detect the host network
+    if start_row and start_row.value and not end_row:
+        try:
+            ipaddress.IPv4Address(start_row.value)
+            network = ipaddress.IPv4Network(f"{start_row.value}/24", strict=False)
+            start, end = _network_host_bounds(network)
+            return [str(network)], start, end, "configured-start-/24"
+        except Exception as e:
+            logger.warning(f"Configured dhcp_start is invalid, ignoring it: {e}")
+
     detected = _detect_host_network()
     if detected:
-        logger.info(f"Using auto-detected scan range: {detected}")
-        return detected
+        start, end = _network_host_bounds(detected)
+        return [str(detected)], start, end, "auto-detected"
 
-    # Last resort: fall back to 192.168.1.0/24
-    logger.warning("No scan range configured and auto-detection failed, falling back to 192.168.1.0/24")
-    return "192.168.1.0/24"
+    fallback_targets = _summarize_range(DEFAULT_SCAN_START, DEFAULT_SCAN_END)
+    logger.warning(
+        "No valid configured scan range and auto-detection failed, falling back to 192.168.1.1-192.168.1.254"
+    )
+    return fallback_targets, DEFAULT_SCAN_START, DEFAULT_SCAN_END, "fallback"
 
 
 async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
@@ -128,10 +166,13 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
     db.commit()
 
     try:
-        network_range = _derive_network_range(db)
-        logger.info(f"Starting ARP scan on {network_range}")
+        scan_targets, effective_start, effective_end, source = _derive_scan_targets(db)
+        logger.info(
+            f"Starting ARP scan using {source} range {effective_start} - {effective_end} "
+            f"via targets: {', '.join(scan_targets)}"
+        )
 
-        results = await asyncio.get_event_loop().run_in_executor(None, _arp_scan, network_range)
+        results = await asyncio.get_event_loop().run_in_executor(None, _arp_scan, scan_targets)
         logger.info(f"ARP scan found {len(results)} hosts")
 
         # Pre-load all known devices to avoid N+1 queries
