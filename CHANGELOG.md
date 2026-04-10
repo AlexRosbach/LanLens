@@ -2,6 +2,13 @@
 
 All notable changes to this project should be documented in this file.
 
+## Unreleased
+
+### Added
+- Deep scan roadmap documentation for credential-based Linux/Windows inventory enrichment.
+- Deep scan prerequisites documentation for Linux, Windows, and hypervisor-aware discovery.
+- Planning coverage for VM-to-host mapping, hypervisor guest reconciliation, and Windows audit/licensing visibility.
+
 ## v1.3.1 — Separate scan range from DHCP tagging
 
 - Added dedicated `scan_start` and `scan_end` settings so scan targeting is no longer coupled to the DHCP range.

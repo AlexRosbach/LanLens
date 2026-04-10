@@ -212,6 +212,21 @@ npm run dev
 
 ---
 
+## Deep Scan roadmap
+
+LanLens has a planned credential-based deep scan and audit track for Linux, Windows, and hypervisor-aware inventory enrichment.
+
+Related planning docs:
+- [docs/deep-scan-roadmap.md](docs/deep-scan-roadmap.md)
+- [docs/deep-scan-prerequisites.md](docs/deep-scan-prerequisites.md)
+
+The roadmap covers:
+- secure credential storage
+- optional deep scan profiles
+- Linux and Windows inventory enrichment
+- Windows audit / licensing visibility where technically available
+- hypervisor guest discovery and VM-to-host mapping
+
 ## Versioning and Changelog
 
 LanLens follows **Semantic Versioning**.
