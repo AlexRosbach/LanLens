@@ -49,6 +49,15 @@ class Device(Base):
     asset_tag = Column(String(128), nullable=True)       # Inventarnummer / Asset-Tag
     notes = Column(Text, nullable=True)                  # freie Notizen
 
+    # ── Deep scan ─────────────────────────────────────────────────────────────
+    deep_scan_enabled = Column(Boolean, default=False, nullable=False)
+    deep_scan_profile = Column(String(64), default="basic", nullable=False)
+    deep_scan_credential_id = Column(Integer, ForeignKey("deep_scan_credentials.id", ondelete="SET NULL"), nullable=True)
+    deep_scan_last_status = Column(String(32), nullable=True)
+    deep_scan_last_at = Column(DateTime, nullable=True)
+    deep_scan_last_error = Column(Text, nullable=True)
+    deep_scan_last_summary = Column(Text, nullable=True)
+
     # ── Discovery state ────────────────────────────────────────────────────────
     is_registered = Column(Boolean, default=False)
     is_online = Column(Boolean, default=False)
@@ -63,6 +72,8 @@ class Device(Base):
                             order_by="Service.sort_order")
     segment = relationship("Segment", back_populates="devices", foreign_keys=[segment_id])
     device_views = relationship("DeviceView", back_populates="device", cascade="all, delete-orphan")
+    deep_scan_credential = relationship("DeepScanCredential", back_populates="devices")
+    deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
 
 
 class Service(Base):
@@ -134,6 +145,26 @@ class Setting(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class DeepScanCredential(Base):
+    __tablename__ = "deep_scan_credentials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), nullable=False, unique=True)
+    transport = Column(String(32), nullable=False, default="ssh")
+    username = Column(String(255), nullable=False)
+    port = Column(Integer, nullable=True)
+    auth_type = Column(String(32), nullable=False, default="password")
+    secret_encrypted = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    use_sudo = Column(Boolean, default=False, nullable=False)
+    verify_tls = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    devices = relationship("Device", back_populates="deep_scan_credential")
+    runs = relationship("DeepScanRun", back_populates="credential")
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 
@@ -146,6 +177,54 @@ class Notification(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="notifications")
+
+
+class DeepScanRun(Base):
+    __tablename__ = "deep_scan_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    credential_id = Column(Integer, ForeignKey("deep_scan_credentials.id", ondelete="SET NULL"), nullable=True)
+    trigger_mode = Column(String(32), nullable=False, default="manual")
+    transport = Column(String(32), nullable=False)
+    status = Column(String(32), nullable=False, default="queued")
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    command_plan = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    device = relationship("Device", back_populates="deep_scan_runs")
+    credential = relationship("DeepScanCredential", back_populates="runs")
+    findings = relationship("DeepScanFinding", back_populates="run", cascade="all, delete-orphan")
+
+
+class DeepScanFinding(Base):
+    __tablename__ = "deep_scan_findings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, ForeignKey("deep_scan_runs.id", ondelete="CASCADE"), nullable=False)
+    key = Column(String(128), nullable=False)
+    value = Column(Text, nullable=True)  # free-form JSON or text
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    run = relationship("DeepScanRun", back_populates="findings")
+
+
+class DeviceHostRelationship(Base):
+    __tablename__ = "device_host_relationships"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    child_device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    host_device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    relationship_type = Column(String(64), default="vm_on_host")
+    match_source = Column(String(32), nullable=True)  # mac|ip|hypervisor-id
+    confidence = Column(Integer, default=50)
+    observed_at = Column(DateTime, default=datetime.utcnow)
+    last_confirmed_at = Column(DateTime, nullable=True)
+
+    child_device = relationship("Device", foreign_keys=[child_device_id])
+    host_device = relationship("Device", foreign_keys=[host_device_id])
 
 
 class TokenBlacklist(Base):
