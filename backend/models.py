@@ -63,6 +63,11 @@ class Device(Base):
                             order_by="Service.sort_order")
     segment = relationship("Segment", back_populates="devices", foreign_keys=[segment_id])
     device_views = relationship("DeviceView", back_populates="device", cascade="all, delete-orphan")
+    deep_scan_config = relationship("DeviceDeepScanConfig", back_populates="device",
+                                    uselist=False, cascade="all, delete-orphan")
+    deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
+    deep_scan_findings = relationship("DeepScanFinding", back_populates="device",
+                                      cascade="all, delete-orphan")
 
 
 class Service(Base):
@@ -183,3 +188,92 @@ class Segment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     devices = relationship("Device", back_populates="segment", foreign_keys="Device.segment_id")
+
+
+# ── Deep Scan ─────────────────────────────────────────────────────────────────
+
+class Credential(Base):
+    """Encrypted credential for SSH or WinRM deep scan access."""
+    __tablename__ = "credentials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    credential_type = Column(String(32), nullable=False)   # linux_ssh / windows_winrm
+    username = Column(String(128), nullable=False)
+    encrypted_secret = Column(Text, nullable=False)         # Fernet token, never plaintext
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    deep_scan_configs = relationship("DeviceDeepScanConfig", back_populates="credential")
+    deep_scan_runs = relationship("DeepScanRun", back_populates="credential")
+
+
+class DeviceDeepScanConfig(Base):
+    """Per-device deep scan configuration (one row per device)."""
+    __tablename__ = "device_deep_scan_config"
+
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    enabled = Column(Boolean, default=False, nullable=False)
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="SET NULL"), nullable=True)
+    scan_profile = Column(String(64), default="os_services", nullable=False)
+    auto_scan_enabled = Column(Boolean, default=False, nullable=False)
+    interval_minutes = Column(Integer, default=60, nullable=False)
+    last_scan_at = Column(DateTime, nullable=True)
+
+    device = relationship("Device", back_populates="deep_scan_config")
+    credential = relationship("Credential", back_populates="deep_scan_configs")
+
+
+class DeepScanRun(Base):
+    """Audit trail of every deep scan execution."""
+    __tablename__ = "deep_scan_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="SET NULL"), nullable=True)
+    profile = Column(String(64), nullable=False)
+    status = Column(String(16), default="running", nullable=False)  # running/done/error/skipped
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    summary_json = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    triggered_by = Column(String(16), default="manual", nullable=False)  # manual/scheduled
+
+    device = relationship("Device", back_populates="deep_scan_runs")
+    credential = relationship("Credential", back_populates="deep_scan_runs")
+    findings = relationship("DeepScanFinding", back_populates="run", cascade="all, delete-orphan")
+
+
+class DeepScanFinding(Base):
+    """Single structured finding from a deep scan run."""
+    __tablename__ = "deep_scan_findings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    run_id = Column(Integer, ForeignKey("deep_scan_runs.id", ondelete="CASCADE"), nullable=False)
+    finding_type = Column(String(32), nullable=False)  # hardware/os/service/container/hypervisor/vm_guest/audit
+    key = Column(String(256), nullable=False)
+    value_json = Column(Text, nullable=True)
+    source = Column(String(64), nullable=True)          # e.g. "lscpu", "virsh list"
+    observed_at = Column(DateTime, default=datetime.utcnow)
+
+    device = relationship("Device", back_populates="deep_scan_findings")
+    run = relationship("DeepScanRun", back_populates="findings")
+
+
+class DeviceHostRelationship(Base):
+    """VM-to-host relationship discovered via hypervisor scan."""
+    __tablename__ = "device_host_relationships"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    child_device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    host_device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    relationship_type = Column(String(32), default="vm_on_host", nullable=False)
+    match_source = Column(String(16), nullable=True)    # mac / ip / hypervisor_id
+    vm_identifier = Column(String(256), nullable=True)  # VM name or UUID from hypervisor
+    observed_at = Column(DateTime, default=datetime.utcnow)
+    last_confirmed_at = Column(DateTime, default=datetime.utcnow)
+
+    child_device = relationship("Device", foreign_keys=[child_device_id])
+    host_device = relationship("Device", foreign_keys=[host_device_id])

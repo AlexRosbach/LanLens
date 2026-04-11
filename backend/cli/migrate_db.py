@@ -85,6 +85,106 @@ def migrate():
         else:
             print("Migration: device_views uniqueness already exists — skipped")
 
+        # ── v1.4.0 ── Deep Scan feature tables ───────────────────────────────
+        if not _table_exists(conn, "credentials"):
+            conn.execute(text(
+                "CREATE TABLE credentials ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL, "
+                "credential_type VARCHAR(32) NOT NULL, "
+                "username VARCHAR(128) NOT NULL, "
+                "encrypted_secret TEXT NOT NULL, "
+                "description TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            print("Migration: created credentials")
+        else:
+            print("Migration: credentials already exists — skipped")
+
+        if not _table_exists(conn, "device_deep_scan_config"):
+            conn.execute(text(
+                "CREATE TABLE device_deep_scan_config ("
+                "device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE, "
+                "enabled BOOLEAN NOT NULL DEFAULT 0, "
+                "credential_id INTEGER REFERENCES credentials(id) ON DELETE SET NULL, "
+                "scan_profile VARCHAR(64) NOT NULL DEFAULT 'os_services', "
+                "auto_scan_enabled BOOLEAN NOT NULL DEFAULT 0, "
+                "interval_minutes INTEGER NOT NULL DEFAULT 60, "
+                "last_scan_at DATETIME"
+                ")"
+            ))
+            print("Migration: created device_deep_scan_config")
+        else:
+            print("Migration: device_deep_scan_config already exists — skipped")
+
+        if not _table_exists(conn, "deep_scan_runs"):
+            conn.execute(text(
+                "CREATE TABLE deep_scan_runs ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "credential_id INTEGER REFERENCES credentials(id) ON DELETE SET NULL, "
+                "profile VARCHAR(64) NOT NULL, "
+                "status VARCHAR(16) NOT NULL DEFAULT 'running', "
+                "started_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "finished_at DATETIME, "
+                "summary_json TEXT, "
+                "error_message TEXT, "
+                "triggered_by VARCHAR(16) NOT NULL DEFAULT 'manual'"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_deep_scan_runs_device_id ON deep_scan_runs(device_id)"
+            ))
+            print("Migration: created deep_scan_runs")
+        else:
+            print("Migration: deep_scan_runs already exists — skipped")
+
+        if not _table_exists(conn, "deep_scan_findings"):
+            conn.execute(text(
+                "CREATE TABLE deep_scan_findings ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "run_id INTEGER NOT NULL REFERENCES deep_scan_runs(id) ON DELETE CASCADE, "
+                "finding_type VARCHAR(32) NOT NULL, "
+                "key VARCHAR(256) NOT NULL, "
+                "value_json TEXT, "
+                "source VARCHAR(64), "
+                "observed_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_deep_scan_findings_device_run "
+                "ON deep_scan_findings(device_id, run_id)"
+            ))
+            print("Migration: created deep_scan_findings")
+        else:
+            print("Migration: deep_scan_findings already exists — skipped")
+
+        if not _table_exists(conn, "device_host_relationships"):
+            conn.execute(text(
+                "CREATE TABLE device_host_relationships ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "child_device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "host_device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "relationship_type VARCHAR(32) NOT NULL DEFAULT 'vm_on_host', "
+                "match_source VARCHAR(16), "
+                "vm_identifier VARCHAR(256), "
+                "observed_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "last_confirmed_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX ix_host_rel_child_host "
+                "ON device_host_relationships(child_device_id, host_device_id)"
+            ))
+            print("Migration: created device_host_relationships")
+        else:
+            print("Migration: device_host_relationships already exists — skipped")
+
+        conn.commit()
+
 
 if __name__ == "__main__":
     migrate()

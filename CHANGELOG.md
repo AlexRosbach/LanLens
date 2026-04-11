@@ -2,6 +2,19 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.4.0 — Deep Scan
+
+- Added encrypted credential vault (Fernet, key derived from `SECRET_KEY`) for storing SSH and WinRM credentials. Secrets are never returned in plaintext via the API.
+- Added deep scan feature: per-device SSH (Linux) and WinRM (Windows) scans with configurable profiles: `hardware_only`, `os_services`, `linux_container_host`, `windows_audit`, `hypervisor_inventory`, `full`.
+- Added structured finding storage per scan run: hardware, OS, services, containers, hypervisor, VM guest, and audit findings.
+- Added hypervisor intelligence: detects Proxmox, KVM/libvirt, and Hyper-V hosts; enumerates guests; maps VMs to known LanLens devices by MAC address first, then IP address.
+- Added VM-to-host relationship tracking with periodic reconciliation.
+- Added auto deep scan policies: per-device scheduled deep scans with configurable interval (minimum 5 minutes), polled every 60 seconds.
+- Added credential manager in Settings with masked display, per-type badge, and live connection test.
+- Added Deep Scan panel in Device Detail with tabbed findings view (Hardware, OS, Services, Containers, Audit, Host/Guest).
+- Added `paramiko` (SSH) and `pywinrm` (WinRM) as new backend dependencies.
+- Database schema bumped to v1.4.0 — five new tables: `credentials`, `device_deep_scan_config`, `deep_scan_runs`, `deep_scan_findings`, `device_host_relationships`. Migration is idempotent and runs automatically on container start.
+
 ## v1.3.1 — Separate scan range from DHCP tagging
 
 - Added dedicated `scan_start` and `scan_end` settings so scan targeting is no longer coupled to the DHCP range.

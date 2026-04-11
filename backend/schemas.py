@@ -296,3 +296,121 @@ class SegmentResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Deep Scan ─────────────────────────────────────────────────────────────────
+
+SCAN_PROFILES = [
+    "hardware_only",
+    "os_services",
+    "linux_container_host",
+    "windows_audit",
+    "hypervisor_inventory",
+    "full",
+]
+
+CREDENTIAL_TYPES = ["linux_ssh", "windows_winrm"]
+
+
+class CredentialCreate(BaseModel):
+    name: str
+    credential_type: str          # linux_ssh / windows_winrm
+    username: str
+    secret: str
+    description: Optional[str] = None
+
+
+class CredentialUpdate(BaseModel):
+    name: Optional[str] = None
+    credential_type: Optional[str] = None
+    username: Optional[str] = None
+    secret: Optional[str] = None  # only re-encrypted when provided and non-empty
+    description: Optional[str] = None
+
+
+class CredentialResponse(BaseModel):
+    id: int
+    name: str
+    credential_type: str
+    username: str
+    description: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CredentialTestRequest(BaseModel):
+    target_ip: str
+
+
+class CredentialTestResponse(BaseModel):
+    success: bool
+    message: str
+    latency_ms: Optional[float] = None
+
+
+class DeepScanConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    credential_id: Optional[int] = None
+    scan_profile: Optional[str] = None
+    auto_scan_enabled: Optional[bool] = None
+    interval_minutes: Optional[int] = None
+
+
+class DeepScanConfigResponse(BaseModel):
+    device_id: int
+    enabled: bool
+    credential_id: Optional[int]
+    scan_profile: str
+    auto_scan_enabled: bool
+    interval_minutes: int
+    last_scan_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class DeepScanRunResponse(BaseModel):
+    id: int
+    device_id: int
+    credential_id: Optional[int]
+    profile: str
+    status: str
+    started_at: datetime
+    finished_at: Optional[datetime]
+    summary: Optional[Any] = None   # parsed from summary_json
+    error_message: Optional[str]
+    triggered_by: str
+
+    class Config:
+        from_attributes = True
+
+
+class DeepScanFindingResponse(BaseModel):
+    id: int
+    device_id: int
+    run_id: int
+    finding_type: str
+    key: str
+    value: Optional[Any] = None    # parsed from value_json
+    source: Optional[str]
+    observed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceHostRelationshipResponse(BaseModel):
+    id: int
+    child_device_id: int
+    host_device_id: int
+    relationship_type: str
+    match_source: Optional[str]
+    vm_identifier: Optional[str]
+    observed_at: datetime
+    last_confirmed_at: datetime
+
+    class Config:
+        from_attributes = True

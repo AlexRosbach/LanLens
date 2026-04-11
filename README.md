@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.3.1-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.4.0-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -26,6 +26,10 @@ LanLens scans your local network, identifies devices by MAC/IP, and gives you a 
 - Service inventory per device
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap
+- **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory
+- **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
+- **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
+- **Auto deep scan** — per-device scheduled scanning with configurable interval
 - Telegram notifications for new devices and updates
 - English and German UI
 - Responsive dashboard for desktop and mobile

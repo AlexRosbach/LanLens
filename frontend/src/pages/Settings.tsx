@@ -4,6 +4,7 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
+import CredentialManager from '../components/settings/CredentialManager'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { useI18n } from '../i18n'
 
@@ -267,6 +268,16 @@ export default function Settings() {
           <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
           <Button onClick={testTelegram} variant="outline">{lang === 'de' ? 'Telegram testen' : 'Test Telegram'}</Button>
         </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-sm font-semibold text-text-muted mb-1">{t('deep_scan_credentials')}</h2>
+        <p className="text-xs text-text-subtle mb-4">
+          {lang === 'de'
+            ? 'SSH- und WinRM-Zugangsdaten für den Tiefenscan. Passwörter werden verschlüsselt gespeichert.'
+            : 'SSH and WinRM credentials for deep scan. Passwords are stored encrypted.'}
+        </p>
+        <CredentialManager />
       </Card>
     </div>
   )

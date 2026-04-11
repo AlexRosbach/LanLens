@@ -6,6 +6,7 @@ import { Segment, segmentsApi } from '../api/segments'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
+import DeepScanPanel from '../components/deep-scan/DeepScanPanel'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -340,6 +341,12 @@ export default function DeviceDetail() {
           services={device.services}
           onChange={(services) => setDevice({ ...device, services })}
         />
+      </Card>
+
+      {/* Deep Scan */}
+      <Card>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('deep_scan')}</h2>
+        <DeepScanPanel deviceId={device.id} />
       </Card>
 
       {/* Open Ports */}
