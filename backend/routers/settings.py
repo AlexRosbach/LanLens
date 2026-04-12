@@ -31,6 +31,7 @@ SETTING_KEYS = [
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
     "server_url",
+    "cmdb_id_prefix", "cmdb_id_digits",
 ]
 
 
@@ -118,6 +119,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         smtp_to_email=_get(db, "smtp_to_email", ""),
         smtp_enabled=_get(db, "smtp_enabled", "false") == "true",
         smtp_use_tls=_get(db, "smtp_use_tls", "true") != "false",
+        cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
+        cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
     )
 
 
@@ -285,6 +288,21 @@ async def test_smtp(
     if success:
         return MessageResponse(message="Test email sent successfully")
     raise HTTPException(status_code=502, detail="Failed to send test email — check SMTP settings")
+
+
+@router.put("/cmdb", response_model=MessageResponse)
+def update_cmdb_settings(
+    prefix: str,
+    digits: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    prefix = prefix.strip().upper()[:20] or "DEV"
+    digits = max(1, min(digits, 10))
+    _set(db, "cmdb_id_prefix", prefix)
+    _set(db, "cmdb_id_digits", str(digits))
+    db.commit()
+    return MessageResponse(message="CMDB settings updated")
 
 
 @router.get("/update/check")

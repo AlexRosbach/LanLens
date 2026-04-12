@@ -142,6 +142,74 @@ Configure Telegram in **Settings → Notifications**:
 
 ---
 
+## Using MariaDB / External Database
+
+By default LanLens uses **SQLite** stored in `/data/lanlens.db`. For production environments or when you need shared database access, you can switch to **MariaDB** or **MySQL**.
+
+### Requirements
+
+Install the `PyMySQL` driver in the container:
+
+```dockerfile
+RUN pip install PyMySQL
+```
+
+Or add to `requirements.txt`:
+```
+PyMySQL>=1.1.0
+```
+
+### docker-compose Configuration
+
+```yaml
+services:
+  lanlens:
+    image: ghcr.io/alexrosbach/lanlens:latest
+    environment:
+      DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens
+      SECRET_KEY: your-secret-key-here
+    depends_on:
+      - mariadb
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: lanlens
+      MYSQL_USER: lanlens
+      MYSQL_PASSWORD: yourpassword
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+volumes:
+  mariadb_data:
+```
+
+### Connection String Formats
+
+| Database   | Format |
+|------------|--------|
+| MariaDB/MySQL | `mysql+pymysql://user:pass@host:3306/dbname` |
+| PostgreSQL | `postgresql+psycopg2://user:pass@host:5432/dbname` |
+| SQLite (default) | set via `DB_PATH` env var, not `DATABASE_URL` |
+
+### Backup
+
+When using MariaDB, use `mysqldump` for backups:
+
+```bash
+mysqldump -u lanlens -p lanlens > lanlens-backup.sql
+```
+
+Restore:
+```bash
+mysql -u lanlens -p lanlens < lanlens-backup.sql
+```
+
+> **Note:** The SQLite database export button in Settings is not available when using MariaDB. Use your database's native backup tools instead.
+
+---
+
 ## Deep Scan — Required Permissions
 
 The deep scan connects to devices via SSH (Linux) or WinRM (Windows) and runs read-only commands.

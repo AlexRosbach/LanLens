@@ -106,6 +106,9 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
                   ? t('credential_type_linux_ssh')
                   : t('credential_type_windows_winrm')}
               </Badge>
+              {cred.auth_method === 'key' && (
+                <Badge variant="warning">🔑 SSH Key</Badge>
+              )}
               <span className="text-sm text-text-muted">{cred.username}</span>
             </div>
             <div className="flex items-center gap-1 shrink-0">

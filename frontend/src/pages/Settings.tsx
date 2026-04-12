@@ -5,7 +5,17 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
+import { adminApi } from '../api/admin'
 import { useI18n } from '../i18n'
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 export default function Settings() {
   const { t, lang, setLang } = useI18n()
@@ -169,6 +179,49 @@ export default function Settings() {
     }
   }
 
+  async function handleExportSettings() {
+    try {
+      const resp = await adminApi.exportSettings()
+      downloadBlob(resp.data, 'lanlens-settings.json')
+    } catch {
+      toast.error(lang === 'de' ? 'Export fehlgeschlagen' : 'Export failed')
+    }
+  }
+
+  async function handleExportDatabase() {
+    try {
+      const resp = await adminApi.exportDatabase()
+      downloadBlob(resp.data, 'lanlens-backup.db')
+    } catch {
+      toast.error(lang === 'de' ? 'Datenbankexport fehlgeschlagen' : 'Database export failed')
+    }
+  }
+
+  async function handleImportSettings(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const result = await adminApi.importSettings(file)
+      toast.success(result.data.message || 'Settings imported')
+      settingsApi.get().then(setSettings)
+    } catch {
+      toast.error(lang === 'de' ? 'Import fehlgeschlagen' : 'Import failed')
+    }
+    e.target.value = '' // reset file input
+  }
+
+  async function saveCmdb() {
+    setSaving(true)
+    try {
+      await settingsApi.updateCmdb(current.cmdb_id_prefix, current.cmdb_id_digits)
+      toast.success(lang === 'de' ? 'CMDB-Einstellungen gespeichert' : 'CMDB settings saved')
+    } catch {
+      toast.error(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Failed to save CMDB settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-8">
       {/* ── SYSTEM ────────────────────────────────────────────────────────── */}
@@ -216,6 +269,117 @@ export default function Settings() {
             <div className="mt-4">
               <Button onClick={saveServerUrl} loading={saving}>{t('save_changes')}</Button>
             </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">
+              {lang === 'de' ? 'Export & Import' : 'Export & Import'}
+            </h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {lang === 'de'
+                ? 'Einstellungen und Datenbank sichern oder auf ein neues System übertragen.'
+                : 'Back up settings and database or migrate to a new system.'}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={handleExportSettings}>
+                {lang === 'de' ? '⬇ Einstellungen exportieren' : '⬇ Export Settings'}
+              </Button>
+              <Button variant="outline" onClick={handleExportDatabase}>
+                {lang === 'de' ? '⬇ Datenbank exportieren (.db)' : '⬇ Export Database (.db)'}
+              </Button>
+            </div>
+            <div className="mt-4 pt-4 border-t border-border space-y-3">
+              <p className="text-xs text-text-subtle font-medium uppercase tracking-wide">
+                {lang === 'de' ? 'Importieren' : 'Import'}
+              </p>
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <span className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface2 text-text-muted group-hover:text-primary group-hover:border-primary/50 transition-colors">
+                  {lang === 'de' ? '⬆ Einstellungen importieren (.json)' : '⬆ Import Settings (.json)'}
+                </span>
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportSettings}
+                />
+              </label>
+              <p className="text-xs text-text-subtle">
+                {lang === 'de'
+                  ? 'Für den Datenbankimport: Lege die .db Datei als DB_PATH im Container ab und starte neu.'
+                  : 'For database import: place the .db file at DB_PATH in the container and restart.'}
+              </p>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">CMDB IDs</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {lang === 'de'
+                ? 'Automatische eindeutige ID für jedes registrierte Gerät. Format: PREFIX-NNNN'
+                : 'Automatic unique ID for every registered device. Format: PREFIX-NNNN'}
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {lang === 'de' ? 'Präfix' : 'Prefix'}
+                </label>
+                <Input
+                  value={current.cmdb_id_prefix}
+                  onChange={(e) => setSettings({ ...current, cmdb_id_prefix: e.target.value.toUpperCase() })}
+                  placeholder="DEV"
+                  maxLength={20}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {lang === 'de' ? 'Stellen (Ziffern)' : 'Digits'}
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={String(current.cmdb_id_digits)}
+                  onChange={(e) => setSettings({ ...current, cmdb_id_digits: Math.min(10, Math.max(1, Number(e.target.value) || 4)) })}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-xs text-text-subtle">
+              {lang === 'de' ? 'Vorschau:' : 'Preview:'}{' '}
+              <span className="font-mono text-primary">
+                {current.cmdb_id_prefix || 'DEV'}-{'1'.padStart(current.cmdb_id_digits || 4, '0')}
+              </span>
+            </div>
+            <div className="mt-4">
+              <Button onClick={saveCmdb} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* ── DATABASE ──────────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {lang === 'de' ? 'Datenbank' : 'Database'}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">
+              {lang === 'de' ? 'Datenbankverbindung' : 'Database Connection'}
+            </h2>
+            <p className="text-sm text-text-subtle mb-3">
+              {lang === 'de'
+                ? 'Standardmäßig verwendet LanLens SQLite. Für produktive Umgebungen kann MariaDB/MySQL über die Umgebungsvariable DATABASE_URL konfiguriert werden.'
+                : 'LanLens uses SQLite by default. For production environments, MariaDB/MySQL can be configured via the DATABASE_URL environment variable.'}
+            </p>
+            <div className="bg-surface2 rounded-lg border border-border p-3 space-y-2 text-xs font-mono">
+              <p className="text-text-subtle"># docker-compose.yml environment:</p>
+              <p className="text-success">DATABASE_URL=mysql+pymysql://user:pass@mariadb:3306/lanlens</p>
+            </div>
+            <p className="text-xs text-text-subtle mt-3">
+              {lang === 'de'
+                ? 'Zusätzlich benötigtes Python-Paket: PyMySQL. Siehe Dokumentation für die vollständige MariaDB-Anleitung.'
+                : 'Additional Python package required: PyMySQL. See documentation for the full MariaDB setup guide.'}
+            </p>
           </Card>
         </div>
       </div>

@@ -1,8 +1,11 @@
 import ipaddress
 import json
+import logging
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -118,6 +121,7 @@ def _device_to_response(
         last_seen=device.last_seen,
         hardware_summary=(hardware_summaries or {}).get(device.id),
         host_label=(host_labels or {}).get(device.id),
+        cmdb_id=device.cmdb_id,
         latest_scan=_latest_scan_response(device),
         services=[ServiceResponse.model_validate(s) for s in device.services],
     )
@@ -208,10 +212,10 @@ def list_devices(
             if mem_raw:
                 for line in str(mem_raw).splitlines():
                     if line.lower().startswith("mem:"):
-                        total = line.split()[1]
+                        mem_total = line.split()[1]
                         # Convert Gi/Mi to GB/MB for clarity
-                        total = total.replace("Gi", " GB").replace("Mi", " MB").replace("Gib", " GB")
-                        parts.append(f"{total} RAM")
+                        mem_total = mem_total.replace("Gi", " GB").replace("Mi", " MB").replace("Gib", " GB")
+                        parts.append(f"{mem_total} RAM")
                         break
             # Fallback to model
             if not parts:
@@ -376,6 +380,15 @@ def update_device(
             Notification.is_read == False,
         ).update({"is_read": True})
 
+    # Auto-generate CMDB ID when device is first registered and has no ID yet
+    if registering_now and not device.cmdb_id:
+        try:
+            from ..services.cmdb import generate_cmdb_id, get_cmdb_settings
+            prefix, digits = get_cmdb_settings(db)
+            device.cmdb_id = generate_cmdb_id(db, prefix, digits)
+        except Exception as exc:
+            logger.warning("CMDB ID generation failed: %s", exc)
+
     db.commit()
     db.refresh(device)
     dhcp_range = _get_dhcp_range(db)
@@ -418,6 +431,26 @@ def delete_device(
     db.delete(device)
     db.commit()
     return MessageResponse(message="Device deleted")
+
+
+@router.post("/{device_id}/generate-cmdb-id", response_model=DeviceResponse)
+def regenerate_cmdb_id(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate or regenerate a CMDB ID for this device."""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    from ..services.cmdb import generate_cmdb_id, get_cmdb_settings
+    prefix, digits = get_cmdb_settings(db)
+    device.cmdb_id = generate_cmdb_id(db, prefix, digits)
+    db.commit()
+    db.refresh(device)
+    dhcp_range = _get_dhcp_range(db)
+    viewed_device_ids = _get_viewed_device_ids(db, current_user)
+    return _device_to_response(device, dhcp_range, viewed_device_ids)
 
 
 @router.post("/{device_id}/scan-ports", response_model=MessageResponse)

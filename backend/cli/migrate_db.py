@@ -9,23 +9,49 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 os.environ.setdefault("SECRET_KEY", "init-placeholder-32chars-do-not-use")
 
-from sqlalchemy import text
+from sqlalchemy import text, inspect as sa_inspect
 from backend.database import engine
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
-    result = conn.execute(text(f"PRAGMA table_info({table})"))
-    return any(row[1] == column for row in result)
+    """Check if column exists — works for SQLite and MariaDB/MySQL."""
+    try:
+        inspector = sa_inspect(engine)
+        cols = [c["name"] for c in inspector.get_columns(table)]
+        return column in cols
+    except Exception:
+        # Fallback to SQLite PRAGMA
+        try:
+            result = conn.execute(text(f"PRAGMA table_info({table})"))
+            return any(row[1] == column for row in result)
+        except Exception:
+            return False
 
 
 def _table_exists(conn, table: str) -> bool:
-    result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name=:table"), {"table": table})
-    return result.first() is not None
+    """Check if table exists — works for SQLite and MariaDB/MySQL."""
+    try:
+        inspector = sa_inspect(engine)
+        return inspector.has_table(table)
+    except Exception:
+        # Fallback to SQLite sqlite_master
+        try:
+            result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name=:table"), {"table": table})
+            return result.first() is not None
+        except Exception:
+            return False
 
 
 def _index_exists(conn, index: str) -> bool:
-    result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND name=:index"), {"index": index})
-    return result.first() is not None
+    """Check if index exists — SQLite only (skipped for other DBs)."""
+    from backend.database import IS_SQLITE as _IS_SQLITE
+    if not _IS_SQLITE:
+        return True  # Skip index creation for non-SQLite (handled by SQLAlchemy)
+    try:
+        result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND name=:index"), {"index": index})
+        return result.first() is not None
+    except Exception:
+        return False
 
 
 def _has_unique_device_views_constraint(conn) -> bool:
@@ -201,6 +227,30 @@ def migrate():
             print("Migration: created auto_scan_rules")
         else:
             print("Migration: auto_scan_rules already exists — skipped")
+
+        # ── v1.4.2 ── SSH key auth support for credentials ───────────────────
+        if not _column_exists(conn, "credentials", "auth_method"):
+            conn.execute(text(
+                "ALTER TABLE credentials ADD COLUMN auth_method VARCHAR(16) NOT NULL DEFAULT 'password'"
+            ))
+            conn.commit()
+            print("Migration: added credentials.auth_method")
+        else:
+            print("Migration: credentials.auth_method already exists — skipped")
+
+        # ── v1.5.0 ── CMDB ID per device ─────────────────────────────────────
+        if not _column_exists(conn, "devices", "cmdb_id"):
+            conn.execute(text("ALTER TABLE devices ADD COLUMN cmdb_id VARCHAR(64)"))
+            conn.commit()
+            print("Migration: added devices.cmdb_id")
+            # Add unique index (SQLite only — other DBs handle via SQLAlchemy)
+            try:
+                conn.execute(text("CREATE UNIQUE INDEX ix_devices_cmdb_id ON devices(cmdb_id)"))
+                conn.commit()
+            except Exception:
+                pass  # Index may already exist or not supported
+        else:
+            print("Migration: devices.cmdb_id already exists — skipped")
 
         conn.commit()
 

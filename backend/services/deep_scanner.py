@@ -251,17 +251,31 @@ def _run_linux_scan(
     profile = run.profile
     commands = LINUX_PROFILE_COMMANDS.get(profile, LINUX_PROFILE_COMMANDS["os_services"])
 
+    auth_method = getattr(credential, "auth_method", "password") or "password"
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(
-            hostname=ip,
-            username=credential.username,
-            password=secret,
-            timeout=15,
-            allow_agent=False,
-            look_for_keys=False,
-        )
+        if auth_method == "key":
+            pkey = _load_ssh_private_key(secret)
+            if pkey is None:
+                raise ValueError("Could not parse SSH private key stored in credential.")
+            client.connect(
+                hostname=ip,
+                username=credential.username,
+                pkey=pkey,
+                timeout=15,
+                allow_agent=False,
+                look_for_keys=False,
+            )
+        else:
+            client.connect(
+                hostname=ip,
+                username=credential.username,
+                password=secret,
+                timeout=15,
+                allow_agent=False,
+                look_for_keys=False,
+            )
 
         finding_count = 0
         guest_list: List[Dict[str, Any]] = []
@@ -512,6 +526,23 @@ def _run_windows_scan(
         run.finished_at = datetime.utcnow()
         db.commit()
         raise
+
+
+# ── SSH helpers ───────────────────────────────────────────────────────────────
+
+def _load_ssh_private_key(key_text: str):
+    """Try to load an SSH private key from PEM string. Tries RSA, Ed25519, ECDSA, DSS."""
+    try:
+        import paramiko  # type: ignore
+        import io
+        for cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
+            try:
+                return cls.from_private_key(io.StringIO(key_text))
+            except Exception:
+                continue
+    except ImportError:
+        pass
+    return None
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────

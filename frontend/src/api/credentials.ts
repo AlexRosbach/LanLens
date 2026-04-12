@@ -1,11 +1,13 @@
 import apiClient from './client'
 
 export type CredentialType = 'linux_ssh' | 'windows_winrm'
+export type AuthMethod = 'password' | 'key'
 
 export interface Credential {
   id: number
   name: string
   credential_type: CredentialType
+  auth_method: AuthMethod
   username: string
   description: string | null
   created_at: string
@@ -15,6 +17,7 @@ export interface Credential {
 export interface CredentialCreate {
   name: string
   credential_type: CredentialType
+  auth_method?: AuthMethod
   username: string
   secret: string
   description?: string
@@ -23,6 +26,7 @@ export interface CredentialCreate {
 export interface CredentialUpdate {
   name?: string
   credential_type?: CredentialType
+  auth_method?: AuthMethod
   username?: string
   secret?: string
   description?: string

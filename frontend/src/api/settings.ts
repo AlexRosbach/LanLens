@@ -23,6 +23,8 @@ export interface AllSettings {
   smtp_to_email: string
   smtp_enabled: boolean
   smtp_use_tls: boolean
+  cmdb_id_prefix: string
+  cmdb_id_digits: number
 }
 
 export interface UpdateCheckResponse {
@@ -76,4 +78,7 @@ export const settingsApi = {
   }) => apiClient.put('/settings/smtp', data).then((r) => r.data),
 
   testSmtp: () => apiClient.post('/settings/smtp/test').then((r) => r.data),
+
+  updateCmdb: (prefix: string, digits: number) =>
+    apiClient.put('/settings/cmdb', null, { params: { prefix, digits } }).then((r) => r.data),
 }

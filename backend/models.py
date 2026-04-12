@@ -51,6 +51,7 @@ class Device(Base):
 
     # ── Discovery state ────────────────────────────────────────────────────────
     is_registered = Column(Boolean, default=False)
+    cmdb_id = Column(String(64), nullable=True, unique=True, index=True)
     is_online = Column(Boolean, default=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)
@@ -199,6 +200,7 @@ class Credential(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(128), nullable=False)
     credential_type = Column(String(32), nullable=False)   # linux_ssh / windows_winrm
+    auth_method = Column(String(16), default="password", nullable=False)  # password / key
     username = Column(String(128), nullable=False)
     encrypted_secret = Column(Text, nullable=False)         # Fernet token, never plaintext
     description = Column(Text, nullable=True)

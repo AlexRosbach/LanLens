@@ -111,6 +111,7 @@ class DeviceUpdate(BaseModel):
     device_class: Optional[str] = None
     is_registered: Optional[bool] = None
     segment_id: Optional[int] = None
+    cmdb_id: Optional[str] = None
     # Documentation
     purpose: Optional[str] = None
     description: Optional[str] = None
@@ -176,6 +177,8 @@ class DeviceResponse(BaseModel):
     hardware_summary: Optional[str] = None
     # VM host label (populated for VM-class devices)
     host_label: Optional[str] = None
+    # CMDB
+    cmdb_id: Optional[str] = None
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
@@ -272,6 +275,8 @@ class AllSettings(BaseModel):
     smtp_to_email: str = ""
     smtp_enabled: bool = False
     smtp_use_tls: bool = True
+    cmdb_id_prefix: str = "DEV"
+    cmdb_id_digits: int = 4
 
 
 class SmtpSettings(BaseModel):
@@ -353,6 +358,7 @@ CREDENTIAL_TYPES = ["linux_ssh", "windows_winrm"]
 class CredentialCreate(BaseModel):
     name: str
     credential_type: str          # linux_ssh / windows_winrm
+    auth_method: str = "password"  # password / key
     username: str
     secret: str
     description: Optional[str] = None
@@ -361,6 +367,7 @@ class CredentialCreate(BaseModel):
 class CredentialUpdate(BaseModel):
     name: Optional[str] = None
     credential_type: Optional[str] = None
+    auth_method: Optional[str] = None  # password / key
     username: Optional[str] = None
     secret: Optional[str] = None  # only re-encrypted when provided and non-empty
     description: Optional[str] = None
@@ -370,6 +377,7 @@ class CredentialResponse(BaseModel):
     id: int
     name: str
     credential_type: str
+    auth_method: str
     username: str
     description: Optional[str]
     created_at: datetime

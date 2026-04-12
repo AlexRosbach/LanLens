@@ -28,6 +28,7 @@ interface EditState {
   osInfo: string
   assetTag: string
   notes: string
+  cmdbId: string
 }
 
 function toEditState(d: Device): EditState {
@@ -43,6 +44,7 @@ function toEditState(d: Device): EditState {
     osInfo: d.os_info ?? '',
     assetTag: d.asset_tag ?? '',
     notes: d.notes ?? '',
+    cmdbId: d.cmdb_id ?? '',
   }
 }
 
@@ -113,6 +115,7 @@ export default function DeviceDetail() {
         os_info: form.osInfo.trim() || undefined,
         asset_tag: form.assetTag.trim() || undefined,
         notes: form.notes.trim() || undefined,
+        cmdb_id: form.cmdbId.trim() || undefined,
         is_registered: true,
       })
       setDevice(updated)
@@ -218,6 +221,33 @@ export default function DeviceDetail() {
             <div className="grid grid-cols-2 gap-3">
               <Input label={t('label')} placeholder="e.g. Proxmox Host" {...field('label')} />
               <Input label={t('asset_tag')} placeholder="e.g. SRV-001" {...field('assetTag')} />
+              <div className="col-span-2 flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-text-muted mb-1">CMDB ID</label>
+                  <Input
+                    value={form.cmdbId}
+                    onChange={(e) => setForm((f) => f ? { ...f, cmdbId: e.target.value } : f)}
+                    placeholder="DEV-0001"
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    if (!device) return
+                    try {
+                      const updated = await devicesApi.generateCmdbId(device.id)
+                      setDevice(updated)
+                      setForm(toEditState(updated))
+                      toast.success(`CMDB ID: ${updated.cmdb_id}`)
+                    } catch {
+                      toast.error('Failed to generate CMDB ID')
+                    }
+                  }}
+                >
+                  {lang === 'de' ? 'Generieren' : 'Generate'}
+                </Button>
+              </div>
             </div>
 
             <div className="flex flex-col gap-1">
@@ -293,6 +323,12 @@ export default function DeviceDetail() {
               <InfoRow label={t('vendor')} value={device.vendor} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />
               <InfoRow label={t('os_info')} value={device.os_info} />
+              {device.cmdb_id && (
+                <div>
+                  <p className="text-text-subtle text-xs mb-0.5">CMDB ID</p>
+                  <p className="text-text-muted text-xs font-mono font-semibold text-primary">{device.cmdb_id}</p>
+                </div>
+              )}
               <div>
                 <p className="text-text-subtle text-xs mb-0.5">{t('first_seen')}</p>
                 <p className="text-text-muted text-xs">{formatDateTime(device.first_seen)}</p>

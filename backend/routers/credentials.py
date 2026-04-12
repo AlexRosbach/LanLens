@@ -29,6 +29,7 @@ def _to_response(cred: Credential) -> CredentialResponse:
         id=cred.id,
         name=cred.name,
         credential_type=cred.credential_type,
+        auth_method=getattr(cred, "auth_method", "password") or "password",
         username=cred.username,
         description=cred.description,
         created_at=cred.created_at,
@@ -64,6 +65,7 @@ def create_credential(
     cred = Credential(
         name=data.name,
         credential_type=data.credential_type,
+        auth_method=data.auth_method or "password",
         username=data.username,
         encrypted_secret=encrypt_secret(data.secret),
         description=data.description,
@@ -107,6 +109,8 @@ def update_credential(
         cred.name = data.name
     if data.credential_type is not None:
         cred.credential_type = data.credential_type
+    if data.auth_method is not None:
+        cred.auth_method = data.auth_method
     if data.username is not None:
         cred.username = data.username
     if data.description is not None:
@@ -165,9 +169,10 @@ async def test_credential(
     if not target_ip:
         raise HTTPException(status_code=400, detail="target_ip must not be empty")
 
+    auth_method = getattr(cred, "auth_method", "password") or "password"
     if cred.credential_type == "linux_ssh":
         result = await asyncio.get_event_loop().run_in_executor(
-            None, _test_ssh, target_ip, cred.username, secret
+            None, _test_ssh, target_ip, cred.username, secret, auth_method
         )
     elif cred.credential_type == "windows_winrm":
         result = await asyncio.get_event_loop().run_in_executor(
@@ -181,7 +186,22 @@ async def test_credential(
     return result
 
 
-def _test_ssh(ip: str, username: str, secret: str) -> CredentialTestResponse:
+def _load_private_key(key_text: str):
+    """Try to load an SSH private key from PEM string. Returns paramiko PKey or None."""
+    try:
+        import paramiko  # type: ignore
+        import io
+        for cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
+            try:
+                return cls.from_private_key(io.StringIO(key_text))
+            except Exception:
+                continue
+    except ImportError:
+        pass
+    return None
+
+
+def _test_ssh(ip: str, username: str, secret: str, auth_method: str = "password") -> CredentialTestResponse:
     try:
         import paramiko  # type: ignore
     except ImportError:
@@ -193,14 +213,27 @@ def _test_ssh(ip: str, username: str, secret: str) -> CredentialTestResponse:
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     start = time.monotonic()
     try:
-        client.connect(
-            hostname=ip,
-            username=username,
-            password=secret,
-            timeout=10,
-            allow_agent=False,
-            look_for_keys=False,
-        )
+        if auth_method == "key":
+            pkey = _load_private_key(secret)
+            if pkey is None:
+                return CredentialTestResponse(success=False, message="Could not parse SSH private key. Ensure it is a valid PEM-format key.")
+            client.connect(
+                hostname=ip,
+                username=username,
+                pkey=pkey,
+                timeout=10,
+                allow_agent=False,
+                look_for_keys=False,
+            )
+        else:
+            client.connect(
+                hostname=ip,
+                username=username,
+                password=secret,
+                timeout=10,
+                allow_agent=False,
+                look_for_keys=False,
+            )
         _, stdout, _ = client.exec_command("echo ok", timeout=5)
         stdout.read()
         latency_ms = round((time.monotonic() - start) * 1000, 1)
