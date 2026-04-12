@@ -154,6 +154,18 @@ const translations = {
     auto_scan_rule_add: 'Add Rule',
     auto_scan_rule_edit: 'Edit Rule',
     auto_scan_no_rules: 'No auto-scan rules configured yet.',
+    // ── VM host section ────────────────────────────────────────────────────────
+    vm_host_section_title: 'Runs on Host',
+    vm_host_select: 'Assign to host',
+    vm_host_select_placeholder: 'Select a host device…',
+    vm_host_link: 'Link',
+    vm_host_unlink: 'Unlink',
+    vm_host_linked: 'Host linked',
+    vm_host_unlinked: 'Host unlinked',
+    vm_host_no_hosts_available: 'No hypervisor/server devices found to link.',
+    // ── Host/Guest suggestions ─────────────────────────────────────────────────
+    host_guest_suggest_label: 'Suggestion: apply VM name as device label:',
+    host_guest_apply_label: 'Apply',
   },
   de: {
     nav_dashboard: 'Dashboard',
@@ -306,6 +318,18 @@ const translations = {
     auto_scan_rule_add: 'Regel hinzufügen',
     auto_scan_rule_edit: 'Regel bearbeiten',
     auto_scan_no_rules: 'Noch keine Auto-Scan-Regeln konfiguriert.',
+    // ── VM host section ────────────────────────────────────────────────────────
+    vm_host_section_title: 'Läuft auf Host',
+    vm_host_select: 'Host zuweisen',
+    vm_host_select_placeholder: 'Host-Gerät auswählen…',
+    vm_host_link: 'Verknüpfen',
+    vm_host_unlink: 'Verknüpfung lösen',
+    vm_host_linked: 'Host verknüpft',
+    vm_host_unlinked: 'Verknüpfung gelöst',
+    vm_host_no_hosts_available: 'Keine Hypervisor-/Server-Geräte zum Verknüpfen gefunden.',
+    // ── Host/Guest suggestions ─────────────────────────────────────────────────
+    host_guest_suggest_label: 'Vorschlag: VM-Name als Gerätebezeichnung übernehmen:',
+    host_guest_apply_label: 'Übernehmen',
   },
 } as const
 

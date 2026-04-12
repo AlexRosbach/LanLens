@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { Device, devicesApi } from '../api/devices'
 import { Segment, segmentsApi } from '../api/segments'
 import ConnectButtons from '../components/devices/ConnectButtons'
-import DeviceClassIcon, { DEVICE_CLASSES } from '../components/devices/DeviceClassIcon'
+import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
 import DeepScanPanel from '../components/deep-scan/DeepScanPanel'
 import VmHostSection from '../components/deep-scan/VmHostSection'
@@ -14,7 +14,6 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
-import { isVmClass } from '../components/devices/DeviceClassIcon'
 import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
 
 interface EditState {
@@ -344,6 +343,14 @@ export default function DeviceDetail() {
           onChange={(services) => setDevice({ ...device, services })}
         />
       </Card>
+
+      {/* Host assignment (only for VM device classes) */}
+      {isVmClass(device.device_class) && (
+        <Card>
+          <h2 className="text-sm font-semibold text-text-muted mb-3">{t('vm_host_section_title')}</h2>
+          <VmHostSection deviceId={device.id} />
+        </Card>
+      )}
 
       {/* Deep Scan */}
       <Card>
