@@ -43,6 +43,8 @@ export interface Device {
   is_online: boolean
   first_seen: string
   last_seen: string
+  // Deep scan summary
+  hardware_summary?: string | null
   // Relations
   latest_scan: PortScanResult | null
   services: Service[]

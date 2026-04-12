@@ -207,6 +207,7 @@ class Credential(Base):
 
     deep_scan_configs = relationship("DeviceDeepScanConfig", back_populates="credential")
     deep_scan_runs = relationship("DeepScanRun", back_populates="credential")
+    auto_scan_rules = relationship("AutoScanRule", back_populates="credential", cascade="all, delete-orphan")
 
 
 class DeviceDeepScanConfig(Base):
@@ -260,6 +261,23 @@ class DeepScanFinding(Base):
 
     device = relationship("Device", back_populates="deep_scan_findings")
     run = relationship("DeepScanRun", back_populates="findings")
+
+
+class AutoScanRule(Base):
+    """Global rule: auto-scan all devices of a given class with a specific credential/profile."""
+    __tablename__ = "auto_scan_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    device_class = Column(String(64), nullable=True)        # None = all classes
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="CASCADE"), nullable=False)
+    scan_profile = Column(String(64), default="os_services", nullable=False)
+    interval_minutes = Column(Integer, default=720, nullable=False)  # default 12 h
+    enabled = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    credential = relationship("Credential", back_populates="auto_scan_rules")
 
 
 class DeviceHostRelationship(Base):

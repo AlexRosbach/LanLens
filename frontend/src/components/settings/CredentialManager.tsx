@@ -7,7 +7,11 @@ import Badge from '../ui/Badge'
 import CredentialModal from './CredentialModal'
 import Input from '../ui/Input'
 
-export default function CredentialManager() {
+interface Props {
+  onCredentialsChange?: (creds: Credential[]) => void
+}
+
+export default function CredentialManager({ onCredentialsChange }: Props = {}) {
   const { t } = useI18n()
   const [credentials, setCredentials] = useState<Credential[]>([])
   const [showModal, setShowModal] = useState(false)
@@ -16,10 +20,15 @@ export default function CredentialManager() {
   const [testingId, setTestingId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const updateCreds = (creds: Credential[]) => {
+    setCredentials(creds)
+    onCredentialsChange?.(creds)
+  }
+
   const load = async () => {
     try {
       const resp = await credentialsApi.list()
-      setCredentials(resp.data)
+      updateCreds(resp.data)
     } catch {
       toast.error('Failed to load credentials')
     } finally {
@@ -33,7 +42,7 @@ export default function CredentialManager() {
     if (!confirm(`Delete credential "${cred.name}"?`)) return
     try {
       await credentialsApi.delete(cred.id)
-      setCredentials((prev) => prev.filter((c) => c.id !== cred.id))
+      updateCreds(credentials.filter((c) => c.id !== cred.id))
       toast.success('Credential deleted')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -60,15 +69,14 @@ export default function CredentialManager() {
   }
 
   const handleSaved = (cred: Credential) => {
-    setCredentials((prev) => {
-      const idx = prev.findIndex((c) => c.id === cred.id)
+    const next = (() => {
+      const idx = credentials.findIndex((c) => c.id === cred.id)
       if (idx >= 0) {
-        const next = [...prev]
-        next[idx] = cred
-        return next
+        const arr = [...credentials]; arr[idx] = cred; return arr
       }
-      return [...prev, cred]
-    })
+      return [...credentials, cred]
+    })()
+    updateCreds(next)
     setShowModal(false)
     setEditTarget(null)
   }

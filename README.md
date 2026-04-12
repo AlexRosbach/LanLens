@@ -142,6 +142,71 @@ Configure Telegram in **Settings → Notifications**:
 
 ---
 
+## Deep Scan — Required Permissions
+
+The deep scan connects to devices via SSH (Linux) or WinRM (Windows) and runs read-only commands.
+No data is written to the target system.
+
+### Linux SSH
+
+A **dedicated, non-root user** is recommended. The user needs read access to the relevant system files and commands:
+
+```bash
+# Create a dedicated scan user on the target Linux system
+sudo useradd -m -s /bin/bash lanlens-scan
+sudo passwd lanlens-scan
+
+# Grant read-only sudo access to the required commands (add to /etc/sudoers.d/lanlens)
+cat <<'EOF' | sudo tee /etc/sudoers.d/lanlens
+lanlens-scan ALL=(ALL) NOPASSWD: /usr/bin/lscpu, /usr/bin/free, /usr/bin/lsblk, \
+  /usr/bin/systemctl, /usr/bin/docker, /usr/bin/podman, \
+  /usr/sbin/virsh, /usr/sbin/qm, /usr/sbin/pct, /usr/bin/k3s
+EOF
+```
+
+> Most commands work without `sudo` on typical server installations. If you use root access, set username to `root` and store the password in the credential vault.
+
+**Minimum requirements per profile:**
+
+| Profile | Minimum required |
+|---|---|
+| `hardware_only` | Read access to `/sys/class/dmi/id/` and `/proc` |
+| `os_services` | + `systemctl` read access |
+| `linux_container_host` | + `docker ps` / `podman ps` |
+| `hypervisor_inventory` | + `virsh list`, `qm list`, `pct list`, `qm config`, `pct config` |
+| `full` | All of the above |
+
+For **Proxmox** hosts, the scan user must be a member of the `kvm` group (or root):
+
+```bash
+sudo usermod -aG kvm lanlens-scan
+```
+
+### Windows WinRM
+
+WinRM (Windows Remote Management) must be enabled on the target:
+
+```powershell
+# Run as Administrator on the target Windows system
+Enable-PSRemoting -Force
+# Allow connection from the LanLens host (replace with your LanLens server IP)
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "YOUR_LANLENS_IP" -Force
+```
+
+**Recommended account:** A member of the local **Administrators** group or **Remote Management Users** group.
+For domain environments, a domain account with local admin rights on the target is sufficient.
+
+```powershell
+# Add user to Remote Management Users (less privileged than full Admin)
+Add-LocalGroupMember -Group "Remote Management Users" -Member "lanlens-scan"
+# Some WMI queries (licensing, features) require local Admin
+Add-LocalGroupMember -Group "Administrators" -Member "lanlens-scan"
+```
+
+> For the `windows_audit` profile (Windows Features, licensing, AD, DHCP), the account needs local Administrator rights on the target.
+
+---
+
 ## Updating
 
 > **⚠ Upgrading to v1.4.0**

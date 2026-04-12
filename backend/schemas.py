@@ -166,6 +166,8 @@ class DeviceResponse(BaseModel):
     is_online: bool
     first_seen: datetime
     last_seen: datetime
+    # Deep scan summary (populated when hardware finding available)
+    hardware_summary: Optional[str] = None
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
@@ -420,6 +422,41 @@ class DeviceHostRelationshipResponse(BaseModel):
     vm_identifier: Optional[str]
     observed_at: datetime
     last_confirmed_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Auto-scan rules ───────────────────────────────────────────────────────────
+
+class AutoScanRuleCreate(BaseModel):
+    name: str
+    device_class: Optional[str] = None   # None = all device classes
+    credential_id: int
+    scan_profile: str = "os_services"
+    interval_minutes: int = 720
+    enabled: bool = True
+
+
+class AutoScanRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    device_class: Optional[str] = None
+    credential_id: Optional[int] = None
+    scan_profile: Optional[str] = None
+    interval_minutes: Optional[int] = None
+    enabled: Optional[bool] = None
+
+
+class AutoScanRuleResponse(BaseModel):
+    id: int
+    name: str
+    device_class: Optional[str]
+    credential_id: int
+    scan_profile: str
+    interval_minutes: int
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

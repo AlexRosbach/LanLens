@@ -183,6 +183,25 @@ def migrate():
         else:
             print("Migration: device_host_relationships already exists — skipped")
 
+        # ── v1.4.1 ── Auto-scan rules ─────────────────────────────────────────
+        if not _table_exists(conn, "auto_scan_rules"):
+            conn.execute(text(
+                "CREATE TABLE auto_scan_rules ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL, "
+                "device_class VARCHAR(64), "
+                "credential_id INTEGER NOT NULL REFERENCES credentials(id) ON DELETE CASCADE, "
+                "scan_profile VARCHAR(64) NOT NULL DEFAULT 'os_services', "
+                "interval_minutes INTEGER NOT NULL DEFAULT 720, "
+                "enabled INTEGER NOT NULL DEFAULT 1, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            print("Migration: created auto_scan_rules")
+        else:
+            print("Migration: auto_scan_rules already exists — skipped")
+
         conn.commit()
 
 

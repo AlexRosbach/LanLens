@@ -147,6 +147,13 @@ const translations = {
     port_scan_range: 'Port scan range',
     scan_single_port: 'Scan Port',
     scan_single_port_placeholder: 'Port',
+    // ── Deep Scan Settings page ────────────────────────────────────────────────
+    nav_deep_scan: 'Deep Scan',
+    deep_scan_profiles_title: 'Scan Profiles',
+    auto_scan_rules_title: 'Auto-Scan Rules',
+    auto_scan_rule_add: 'Add Rule',
+    auto_scan_rule_edit: 'Edit Rule',
+    auto_scan_no_rules: 'No auto-scan rules configured yet.',
   },
   de: {
     nav_dashboard: 'Dashboard',
@@ -292,6 +299,13 @@ const translations = {
     port_scan_range: 'Port-Scan-Bereich',
     scan_single_port: 'Port scannen',
     scan_single_port_placeholder: 'Port',
+    // ── Deep Scan Settings page ────────────────────────────────────────────────
+    nav_deep_scan: 'Deep Scan',
+    deep_scan_profiles_title: 'Scan-Profile',
+    auto_scan_rules_title: 'Auto-Scan-Regeln',
+    auto_scan_rule_add: 'Regel hinzufügen',
+    auto_scan_rule_edit: 'Regel bearbeiten',
+    auto_scan_no_rules: 'Noch keine Auto-Scan-Regeln konfiguriert.',
   },
 } as const
 

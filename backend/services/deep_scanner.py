@@ -74,6 +74,13 @@ _LINUX_HYPERVISOR = [
     ("hypervisor", "proxmox_qemu",   "qm list 2>/dev/null || true"),
     ("hypervisor", "proxmox_ct",     "pct list 2>/dev/null || true"),
     ("hypervisor", "libvirt_nets",   "virsh net-list --all 2>/dev/null || true"),
+    # Proxmox: fetch individual VM/CT configs to extract MAC addresses
+    ("hypervisor", "proxmox_qemu_configs",
+     "for vmid in $(qm list 2>/dev/null | tail -n +2 | awk '{print $1}'); do"
+     " printf 'VMID:%s\\n' \"$vmid\"; qm config \"$vmid\" 2>/dev/null; printf '---\\n'; done"),
+    ("hypervisor", "proxmox_ct_configs",
+     "for ctid in $(pct list 2>/dev/null | tail -n +2 | awk '{print $1}'); do"
+     " printf 'CTID:%s\\n' \"$ctid\"; pct config \"$ctid\" 2>/dev/null; printf '---\\n'; done"),
 ]
 
 LINUX_PROFILE_COMMANDS: Dict[str, List[Tuple[str, str, str]]] = {
@@ -316,6 +323,7 @@ def _parse_hypervisor_guests(
 
     elif key == "proxmox_qemu":
         # qm list output: VMID  Name  Status  Mem  BootDisk  PID
+        # Only collect names here; MACs come from proxmox_qemu_configs
         for line in output.splitlines()[1:]:
             parts = line.split()
             if len(parts) >= 2:
@@ -323,12 +331,79 @@ def _parse_hypervisor_guests(
                 guests.append({"name": vm_name, "mac": None, "ip": None, "source": "qm_list"})
 
     elif key == "proxmox_ct":
-        # pct list output: VMID  Status  Lock  Name
+        # pct list output: VMID  Status  [Lock]  Name
+        # When Lock column is empty, split() produces 3 parts instead of 4
         for line in output.splitlines()[1:]:
             parts = line.split()
-            if len(parts) >= 4:
-                ct_name = parts[3]
+            if len(parts) >= 2:
+                # Name is always the last token; VMID is always first
+                ct_name = parts[-1]
                 guests.append({"name": ct_name, "mac": None, "ip": None, "source": "pct_list"})
+
+    elif key == "proxmox_qemu_configs":
+        # Each block: "VMID:101\nnet0: virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,...\n---"
+        # net interface types: virtio, e1000, e1000e, vmxnet3, rtl8139
+        _NET_TYPES = ("virtio=", "e1000=", "e1000e=", "vmxnet3=", "rtl8139=")
+        for block in output.split("---"):
+            block = block.strip()
+            if not block:
+                continue
+            vmid = None
+            name = None
+            macs: List[str] = []
+            for line in block.splitlines():
+                line = line.strip()
+                if line.startswith("VMID:"):
+                    vmid = line[5:].strip()
+                elif line.startswith("name:"):
+                    name = line[5:].strip()
+                elif line.startswith("net") and ":" in line:
+                    config_part = line.split(":", 1)[1].strip()
+                    for part in config_part.split(","):
+                        part = part.strip()
+                        for prefix in _NET_TYPES:
+                            if part.startswith(prefix):
+                                mac = part[len(prefix):]
+                                if len(mac) == 17 and mac.count(":") == 5:
+                                    macs.append(mac.upper())
+                                break
+            label = name or (f"VM-{vmid}" if vmid else None)
+            if label:
+                if macs:
+                    for mac in macs:
+                        guests.append({"name": label, "mac": mac, "ip": None, "source": "qm_config"})
+                else:
+                    guests.append({"name": label, "mac": None, "ip": None, "source": "qm_config"})
+
+    elif key == "proxmox_ct_configs":
+        # Each block: "CTID:200\nnet0: name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:CC,...\n---"
+        for block in output.split("---"):
+            block = block.strip()
+            if not block:
+                continue
+            ctid = None
+            hostname = None
+            macs: List[str] = []
+            for line in block.splitlines():
+                line = line.strip()
+                if line.startswith("CTID:"):
+                    ctid = line[5:].strip()
+                elif line.startswith("hostname:"):
+                    hostname = line[9:].strip()
+                elif line.startswith("net") and "hwaddr=" in line:
+                    for part in line.split(","):
+                        part = part.strip()
+                        if part.startswith("hwaddr="):
+                            mac = part[7:]
+                            if len(mac) == 17 and mac.count(":") == 5:
+                                macs.append(mac.upper())
+            label = hostname or (f"CT-{ctid}" if ctid else None)
+            if label:
+                if macs:
+                    for mac in macs:
+                        guests.append({"name": label, "mac": mac, "ip": None, "source": "pct_config"})
+                else:
+                    guests.append({"name": label, "mac": None, "ip": None, "source": "pct_config"})
 
     return guests
 
@@ -479,8 +554,21 @@ def _reconcile_vm_guests(
 
     Matching order: MAC address (preferred) → IP address → unmatched (stored as finding only).
     Upserts DeviceHostRelationship rows for confirmed matches.
+
+    De-duplicates guest_list so that qm_config / pct_config entries (with MACs) take
+    precedence over the corresponding qm_list / pct_list entries (without MACs).
     """
     from ..models import Device as DeviceModel
+
+    # De-duplicate: prefer entries with a MAC over entries without for the same name.
+    # Build a dict keyed by (name, source_category) → keep MAC-bearing entry.
+    deduped: Dict[str, Dict[str, Any]] = {}
+    for g in guest_list:
+        key = (g.get("name") or "").lower()
+        existing = deduped.get(key)
+        if existing is None or (g.get("mac") and not existing.get("mac")):
+            deduped[key] = g
+    guest_list = list(deduped.values())
 
     all_devices = db.query(DeviceModel).filter(DeviceModel.id != host_device_id).all()
     mac_index = {d.mac_address.upper(): d for d in all_devices if d.mac_address}
@@ -529,18 +617,28 @@ def _reconcile_vm_guests(
 # ── Auto-scan poll (called by scheduler) ─────────────────────────────────────
 
 async def poll_auto_scans() -> None:
-    """Check which devices are due for an automatic deep scan and run them."""
+    """Check which devices are due for an automatic deep scan and run them.
+
+    Two sources of auto-scan triggers are checked:
+    1. Per-device configs with auto_scan_enabled=True
+    2. Global AutoScanRule rows that match devices by device_class
+    """
+    from ..models import AutoScanRule as AutoScanRuleModel
+
     db: Session = SessionLocal()
     try:
+        now = datetime.utcnow()
+
+        # ── 1. Per-device auto-scan configs ──────────────────────────────────
         configs = db.query(DeviceDeepScanConfig).filter(
             DeviceDeepScanConfig.enabled == True,
             DeviceDeepScanConfig.auto_scan_enabled == True,
             DeviceDeepScanConfig.credential_id.isnot(None),
         ).all()
 
-        now = datetime.utcnow()
+        triggered_device_ids: set = set()
+
         for config in configs:
-            # Check if a scan is already running for this device
             running = db.query(DeepScanRun).filter(
                 DeepScanRun.device_id == config.device_id,
                 DeepScanRun.status == "running",
@@ -548,14 +646,77 @@ async def poll_auto_scans() -> None:
             if running:
                 continue
 
-            # Check if interval has elapsed
             if config.last_scan_at:
-                elapsed_minutes = (now - config.last_scan_at).total_seconds() / 60
-                if elapsed_minutes < config.interval_minutes:
+                elapsed = (now - config.last_scan_at).total_seconds() / 60
+                if elapsed < config.interval_minutes:
                     continue
 
-            logger.info("deep_scan: auto-scan triggered for device %s", config.device_id)
+            logger.info("deep_scan: per-device auto-scan triggered for device %s", config.device_id)
             asyncio.create_task(run_deep_scan(config.device_id, triggered_by="scheduled"))
+            triggered_device_ids.add(config.device_id)
+
+        # ── 2. Global auto-scan rules ─────────────────────────────────────────
+        rules = db.query(AutoScanRuleModel).filter(AutoScanRuleModel.enabled == True).all()
+        if rules:
+            from ..models import Device as DeviceModel
+
+            all_devices = db.query(DeviceModel).all()
+            for rule in rules:
+                matching = [
+                    d for d in all_devices
+                    if rule.device_class is None or d.device_class == rule.device_class
+                ]
+                for device in matching:
+                    if device.id in triggered_device_ids:
+                        continue  # already scheduled via per-device config
+
+                    running = db.query(DeepScanRun).filter(
+                        DeepScanRun.device_id == device.id,
+                        DeepScanRun.status == "running",
+                    ).first()
+                    if running:
+                        continue
+
+                    # Find the last completed scan for this device
+                    last_run = db.query(DeepScanRun).filter(
+                        DeepScanRun.device_id == device.id,
+                        DeepScanRun.status == "done",
+                    ).order_by(DeepScanRun.started_at.desc()).first()
+
+                    if last_run:
+                        elapsed = (now - last_run.started_at).total_seconds() / 60
+                        if elapsed < rule.interval_minutes:
+                            continue
+
+                    # Temporarily override device config for this rule-triggered scan
+                    config = db.query(DeviceDeepScanConfig).filter(
+                        DeviceDeepScanConfig.device_id == device.id
+                    ).first()
+                    if config is None:
+                        config = DeviceDeepScanConfig(
+                            device_id=device.id,
+                            enabled=True,
+                            credential_id=rule.credential_id,
+                            scan_profile=rule.scan_profile,
+                            auto_scan_enabled=False,
+                            interval_minutes=rule.interval_minutes,
+                        )
+                        db.add(config)
+                        db.flush()
+                    elif not config.credential_id:
+                        config.credential_id = rule.credential_id
+                        config.scan_profile = rule.scan_profile
+                        config.enabled = True
+                        db.flush()
+
+                    logger.info(
+                        "deep_scan: rule '%s' triggered auto-scan for device %s",
+                        rule.name, device.id
+                    )
+                    asyncio.create_task(run_deep_scan(device.id, triggered_by="rule"))
+                    triggered_device_ids.add(device.id)
+
+        db.commit()
 
     except Exception:
         logger.exception("deep_scan: auto-scan poll failed")

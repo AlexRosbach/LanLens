@@ -2,6 +2,18 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.4.1 — Deep Scan improvements & auto-scan rules
+
+- Fixed Proxmox VM/CT detection: deep scanner now fetches individual VM configs via `qm config <VMID>` and `pct config <CTID>` to extract MAC addresses, enabling VM-to-device matching in the dashboard.
+- Fixed Proxmox LXC container name parsing (`pct list` with empty Lock column).
+- Added de-duplication of hypervisor guest list so `qm_config` (with MAC) takes precedence over `qm_list` (name only).
+- Added **Auto-Scan Rules** page (new nav item "Deep Scan"): define global rules to auto-scan all devices of a given class with a specific credential and profile on a configurable interval.
+- Added **Deep Scan Settings** as a dedicated navigation page with: Credential Vault, Scan Profile descriptions, and Auto-Scan Rules management.
+- Improved **Deep Scan findings display**: key-value blocks (lscpu, os-release) parsed into structured tables, column-aligned tables (lsblk, virsh list) rendered as proper HTML tables, long outputs collapsible with "Show all N lines".
+- Added **hardware model summary** in device list: shows the scanned hardware model below the MAC address for devices where a deep scan has been performed.
+- Added **README section** documenting required Linux and Windows user permissions for deep scan.
+- Bumped frontend version to 1.4.0.
+
 ## v1.4.0 — Deep Scan
 
 - Added encrypted credential vault (Fernet, key derived from `SECRET_KEY`) for storing SSH and WinRM credentials. Secrets are never returned in plaintext via the API.

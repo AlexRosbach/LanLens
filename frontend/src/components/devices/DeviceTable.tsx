@@ -149,7 +149,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                         <p className="text-xs text-text-subtle font-mono truncate">
                           {formatMac(device.mac_address)}
                         </p>
@@ -166,6 +166,11 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                           </span>
                         )}
                       </div>
+                      {device.hardware_summary && (
+                        <p className="text-xs text-text-subtle truncate mt-0.5 max-w-[200px]">
+                          {device.hardware_summary}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </td>

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import Device, DeviceView, Notification, PortScan, Setting, User
+from ..models import DeepScanFinding, Device, DeviceView, Notification, PortScan, Setting, User
 from ..schemas import (
     DeviceListResponse,
     DeviceResponse,
@@ -78,7 +78,12 @@ def _get_viewed_device_ids(db: Session, current_user: User) -> Set[int]:
     }
 
 
-def _device_to_response(device: Device, dhcp_range=None, viewed_device_ids: Optional[Set[int]] = None) -> DeviceResponse:
+def _device_to_response(
+    device: Device,
+    dhcp_range=None,
+    viewed_device_ids: Optional[Set[int]] = None,
+    hardware_summaries: Optional[dict] = None,
+) -> DeviceResponse:
     from ..schemas import ServiceResponse
 
     if viewed_device_ids is None:
@@ -110,6 +115,7 @@ def _device_to_response(device: Device, dhcp_range=None, viewed_device_ids: Opti
         is_online=device.is_online,
         first_seen=device.first_seen,
         last_seen=device.last_seen,
+        hardware_summary=(hardware_summaries or {}).get(device.id),
         latest_scan=_latest_scan_response(device),
         services=[ServiceResponse.model_validate(s) for s in device.services],
     )
@@ -155,8 +161,31 @@ def list_devices(
     unregistered = db.query(Device).filter(Device.is_registered == False).count()
     dhcp_range = _get_dhcp_range(db)
 
+    # Batch-fetch hardware 'model' findings for all listed devices (one query)
+    hardware_summaries: dict = {}
+    if all_devices:
+        device_id_list = [d.id for d in all_devices]
+        rows = (
+            db.query(DeepScanFinding.device_id, DeepScanFinding.value_json)
+            .filter(
+                DeepScanFinding.device_id.in_(device_id_list),
+                DeepScanFinding.finding_type == "hardware",
+                DeepScanFinding.key == "model",
+            )
+            .order_by(DeepScanFinding.device_id, DeepScanFinding.observed_at.desc())
+            .all()
+        )
+        for device_id, value_json in rows:
+            if device_id not in hardware_summaries and value_json:
+                try:
+                    val = json.loads(value_json)
+                    if val:
+                        hardware_summaries[device_id] = str(val).strip()[:80]
+                except Exception:
+                    pass
+
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range, viewed_device_ids) for d in all_devices],
+        items=[_device_to_response(d, dhcp_range, viewed_device_ids, hardware_summaries) for d in all_devices],
         total=total,
         online=online,
         offline=total - online,
@@ -202,7 +231,26 @@ def get_device(
         raise HTTPException(status_code=404, detail="Device not found")
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
-    return _device_to_response(device, dhcp_range, viewed_device_ids)
+    # Fetch hardware summary for single device
+    hw_summary: dict = {}
+    row = (
+        db.query(DeepScanFinding.value_json)
+        .filter(
+            DeepScanFinding.device_id == device_id,
+            DeepScanFinding.finding_type == "hardware",
+            DeepScanFinding.key == "model",
+        )
+        .order_by(DeepScanFinding.observed_at.desc())
+        .first()
+    )
+    if row and row[0]:
+        try:
+            val = json.loads(row[0])
+            if val:
+                hw_summary[device_id] = str(val).strip()[:80]
+        except Exception:
+            pass
+    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)

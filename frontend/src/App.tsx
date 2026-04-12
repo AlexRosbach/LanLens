@@ -7,6 +7,7 @@ import DeviceDetail from './pages/DeviceDetail'
 import ForcePasswordChange from './pages/ForcePasswordChange'
 import Login from './pages/Login'
 import Notifications from './pages/Notifications'
+import DeepScanSettings from './pages/DeepScanSettings'
 import Segments from './pages/Segments'
 import Settings from './pages/Settings'
 import { useAuthStore } from './store/authStore'
@@ -94,6 +95,7 @@ export default function App() {
               <Route path="devices/:id" element={<DeviceDetail />} />
               <Route path="segments" element={<Segments />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="deep-scan-settings" element={<DeepScanSettings />} />
               <Route path="notifications" element={<Notifications />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
