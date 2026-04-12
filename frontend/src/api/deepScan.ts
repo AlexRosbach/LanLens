@@ -86,4 +86,13 @@ export const deepScanApi = {
 
   getRelationships: (deviceId: number) =>
     apiClient.get<DeviceHostRelationship[]>(`/devices/${deviceId}/deep-scan/relationships`),
+
+  createRelationship: (guestDeviceId: number, hostDeviceId: number, vmIdentifier?: string) =>
+    apiClient.post<DeviceHostRelationship>(`/devices/${guestDeviceId}/deep-scan/relationships`, {
+      host_device_id: hostDeviceId,
+      vm_identifier: vmIdentifier ?? null,
+    }),
+
+  deleteRelationship: (deviceId: number, relId: number) =>
+    apiClient.delete(`/devices/${deviceId}/deep-scan/relationships/${relId}`),
 }

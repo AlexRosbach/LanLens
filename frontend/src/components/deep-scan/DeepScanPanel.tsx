@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { formatDistanceToNow } from 'date-fns'
 import { credentialsApi, type Credential } from '../../api/credentials'
 import {
   deepScanApi,
@@ -10,6 +9,7 @@ import {
   type DeviceHostRelationship,
 } from '../../api/deepScan'
 import { useI18n } from '../../i18n'
+import { formatRelativeTime } from '../../utils/formatters'
 import Button from '../ui/Button'
 import Badge from '../ui/Badge'
 import DeepScanConfigForm from './DeepScanConfigForm'
@@ -45,7 +45,7 @@ interface Props {
 }
 
 export default function DeepScanPanel({ deviceId }: Props) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
 
   const [config, setConfig] = useState<DeepScanConfig | null>(null)
   const [latestRun, setLatestRun] = useState<DeepScanRun | null>(null)
@@ -135,7 +135,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
           {latestRun && (
             <span className="text-xs text-text-subtle">
               {t('deep_scan_last_scan')}{' '}
-              {formatDistanceToNow(new Date(latestRun.started_at), { addSuffix: true })}
+              {formatRelativeTime(latestRun.started_at, lang)}
             </span>
           )}
           {!latestRun && (
@@ -202,7 +202,12 @@ export default function DeepScanPanel({ deviceId }: Props) {
 
           <div className="min-h-[100px]">
             {activeTab === 'host_guest' ? (
-              <HostGuestPanel deviceId={deviceId} relationships={relationships} />
+              <HostGuestPanel
+                deviceId={deviceId}
+                relationships={relationships}
+                onRelationshipDeleted={load}
+                onSuggestionApplied={load}
+              />
             ) : (
               <FindingsGrid findings={findingsByTab(activeTab)} />
             )}

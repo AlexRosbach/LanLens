@@ -22,7 +22,7 @@ function parseKvBlock(text: string): { key: string; value: string }[] | null {
   const pairs: { key: string; value: string }[] = []
   for (const line of lines) {
     const idx = line.indexOf('=')
-    if (idx < 1) return null  // not a kv block
+    if (idx < 1) return null
     const k = line.slice(0, idx).trim().replace(/_/g, ' ').toLowerCase()
     const v = line.slice(idx + 1).trim().replace(/^["']|["']$/g, '')
     pairs.push({ key: k, value: v })
@@ -34,7 +34,6 @@ function parseKvBlock(text: string): { key: string; value: string }[] | null {
 function parseTable(text: string): { headers: string[]; rows: string[][] } | null {
   const lines = text.split('\n').filter((l) => l.trim())
   if (lines.length < 2) return null
-  // Heuristic: header line contains only uppercase/short words, separator line has dashes
   const headerLine = lines[0]
   const cols = headerLine.trim().split(/\s{2,}/).filter(Boolean)
   if (cols.length < 2) return null
@@ -43,9 +42,147 @@ function parseTable(text: string): { headers: string[]; rows: string[][] } | nul
   return { headers: cols, rows }
 }
 
+// ── Compact extractors ─────────────────────────────────────────────────────────
+
+/** Extract a one-liner summary from a finding for compact mode. Returns null = hide in compact. */
+function extractCompact(finding: DeepScanFinding): string | null {
+  const raw = parseValue(finding.value)
+  const key = finding.key
+
+  // Already a short single-line → always show
+  if (!raw.includes('\n') && raw.length < 100 && raw !== '—') return raw
+
+  switch (key) {
+    case 'cpu': {
+      // lscpu: extract "Model name" line
+      const line = raw.split('\n').find((l) => /model name/i.test(l))
+      if (line) return line.split(':').slice(1).join(':').trim()
+      break
+    }
+    case 'memory': {
+      // free -h: "Mem:  total  used  free …" → show total
+      const line = raw.split('\n').find((l) => /^Mem:/i.test(l))
+      if (line) {
+        const total = line.split(/\s+/)[1]
+        return total ? `Total: ${total}` : null
+      }
+      break
+    }
+    case 'disks': {
+      // lsblk: count disks and show name+size
+      const lines = raw.split('\n').filter((l) => l.trim())
+      const diskLines = lines.slice(1) // skip header
+      if (diskLines.length > 0) {
+        const parts = diskLines.map((l) => {
+          const cols = l.trim().split(/\s+/)
+          return cols.length >= 2 ? `${cols[0]} ${cols[1]}` : cols[0]
+        })
+        return `${diskLines.length} disk${diskLines.length !== 1 ? 's' : ''}: ${parts.join(', ')}`
+      }
+      break
+    }
+    case 'release': {
+      // /etc/os-release: prefer PRETTY_NAME, fallback NAME + VERSION_ID
+      const lines = raw.split('\n')
+      const pretty = lines.find((l) => l.startsWith('PRETTY_NAME='))?.split('=').slice(1).join('=').replace(/"/g, '')
+      if (pretty) return pretty
+      const name = lines.find((l) => l.startsWith('NAME='))?.split('=').slice(1).join('=').replace(/"/g, '')
+      const ver = lines.find((l) => l.startsWith('VERSION_ID=') || l.startsWith('VERSION='))?.split('=').slice(1).join('=').replace(/"/g, '')
+      if (name && ver) return `${name} ${ver}`
+      if (name) return name
+      break
+    }
+    case 'kernel': {
+      // uname -a: first line
+      return raw.split('\n')[0].trim() || null
+    }
+    case 'uptime': {
+      return raw.split('\n')[0].trim() || null
+    }
+    case 'systemd_units': {
+      // systemctl list: count and first 8 service names
+      const lines = raw.split('\n').filter((l) => l.trim())
+      const names = lines.map((l) => l.trim().split(/\s+/)[0]).filter((n) => n && n.endsWith('.service'))
+      if (names.length > 0) {
+        const preview = names.slice(0, 8).join(', ')
+        return `${names.length} services — ${preview}${names.length > 8 ? `… +${names.length - 8}` : ''}`
+      }
+      break
+    }
+    case 'docker_containers':
+    case 'podman_containers': {
+      const lines = raw.split('\n').filter((l) => l.trim())
+      const type = key === 'docker_containers' ? 'Docker' : 'Podman'
+      if (lines.length > 0) {
+        const names: string[] = []
+        for (const line of lines) {
+          try {
+            const obj = JSON.parse(line)
+            const n = obj.Names || obj.Name || obj.names || ''
+            if (n) names.push(n)
+          } catch {
+            const col = line.trim().split(/\s+/)[0]
+            if (col) names.push(col)
+          }
+        }
+        if (names.length > 0) {
+          return `${names.length} ${type} container${names.length !== 1 ? 's' : ''}: ${names.join(', ')}`
+        }
+        return `${lines.length} ${type} containers`
+      }
+      break
+    }
+    case 'k3s_pods': {
+      const lines = raw.split('\n').filter((l) => l.trim())
+      const count = Math.max(0, lines.length - 1) // skip header
+      return `${count} pod${count !== 1 ? 's' : ''}`
+    }
+    case 'kvm_vms':
+    case 'proxmox_qemu':
+    case 'proxmox_ct':
+    case 'hyper_v_vms': {
+      const table = parseTable(raw)
+      if (table) {
+        const count = table.rows.length
+        const nameCol = table.headers.findIndex((h) => /name/i.test(h))
+        if (nameCol >= 0) {
+          const names = table.rows.map((r) => r[nameCol]).filter(Boolean)
+          return `${count} VM${count !== 1 ? 's' : ''}: ${names.join(', ')}`
+        }
+        return `${count} entries`
+      }
+      break
+    }
+    case 'computer_system':
+    case 'operating_system':
+    case 'bios': {
+      // Windows JSON objects: extract key identifying field
+      try {
+        const obj = typeof finding.value === 'object' ? finding.value as Record<string, unknown> : JSON.parse(raw)
+        if (obj) {
+          const val = obj['Caption'] || obj['Name'] || obj['Manufacturer'] || Object.values(obj)[0]
+          if (val && typeof val === 'string') return val
+        }
+      } catch { /* ignore */ }
+      break
+    }
+    case 'running_services': {
+      const lines = raw.split('\n').filter((l) => l.trim())
+      const count = Math.max(0, lines.length - 1)
+      return `${count} service${count !== 1 ? 's' : ''} running`
+    }
+    case 'windows_features': {
+      const lines = raw.split('\n').filter((l) => l.trim())
+      const count = Math.max(0, lines.length - 1)
+      return `${count} feature${count !== 1 ? 's' : ''} installed`
+    }
+  }
+  return null // hide in compact mode
+}
+
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function CollapsiblePre({ text, maxLines = 8 }: { text: string; maxLines?: number }) {
+function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: number }) {
   const [expanded, setExpanded] = useState(false)
   const lines = text.split('\n')
   const isLong = lines.length > maxLines
@@ -147,7 +284,7 @@ const KEY_LABELS: Record<string, string> = {
   dhcp_scopes: 'DHCP Scopes',
 }
 
-// ── Finding card ───────────────────────────────────────────────────────────────
+// ── Full finding card (expanded mode) ─────────────────────────────────────────
 
 function FindingCard({ finding }: { finding: DeepScanFinding }) {
   const label = KEY_LABELS[finding.key] ?? finding.key.replace(/_/g, ' ')
@@ -156,7 +293,7 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
   // Short single-line values → simple row
   if (!rawText.includes('\n') && rawText.length < 120) {
     return (
-      <div className="grid grid-cols-[minmax(160px,auto)_1fr] gap-x-4 gap-y-0 items-start py-2 border-b border-border last:border-0">
+      <div className="grid grid-cols-[minmax(160px,auto)_1fr] gap-x-4 items-start py-2 border-b border-border last:border-0">
         <span className="text-xs font-medium text-text-muted">{label}</span>
         <span className="text-xs text-text-base break-all">{rawText}</span>
       </div>
@@ -197,10 +334,25 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
   )
 }
 
+// ── Compact row ────────────────────────────────────────────────────────────────
+
+function CompactRow({ finding }: { finding: DeepScanFinding }) {
+  const label = KEY_LABELS[finding.key] ?? finding.key.replace(/_/g, ' ')
+  const compact = extractCompact(finding)
+  if (compact === null) return null
+  return (
+    <div className="grid grid-cols-[minmax(120px,auto)_1fr] gap-x-4 items-start py-1.5 border-b border-border last:border-0">
+      <span className="text-xs font-medium text-text-muted capitalize">{label}</span>
+      <span className="text-xs text-text-base break-all">{compact}</span>
+    </div>
+  )
+}
+
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export default function FindingsGrid({ findings, emptyMessage }: Props) {
   const { t } = useI18n()
+  const [expanded, setExpanded] = useState(false)
 
   if (findings.length === 0) {
     return (
@@ -210,11 +362,49 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
     )
   }
 
+  // In compact mode: only show findings that have a compact representation
+  const visibleInCompact = findings.filter((f) => extractCompact(f) !== null)
+  const hiddenCount = findings.length - visibleInCompact.length
+
   return (
-    <div className="divide-y divide-transparent">
-      {findings.map((f) => (
-        <FindingCard key={f.id} finding={f} />
-      ))}
+    <div>
+      {expanded ? (
+        // Expanded: show all findings in full detail
+        <div className="divide-y divide-transparent">
+          {findings.map((f) => (
+            <FindingCard key={f.id} finding={f} />
+          ))}
+        </div>
+      ) : (
+        // Compact: show summary rows for supported findings
+        <div>
+          {visibleInCompact.length === 0 ? (
+            <p className="text-sm text-text-subtle py-4 text-center">
+              {emptyMessage || t('deep_scan_no_findings')}
+            </p>
+          ) : (
+            <div className="divide-y divide-transparent">
+              {visibleInCompact.map((f) => (
+                <CompactRow key={f.id} finding={f} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Toggle */}
+      <div className="flex justify-end mt-3">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-xs text-text-subtle hover:text-primary transition-colors"
+        >
+          {expanded
+            ? '▲ Compact'
+            : hiddenCount > 0
+              ? `▼ Show all (${findings.length} items)`
+              : `▼ Show full details`}
+        </button>
+      </div>
     </div>
   )
 }

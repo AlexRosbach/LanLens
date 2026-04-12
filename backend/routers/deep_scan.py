@@ -22,6 +22,7 @@ from ..schemas import (
     DeepScanFindingResponse,
     DeepScanRunResponse,
     DeviceHostRelationshipResponse,
+    ManualRelationshipCreate,
     MessageResponse,
     SCAN_PROFILES,
 )
@@ -287,3 +288,79 @@ def get_relationships(
         )
         for r in rels
     ]
+
+
+@router.post("/relationships", response_model=DeviceHostRelationshipResponse, status_code=201)
+def create_manual_relationship(
+    device_id: int,
+    data: ManualRelationshipCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> DeviceHostRelationshipResponse:
+    """Manually link this device (as guest/VM) to a host device."""
+    _get_device_or_404(device_id, db)
+    host = db.query(Device).filter(Device.id == data.host_device_id).first()
+    if not host:
+        raise HTTPException(status_code=404, detail="Host device not found")
+    if data.host_device_id == device_id:
+        raise HTTPException(status_code=400, detail="A device cannot be its own host")
+
+    # Check for existing relationship
+    existing = db.query(DeviceHostRelationship).filter(
+        DeviceHostRelationship.child_device_id == device_id,
+        DeviceHostRelationship.host_device_id == data.host_device_id,
+    ).first()
+
+    from datetime import datetime as _dt
+    if existing:
+        # Update vm_identifier if provided
+        if data.vm_identifier is not None:
+            existing.vm_identifier = data.vm_identifier
+        existing.match_source = "manual"
+        existing.last_confirmed_at = _dt.utcnow()
+        db.commit()
+        db.refresh(existing)
+        rel = existing
+    else:
+        rel = DeviceHostRelationship(
+            child_device_id=device_id,
+            host_device_id=data.host_device_id,
+            relationship_type="vm_on_host",
+            match_source="manual",
+            vm_identifier=data.vm_identifier,
+        )
+        db.add(rel)
+        db.commit()
+        db.refresh(rel)
+
+    return DeviceHostRelationshipResponse(
+        id=rel.id,
+        child_device_id=rel.child_device_id,
+        host_device_id=rel.host_device_id,
+        relationship_type=rel.relationship_type,
+        match_source=rel.match_source,
+        vm_identifier=rel.vm_identifier,
+        observed_at=rel.observed_at,
+        last_confirmed_at=rel.last_confirmed_at,
+    )
+
+
+@router.delete("/relationships/{rel_id}", response_model=MessageResponse)
+def delete_relationship(
+    device_id: int,
+    rel_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> MessageResponse:
+    """Delete a host/guest relationship (manual or auto-detected)."""
+    _get_device_or_404(device_id, db)
+    rel = db.query(DeviceHostRelationship).filter(
+        DeviceHostRelationship.id == rel_id,
+        (DeviceHostRelationship.child_device_id == device_id)
+        | (DeviceHostRelationship.host_device_id == device_id),
+    ).first()
+    if not rel:
+        raise HTTPException(status_code=404, detail="Relationship not found")
+    db.delete(rel)
+    db.commit()
+    return MessageResponse(message="Relationship deleted")

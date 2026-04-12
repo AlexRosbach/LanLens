@@ -91,10 +91,16 @@ class ServiceResponse(BaseModel):
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [
-    "Server", "VM", "Workstation", "NAS",
-    "Router", "Switch", "AP", "Firewall",
-    "Mobile", "TV", "VoIP",
-    "IoT", "Printer", "Camera",
+    # Servers
+    "Server", "Linux Server", "Windows Server",
+    # Virtual machines
+    "VM", "Linux VM", "Windows VM",
+    # Workstations
+    "Workstation", "Linux Workstation", "Windows Workstation",
+    # Storage & network
+    "NAS", "Router", "Switch", "AP", "Firewall",
+    # End-user & IoT
+    "Mobile", "TV", "VoIP", "IoT", "Printer", "Camera",
     "Unknown",
 ]
 
@@ -425,6 +431,11 @@ class DeviceHostRelationshipResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ManualRelationshipCreate(BaseModel):
+    host_device_id: int
+    vm_identifier: Optional[str] = None
 
 
 # ── Auto-scan rules ───────────────────────────────────────────────────────────
