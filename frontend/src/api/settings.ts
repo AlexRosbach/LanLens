@@ -6,6 +6,7 @@ export interface AllSettings {
   scan_start: string
   scan_end: string
   scan_interval_minutes: number
+  port_scan_range: string
   telegram_bot_token: string
   telegram_chat_id: string
   telegram_enabled: boolean
@@ -48,6 +49,9 @@ export const settingsApi = {
 
   notifyUpdateAvailable: () =>
     apiClient.post('/settings/telegram/notify-update').then((r) => r.data),
+
+  updatePortScanSettings: (port_scan_range: string) =>
+    apiClient.put('/settings/port-scan', { port_scan_range }).then((r) => r.data),
 
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),

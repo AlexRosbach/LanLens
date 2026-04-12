@@ -12,6 +12,7 @@ from ..schemas import (
     AllSettings,
     DhcpSettings,
     MessageResponse,
+    PortScanSettings,
     ScanRangeSettings,
     ScanScheduleSettings,
     ServerUrlSettings,
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_interval_minutes",
+    "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
     "server_url",
@@ -98,6 +100,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         scan_start=effective_scan_start,
         scan_end=effective_scan_end,
         scan_interval_minutes=interval_minutes,
+        port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
         telegram_bot_token=_get(db, "telegram_bot_token", ""),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
@@ -165,6 +168,31 @@ def update_scan_schedule(
     db.commit()
     update_interval(data.scan_interval_minutes)
     return MessageResponse(message="Scan schedule updated")
+
+
+@router.put("/port-scan", response_model=MessageResponse)
+def update_port_scan_settings(
+    data: PortScanSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Update the global port scan range used for all device scans."""
+    spec = data.port_scan_range.strip()
+    if not spec:
+        raise HTTPException(status_code=400, detail="port_scan_range must not be empty")
+
+    # Validate format: allow "top:N", digits, commas, hyphens only
+    if not spec.startswith("top:"):
+        sanitised = "".join(c for c in spec if c.isdigit() or c in ",-")
+        if not sanitised:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid port_scan_range. Use 'top:N', a range like '1-65535', or a list like '22,80,443'.",
+            )
+
+    _set(db, "port_scan_range", spec)
+    db.commit()
+    return MessageResponse(message="Port scan settings updated")
 
 
 @router.put("/telegram", response_model=MessageResponse)

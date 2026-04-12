@@ -1,6 +1,6 @@
 """
 Per-device port scanner using nmap.
-Performs a fast SYN scan of the top 1000 ports.
+Supports configurable port ranges and single-port scans.
 Requires nmap to be installed in the container.
 """
 import json
@@ -28,21 +28,48 @@ INTERESTING_PORTS = {
 }
 
 
-def scan_ports(ip_address: str) -> Optional[Dict]:
+def _build_nmap_args(port_spec: Optional[str]) -> str:
+    """Convert a port specification to nmap scan arguments.
+
+    Supported formats:
+      - None / "" / "top:1000"  →  --top-ports 1000  (default)
+      - "top:N"                 →  --top-ports N
+      - "1-65535"               →  -p 1-65535
+      - "22,80,443"             →  -p 22,80,443
+      - "1-1024,8080,8443"      →  -p 1-1024,8080,8443
     """
-    Scan a single IP address with nmap.
+    spec = (port_spec or "").strip()
+    if not spec or spec == "top:1000":
+        return "-sS -T4 --top-ports 1000"
+    if spec.startswith("top:"):
+        try:
+            n = max(1, int(spec[4:]))
+            return f"-sS -T4 --top-ports {n}"
+        except ValueError:
+            return "-sS -T4 --top-ports 1000"
+    # Custom port range or list — basic sanitisation: only digits, commas, hyphens
+    safe = "".join(c for c in spec if c.isdigit() or c in ",-")
+    if safe:
+        return f"-sS -T4 -p {safe}"
+    return "-sS -T4 --top-ports 1000"
+
+
+def scan_ports(ip_address: str, port_spec: Optional[str] = None) -> Optional[Dict]:
+    """Scan a single IP address with nmap using the given port specification.
+
     Returns a dict with open_ports list and protocol flags, or None on error.
     """
     try:
         import nmap
 
         nm = nmap.PortScanner()
-        # -sS SYN scan (fast), -T4 aggressive timing, --top-ports 1000
-        # Falls back to -sT if no raw socket (non-root)
+        args = _build_nmap_args(port_spec)
         try:
-            nm.scan(ip_address, arguments="-sS -T4 --top-ports 1000")
+            nm.scan(ip_address, arguments=args)
         except nmap.PortScannerError:
-            nm.scan(ip_address, arguments="-sT -T4 --top-ports 1000")
+            # Fallback to TCP connect scan if SYN requires raw sockets
+            fallback = args.replace("-sS", "-sT")
+            nm.scan(ip_address, arguments=fallback)
 
         open_ports = []
         ssh_available = False
@@ -95,7 +122,20 @@ def scan_ports(ip_address: str) -> Optional[Dict]:
         return None
 
 
-async def scan_ports_async(ip_address: str) -> Optional[Dict]:
+def scan_single_port(ip_address: str, port: int) -> Optional[Dict]:
+    """Scan exactly one port on the target and return the result."""
+    if port < 1 or port > 65535:
+        return None
+    return scan_ports(ip_address, port_spec=str(port))
+
+
+async def scan_ports_async(ip_address: str, port_spec: Optional[str] = None) -> Optional[Dict]:
     """Non-blocking wrapper for scan_ports."""
     import asyncio
-    return await asyncio.get_event_loop().run_in_executor(None, scan_ports, ip_address)
+    return await asyncio.get_event_loop().run_in_executor(None, scan_ports, ip_address, port_spec)
+
+
+async def scan_single_port_async(ip_address: str, port: int) -> Optional[Dict]:
+    """Non-blocking wrapper for scan_single_port."""
+    import asyncio
+    return await asyncio.get_event_loop().run_in_executor(None, scan_single_port, ip_address, port)

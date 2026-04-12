@@ -144,6 +144,16 @@ Configure Telegram in **Settings → Notifications**:
 
 ## Updating
 
+> **⚠ Upgrading to v1.4.0**
+>
+> This release adds new database tables (credential vault, deep scan runs, findings, host/guest relationships).
+> The migration runs automatically on container start and is non-destructive — existing data is preserved.
+> **A database backup before updating is strongly recommended:**
+>
+> ```bash
+> docker cp lanlens:/data/lanlens.db ./lanlens_backup_$(date +%Y%m%d).db
+> ```
+
 ```bash
 docker compose pull
 docker compose up -d

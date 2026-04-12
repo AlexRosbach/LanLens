@@ -14,6 +14,8 @@ All notable changes to this project should be documented in this file.
 - Added Deep Scan panel in Device Detail with tabbed findings view (Hardware, OS, Services, Containers, Audit, Host/Guest).
 - Added `paramiko` (SSH) and `pywinrm` (WinRM) as new backend dependencies.
 - Database schema bumped to v1.4.0 — five new tables: `credentials`, `device_deep_scan_config`, `deep_scan_runs`, `deep_scan_findings`, `device_host_relationships`. Migration is idempotent and runs automatically on container start.
+- Added global configurable port scan range in Settings (supports `top:N`, `1-65535`, `22,80,443`, `1-1024,8080,8443`). Default remains `top:1000`.
+- Added single-port scan in Device Detail — scan one specific port number and merge result into the existing port scan record without overwriting other findings.
 
 ## v1.3.1 — Separate scan range from DHCP tagging
 

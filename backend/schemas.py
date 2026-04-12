@@ -231,12 +231,21 @@ class ServerUrlSettings(BaseModel):
     server_url: str
 
 
+class PortScanSettings(BaseModel):
+    port_scan_range: str  # e.g. "top:1000", "1-65535", "22,80,443", "1-1024,8080,8443"
+
+
+class SinglePortScanRequest(BaseModel):
+    port: int
+
+
 class AllSettings(BaseModel):
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"
     scan_start: Optional[str] = "192.168.1.1"
     scan_end: Optional[str] = "192.168.1.254"
     scan_interval_minutes: int = 5
+    port_scan_range: str = "top:1000"
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""
     telegram_enabled: bool = False

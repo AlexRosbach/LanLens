@@ -144,6 +144,9 @@ const translations = {
     save_credential: 'Save Credential',
     no_credentials: 'No credentials configured yet.',
     enabled: 'enabled',
+    port_scan_range: 'Port scan range',
+    scan_single_port: 'Scan Port',
+    scan_single_port_placeholder: 'Port',
   },
   de: {
     nav_dashboard: 'Dashboard',
@@ -286,6 +289,9 @@ const translations = {
     save_credential: 'Zugangsdaten speichern',
     no_credentials: 'Noch keine Zugangsdaten konfiguriert.',
     enabled: 'aktiviert',
+    port_scan_range: 'Port-Scan-Bereich',
+    scan_single_port: 'Port scannen',
+    scan_single_port_placeholder: 'Port',
   },
 } as const
 

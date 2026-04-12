@@ -83,6 +83,18 @@ export default function Settings() {
     }
   }
 
+  async function savePortScanSettings() {
+    setSaving(true)
+    try {
+      await settingsApi.updatePortScanSettings(current.port_scan_range)
+      toast.success(lang === 'de' ? 'Port-Scan-Einstellungen gespeichert' : 'Port scan settings saved')
+    } catch {
+      toast.error(lang === 'de' ? 'Port-Scan-Einstellungen konnten nicht gespeichert werden' : 'Failed to save port scan settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function saveServerUrl() {
     setSaving(true)
     try {
@@ -227,6 +239,28 @@ export default function Settings() {
         </div>
         <div className="mt-4">
           <Button onClick={saveSchedule} loading={saving}>{t('save_changes')}</Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Port-Scan-Bereich' : 'Port scan range'}</h2>
+        <p className="text-sm text-text-subtle mb-4">
+          {lang === 'de'
+            ? 'Legt fest, welche Ports bei einem Gerätescan geprüft werden. Beispiele: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'
+            : 'Defines which ports are checked when scanning a device. Examples: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'}
+        </p>
+        <div>
+          <label className="block text-sm text-text-subtle mb-1">
+            {lang === 'de' ? 'Port-Bereich / Liste' : 'Port range / list'}
+          </label>
+          <Input
+            value={current.port_scan_range}
+            onChange={(e) => setSettings({ ...current, port_scan_range: e.target.value })}
+            placeholder="top:1000"
+          />
+        </div>
+        <div className="mt-4">
+          <Button onClick={savePortScanSettings} loading={saving}>{t('save_changes')}</Button>
         </div>
       </Card>
 

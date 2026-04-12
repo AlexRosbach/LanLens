@@ -11,6 +11,8 @@ interface Props {
 
 export default function ConnectButtons({ device, onScanRequested }: Props) {
   const [scanning, setScanning] = useState(false)
+  const [singlePort, setSinglePort] = useState('')
+  const [singlePortScanning, setSinglePortScanning] = useState(false)
   const scan = device.latest_scan
   const ip = device.ip_address
 
@@ -18,31 +20,59 @@ export default function ConnectButtons({ device, onScanRequested }: Props) {
 
   if (!scan) {
     return (
-      <button
-        disabled={scanning}
-        onClick={async (e) => {
-          e.stopPropagation()
-          setScanning(true)
-          try {
-            await devicesApi.scanPorts(device.id)
-            toast.success('Port scan started')
-            onScanRequested?.()
-          } catch {
-            toast.error('Port scan failed')
-          } finally {
-            setScanning(false)
-          }
-        }}
-        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg
-          bg-surface2 text-text-muted hover:text-primary hover:bg-primary-dim border border-border
-          transition-colors disabled:opacity-50"
-      >
-        <svg className={`w-3.5 h-3.5 ${scanning ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        {scanning ? 'Scanning…' : 'Scan Ports'}
-      </button>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          disabled={scanning}
+          onClick={async (e) => {
+            e.stopPropagation()
+            setScanning(true)
+            try {
+              await devicesApi.scanPorts(device.id)
+              toast.success('Port scan started')
+              onScanRequested?.()
+            } catch {
+              toast.error('Port scan failed')
+            } finally {
+              setScanning(false)
+            }
+          }}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg
+            bg-surface2 text-text-muted hover:text-primary hover:bg-primary-dim border border-border
+            transition-colors disabled:opacity-50"
+        >
+          <svg className={`w-3.5 h-3.5 ${scanning ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          {scanning ? 'Scanning…' : 'Scan Ports'}
+        </button>
+
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="number"
+            min={1}
+            max={65535}
+            value={singlePort}
+            onChange={(e) => setSinglePort(e.target.value)}
+            placeholder="Port"
+            className="w-20 px-2 py-1 text-xs font-mono rounded-lg border border-border bg-surface2
+              text-text-base placeholder:text-text-subtle focus:outline-none focus:border-primary"
+          />
+          <button
+            disabled={singlePortScanning || !singlePort}
+            onClick={handleSinglePort}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg
+              bg-surface2 text-text-muted hover:text-primary hover:bg-primary-dim border border-border
+              transition-colors disabled:opacity-50"
+          >
+            <svg className={`w-3.5 h-3.5 ${singlePortScanning ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {singlePortScanning ? 'Scanning…' : 'Scan Port'}
+          </button>
+        </div>
+      </div>
     )
   }
 
@@ -59,6 +89,25 @@ export default function ConnectButtons({ device, onScanRequested }: Props) {
       toast.error('Port scan failed')
     } finally {
       setScanning(false)
+    }
+  }
+
+  async function handleSinglePort(e: React.MouseEvent) {
+    e.stopPropagation()
+    const port = parseInt(singlePort, 10)
+    if (!port || port < 1 || port > 65535) {
+      toast.error('Enter a valid port (1–65535)')
+      return
+    }
+    setSinglePortScanning(true)
+    try {
+      await devicesApi.scanSinglePort(device.id, port)
+      toast.success(`Scan for port ${port} started`)
+      onScanRequested?.()
+    } catch {
+      toast.error('Single-port scan failed')
+    } finally {
+      setSinglePortScanning(false)
     }
   }
 
@@ -111,6 +160,33 @@ export default function ConnectButtons({ device, onScanRequested }: Props) {
         </svg>
         {scanning ? 'Scanning…' : 'Rescan Ports'}
       </button>
+
+      {/* Single-port scan */}
+      <div className="flex items-center gap-1 mt-0" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="number"
+          min={1}
+          max={65535}
+          value={singlePort}
+          onChange={(e) => setSinglePort(e.target.value)}
+          placeholder="Port"
+          className="w-20 px-2 py-1 text-xs font-mono rounded-lg border border-border bg-surface2
+            text-text-base placeholder:text-text-subtle focus:outline-none focus:border-primary"
+        />
+        <button
+          disabled={singlePortScanning || !singlePort}
+          onClick={handleSinglePort}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg
+            bg-surface2 text-text-muted hover:text-primary hover:bg-primary-dim border border-border
+            transition-colors disabled:opacity-50"
+        >
+          <svg className={`w-3.5 h-3.5 ${singlePortScanning ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          {singlePortScanning ? 'Scanning…' : 'Scan Port'}
+        </button>
+      </div>
     </div>
   )
 }

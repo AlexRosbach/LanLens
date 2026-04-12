@@ -93,5 +93,8 @@ export const devicesApi = {
   getPorts: (id: number) =>
     apiClient.get<PortScanResult[]>(`/devices/${id}/ports`).then((r) => r.data),
 
+  scanSinglePort: (id: number, port: number) =>
+    apiClient.post(`/devices/${id}/scan-single-port`, { port }).then((r) => r.data),
+
   getRdpUrl: (id: number) => withBasePath(`/api/connect/${id}/rdp`),
 }

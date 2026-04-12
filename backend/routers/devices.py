@@ -16,8 +16,9 @@ from ..schemas import (
     MessageResponse,
     PortInfo,
     PortScanResponse,
+    SinglePortScanRequest,
 )
-from ..services.port_scanner import scan_ports_async
+from ..services.port_scanner import scan_ports_async, scan_single_port_async
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -289,12 +290,16 @@ async def trigger_port_scan(
     except ValueError:
         raise HTTPException(status_code=400, detail="Device has an invalid IP address")
 
-    background_tasks.add_task(_do_port_scan, device_id, device.ip_address)
+    # Read the global port scan range from settings
+    port_scan_range = db.query(Setting).filter(Setting.key == "port_scan_range").first()
+    port_spec = port_scan_range.value if port_scan_range and port_scan_range.value else "top:1000"
+
+    background_tasks.add_task(_do_port_scan, device_id, device.ip_address, port_spec)
     return MessageResponse(message="Port scan started in background")
 
 
-async def _do_port_scan(device_id: int, ip: str) -> None:
-    result = await scan_ports_async(ip)
+async def _do_port_scan(device_id: int, ip: str, port_spec: str = "top:1000") -> None:
+    result = await scan_ports_async(ip, port_spec=port_spec)
     if result is None:
         return
 
@@ -309,6 +314,87 @@ async def _do_port_scan(device_id: int, ip: str) -> None:
             https_available=result["https_available"],
         )
         db.add(scan)
+        db.commit()
+    finally:
+        db.close()
+
+
+@router.post("/{device_id}/scan-single-port", response_model=MessageResponse)
+async def trigger_single_port_scan(
+    device_id: int,
+    body: SinglePortScanRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if not device.ip_address:
+        raise HTTPException(status_code=400, detail="Device has no IP address")
+
+    try:
+        ipaddress.IPv4Address(device.ip_address)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Device has an invalid IP address")
+
+    if body.port < 1 or body.port > 65535:
+        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
+
+    background_tasks.add_task(_do_single_port_scan, device_id, device.ip_address, body.port)
+    return MessageResponse(message=f"Scan for port {body.port} started in background")
+
+
+async def _do_single_port_scan(device_id: int, ip: str, port: int) -> None:
+    """Scan a single port and merge result into the latest PortScan record (or create one)."""
+    result = await scan_single_port_async(ip, port)
+    if result is None:
+        return
+
+    db = SessionLocal()
+    try:
+        # Fetch the latest existing scan for this device
+        existing = (
+            db.query(PortScan)
+            .filter(PortScan.device_id == device_id)
+            .order_by(PortScan.scanned_at.desc())
+            .first()
+        )
+
+        if existing:
+            # Merge the new port result into the existing open_ports list
+            current_ports: list = json.loads(existing.open_ports or "[]")
+            new_ports = result["open_ports"]
+
+            # Remove any previous entry for this port and add the fresh one
+            current_ports = [p for p in current_ports if p["port"] != port]
+            current_ports.extend(new_ports)
+            current_ports.sort(key=lambda p: p["port"])
+
+            existing.open_ports = json.dumps(current_ports)
+            existing.scanned_at = __import__("datetime").datetime.utcnow()
+            # Update protocol flags
+            for p in current_ports:
+                if p["port"] == 22:
+                    existing.ssh_available = True
+                elif p["port"] == 3389:
+                    existing.rdp_available = True
+                elif p["port"] == 80:
+                    existing.http_available = True
+                elif p["port"] == 443:
+                    existing.https_available = True
+        else:
+            # No prior scan — create a new PortScan record
+            existing = PortScan(
+                device_id=device_id,
+                open_ports=json.dumps(result["open_ports"]),
+                ssh_available=result["ssh_available"],
+                rdp_available=result["rdp_available"],
+                http_available=result["http_available"],
+                https_available=result["https_available"],
+            )
+            db.add(existing)
+
         db.commit()
     finally:
         db.close()
