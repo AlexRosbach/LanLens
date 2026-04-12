@@ -64,7 +64,7 @@ function extractCompact(finding: DeepScanFinding): string | null {
       const line = raw.split('\n').find((l) => /^Mem:/i.test(l))
       if (line) {
         const total = line.split(/\s+/)[1]
-        return total ? `Total: ${total}` : null
+        return total ? `${total.replace('Gi', ' GB').replace('Mi', ' MB').replace('Gib', ' GB')}` : null
       }
       break
     }

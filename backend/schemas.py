@@ -174,6 +174,8 @@ class DeviceResponse(BaseModel):
     last_seen: datetime
     # Deep scan summary (populated when hardware finding available)
     hardware_summary: Optional[str] = None
+    # VM host label (populated for VM-class devices)
+    host_label: Optional[str] = None
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
@@ -262,6 +264,25 @@ class AllSettings(BaseModel):
     notify_on_device_online: bool = False
     notify_on_device_offline: bool = False
     server_url: Optional[str] = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_to_email: str = ""
+    smtp_enabled: bool = False
+    smtp_use_tls: bool = True
+
+
+class SmtpSettings(BaseModel):
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_to_email: str = ""
+    smtp_enabled: bool = False
+    smtp_use_tls: bool = True
 
 
 # ── Notifications ─────────────────────────────────────────────────────────────

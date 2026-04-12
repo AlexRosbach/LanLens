@@ -15,6 +15,14 @@ export interface AllSettings {
   notify_on_device_online: boolean
   notify_on_device_offline: boolean
   server_url: string
+  smtp_host: string
+  smtp_port: number
+  smtp_username: string
+  smtp_password: string
+  smtp_from_email: string
+  smtp_to_email: string
+  smtp_enabled: boolean
+  smtp_use_tls: boolean
 }
 
 export interface UpdateCheckResponse {
@@ -55,4 +63,17 @@ export const settingsApi = {
 
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),
+
+  updateSmtp: (data: {
+    smtp_host: string
+    smtp_port: number
+    smtp_username: string
+    smtp_password: string
+    smtp_from_email: string
+    smtp_to_email: string
+    smtp_enabled: boolean
+    smtp_use_tls: boolean
+  }) => apiClient.put('/settings/smtp', data).then((r) => r.data),
+
+  testSmtp: () => apiClient.post('/settings/smtp/test').then((r) => r.data),
 }

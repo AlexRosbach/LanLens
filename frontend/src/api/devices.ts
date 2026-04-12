@@ -45,6 +45,8 @@ export interface Device {
   last_seen: string
   // Deep scan summary
   hardware_summary?: string | null
+  // VM host
+  host_label?: string | null
   // Relations
   latest_scan: PortScanResult | null
   services: Service[]

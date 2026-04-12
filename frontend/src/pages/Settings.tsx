@@ -4,7 +4,6 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
-import CredentialManager from '../components/settings/CredentialManager'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { useI18n } from '../i18n'
 
@@ -116,6 +115,36 @@ export default function Settings() {
     }
   }
 
+  async function saveSmtp() {
+    setSaving(true)
+    try {
+      await settingsApi.updateSmtp({
+        smtp_host: current.smtp_host,
+        smtp_port: current.smtp_port,
+        smtp_username: current.smtp_username,
+        smtp_password: current.smtp_password,
+        smtp_from_email: current.smtp_from_email,
+        smtp_to_email: current.smtp_to_email,
+        smtp_enabled: current.smtp_enabled,
+        smtp_use_tls: current.smtp_use_tls,
+      })
+      toast.success(lang === 'de' ? 'E-Mail-Einstellungen gespeichert' : 'Email settings saved')
+    } catch {
+      toast.error(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Failed to save email settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function testSmtp() {
+    try {
+      await settingsApi.testSmtp()
+      toast.success(lang === 'de' ? 'Test-E-Mail gesendet' : 'Test email sent')
+    } catch {
+      toast.error(lang === 'de' ? 'SMTP-Test fehlgeschlagen' : 'SMTP test failed')
+    }
+  }
+
   async function checkForUpdates() {
     setCheckingUpdate(true)
     try {
@@ -141,178 +170,287 @@ export default function Settings() {
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <div className="flex items-center justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-lg font-semibold text-text-base">LanLens</h2>
-            <p className="text-sm text-text-subtle">
-              {lang === 'de' ? 'Allgemeine Instanz- und Update-Einstellungen' : 'General instance and update settings'}
+    <div className="space-y-8">
+      {/* ── SYSTEM ────────────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {lang === 'de' ? 'System' : 'System'}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">LanLens</h2>
+                <p className="text-sm text-text-subtle">
+                  {lang === 'de' ? 'Allgemeine Instanz- und Update-Einstellungen' : 'General instance and update settings'}
+                </p>
+              </div>
+              <Button onClick={checkForUpdates} loading={checkingUpdate}>
+                {lang === 'de' ? 'Jetzt auf Updates prüfen' : 'Check for updates now'}
+              </Button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Sprache' : 'Language'}</label>
+                <select
+                  className="input-field"
+                  value={lang}
+                  onChange={(e) => setLang(e.target.value as 'de' | 'en')}
+                >
+                  <option value="en">English</option>
+                  <option value="de">Deutsch</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">Server URL</label>
+                <Input
+                  value={current.server_url}
+                  onChange={(e) => setSettings({ ...current, server_url: e.target.value })}
+                  placeholder="https://lanlens.example.com"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <Button onClick={saveServerUrl} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* ── NETWORK DISCOVERY ─────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {lang === 'de' ? 'Netzwerk-Erkennung' : 'Network Discovery'}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'DHCP-Bereich' : 'DHCP range'}</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {lang === 'de'
+                ? 'Dieser Bereich wird nur für DHCP-Markierung und Einordnung der Geräte genutzt.'
+                : 'This range is only used for DHCP tagging and device classification.'}
             </p>
-          </div>
-          <Button onClick={checkForUpdates} loading={checkingUpdate}>
-            {lang === 'de' ? 'Jetzt auf Updates prüfen' : 'Check for updates now'}
-          </Button>
-        </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Start' : 'DHCP start'}</label>
+                <Input value={current.dhcp_start} onChange={(e) => setSettings({ ...current, dhcp_start: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Ende' : 'DHCP end'}</label>
+                <Input value={current.dhcp_end} onChange={(e) => setSettings({ ...current, dhcp_end: e.target.value })} />
+              </div>
+            </div>
+            <div className="mt-4">
+              <Button onClick={saveDhcp} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Sprache' : 'Language'}</label>
-            <select
-              className="input-field"
-              value={lang}
-              onChange={(e) => setLang(e.target.value as 'de' | 'en')}
-            >
-              <option value="en">English</option>
-              <option value="de">Deutsch</option>
-            </select>
-          </div>
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Scan-Bereich' : 'Scan range'}</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {lang === 'de'
+                ? 'Dieser IPv4-Bereich wird aktiv per ARP gescannt. Das funktioniert direkt nur im lokal erreichbaren Layer-2-Netz.'
+                : 'This IPv4 range is actively scanned via ARP. This works directly only on the locally reachable Layer 2 network.'}
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Start' : 'Scan start'}</label>
+                <Input value={current.scan_start} onChange={(e) => setSettings({ ...current, scan_start: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Ende' : 'Scan end'}</label>
+                <Input value={current.scan_end} onChange={(e) => setSettings({ ...current, scan_end: e.target.value })} />
+              </div>
+            </div>
+            <div className="mt-4">
+              <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
 
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">Server URL</label>
-            <Input
-              value={current.server_url}
-              onChange={(e) => setSettings({ ...current, server_url: e.target.value })}
-              placeholder="https://lanlens.example.com"
-            />
-          </div>
-        </div>
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-4">{lang === 'de' ? 'Scan-Zeitplan' : 'Scan schedule'}</h2>
+            <div>
+              <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Intervall in Minuten' : 'Interval in minutes'}</label>
+              <Input
+                type="number"
+                value={String(current.scan_interval_minutes)}
+                onChange={(e) => setSettings({ ...current, scan_interval_minutes: Number(e.target.value) || 1 })}
+              />
+            </div>
+            <div className="mt-4">
+              <Button onClick={saveSchedule} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
 
-        <div className="mt-4">
-          <Button onClick={saveServerUrl} loading={saving}>{t('save_changes')}</Button>
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Port-Scan-Bereich' : 'Port scan range'}</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {lang === 'de'
+                ? 'Legt fest, welche Ports bei einem Gerätescan geprüft werden. Beispiele: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'
+                : 'Defines which ports are checked when scanning a device. Examples: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'}
+            </p>
+            <div>
+              <label className="block text-sm text-text-subtle mb-1">
+                {lang === 'de' ? 'Port-Bereich / Liste' : 'Port range / list'}
+              </label>
+              <Input
+                value={current.port_scan_range}
+                onChange={(e) => setSettings({ ...current, port_scan_range: e.target.value })}
+                placeholder="top:1000"
+              />
+            </div>
+            <div className="mt-4">
+              <Button onClick={savePortScanSettings} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
         </div>
-      </Card>
+      </div>
 
-      <Card>
-        <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'DHCP-Bereich' : 'DHCP range'}</h2>
-        <p className="text-sm text-text-subtle mb-4">
-          {lang === 'de'
-            ? 'Dieser Bereich wird nur für DHCP-Markierung und Einordnung der Geräte genutzt.'
-            : 'This range is only used for DHCP tagging and device classification.'}
-        </p>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Start' : 'DHCP start'}</label>
-            <Input value={current.dhcp_start} onChange={(e) => setSettings({ ...current, dhcp_start: e.target.value })} />
-          </div>
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Ende' : 'DHCP end'}</label>
-            <Input value={current.dhcp_end} onChange={(e) => setSettings({ ...current, dhcp_end: e.target.value })} />
-          </div>
-        </div>
-        <div className="mt-4">
-          <Button onClick={saveDhcp} loading={saving}>{t('save_changes')}</Button>
-        </div>
-      </Card>
+      {/* ── NOTIFICATIONS ─────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {lang === 'de' ? 'Benachrichtigungen' : 'Notifications'}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-4">Telegram</h2>
+            <div className="grid gap-4">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">Bot Token</label>
+                <Input
+                  value={current.telegram_bot_token}
+                  onChange={(e) => setSettings({ ...current, telegram_bot_token: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">Chat ID</label>
+                <Input
+                  value={current.telegram_chat_id}
+                  onChange={(e) => setSettings({ ...current, telegram_chat_id: e.target.value })}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.telegram_enabled}
+                  onChange={(e) => setSettings({ ...current, telegram_enabled: e.target.checked })}
+                />
+                {lang === 'de' ? 'Telegram-Benachrichtigungen aktivieren' : 'Enable Telegram notifications'}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.notify_telegram_update}
+                  onChange={(e) => setSettings({ ...current, notify_telegram_update: e.target.checked })}
+                />
+                {lang === 'de' ? 'Update-Benachrichtigungen senden' : 'Send update notifications'}
+              </label>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
+              <Button onClick={testTelegram} variant="outline">{lang === 'de' ? 'Telegram testen' : 'Test Telegram'}</Button>
+            </div>
+          </Card>
 
-      <Card>
-        <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Scan-Bereich' : 'Scan range'}</h2>
-        <p className="text-sm text-text-subtle mb-4">
-          {lang === 'de'
-            ? 'Dieser IPv4-Bereich wird aktiv per ARP gescannt. Das funktioniert direkt nur im lokal erreichbaren Layer-2-Netz.'
-            : 'This IPv4 range is actively scanned via ARP. This works directly only on the locally reachable Layer 2 network.'}
-        </p>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Start' : 'Scan start'}</label>
-            <Input value={current.scan_start} onChange={(e) => setSettings({ ...current, scan_start: e.target.value })} />
-          </div>
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Ende' : 'Scan end'}</label>
-            <Input value={current.scan_end} onChange={(e) => setSettings({ ...current, scan_end: e.target.value })} />
-          </div>
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-4">
+              {lang === 'de' ? 'E-Mail (SMTP)' : 'Email (SMTP)'}
+            </h2>
+            <div className="grid gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">
+                    {lang === 'de' ? 'SMTP-Server' : 'SMTP Host'}
+                  </label>
+                  <Input
+                    value={current.smtp_host}
+                    onChange={(e) => setSettings({ ...current, smtp_host: e.target.value })}
+                    placeholder="smtp.example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">Port</label>
+                  <Input
+                    type="number"
+                    value={String(current.smtp_port)}
+                    onChange={(e) => setSettings({ ...current, smtp_port: Number(e.target.value) || 587 })}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">
+                    {lang === 'de' ? 'Benutzername' : 'Username'}
+                  </label>
+                  <Input
+                    value={current.smtp_username}
+                    onChange={(e) => setSettings({ ...current, smtp_username: e.target.value })}
+                    placeholder="user@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">
+                    {lang === 'de' ? 'Passwort' : 'Password'}
+                  </label>
+                  <Input
+                    type="password"
+                    value={current.smtp_password}
+                    onChange={(e) => setSettings({ ...current, smtp_password: e.target.value })}
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">
+                    {lang === 'de' ? 'Absender-E-Mail' : 'From Email'}
+                  </label>
+                  <Input
+                    value={current.smtp_from_email}
+                    onChange={(e) => setSettings({ ...current, smtp_from_email: e.target.value })}
+                    placeholder="lanlens@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">
+                    {lang === 'de' ? 'Empfänger-E-Mail' : 'To Email'}
+                  </label>
+                  <Input
+                    value={current.smtp_to_email}
+                    onChange={(e) => setSettings({ ...current, smtp_to_email: e.target.value })}
+                    placeholder="admin@example.com"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.smtp_enabled}
+                  onChange={(e) => setSettings({ ...current, smtp_enabled: e.target.checked })}
+                />
+                {lang === 'de' ? 'E-Mail-Benachrichtigungen aktivieren' : 'Enable email notifications'}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.smtp_use_tls}
+                  onChange={(e) => setSettings({ ...current, smtp_use_tls: e.target.checked })}
+                />
+                {lang === 'de' ? 'STARTTLS verwenden' : 'Use STARTTLS'}
+              </label>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <Button onClick={saveSmtp} loading={saving}>{t('save_changes')}</Button>
+              <Button onClick={testSmtp} variant="outline">
+                {lang === 'de' ? 'E-Mail testen' : 'Test Email'}
+              </Button>
+            </div>
+          </Card>
         </div>
-        <div className="mt-4">
-          <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="text-lg font-semibold text-text-base mb-4">{lang === 'de' ? 'Scan-Zeitplan' : 'Scan schedule'}</h2>
-        <div>
-          <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Intervall in Minuten' : 'Interval in minutes'}</label>
-          <Input
-            type="number"
-            value={String(current.scan_interval_minutes)}
-            onChange={(e) => setSettings({ ...current, scan_interval_minutes: Number(e.target.value) || 1 })}
-          />
-        </div>
-        <div className="mt-4">
-          <Button onClick={saveSchedule} loading={saving}>{t('save_changes')}</Button>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Port-Scan-Bereich' : 'Port scan range'}</h2>
-        <p className="text-sm text-text-subtle mb-4">
-          {lang === 'de'
-            ? 'Legt fest, welche Ports bei einem Gerätescan geprüft werden. Beispiele: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'
-            : 'Defines which ports are checked when scanning a device. Examples: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'}
-        </p>
-        <div>
-          <label className="block text-sm text-text-subtle mb-1">
-            {lang === 'de' ? 'Port-Bereich / Liste' : 'Port range / list'}
-          </label>
-          <Input
-            value={current.port_scan_range}
-            onChange={(e) => setSettings({ ...current, port_scan_range: e.target.value })}
-            placeholder="top:1000"
-          />
-        </div>
-        <div className="mt-4">
-          <Button onClick={savePortScanSettings} loading={saving}>{t('save_changes')}</Button>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="text-lg font-semibold text-text-base mb-4">Telegram</h2>
-        <div className="grid gap-4">
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">Bot Token</label>
-            <Input
-              value={current.telegram_bot_token}
-              onChange={(e) => setSettings({ ...current, telegram_bot_token: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-text-subtle mb-1">Chat ID</label>
-            <Input
-              value={current.telegram_chat_id}
-              onChange={(e) => setSettings({ ...current, telegram_chat_id: e.target.value })}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm text-text-base">
-            <input
-              type="checkbox"
-              checked={current.telegram_enabled}
-              onChange={(e) => setSettings({ ...current, telegram_enabled: e.target.checked })}
-            />
-            {lang === 'de' ? 'Telegram-Benachrichtigungen aktivieren' : 'Enable Telegram notifications'}
-          </label>
-          <label className="flex items-center gap-2 text-sm text-text-base">
-            <input
-              type="checkbox"
-              checked={current.notify_telegram_update}
-              onChange={(e) => setSettings({ ...current, notify_telegram_update: e.target.checked })}
-            />
-            {lang === 'de' ? 'Update-Benachrichtigungen senden' : 'Send update notifications'}
-          </label>
-        </div>
-        <div className="mt-4 flex gap-3">
-          <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
-          <Button onClick={testTelegram} variant="outline">{lang === 'de' ? 'Telegram testen' : 'Test Telegram'}</Button>
-        </div>
-      </Card>
-
-      <Card>
-        <h2 className="text-sm font-semibold text-text-muted mb-1">{t('deep_scan_credentials')}</h2>
-        <p className="text-xs text-text-subtle mb-4">
-          {lang === 'de'
-            ? 'SSH- und WinRM-Zugangsdaten für den Tiefenscan. Passwörter werden verschlüsselt gespeichert.'
-            : 'SSH and WinRM credentials for deep scan. Passwords are stored encrypted.'}
-        </p>
-        <CredentialManager />
-      </Card>
+      </div>
     </div>
   )
 }

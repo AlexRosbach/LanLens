@@ -16,6 +16,7 @@ from ..schemas import (
     ScanRangeSettings,
     ScanScheduleSettings,
     ServerUrlSettings,
+    SmtpSettings,
     TelegramSettings,
 )
 from ..services.notification import send_test_message, send_update_notification
@@ -109,6 +110,14 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
         server_url=_get(db, "server_url", ""),
+        smtp_host=_get(db, "smtp_host", ""),
+        smtp_port=int(_get(db, "smtp_port", "587") or "587"),
+        smtp_username=_get(db, "smtp_username", ""),
+        smtp_password=_get(db, "smtp_password", ""),
+        smtp_from_email=_get(db, "smtp_from_email", ""),
+        smtp_to_email=_get(db, "smtp_to_email", ""),
+        smtp_enabled=_get(db, "smtp_enabled", "false") == "true",
+        smtp_use_tls=_get(db, "smtp_use_tls", "true") != "false",
     )
 
 
@@ -235,6 +244,47 @@ async def test_telegram(
     if success:
         return MessageResponse(message="Test message sent successfully")
     raise HTTPException(status_code=502, detail="Failed to send test message — check token and chat ID")
+
+
+@router.put("/smtp", response_model=MessageResponse)
+def update_smtp(
+    data: SmtpSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _set(db, "smtp_host", data.smtp_host)
+    _set(db, "smtp_port", str(data.smtp_port))
+    _set(db, "smtp_username", data.smtp_username)
+    _set(db, "smtp_password", data.smtp_password)
+    _set(db, "smtp_from_email", data.smtp_from_email)
+    _set(db, "smtp_to_email", data.smtp_to_email)
+    _set(db, "smtp_enabled", "true" if data.smtp_enabled else "false")
+    _set(db, "smtp_use_tls", "true" if data.smtp_use_tls else "false")
+    db.commit()
+    return MessageResponse(message="SMTP settings updated")
+
+
+@router.post("/smtp/test", response_model=MessageResponse)
+async def test_smtp(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    from ..services.notification import send_smtp_test_message
+    host = _get(db, "smtp_host", "")
+    port = int(_get(db, "smtp_port", "587") or "587")
+    username = _get(db, "smtp_username", "")
+    password = _get(db, "smtp_password", "")
+    from_email = _get(db, "smtp_from_email", "")
+    to_email = _get(db, "smtp_to_email", "")
+    use_tls = _get(db, "smtp_use_tls", "true") != "false"
+
+    if not host or not from_email or not to_email:
+        raise HTTPException(status_code=400, detail="SMTP not fully configured")
+
+    success = await send_smtp_test_message(host, port, username, password, from_email, to_email, use_tls)
+    if success:
+        return MessageResponse(message="Test email sent successfully")
+    raise HTTPException(status_code=502, detail="Failed to send test email — check SMTP settings")
 
 
 @router.get("/update/check")

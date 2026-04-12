@@ -43,11 +43,16 @@ const PROFILE_INFO = [
   },
 ]
 
-const DEVICE_CLASSES = [
-  'Server', 'VM', 'Workstation', 'NAS',
-  'Router', 'Switch', 'AP', 'Firewall',
+const ALL_DEVICE_CLASSES = [
+  'Server', 'Linux Server', 'Windows Server',
+  'VM', 'Linux VM', 'Windows VM',
+  'Workstation', 'Linux Workstation', 'Windows Workstation',
+  'NAS', 'Router', 'Switch', 'AP', 'Firewall',
   'Mobile', 'TV', 'VoIP', 'IoT', 'Printer', 'Camera', 'Unknown',
 ]
+
+const LINUX_CLASSES = ALL_DEVICE_CLASSES.filter(c => !c.startsWith('Windows'))
+const WINDOWS_CLASSES = ALL_DEVICE_CLASSES.filter(c => c.startsWith('Windows') || ['Server', 'VM', 'Workstation'].includes(c))
 
 // ── Auto-scan rule modal ───────────────────────────────────────────────────────
 
@@ -66,6 +71,21 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
   const [profile, setProfile] = useState(initial?.scan_profile ?? 'os_services')
   const [interval, setInterval] = useState(initial?.interval_minutes ?? 720)
   const [saving, setSaving] = useState(false)
+
+  // Filter device classes based on selected credential type
+  const selectedCred = credentials.find(c => c.id === credentialId)
+  const availableClasses = selectedCred?.credential_type === 'windows_winrm'
+    ? WINDOWS_CLASSES
+    : selectedCred?.credential_type === 'linux_ssh'
+      ? LINUX_CLASSES
+      : ALL_DEVICE_CLASSES
+
+  // Filter scan profiles based on credential type
+  const availableProfiles = PROFILE_INFO.filter(p =>
+    p.credType === 'both' ||
+    (selectedCred?.credential_type === 'linux_ssh' && p.credType === 'linux') ||
+    (selectedCred?.credential_type === 'windows_winrm' && p.credType === 'windows')
+  )
 
   async function handleSave() {
     if (!name.trim()) { toast.error(lang === 'de' ? 'Name erforderlich' : 'Name required'); return }
@@ -113,7 +133,7 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
             onChange={(e) => setDeviceClass(e.target.value)}
           >
             <option value="">{lang === 'de' ? 'Alle Geräteklassen' : 'All device classes'}</option>
-            {DEVICE_CLASSES.map((cls) => (
+            {availableClasses.map((cls) => (
               <option key={cls} value={cls}>{cls}</option>
             ))}
           </select>
@@ -124,7 +144,10 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
           <select
             className="input-field"
             value={credentialId}
-            onChange={(e) => setCredentialId(e.target.value ? Number(e.target.value) : '')}
+            onChange={(e) => {
+              setCredentialId(e.target.value ? Number(e.target.value) : '')
+              setDeviceClass('') // reset device class when credential changes
+            }}
           >
             <option value="">{t('deep_scan_no_credential')}</option>
             {credentials.map((c) => (
@@ -133,12 +156,19 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
               </option>
             ))}
           </select>
+          {selectedCred && (
+            <p className="text-xs text-text-subtle">
+              {selectedCred.credential_type === 'linux_ssh'
+                ? (lang === 'de' ? '🐧 Nur Linux-Geräteklassen und -Profile verfügbar' : '🐧 Only Linux device classes and profiles available')
+                : (lang === 'de' ? '🪟 Nur Windows-Geräteklassen und -Profile verfügbar' : '🪟 Only Windows device classes and profiles available')}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-text-muted">{t('deep_scan_profile')}</label>
           <select className="input-field" value={profile} onChange={(e) => setProfile(e.target.value)}>
-            {PROFILE_INFO.map((p) => (
+            {availableProfiles.map((p) => (
               <option key={p.key} value={p.key}>
                 {t(('deep_scan_profile_' + p.key) as Parameters<typeof t>[0])}
               </option>

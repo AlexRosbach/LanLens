@@ -76,11 +76,11 @@ _LINUX_HYPERVISOR = [
     ("hypervisor", "libvirt_nets",   "virsh net-list --all 2>/dev/null || true"),
     # Proxmox: fetch individual VM/CT configs to extract MAC addresses
     ("hypervisor", "proxmox_qemu_configs",
-     "for vmid in $(qm list 2>/dev/null | tail -n +2 | awk '{print $1}'); do"
-     " printf 'VMID:%s\\n' \"$vmid\"; qm config \"$vmid\" 2>/dev/null; printf '---\\n'; done"),
+     "qm list 2>/dev/null | awk 'NR>1 && $1~/^[0-9]+$/{print $1}' | while read vmid; do"
+     " printf 'VMID:%s\\n' \"$vmid\"; /usr/sbin/qm config \"$vmid\" 2>/dev/null || qm config \"$vmid\" 2>/dev/null; printf '---\\n'; done"),
     ("hypervisor", "proxmox_ct_configs",
-     "for ctid in $(pct list 2>/dev/null | tail -n +2 | awk '{print $1}'); do"
-     " printf 'CTID:%s\\n' \"$ctid\"; pct config \"$ctid\" 2>/dev/null; printf '---\\n'; done"),
+     "pct list 2>/dev/null | awk 'NR>1 && $1~/^[0-9]+$/{print $1}' | while read ctid; do"
+     " printf 'CTID:%s\\n' \"$ctid\"; /usr/sbin/pct config \"$ctid\" 2>/dev/null || pct config \"$ctid\" 2>/dev/null; printf '---\\n'; done"),
 ]
 
 LINUX_PROFILE_COMMANDS: Dict[str, List[Tuple[str, str, str]]] = {
@@ -686,6 +686,18 @@ async def poll_auto_scans() -> None:
                     if last_run:
                         elapsed = (now - last_run.started_at).total_seconds() / 60
                         if elapsed < rule.interval_minutes:
+                            continue
+
+                    # Credential type compatibility check
+                    credential = db.query(Credential).filter(Credential.id == rule.credential_id).first()
+                    if credential:
+                        cred_type = credential.credential_type if hasattr(credential, 'credential_type') else ""
+                        device_class = device.device_class or ""
+                        if cred_type == "linux_ssh" and device_class.startswith("Windows"):
+                            logger.debug("Skipping auto-scan for device %s: linux_ssh credential not compatible with Windows class", device.id)
+                            continue
+                        if cred_type == "windows_winrm" and not device_class.startswith("Windows"):
+                            logger.debug("Skipping auto-scan for device %s: windows_winrm credential only for Windows class", device.id)
                             continue
 
                     # Temporarily override device config for this rule-triggered scan
