@@ -82,7 +82,7 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
   }
 
   if (loading) {
-    return <p className="text-sm text-text-subtle">{t('deep_scan_running')}</p>
+    return <p className="text-sm text-text-subtle">{t('loading')}</p>
   }
 
   return (

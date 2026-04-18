@@ -130,6 +130,12 @@ export default function DeepScanPanel({ deviceId }: Props) {
     ? activeTab
     : (visibleTabs[0]?.key ?? 'host_guest')
 
+  useEffect(() => {
+    if (effectiveTab !== activeTab) {
+      setActiveTab(effectiveTab)
+    }
+  }, [activeTab, effectiveTab])
+
   if (loading) {
     return (
       <div className="py-6 text-center text-sm text-text-subtle">{t('deep_scan_running')}</div>

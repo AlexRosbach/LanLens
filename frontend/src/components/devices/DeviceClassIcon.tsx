@@ -11,7 +11,7 @@ export default function DeviceClassIcon({ deviceClass, className = 'w-5 h-5' }: 
     deviceClass
 
   const osAccent =
-    deviceClass.startsWith('Linux ')   ? 'text-success' :
+    deviceClass.startsWith('Linux ') ? 'text-success' :
     deviceClass.startsWith('Windows ') ? 'text-primary' :
     null
 

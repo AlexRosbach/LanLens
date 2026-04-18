@@ -16,7 +16,7 @@ function parseValue(raw: unknown): string {
   return JSON.stringify(raw, null, 2)
 }
 
-/** Try to parse a key=value or KEY=VALUE block (like /etc/os-release, lscpu) into pairs. */
+/** Try to parse a key=value or KEY=VALUE block (for example /etc/os-release) into pairs. */
 function parseKvBlock(text: string): { key: string; value: string }[] | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
   const pairs: { key: string; value: string }[] = []
