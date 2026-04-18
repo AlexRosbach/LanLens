@@ -132,7 +132,10 @@ export default function DeepScanConfigForm({ deviceId, config, credentials, onSa
           type="number"
           min={5}
           value={interval}
-          onChange={(e) => setInterval(Number(e.target.value))}
+          onChange={(e) => {
+            const parsed = parseInt(e.target.value, 10)
+            setInterval(Number.isFinite(parsed) ? Math.max(5, parsed) : 5)
+          }}
         />
       )}
 
