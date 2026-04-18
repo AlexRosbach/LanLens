@@ -4,6 +4,7 @@ import { Service, servicesApi } from '../../api/services'
 import Button from '../ui/Button'
 import ServiceIcon, { ServiceTypeTag } from './ServiceIcon'
 import AddServiceModal from './AddServiceModal'
+import { useI18n } from '../../i18n'
 
 interface Props {
   deviceId: number
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function ServicesList({ deviceId, services, onChange }: Props) {
+  const { t } = useI18n()
   const [showAdd, setShowAdd] = useState(false)
   const [editService, setEditService] = useState<Service | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
@@ -26,14 +28,14 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
   }
 
   async function handleDelete(service: Service) {
-    if (!confirm(`Remove service "${service.name}"?`)) return
+    if (!confirm(t('remove_service_confirm', { name: service.name }))) return
     setDeletingId(service.id)
     try {
       await servicesApi.delete(deviceId, service.id)
       onChange(services.filter((s) => s.id !== service.id))
-      toast.success('Service removed')
+      toast.success(t('service_removed'))
     } catch {
-      toast.error('Failed to remove service')
+      toast.error(t('failed_to_remove_service'))
     } finally {
       setDeletingId(null)
     }
@@ -44,7 +46,7 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
       <div className="flex flex-col gap-2">
         {services.length === 0 && (
           <p className="text-sm text-text-subtle py-2">
-            No services documented yet. Add one to start building your network documentation.
+            {t('no_services_documented')}
           </p>
         )}
 
@@ -63,7 +65,7 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
             <svg className="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Add Service
+            {t('add_service')}
           </Button>
         </div>
       </div>
@@ -99,6 +101,7 @@ function ServiceCard({
   deleting: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useI18n()
 
   const hasDetails =
     service.description ||
@@ -138,7 +141,7 @@ function ServiceCard({
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
-              Open
+              {t('open')}
             </a>
           )}
           {service.port && !service.url && (
@@ -149,7 +152,7 @@ function ServiceCard({
             <button
               onClick={() => setExpanded(!expanded)}
               className="p-1.5 rounded-lg text-text-subtle hover:text-text-muted hover:bg-surface2 transition-colors"
-              title={expanded ? 'Collapse' : 'Expand'}
+              title={expanded ? t('collapse') : t('expand')}
             >
               <svg className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -160,7 +163,7 @@ function ServiceCard({
           <button
             onClick={onEdit}
             className="p-1.5 rounded-lg text-text-subtle hover:text-text-muted hover:bg-surface2 transition-colors"
-            title="Edit"
+            title={t('edit')}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -171,7 +174,7 @@ function ServiceCard({
             onClick={onDelete}
             disabled={deleting}
             className="p-1.5 rounded-lg text-text-subtle hover:text-danger hover:bg-danger/10 transition-colors disabled:opacity-50"
-            title="Remove"
+            title={t('remove')}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -191,31 +194,31 @@ function ServiceCard({
           )}
           {service.port && (
             <div>
-              <p className="text-text-subtle mb-0.5">Port</p>
+              <p className="text-text-subtle mb-0.5">{t('port_scan_range')}</p>
               <p className="text-text-muted font-mono">{service.port} / {service.protocol}</p>
             </div>
           )}
           {service.version && (
             <div>
-              <p className="text-text-subtle mb-0.5">Version</p>
+              <p className="text-text-subtle mb-0.5">{t('version')}</p>
               <p className="text-text-muted">{service.version}</p>
             </div>
           )}
           {service.username_hint && (
             <div>
-              <p className="text-text-subtle mb-0.5">Username / Login</p>
+              <p className="text-text-subtle mb-0.5">{t('username_login_hint')}</p>
               <p className="text-text-muted font-mono">{service.username_hint}</p>
             </div>
           )}
           {service.password_location && (
             <div>
-              <p className="text-text-subtle mb-0.5">Password Location</p>
+              <p className="text-text-subtle mb-0.5">{t('password_location')}</p>
               <p className="text-text-muted">{service.password_location}</p>
             </div>
           )}
           {service.notes && (
             <div className="col-span-2">
-              <p className="text-text-subtle mb-0.5">Notes</p>
+              <p className="text-text-subtle mb-0.5">{t('notes')}</p>
               <p className="text-text-muted whitespace-pre-wrap">{service.notes}</p>
             </div>
           )}

@@ -89,8 +89,8 @@ export default function Segments() {
   }
 
   async function handleSave() {
-    if (!form.name.trim()) { toast.error('Please enter a segment name'); return }
-    if (!form.ip_start.trim() || !form.ip_end.trim()) { toast.error('Please enter IP range'); return }
+    if (!form.name.trim()) { toast.error(t('please_enter_segment_name')); return }
+    if (!form.ip_start.trim() || !form.ip_end.trim()) { toast.error(t('please_enter_ip_range')); return }
 
     setSaving(true)
     try {
@@ -104,28 +104,28 @@ export default function Segments() {
       if (editSegment) {
         const updated = await segmentsApi.update(editSegment.id, data)
         setSegments((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
-        toast.success('Segment updated')
+        toast.success(t('segment_updated'))
       } else {
         const created = await segmentsApi.create(data)
         setSegments((prev) => [...prev, created])
-        toast.success('Segment created')
+        toast.success(t('segment_created'))
       }
       setModalOpen(false)
     } catch {
-      toast.error('Failed to save segment')
+      toast.error(t('failed_to_save_segment'))
     } finally {
       setSaving(false)
     }
   }
 
   async function handleDelete(seg: Segment) {
-    if (!confirm(`${t('delete_confirm')} "${seg.name}" löschen?`)) return
+    if (!confirm(t('segment_delete_confirm', { name: seg.name }))) return
     try {
       await segmentsApi.delete(seg.id)
       setSegments((prev) => prev.filter((s) => s.id !== seg.id))
-      toast.success('Segment deleted')
+      toast.success(t('segment_deleted'))
     } catch {
-      toast.error('Failed to delete segment')
+      toast.error(t('failed_to_delete_segment'))
     }
   }
 
@@ -180,7 +180,7 @@ export default function Segments() {
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
                     <Button variant="ghost" size="sm" onClick={() => navigate(`/?segment=${seg.id}`)}>
-                      Geräte →
+                      {t('devices_link')}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => openEdit(seg)}>
                       {t('edit_segment')}
@@ -193,7 +193,7 @@ export default function Segments() {
                 {/* IP usage bar */}
                 <div className="flex flex-col gap-1">
                   <div className="flex justify-between text-xs text-text-subtle">
-                    <span>{used} belegt · {free} frei · {total} gesamt</span>
+                    <span>{t('segment_usage', { used, free, total })}</span>
                     <span>{pct}%</span>
                   </div>
                   <div className="h-1.5 bg-surface2 rounded-full overflow-hidden">
@@ -220,7 +220,7 @@ export default function Segments() {
             label={t('segment_name')}
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="e.g. Server, IoT, DMZ"
+            placeholder={t('segment_name_placeholder')}
             autoFocus
           />
 
@@ -255,7 +255,7 @@ export default function Segments() {
                 value={form.color}
                 onChange={(e) => setForm((f) => ({ ...f, color: e.target.value }))}
                 className="w-8 h-7 rounded cursor-pointer border border-border bg-surface2"
-                title="Custom color"
+                title={t('custom_color')}
               />
             </div>
           </div>
@@ -265,7 +265,7 @@ export default function Segments() {
             <textarea
               rows={2}
               className="input-field resize-none"
-              placeholder="Optional description…"
+              placeholder={t('segment_description_placeholder')}
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             />

@@ -27,7 +27,7 @@ export default function Settings() {
 
   useEffect(() => {
     settingsApi.get().then(setSettings).catch(() => {
-      toast.error(lang === 'de' ? 'Einstellungen konnten nicht geladen werden' : 'Failed to load settings')
+      toast.error(t('settings_load_failed'))
     })
   }, [lang])
 
@@ -50,9 +50,9 @@ export default function Settings() {
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
       })
-      toast.success(lang === 'de' ? 'Telegram-Einstellungen gespeichert' : 'Telegram settings saved')
+      toast.success(t('telegram_settings_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'Telegram-Einstellungen konnten nicht gespeichert werden' : 'Failed to save Telegram settings')
+      toast.error(t('telegram_settings_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -62,9 +62,9 @@ export default function Settings() {
     setSaving(true)
     try {
       await settingsApi.updateDhcp(current.dhcp_start, current.dhcp_end)
-      toast.success(lang === 'de' ? 'DHCP-Bereich gespeichert' : 'DHCP range saved')
+      toast.success(t('dhcp_range_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'DHCP-Bereich konnte nicht gespeichert werden' : 'Failed to save DHCP range')
+      toast.error(t('dhcp_range_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -74,9 +74,9 @@ export default function Settings() {
     setSaving(true)
     try {
       await settingsApi.updateScanRange(current.scan_start, current.scan_end)
-      toast.success(lang === 'de' ? 'Scan-Bereich gespeichert' : 'Scan range saved')
+      toast.success(t('scan_range_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'Scan-Bereich konnte nicht gespeichert werden' : 'Failed to save scan range')
+      toast.error(t('scan_range_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -86,9 +86,9 @@ export default function Settings() {
     setSaving(true)
     try {
       await settingsApi.updateScanSchedule(current.scan_interval_minutes)
-      toast.success(lang === 'de' ? 'Scan-Intervall gespeichert' : 'Scan interval saved')
+      toast.success(t('scan_interval_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'Scan-Intervall konnte nicht gespeichert werden' : 'Failed to save scan interval')
+      toast.error(t('scan_interval_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -98,9 +98,9 @@ export default function Settings() {
     setSaving(true)
     try {
       await settingsApi.updatePortScanSettings(current.port_scan_range)
-      toast.success(lang === 'de' ? 'Port-Scan-Einstellungen gespeichert' : 'Port scan settings saved')
+      toast.success(t('port_scan_settings_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'Port-Scan-Einstellungen konnten nicht gespeichert werden' : 'Failed to save port scan settings')
+      toast.error(t('port_scan_settings_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -110,9 +110,9 @@ export default function Settings() {
     setSaving(true)
     try {
       await settingsApi.updateServerUrl(current.server_url)
-      toast.success(lang === 'de' ? 'Server-URL gespeichert' : 'Server URL saved')
+      toast.success(t('server_url_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'Server-URL konnte nicht gespeichert werden' : 'Failed to save server URL')
+      toast.error(t('server_url_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -121,9 +121,9 @@ export default function Settings() {
   async function testTelegram() {
     try {
       await settingsApi.testTelegram()
-      toast.success(lang === 'de' ? 'Testnachricht gesendet' : 'Test message sent')
+      toast.success(t('test_message_sent'))
     } catch {
-      toast.error(lang === 'de' ? 'Telegram-Test fehlgeschlagen' : 'Telegram test failed')
+      toast.error(t('telegram_test_failed'))
     }
   }
 
@@ -140,9 +140,9 @@ export default function Settings() {
         smtp_enabled: current.smtp_enabled,
         smtp_use_tls: current.smtp_use_tls,
       })
-      toast.success(lang === 'de' ? 'E-Mail-Einstellungen gespeichert' : 'Email settings saved')
+      toast.success(t('email_settings_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Failed to save email settings')
+      toast.error(t('email_settings_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -151,9 +151,9 @@ export default function Settings() {
   async function testSmtp() {
     try {
       await settingsApi.testSmtp()
-      toast.success(lang === 'de' ? 'Test-E-Mail gesendet' : 'Test email sent')
+      toast.success(t('test_email_sent'))
     } catch {
-      toast.error(lang === 'de' ? 'SMTP-Test fehlgeschlagen' : 'SMTP test failed')
+      toast.error(t('smtp_test_failed'))
     }
   }
 
@@ -163,19 +163,15 @@ export default function Settings() {
       const result = await settingsApi.checkUpdate()
       if (result.update_available) {
         toast.success(
-          lang === 'de'
-            ? `Update verfügbar: v${result.latest_version}`
-            : `Update available: v${result.latest_version}`
+          t('update_available', { version: result.latest_version })
         )
       } else {
         toast.success(
-          lang === 'de'
-            ? `Kein neueres Update verfügbar (aktuell: v${result.current_version})`
-            : `No newer update available (current: v${result.current_version})`
+          t('no_update_available', { version: result.current_version })
         )
       }
     } catch {
-      toast.error(lang === 'de' ? 'Update-Prüfung fehlgeschlagen' : 'Update check failed')
+      toast.error(t('update_check_failed'))
     } finally {
       setCheckingUpdate(false)
     }
@@ -186,7 +182,7 @@ export default function Settings() {
       const resp = await adminApi.exportSettings()
       downloadBlob(resp.data, 'lanlens-settings.json')
     } catch {
-      toast.error(lang === 'de' ? 'Export fehlgeschlagen' : 'Export failed')
+      toast.error(t('export_failed'))
     }
   }
 
@@ -195,7 +191,7 @@ export default function Settings() {
       const resp = await adminApi.exportDatabase()
       downloadBlob(resp.data, 'lanlens-backup.db')
     } catch {
-      toast.error(lang === 'de' ? 'Datenbankexport fehlgeschlagen' : 'Database export failed')
+      toast.error(t('database_export_failed'))
     }
   }
 
@@ -204,10 +200,10 @@ export default function Settings() {
     if (!file) return
     try {
       const result = await adminApi.importSettings(file)
-      toast.success(result.data.message || 'Settings imported')
+      toast.success(result.data.message || t('settings_imported'))
       settingsApi.get().then(setSettings)
     } catch {
-      toast.error(lang === 'de' ? 'Import fehlgeschlagen' : 'Import failed')
+      toast.error(t('import_failed'))
     }
     e.target.value = '' // reset file input
   }
@@ -216,9 +212,9 @@ export default function Settings() {
     setSaving(true)
     try {
       await settingsApi.updateCmdb(current.cmdb_id_prefix, current.cmdb_id_digits)
-      toast.success(lang === 'de' ? 'CMDB-Einstellungen gespeichert' : 'CMDB settings saved')
+      toast.success(t('cmdb_settings_saved'))
     } catch {
-      toast.error(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Failed to save CMDB settings')
+      toast.error(t('cmdb_settings_save_failed'))
     } finally {
       setSaving(false)
     }

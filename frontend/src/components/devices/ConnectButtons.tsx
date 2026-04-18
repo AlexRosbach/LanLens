@@ -3,6 +3,7 @@ import { buildSshUri, buildWebLinks, hasVnc } from '../../utils/connectionUtils'
 import { devicesApi } from '../../api/devices'
 import toast from 'react-hot-toast'
 import { useState } from 'react'
+import { useI18n } from '../../i18n'
 
 interface Props {
   device: Device
@@ -11,13 +12,14 @@ interface Props {
 }
 
 export default function ConnectButtons({ device, onScanRequested, compact = false }: Props) {
+  const { t } = useI18n()
   const [scanning, setScanning] = useState(false)
   const [singlePort, setSinglePort] = useState('')
   const [singlePortScanning, setSinglePortScanning] = useState(false)
   const scan = device.latest_scan
   const ip = device.ip_address
 
-  if (!ip) return <span className="text-xs text-text-subtle">No IP</span>
+  if (!ip) return <span className="text-xs text-text-subtle">{t('no_ip')}</span>
 
   if (!scan) {
     if (compact) return null
@@ -30,10 +32,10 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
             setScanning(true)
             try {
               await devicesApi.scanPorts(device.id)
-              toast.success('Port scan started')
+              toast.success(t('port_scan_started'))
               onScanRequested?.()
             } catch {
-              toast.error('Port scan failed')
+              toast.error(t('port_scan_failed'))
             } finally {
               setScanning(false)
             }
@@ -46,7 +48,7 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          {scanning ? 'Scanning…' : 'Scan Ports'}
+          {scanning ? t('scanning') : t('scan_ports')}
         </button>
 
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
@@ -56,7 +58,7 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
             max={65535}
             value={singlePort}
             onChange={(e) => setSinglePort(e.target.value)}
-            placeholder="Port"
+            placeholder={t('scan_single_port_placeholder')}
             className="w-20 px-2 py-1 text-xs font-mono rounded-lg border border-border bg-surface2
               text-text-base placeholder:text-text-subtle focus:outline-none focus:border-primary"
           />
@@ -71,7 +73,7 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            {singlePortScanning ? 'Scanning…' : 'Scan Port'}
+            {singlePortScanning ? t('scanning') : t('scan_single_port')}
           </button>
         </div>
       </div>
@@ -85,10 +87,10 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
     setScanning(true)
     try {
       await devicesApi.scanPorts(device.id)
-      toast.success('Port scan started')
+      toast.success(t('port_scan_started'))
       onScanRequested?.()
     } catch {
-      toast.error('Port scan failed')
+      toast.error(t('port_scan_failed'))
     } finally {
       setScanning(false)
     }
@@ -98,16 +100,16 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
     e.stopPropagation()
     const port = parseInt(singlePort, 10)
     if (!port || port < 1 || port > 65535) {
-      toast.error('Enter a valid port (1–65535)')
+      toast.error(t('enter_valid_port'))
       return
     }
     setSinglePortScanning(true)
     try {
       await devicesApi.scanSinglePort(device.id, port)
-      toast.success(`Scan for port ${port} started`)
+      toast.success(t('scan_port_started', { port }))
       onScanRequested?.()
     } catch {
-      toast.error('Single-port scan failed')
+      toast.error(t('single_port_scan_failed'))
     } finally {
       setSinglePortScanning(false)
     }
@@ -162,7 +164,7 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
-            {scanning ? 'Scanning…' : 'Rescan Ports'}
+            {scanning ? t('scanning') : t('rescan_ports')}
           </button>
 
           {/* Single-port scan */}
@@ -173,7 +175,7 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
               max={65535}
               value={singlePort}
               onChange={(e) => setSinglePort(e.target.value)}
-              placeholder="Port"
+              placeholder={t('scan_single_port_placeholder')}
               className="w-20 px-2 py-1 text-xs font-mono rounded-lg border border-border bg-surface2
                 text-text-base placeholder:text-text-subtle focus:outline-none focus:border-primary"
             />
@@ -188,7 +190,7 @@ export default function ConnectButtons({ device, onScanRequested, compact = fals
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              {singlePortScanning ? 'Scanning…' : 'Scan Port'}
+              {singlePortScanning ? t('scanning') : t('scan_single_port')}
             </button>
           </div>
         </>

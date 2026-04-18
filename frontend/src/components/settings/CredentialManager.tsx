@@ -30,7 +30,7 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
       const resp = await credentialsApi.list()
       updateCreds(resp.data)
     } catch {
-      toast.error('Failed to load credentials')
+      toast.error(t('failed_to_load_credentials'))
     } finally {
       setLoading(false)
     }
@@ -39,11 +39,11 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
   useEffect(() => { load() }, [])
 
   const handleDelete = async (cred: Credential) => {
-    if (!confirm(`Delete credential "${cred.name}"?`)) return
+    if (!confirm(t('delete_credential_confirm', { name: cred.name }))) return
     try {
       await credentialsApi.delete(cred.id)
       updateCreds(credentials.filter((c) => c.id !== cred.id))
-      toast.success('Credential deleted')
+      toast.success(t('credential_deleted'))
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       toast.error(msg || t('credential_delete_in_use'))
@@ -52,7 +52,7 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
 
   const handleTest = async (cred: Credential) => {
     const ip = testIp[cred.id]?.trim()
-    if (!ip) { toast.error(t('credential_test_target_ip') + ' required'); return }
+    if (!ip) { toast.error(t('credential_test_target_ip') + t('credential_required_suffix')); return }
     setTestingId(cred.id)
     try {
       const resp = await credentialsApi.test(cred.id, ip)
@@ -89,7 +89,7 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-text-muted">
-          {credentials.length === 0 ? t('no_credentials') : `${credentials.length} credential(s)`}
+          {credentials.length === 0 ? t('no_credentials') : t('credentials_count', { count: credentials.length })}
         </p>
         <Button size="sm" onClick={() => { setEditTarget(null); setShowModal(true) }}>
           {t('add_credential')}
@@ -107,7 +107,7 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
                   : t('credential_type_windows_winrm')}
               </Badge>
               {cred.auth_method === 'key' && (
-                <Badge variant="warning">🔑 SSH Key</Badge>
+                <Badge variant="warning">{t('ssh_key_badge')}</Badge>
               )}
               <span className="text-sm text-text-muted">{cred.username}</span>
             </div>
@@ -115,7 +115,7 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
               <button
                 onClick={() => { setEditTarget(cred); setShowModal(true) }}
                 className="text-text-subtle hover:text-primary p-1.5 rounded-lg hover:bg-surface2 transition-colors"
-                title="Edit"
+                title={t('edit')}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -125,7 +125,7 @@ export default function CredentialManager({ onCredentialsChange }: Props = {}) {
               <button
                 onClick={() => handleDelete(cred)}
                 className="text-text-subtle hover:text-danger p-1.5 rounded-lg hover:bg-danger-dim transition-colors"
-                title="Delete"
+                title={t('delete')}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

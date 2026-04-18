@@ -250,9 +250,7 @@ export default function DeepScanSettings() {
       <Card>
         <h2 className="text-lg font-semibold text-text-base mb-1">{t('deep_scan_credentials')}</h2>
         <p className="text-sm text-text-subtle mb-4">
-          {lang === 'de'
-            ? 'SSH- und WinRM-Zugangsdaten für den Tiefenscan. Passwörter werden Fernet-verschlüsselt gespeichert.'
-            : 'SSH and WinRM credentials for deep scan. Passwords are stored Fernet-encrypted.'}
+          {t('credentials_info_description')}
         </p>
         <CredentialManager onCredentialsChange={setCredentials} />
       </Card>
@@ -270,7 +268,7 @@ export default function DeepScanSettings() {
             const typeLabel =
               p.credType === 'linux' ? 'Linux SSH' :
               p.credType === 'windows' ? 'Windows WinRM' :
-              'Linux SSH / Windows WinRM'
+              t('credential_type_both')
             return (
               <div key={p.key} className="rounded-xl border border-border bg-surface2 p-4">
                 <div className="flex items-start justify-between gap-3 mb-2">
