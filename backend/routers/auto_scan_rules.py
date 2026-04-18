@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import AutoScanRule, Credential, User
-from ..schemas import AutoScanRuleCreate, AutoScanRuleResponse, AutoScanRuleUpdate, MessageResponse
+from ..schemas import AutoScanRuleCreate, AutoScanRuleResponse, AutoScanRuleUpdate, MessageResponse, SCAN_PROFILES
 
 router = APIRouter(prefix="/api/auto-scan-rules", tags=["auto-scan-rules"])
 
@@ -37,6 +37,8 @@ def create_rule(
         raise HTTPException(status_code=404, detail="Credential not found")
     if data.interval_minutes < 5:
         raise HTTPException(status_code=400, detail="interval_minutes must be at least 5")
+    if data.scan_profile not in SCAN_PROFILES:
+        raise HTTPException(status_code=400, detail=f"Invalid scan_profile. Must be one of: {SCAN_PROFILES}")
 
     rule = AutoScanRule(
         name=data.name,
@@ -89,6 +91,8 @@ def update_rule(
             raise HTTPException(status_code=404, detail="Credential not found")
         rule.credential_id = data.credential_id
     if "scan_profile" in fields and data.scan_profile is not None:
+        if data.scan_profile not in SCAN_PROFILES:
+            raise HTTPException(status_code=400, detail=f"Invalid scan_profile. Must be one of: {SCAN_PROFILES}")
         rule.scan_profile = data.scan_profile
     if "interval_minutes" in fields and data.interval_minutes is not None:
         if data.interval_minutes < 5:

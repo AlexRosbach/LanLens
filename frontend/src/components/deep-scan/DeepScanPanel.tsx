@@ -125,6 +125,11 @@ export default function DeepScanPanel({ deviceId }: Props) {
     return findings.some((f) => f.finding_type === tab.key)
   })
 
+  // Keep activeTab in sync: if the current tab is not visible, switch to the first visible one
+  const effectiveTab: Tab = visibleTabs.some((t) => t.key === activeTab)
+    ? activeTab
+    : (visibleTabs[0]?.key ?? 'host_guest')
+
   if (loading) {
     return (
       <div className="py-6 text-center text-sm text-text-subtle">{t('deep_scan_running')}</div>
@@ -198,7 +203,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={`px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
-                  activeTab === tab.key
+                  effectiveTab === tab.key
                     ? 'border-primary text-primary'
                     : 'border-transparent text-text-muted hover:text-text-base'
                 }`}
@@ -209,7 +214,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
           </div>
 
           <div className="min-h-[100px]">
-            {activeTab === 'host_guest' ? (
+            {effectiveTab === 'host_guest' ? (
               <HostGuestPanel
                 deviceId={deviceId}
                 relationships={relationships}
@@ -217,7 +222,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
                 onSuggestionApplied={load}
               />
             ) : (
-              <FindingsGrid findings={findingsByTab(activeTab)} />
+              <FindingsGrid findings={findingsByTab(effectiveTab)} />
             )}
           </div>
         </>

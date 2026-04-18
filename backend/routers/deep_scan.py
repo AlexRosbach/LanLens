@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import (
+    Credential,
     Device,
     DeviceDeepScanConfig,
     DeviceHostRelationship,
@@ -136,6 +137,9 @@ def update_deep_scan_config(
     if "enabled" in fields and data.enabled is not None:
         config.enabled = data.enabled
     if "credential_id" in fields:
+        if data.credential_id is not None:
+            if not db.query(Credential).filter(Credential.id == data.credential_id).first():
+                raise HTTPException(status_code=404, detail="Credential not found")
         # null means "no credential assigned" — allowed to unset
         config.credential_id = data.credential_id
     if "scan_profile" in fields and data.scan_profile is not None:

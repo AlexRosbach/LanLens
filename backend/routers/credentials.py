@@ -23,6 +23,22 @@ from ..services.crypto import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/api/credentials", tags=["credentials"])
 
+AUTH_METHODS = {"password", "key"}
+
+
+def _validate_auth_method(credential_type: str, auth_method: str) -> None:
+    """Raise HTTP 400 for invalid or incompatible auth_method values."""
+    if auth_method not in AUTH_METHODS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid auth_method '{auth_method}'. Must be one of: {sorted(AUTH_METHODS)}",
+        )
+    if credential_type == "windows_winrm" and auth_method == "key":
+        raise HTTPException(
+            status_code=400,
+            detail="WinRM credentials do not support SSH key authentication. Use auth_method='password'.",
+        )
+
 
 def _to_response(cred: Credential) -> CredentialResponse:
     return CredentialResponse(
@@ -61,11 +77,13 @@ def create_credential(
         raise HTTPException(status_code=400, detail="secret must not be empty")
     if not data.username.strip():
         raise HTTPException(status_code=400, detail="username must not be empty")
+    resolved_auth = data.auth_method or "password"
+    _validate_auth_method(data.credential_type, resolved_auth)
 
     cred = Credential(
         name=data.name,
         credential_type=data.credential_type,
-        auth_method=data.auth_method or "password",
+        auth_method=resolved_auth,
         username=data.username,
         encrypted_secret=encrypt_secret(data.secret),
         description=data.description,
@@ -104,6 +122,11 @@ def update_credential(
             status_code=400,
             detail=f"Invalid credential_type. Must be one of: {CREDENTIAL_TYPES}",
         )
+    # Validate auth_method against the effective type (after potential update)
+    effective_type = data.credential_type or cred.credential_type
+    effective_auth = data.auth_method or getattr(cred, "auth_method", "password") or "password"
+    if data.auth_method is not None or data.credential_type is not None:
+        _validate_auth_method(effective_type, effective_auth)
 
     if data.name is not None:
         cred.name = data.name
