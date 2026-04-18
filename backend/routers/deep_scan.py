@@ -31,6 +31,15 @@ from ..services.deep_scanner import run_deep_scan
 
 router = APIRouter(prefix="/api/devices/{device_id}/deep-scan", tags=["deep_scan"])
 
+PROFILE_ALLOWED_CREDENTIAL_TYPES = {
+    "hardware_only": {"linux_ssh", "windows_winrm"},
+    "os_services": {"linux_ssh", "windows_winrm"},
+    "linux_container_host": {"linux_ssh"},
+    "windows_audit": {"windows_winrm"},
+    "hypervisor_inventory": {"linux_ssh"},
+    "full": {"linux_ssh", "windows_winrm"},
+}
+
 
 def _get_device_or_404(device_id: int, db: Session) -> Device:
     device = db.query(Device).filter(Device.id == device_id).first()
@@ -49,6 +58,21 @@ def _get_or_create_config(device_id: int, db: Session) -> DeviceDeepScanConfig:
         db.commit()
         db.refresh(config)
     return config
+
+
+def _validate_profile_credential_compatibility(scan_profile: str, credential: Credential) -> None:
+    allowed_types = PROFILE_ALLOWED_CREDENTIAL_TYPES.get(scan_profile)
+    if allowed_types is None:
+        raise HTTPException(status_code=400, detail=f"Invalid scan_profile. Must be one of: {SCAN_PROFILES}")
+    if credential.credential_type not in allowed_types:
+        allowed_label = ", ".join(sorted(allowed_types))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Scan profile '{scan_profile}' is not compatible with credential type "
+                f"'{credential.credential_type}'. Allowed: {allowed_label}"
+            ),
+        )
 
 
 def _run_to_response(run: DeepScanRun) -> DeepScanRunResponse:
@@ -136,14 +160,28 @@ def update_deep_scan_config(
 
     if "enabled" in fields and data.enabled is not None:
         config.enabled = data.enabled
+    credential = None
+    next_credential_id = config.credential_id
+    next_scan_profile = config.scan_profile
+
     if "credential_id" in fields:
+        next_credential_id = data.credential_id
         if data.credential_id is not None:
-            if not db.query(Credential).filter(Credential.id == data.credential_id).first():
+            credential = db.query(Credential).filter(Credential.id == data.credential_id).first()
+            if not credential:
                 raise HTTPException(status_code=404, detail="Credential not found")
         # null means "no credential assigned" — allowed to unset
         config.credential_id = data.credential_id
     if "scan_profile" in fields and data.scan_profile is not None:
+        next_scan_profile = data.scan_profile
         config.scan_profile = data.scan_profile
++
++    if next_credential_id is not None:
++        if credential is None:
++            credential = db.query(Credential).filter(Credential.id == next_credential_id).first()
++            if not credential:
++                raise HTTPException(status_code=404, detail="Credential not found")
++        _validate_profile_credential_compatibility(next_scan_profile, credential)
     if "auto_scan_enabled" in fields and data.auto_scan_enabled is not None:
         config.auto_scan_enabled = data.auto_scan_enabled
     if "interval_minutes" in fields and data.interval_minutes is not None:
