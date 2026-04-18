@@ -2,24 +2,48 @@
 
 All notable changes to this project should be documented in this file.
 
-## v1.4.1 — Deep Scan improvements, OS-specific device classes & VM-host linking
+## v1.4.1 — Deep Scan improvements, OS-specific device classes, VM-host linking, CMDB, MariaDB & more
 
-- Fixed Proxmox VM/CT detection: deep scanner now fetches individual VM configs via `qm config <VMID>` and `pct config <CTID>` to extract MAC addresses, enabling reliable VM-to-device matching.
+### Bug Fixes
+- **Fixed `TypeError: 'str' - int` in device list** — memory-total extraction inside the hardware summary batch query was shadowing the `total` device-count variable, causing the `/api/devices` endpoint to crash and the dashboard to show no devices.
+- **Fixed Proxmox hypervisor scan returning only the first VM** — the previous approach launched one `qm config <VMID>` subprocess per VM via SSH. With more than a handful of VMs the 20-second `exec_command` timeout was exceeded and only partial output was received. The scan now reads config files directly from `/etc/pve/qemu-server/*.conf` and `/etc/pve/lxc/*.conf` (same format, no subprocess overhead). Snapshot sections (`[snap-name]`) are skipped to avoid duplicate MAC/name entries.
 - Fixed Proxmox LXC container name parsing (`pct list` with empty Lock column).
-- Added de-duplication of hypervisor guest list so `qm_config` (with MAC) takes precedence over `qm_list` (name only).
-- Added **OS-specific device classes**: `Linux Server`, `Windows Server`, `Linux VM`, `Windows VM`, `Linux Workstation`, `Windows Workstation` — displayed with coloured dot indicator (green = Linux, blue = Windows) so auto-scan rules can target OS types precisely.
-- Added **Auto-Scan Rules** page (new nav item "Deep Scan"): define global rules to auto-scan all devices of a given class with a specific credential and profile on a configurable interval.
-- Added **Deep Scan Settings** as a dedicated navigation page with: Credential Vault, Scan Profile descriptions, and Auto-Scan Rules management.
-- Improved **Deep Scan findings display**: compact mode by default showing only essential info (OS name, CPU model, disk summary, container count); "Show full details" toggle expands to full structured view. Key-value blocks (lscpu, os-release) rendered as grids; column-aligned tables (lsblk, virsh list) rendered as HTML tables; long outputs collapsible.
-- Fixed **last scan time** in Deep Scan panel: UTC timestamps from the backend are now correctly interpreted (appends 'Z' suffix before parsing), matching the fix already applied to the dashboard.
-- Added **hardware model summary** in device list: shows the scanned hardware model below the MAC address for devices where a deep scan has been performed.
-- Added **VM host assignment**: Device Detail for VM-class devices shows a "Runs on Host" card with the linked hypervisor. Users can manually link or unlink a host from a dropdown of server/hypervisor-class devices.
-- Added **manual host/guest relationship endpoints**: `POST` and `DELETE /api/devices/{id}/deep-scan/relationships` allow creating and removing VM-to-host links via the UI or API.
-- Added **suggestion panel** in Host/Guest tab: when a VM guest has no label but a VM name was detected by the hypervisor scan, a suggestion to apply the VM name as the device label is shown with a one-click "Apply" button.
-- Added delete button per host/guest relationship entry in the Host/Guest tab.
-- Fixed timestamp rendering in Host/Guest panel (same UTC fix as above).
-- Added **README section** documenting required Linux and Windows user permissions for deep scan.
-- Database schema bumped to v1.4.1 — added `auto_scan_rules` table. Migration is idempotent and runs automatically on container start.
+- Fixed **last scan time** in Deep Scan panel: UTC timestamps from the backend are now correctly interpreted (appends `'Z'` suffix before parsing).
+- Fixed timestamp rendering in Host/Guest panel (same UTC fix).
+
+### New Features
+- **CMDB IDs** — auto-generated unique identifier per device (format configurable, e.g. `DEV-0001`). Generated on first registration; regeneratable via Device Detail. Prefix and digit count adjustable in Settings → System → CMDB IDs.
+- **MariaDB / external database support** — set `DATABASE_URL` environment variable to use an external MariaDB (or any SQLAlchemy-compatible DB) instead of the built-in SQLite file. All migrations are now dialect-aware (`sqlalchemy.inspect()` instead of SQLite-only PRAGMAs). See README for docker-compose example.
+- **Export & Import** — Settings → System: export all settings as JSON, download the SQLite database file, or import settings from a previously exported JSON.
+- **SSH Private Key authentication** — credentials now support `auth_method: password` (default) or `auth_method: key`. When using key auth, the PEM private key (RSA, Ed25519, ECDSA, DSS) is stored encrypted and used for SSH connections. The Credential Modal shows an auth-method selector and a textarea for pasting the key.
+- **SMTP email notifications** — configure an SMTP server in Settings → Notifications to receive email alerts. Includes a test-send button.
+- **Credential type separation in Auto-Scan Rules** — `linux_ssh` credentials can only be assigned to Linux-class device classes; `windows_winrm` credentials can only be assigned to Windows-class device classes. The rule modal filters available credentials and device classes accordingly.
+- **Hardware summary in device list** — shows CPU model + RAM total (e.g. `Intel Core i3-7100U · 16 GB RAM`) derived from deep-scan findings beneath the device MAC address.
+- **VM / hypervisor indicator in device list** — VM-class devices show their linked hypervisor host name directly in the dashboard table.
+- **Port scan buttons removed from dashboard** — Connect buttons in the device table now hide scan/rescan and single-port fields; those remain available only in the Device Detail view.
+
+### Settings Reorganisation
+- Settings page split into sections: **System** (app info, export/import, CMDB), **Database** (connection info, MariaDB guide), **Network Discovery**, **Notifications** (Telegram + SMTP).
+- Deep Scan credentials moved entirely out of main Settings into the **Deep Scan Settings** page.
+
+### Deep Scan Improvements
+- Added OS-specific device classes: `Linux Server`, `Windows Server`, `Linux VM`, `Windows VM`, `Linux Workstation`, `Windows Workstation` — coloured dot indicator (green = Linux, blue = Windows).
+- Added Auto-Scan Rules with OS-based credential/class filtering.
+- Improved findings display: compact mode shows one-line summary per key; full view collapsible per block.
+- Added VM host assignment card in Device Detail for VM-class devices.
+- Added manual host/guest relationship endpoints (`POST`/`DELETE`).
+- Added suggestion panel in Host/Guest tab (apply detected VM name as device label).
+- Added delete button per relationship row in Host/Guest tab.
+
+### Documentation
+- Added README section: **Using MariaDB / External Database** with docker-compose example, connection string table, and backup notes.
+- Added README section: required Linux / Windows user permissions for deep scan.
+
+### Database Schema
+- Added `auto_scan_rules` table.
+- Added `credentials.auth_method` column (`password` / `key`), default `password`.
+- Added `devices.cmdb_id` column (VARCHAR 64, unique).
+- All migrations are idempotent and run automatically on container start.
 
 ## v1.4.0 — Deep Scan
 

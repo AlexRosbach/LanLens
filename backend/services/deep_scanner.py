@@ -74,13 +74,26 @@ _LINUX_HYPERVISOR = [
     ("hypervisor", "proxmox_qemu",   "qm list 2>/dev/null || true"),
     ("hypervisor", "proxmox_ct",     "pct list 2>/dev/null || true"),
     ("hypervisor", "libvirt_nets",   "virsh net-list --all 2>/dev/null || true"),
-    # Proxmox: fetch individual VM/CT configs to extract MAC addresses
+    # Proxmox: read VM configs directly from disk — avoids spawning one subprocess
+    # per VM (which caused timeouts when many VMs were present).
+    # /etc/pve/qemu-server/VMID.conf contains the same fields as `qm config VMID`.
     ("hypervisor", "proxmox_qemu_configs",
-     "qm list 2>/dev/null | awk 'NR>1 && $1~/^[0-9]+$/{print $1}' | while read vmid; do"
-     " printf 'VMID:%s\\n' \"$vmid\"; /usr/sbin/qm config \"$vmid\" 2>/dev/null || qm config \"$vmid\" 2>/dev/null; printf '---\\n'; done"),
+     "for f in /etc/pve/qemu-server/*.conf; do"
+     " [ -f \"$f\" ] || continue;"
+     " vmid=$(basename \"$f\" .conf);"
+     " printf 'VMID:%s\\n' \"$vmid\";"
+     " cat \"$f\" 2>/dev/null;"
+     " printf '\\n---\\n';"
+     " done"),
+    # Proxmox LXC: same approach via /etc/pve/lxc/CTID.conf
     ("hypervisor", "proxmox_ct_configs",
-     "pct list 2>/dev/null | awk 'NR>1 && $1~/^[0-9]+$/{print $1}' | while read ctid; do"
-     " printf 'CTID:%s\\n' \"$ctid\"; /usr/sbin/pct config \"$ctid\" 2>/dev/null || pct config \"$ctid\" 2>/dev/null; printf '---\\n'; done"),
+     "for f in /etc/pve/lxc/*.conf; do"
+     " [ -f \"$f\" ] || continue;"
+     " ctid=$(basename \"$f\" .conf);"
+     " printf 'CTID:%s\\n' \"$ctid\";"
+     " cat \"$f\" 2>/dev/null;"
+     " printf '\\n---\\n';"
+     " done"),
 ]
 
 LINUX_PROFILE_COMMANDS: Dict[str, List[Tuple[str, str, str]]] = {
@@ -282,7 +295,10 @@ def _run_linux_scan(
 
         for finding_type, key, cmd in commands:
             try:
-                _, stdout, stderr = client.exec_command(cmd, timeout=20)
+                # Hypervisor config commands (reading all VM/CT config files) can
+                # produce a larger amount of data — allow more time than default.
+                cmd_timeout = 60 if finding_type == "hypervisor" else 20
+                _, stdout, stderr = client.exec_command(cmd, timeout=cmd_timeout)
                 output = stdout.read().decode(errors="replace").strip()
                 if not output:
                     output = stderr.read().decode(errors="replace").strip()
@@ -355,8 +371,10 @@ def _parse_hypervisor_guests(
                 guests.append({"name": ct_name, "mac": None, "ip": None, "source": "pct_list"})
 
     elif key == "proxmox_qemu_configs":
-        # Each block: "VMID:101\nnet0: virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,...\n---"
-        # net interface types: virtio, e1000, e1000e, vmxnet3, rtl8139
+        # Each block: "VMID:101\nname: myvm\nnet0: virtio=BC:24:11:AA:BB:CC,...\n---"
+        # Blocks are separated by the sentinel "---" we wrote in the shell command.
+        # Config files may contain snapshot sections starting with "[snap-name]" —
+        # we stop parsing at the first "[" line to avoid duplicate name/MAC entries.
         _NET_TYPES = ("virtio=", "e1000=", "e1000e=", "vmxnet3=", "rtl8139=")
         for block in output.split("---"):
             block = block.strip()
@@ -367,6 +385,8 @@ def _parse_hypervisor_guests(
             macs: List[str] = []
             for line in block.splitlines():
                 line = line.strip()
+                if line.startswith("["):
+                    break  # snapshot / pending-changes section — stop here
                 if line.startswith("VMID:"):
                     vmid = line[5:].strip()
                 elif line.startswith("name:"):
@@ -390,7 +410,8 @@ def _parse_hypervisor_guests(
                     guests.append({"name": label, "mac": None, "ip": None, "source": "qm_config"})
 
     elif key == "proxmox_ct_configs":
-        # Each block: "CTID:200\nnet0: name=eth0,bridge=vmbr0,hwaddr=BC:24:11:AA:BB:CC,...\n---"
+        # Each block: "CTID:200\nhostname: myct\nnet0: name=eth0,hwaddr=BC:24:11:...\n---"
+        # Same snapshot-section guard applies for LXC configs.
         for block in output.split("---"):
             block = block.strip()
             if not block:
@@ -400,6 +421,8 @@ def _parse_hypervisor_guests(
             macs: List[str] = []
             for line in block.splitlines():
                 line = line.strip()
+                if line.startswith("["):
+                    break  # snapshot section — stop here
                 if line.startswith("CTID:"):
                     ctid = line[5:].strip()
                 elif line.startswith("hostname:"):

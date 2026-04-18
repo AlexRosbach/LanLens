@@ -228,7 +228,7 @@ def migrate():
         else:
             print("Migration: auto_scan_rules already exists — skipped")
 
-        # ── v1.4.2 ── SSH key auth support for credentials ───────────────────
+        # ── v1.4.1 ── SSH key auth support for credentials ───────────────────
         if not _column_exists(conn, "credentials", "auth_method"):
             conn.execute(text(
                 "ALTER TABLE credentials ADD COLUMN auth_method VARCHAR(16) NOT NULL DEFAULT 'password'"
@@ -238,7 +238,7 @@ def migrate():
         else:
             print("Migration: credentials.auth_method already exists — skipped")
 
-        # ── v1.5.0 ── CMDB ID per device ─────────────────────────────────────
+        # ── v1.4.1 ── CMDB ID per device ─────────────────────────────────────
         if not _column_exists(conn, "devices", "cmdb_id"):
             conn.execute(text("ALTER TABLE devices ADD COLUMN cmdb_id VARCHAR(64)"))
             conn.commit()

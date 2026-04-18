@@ -96,13 +96,13 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Language toggle */}
+        {/* Language toggle: EN → DE → IT → EN */}
         <button
-          onClick={() => setLang(lang === 'en' ? 'de' : 'en')}
+          onClick={() => setLang(lang === 'en' ? 'de' : lang === 'de' ? 'it' : 'en')}
           className="text-xs font-medium text-text-subtle hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors border border-border"
           title="Switch language"
         >
-          {lang === 'en' ? 'DE' : 'EN'}
+          {lang === 'en' ? 'DE' : lang === 'de' ? 'IT' : 'EN'}
         </button>
 
         {/* Theme toggle */}
