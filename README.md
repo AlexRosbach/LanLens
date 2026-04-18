@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.3.1-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.4.1-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -14,9 +14,25 @@ LanLens scans your local network, identifies devices by MAC/IP, and gives you a 
 
 </div>
 
+> [!IMPORTANT]
+> ## 🎉 LanLens 1.4.1 is here, and this release is a big one
+> The new version brings major improvements across deep scan, hypervisor visibility, translations, UI polish, and settings behavior.
+>
+> ### Please read before updating
+> This release includes **database-related changes**. A backup before updating is **strongly recommended** and should be treated as mandatory for productive setups.
+>
+> **Recommended update flow:**
+> 1. Create a full backup of your LanLens database before pulling the new image.
+> 2. Only then update to `1.4.1`.
+> 3. Verify login, devices, segments, credentials, and deep-scan settings after startup.
+>
+> If you are running SQLite, back up the `.db` file first. If you are running MariaDB/MySQL, create a dump before the update.
+
+
 ---
 
 ## Features
+
 
 - Automatic LAN discovery via ARP scan
 - Device classification and offline MAC vendor lookup
@@ -26,8 +42,12 @@ LanLens scans your local network, identifies devices by MAC/IP, and gives you a 
 - Service inventory per device
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap
+- **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory
+- **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
+- **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
+- **Auto deep scan** — per-device scheduled scanning with configurable interval
 - Telegram notifications for new devices and updates
-- English and German UI
+- English, German, and Italian UI
 - Responsive dashboard for desktop and mobile
 
 ---
@@ -138,7 +158,150 @@ Configure Telegram in **Settings → Notifications**:
 
 ---
 
+## Using MariaDB / External Database
+
+By default LanLens uses **SQLite** stored in `/data/lanlens.db`. For production environments or when you need shared database access, you can switch to **MariaDB** or **MySQL**.
+
+### Requirements
+
+Install the `PyMySQL` driver in the container:
+
+```dockerfile
+RUN pip install PyMySQL
+```
+
+Or add to `requirements.txt`:
+```
+PyMySQL>=1.1.0
+```
+
+### docker-compose Configuration
+
+```yaml
+services:
+  lanlens:
+    image: ghcr.io/alexrosbach/lanlens:latest
+    environment:
+      DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens
+      SECRET_KEY: your-secret-key-here
+    depends_on:
+      - mariadb
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: lanlens
+      MYSQL_USER: lanlens
+      MYSQL_PASSWORD: yourpassword
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+volumes:
+  mariadb_data:
+```
+
+### Connection String Formats
+
+| Database   | Format |
+|------------|--------|
+| MariaDB/MySQL | `mysql+pymysql://user:pass@host:3306/dbname` |
+| PostgreSQL | `postgresql+psycopg2://user:pass@host:5432/dbname` |
+| SQLite (default) | set via `DB_PATH` env var, not `DATABASE_URL` |
+
+### Backup
+
+When using MariaDB, use `mysqldump` for backups:
+
+```bash
+mysqldump -u lanlens -p lanlens > lanlens-backup.sql
+```
+
+Restore:
+```bash
+mysql -u lanlens -p lanlens < lanlens-backup.sql
+```
+
+> **Note:** The SQLite database export button in Settings is not available when using MariaDB. Use your database's native backup tools instead.
+
+---
+
+## Deep Scan — Required Permissions
+
+The deep scan connects to devices via SSH (Linux) or WinRM (Windows) and runs read-only commands.
+No data is written to the target system.
+
+### Linux SSH
+
+A **dedicated, non-root user** is recommended. The user needs read access to the relevant system files and commands:
+
+```bash
+# Create a dedicated scan user on the target Linux system
+sudo useradd -m -s /bin/bash lanlens-scan
+sudo passwd lanlens-scan
+
+# Grant read-only sudo access to the required commands (add to /etc/sudoers.d/lanlens)
+cat <<'EOF' | sudo tee /etc/sudoers.d/lanlens
+lanlens-scan ALL=(ALL) NOPASSWD: /usr/bin/lscpu, /usr/bin/free, /usr/bin/lsblk, \
+  /usr/bin/systemctl, /usr/bin/docker, /usr/bin/podman, \
+  /usr/sbin/virsh, /usr/sbin/qm, /usr/sbin/pct, /usr/bin/k3s
+EOF
+```
+
+> Most commands work without `sudo` on typical server installations. If you use root access, set username to `root` and store the password in the credential vault.
+
+**Minimum requirements per profile:**
+
+| Profile | Minimum required |
+|---|---|
+| `hardware_only` | Read access to `/sys/class/dmi/id/` and `/proc` |
+| `os_services` | + `systemctl` read access |
+| `linux_container_host` | + `docker ps` / `podman ps` |
+| `hypervisor_inventory` | + `virsh list`, `qm list`, `pct list`, `qm config`, `pct config` |
+| `full` | All of the above |
+
+For **Proxmox** hosts, the scan user must be a member of the `kvm` group (or root):
+
+```bash
+sudo usermod -aG kvm lanlens-scan
+```
+
+### Windows WinRM
+
+WinRM (Windows Remote Management) must be enabled on the target:
+
+```powershell
+# Run as Administrator on the target Windows system
+Enable-PSRemoting -Force
+# Allow connection from the LanLens host (replace with your LanLens server IP)
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "YOUR_LANLENS_IP" -Force
+```
+
+**Recommended account:** A member of the local **Administrators** group or **Remote Management Users** group.
+For domain environments, a domain account with local admin rights on the target is sufficient.
+
+```powershell
+# Add user to Remote Management Users (less privileged than full Admin)
+Add-LocalGroupMember -Group "Remote Management Users" -Member "lanlens-scan"
+# Some WMI queries (licensing, features) require local Admin
+Add-LocalGroupMember -Group "Administrators" -Member "lanlens-scan"
+```
+
+> For the `windows_audit` profile (Windows Features, licensing, AD, DHCP), the account needs local Administrator rights on the target.
+
+---
+
 ## Updating
+
+> **⚠ Upgrading to v1.4.0**
+>
+> This release adds new database tables (credential vault, deep scan runs, findings, host/guest relationships).
+> The migration runs automatically on container start and is non-destructive — existing data is preserved.
+> **A database backup before updating is strongly recommended:**
+>
+> ```bash
+> docker cp lanlens:/data/lanlens.db ./lanlens_backup_$(date +%Y%m%d).db
+> ```
 
 ```bash
 docker compose pull

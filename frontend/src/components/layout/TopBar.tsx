@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { scanApi } from '../../api/scan'
@@ -21,10 +21,18 @@ function applyTheme(theme: Theme) {
   }
 }
 
+const languageOptions = {
+  en: { label: 'English', flag: '🇬🇧' },
+  de: { label: 'Deutsch', flag: '🇩🇪' },
+  it: { label: 'Italiano', flag: '🇮🇹' },
+} as const
+
 export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const [scanning, setScanning] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const languageMenuRef = useRef<HTMLDivElement | null>(null)
   const { user, logout } = useAuthStore()
   const { fetchDevices, stats, devices } = useDeviceStore()
   const { lang, setLang, t } = useI18n()
@@ -34,6 +42,20 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
 
   // Apply saved theme on mount
   useEffect(() => { applyTheme(theme) }, [theme])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!languageMenuRef.current?.contains(event.target as Node)) {
+        setShowLanguageMenu(false)
+      }
+    }
+
+    if (showLanguageMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showLanguageMenu])
 
   function toggleTheme() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
@@ -45,7 +67,7 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
     setScanning(true)
     try {
       await scanApi.start()
-      toast.success(lang === 'de' ? 'Netzwerkscan gestartet' : 'Network scan started')
+      toast.success(t('network_scan_started'))
       const poll = setInterval(async () => {
         const status = await scanApi.status()
         if (!status.is_running) {
@@ -53,14 +75,12 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
           setScanning(false)
           await fetchDevices()
           toast.success(
-            lang === 'de'
-              ? `Scan abgeschlossen — ${status.last_scan?.devices_found ?? 0} Geräte gefunden`
-              : `Scan complete — ${status.last_scan?.devices_found ?? 0} devices found`
+            t('scan_complete', { count: status.last_scan?.devices_found ?? 0 })
           )
         }
       }, 2000)
     } catch {
-      toast.error(lang === 'de' ? 'Scan konnte nicht gestartet werden' : 'Failed to start scan')
+      toast.error(t('failed_start_scan'))
       setScanning(false)
     }
   }
@@ -96,20 +116,42 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Language toggle */}
-        <button
-          onClick={() => setLang(lang === 'en' ? 'de' : 'en')}
-          className="text-xs font-medium text-text-subtle hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors border border-border"
-          title="Switch language"
-        >
-          {lang === 'en' ? 'DE' : 'EN'}
-        </button>
+        <div className="relative" ref={languageMenuRef}>
+          <button
+            onClick={() => setShowLanguageMenu((open) => !open)}
+            className="flex items-center gap-1.5 text-xs font-medium text-text-subtle hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors border border-border"
+            title={t('switch_language')}
+          >
+            <span>{languageOptions[lang].flag}</span>
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showLanguageMenu && (
+            <div className="absolute right-0 top-10 bg-surface2 border border-border rounded-xl shadow-xl min-w-[140px] z-20 overflow-hidden animate-fade-in">
+              {Object.entries(languageOptions).map(([code, option]) => (
+                <button
+                  key={code}
+                  onClick={() => {
+                    setLang(code as 'en' | 'de' | 'it')
+                    setShowLanguageMenu(false)
+                  }}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${lang === code ? 'bg-surface text-text-base' : 'text-text-muted hover:text-text-base hover:bg-surface'}`}
+                >
+                  <span>{option.flag}</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
           className="text-text-subtle hover:text-text-base p-2 rounded-lg hover:bg-surface2 transition-colors"
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={theme === 'dark' ? t('switch_to_light_mode') : t('switch_to_dark_mode')}
         >
           {theme === 'dark' ? (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

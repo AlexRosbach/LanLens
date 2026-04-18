@@ -37,12 +37,18 @@ export interface Device {
   os_info: string | null
   asset_tag: string | null
   notes: string | null
+  // CMDB
+  cmdb_id?: string | null
   // State
   is_registered: boolean
   is_new: boolean
   is_online: boolean
   first_seen: string
   last_seen: string
+  // Deep scan summary
+  hardware_summary?: string | null
+  // VM host
+  host_label?: string | null
   // Relations
   latest_scan: PortScanResult | null
   services: Service[]
@@ -69,6 +75,7 @@ export interface DeviceUpdate {
   os_info?: string
   asset_tag?: string
   notes?: string
+  cmdb_id?: string
 }
 
 export const devicesApi = {
@@ -93,5 +100,11 @@ export const devicesApi = {
   getPorts: (id: number) =>
     apiClient.get<PortScanResult[]>(`/devices/${id}/ports`).then((r) => r.data),
 
+  scanSinglePort: (id: number, port: number) =>
+    apiClient.post(`/devices/${id}/scan-single-port`, { port }).then((r) => r.data),
+
   getRdpUrl: (id: number) => withBasePath(`/api/connect/${id}/rdp`),
+
+  generateCmdbId: (id: number) =>
+    apiClient.post<Device>(`/devices/${id}/generate-cmdb-id`).then((r) => r.data),
 }

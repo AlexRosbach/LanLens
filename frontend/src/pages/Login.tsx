@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore'
 import Button from '../components/ui/Button'
 import Input from '../components/ui/Input'
 import { withBasePath } from '../utils/basePath'
+import { useI18n } from '../i18n'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -12,16 +13,17 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const { login } = useAuthStore()
   const navigate = useNavigate()
+  const { t } = useI18n()
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!username || !password) { toast.error('Please enter credentials'); return }
+    if (!username || !password) { toast.error(t('please_enter_credentials')); return }
     setLoading(true)
     try {
       await login(username, password)
       navigate('/')
     } catch (err: any) {
-      const msg = err?.response?.data?.detail ?? 'Login failed'
+      const msg = err?.response?.data?.detail ?? t('login_failed')
       toast.error(msg)
     } finally {
       setLoading(false)
@@ -49,14 +51,14 @@ export default function Login() {
         <div className="flex flex-col items-center mb-8">
           <img src={withBasePath('/logo.svg')} alt="LanLens" className="w-16 h-16 mb-4" />
           <h1 className="text-2xl font-bold text-text-base tracking-tight">LanLens</h1>
-          <p className="text-sm text-text-muted mt-1">Network Monitoring Dashboard</p>
+          <p className="text-sm text-text-muted mt-1">{t('network_monitoring_dashboard')}</p>
         </div>
 
         {/* Login form */}
         <div className="bg-surface border border-border rounded-2xl p-6 shadow-2xl">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
-              label="Username"
+              label={t('username')}
               type="text"
               placeholder="admin"
               value={username}
@@ -65,7 +67,7 @@ export default function Login() {
               autoFocus
             />
             <Input
-              label="Password"
+              label={t('password')}
               type="password"
               placeholder="••••••••"
               value={password}
@@ -73,13 +75,13 @@ export default function Login() {
               autoComplete="current-password"
             />
             <Button type="submit" loading={loading} className="w-full justify-center mt-1">
-              Sign In
+              {t('sign_in')}
             </Button>
           </form>
         </div>
 
         <p className="text-center text-xs text-text-subtle mt-4">
-          Default credentials: <span className="font-mono text-text-muted">admin / admin</span>
+          {t('default_credentials')} <span className="font-mono text-text-muted">admin / admin</span>
         </p>
       </div>
     </div>

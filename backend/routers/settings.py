@@ -12,9 +12,11 @@ from ..schemas import (
     AllSettings,
     DhcpSettings,
     MessageResponse,
+    PortScanSettings,
     ScanRangeSettings,
     ScanScheduleSettings,
     ServerUrlSettings,
+    SmtpSettings,
     TelegramSettings,
 )
 from ..services.notification import send_test_message, send_update_notification
@@ -25,9 +27,11 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_interval_minutes",
+    "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
     "server_url",
+    "cmdb_id_prefix", "cmdb_id_digits",
 ]
 
 
@@ -98,6 +102,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         scan_start=effective_scan_start,
         scan_end=effective_scan_end,
         scan_interval_minutes=interval_minutes,
+        port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
         telegram_bot_token=_get(db, "telegram_bot_token", ""),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
@@ -106,6 +111,16 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
         server_url=_get(db, "server_url", ""),
+        smtp_host=_get(db, "smtp_host", ""),
+        smtp_port=int(_get(db, "smtp_port", "587") or "587"),
+        smtp_username=_get(db, "smtp_username", ""),
+        smtp_password=_get(db, "smtp_password", ""),
+        smtp_from_email=_get(db, "smtp_from_email", ""),
+        smtp_to_email=_get(db, "smtp_to_email", ""),
+        smtp_enabled=_get(db, "smtp_enabled", "false") == "true",
+        smtp_use_tls=_get(db, "smtp_use_tls", "true") != "false",
+        cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
+        cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
     )
 
 
@@ -167,6 +182,67 @@ def update_scan_schedule(
     return MessageResponse(message="Scan schedule updated")
 
 
+@router.put("/port-scan", response_model=MessageResponse)
+def update_port_scan_settings(
+    data: PortScanSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Update the global port scan range used for all device scans."""
+    spec = data.port_scan_range.strip()
+    if not spec:
+        raise HTTPException(status_code=400, detail="port_scan_range must not be empty")
+
+    # Validate format: "top:N" (N must be a positive integer) or digit/comma/hyphen list
+    if spec.startswith("top:"):
+        top_n = spec[4:]
+        if not top_n.isdigit() or int(top_n) < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid port_scan_range: 'top:N' requires N to be a positive integer (e.g. 'top:1000').",
+            )
+    else:
+        sanitised = "".join(c for c in spec if c.isdigit() or c in ",-")
+        if not sanitised:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid port_scan_range. Use 'top:N', a range like '1-65535', or a list like '22,80,443'.",
+            )
+
+        for chunk in sanitised.split(","):
+            if not chunk:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid port_scan_range. Empty list items are not allowed.",
+                )
+            if "-" in chunk:
+                parts = chunk.split("-")
+                if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid port_scan_range. Ranges must look like 'start-end'.",
+                    )
+                start, end = int(parts[0]), int(parts[1])
+                if start < 1 or end > 65535 or start > end:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid port_scan_range. Ports must be between 1 and 65535.",
+                    )
+            else:
+                if not chunk.isdigit() or not 1 <= int(chunk) <= 65535:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid port_scan_range. Ports must be between 1 and 65535.",
+                    )
+
+        # Store the sanitised value so what's saved matches what gets scanned
+        spec = sanitised
+
+    _set(db, "port_scan_range", spec)
+    db.commit()
+    return MessageResponse(message="Port scan settings updated")
+
+
 @router.put("/telegram", response_model=MessageResponse)
 def update_telegram(
     data: TelegramSettings,
@@ -207,6 +283,62 @@ async def test_telegram(
     if success:
         return MessageResponse(message="Test message sent successfully")
     raise HTTPException(status_code=502, detail="Failed to send test message — check token and chat ID")
+
+
+@router.put("/smtp", response_model=MessageResponse)
+def update_smtp(
+    data: SmtpSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _set(db, "smtp_host", data.smtp_host)
+    _set(db, "smtp_port", str(data.smtp_port))
+    _set(db, "smtp_username", data.smtp_username)
+    _set(db, "smtp_password", data.smtp_password)
+    _set(db, "smtp_from_email", data.smtp_from_email)
+    _set(db, "smtp_to_email", data.smtp_to_email)
+    _set(db, "smtp_enabled", "true" if data.smtp_enabled else "false")
+    _set(db, "smtp_use_tls", "true" if data.smtp_use_tls else "false")
+    db.commit()
+    return MessageResponse(message="SMTP settings updated")
+
+
+@router.post("/smtp/test", response_model=MessageResponse)
+async def test_smtp(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    from ..services.notification import send_smtp_test_message
+    host = _get(db, "smtp_host", "")
+    port = int(_get(db, "smtp_port", "587") or "587")
+    username = _get(db, "smtp_username", "")
+    password = _get(db, "smtp_password", "")
+    from_email = _get(db, "smtp_from_email", "")
+    to_email = _get(db, "smtp_to_email", "")
+    use_tls = _get(db, "smtp_use_tls", "true") != "false"
+
+    if not host or not from_email or not to_email:
+        raise HTTPException(status_code=400, detail="SMTP not fully configured")
+
+    success = await send_smtp_test_message(host, port, username, password, from_email, to_email, use_tls)
+    if success:
+        return MessageResponse(message="Test email sent successfully")
+    raise HTTPException(status_code=502, detail="Failed to send test email — check SMTP settings")
+
+
+@router.put("/cmdb", response_model=MessageResponse)
+def update_cmdb_settings(
+    prefix: str,
+    digits: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    prefix = prefix.strip().upper()[:20] or "DEV"
+    digits = max(1, min(digits, 10))
+    _set(db, "cmdb_id_prefix", prefix)
+    _set(db, "cmdb_id_digits", str(digits))
+    db.commit()
+    return MessageResponse(message="CMDB settings updated")
 
 
 @router.get("/update/check")

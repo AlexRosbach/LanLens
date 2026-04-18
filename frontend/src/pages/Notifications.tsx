@@ -32,7 +32,7 @@ export default function Notifications() {
     await notificationsApi.markAllRead()
     setItems((prev) => prev.map((n) => ({ ...n, is_read: true })))
     storeMarkAllRead()
-    toast.success(lang === 'de' ? 'Alle als gelesen markiert' : 'All marked as read')
+    toast.success(t('all_marked_read'))
   }
 
   async function deleteNotification(id: number, wasUnread: boolean) {

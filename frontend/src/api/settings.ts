@@ -6,6 +6,7 @@ export interface AllSettings {
   scan_start: string
   scan_end: string
   scan_interval_minutes: number
+  port_scan_range: string
   telegram_bot_token: string
   telegram_chat_id: string
   telegram_enabled: boolean
@@ -14,6 +15,16 @@ export interface AllSettings {
   notify_on_device_online: boolean
   notify_on_device_offline: boolean
   server_url: string
+  smtp_host: string
+  smtp_port: number
+  smtp_username: string
+  smtp_password: string
+  smtp_from_email: string
+  smtp_to_email: string
+  smtp_enabled: boolean
+  smtp_use_tls: boolean
+  cmdb_id_prefix: string
+  cmdb_id_digits: number
 }
 
 export interface UpdateCheckResponse {
@@ -49,6 +60,25 @@ export const settingsApi = {
   notifyUpdateAvailable: () =>
     apiClient.post('/settings/telegram/notify-update').then((r) => r.data),
 
+  updatePortScanSettings: (port_scan_range: string) =>
+    apiClient.put('/settings/port-scan', { port_scan_range }).then((r) => r.data),
+
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),
+
+  updateSmtp: (data: {
+    smtp_host: string
+    smtp_port: number
+    smtp_username: string
+    smtp_password: string
+    smtp_from_email: string
+    smtp_to_email: string
+    smtp_enabled: boolean
+    smtp_use_tls: boolean
+  }) => apiClient.put('/settings/smtp', data).then((r) => r.data),
+
+  testSmtp: () => apiClient.post('/settings/smtp/test').then((r) => r.data),
+
+  updateCmdb: (prefix: string, digits: number) =>
+    apiClient.put('/settings/cmdb', null, { params: { prefix, digits } }).then((r) => r.data),
 }

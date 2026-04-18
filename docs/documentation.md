@@ -14,7 +14,8 @@
 10. [CLI Tools](#cli-tools)
 11. [Frontend Structure](#frontend-structure)
 12. [Configuration Reference](#configuration-reference)
-13. [Troubleshooting](#troubleshooting)
+13. [Deep Scan](#deep-scan)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -564,3 +565,187 @@ docker-compose up -d
 docker-compose down -v   # WARNING: deletes all data
 docker-compose up -d
 ```
+
+---
+
+## Deep Scan
+
+Deep scan is an **opt-in, credential-based** enrichment mode that collects detailed hardware, OS, service, container, and audit data from managed devices over SSH (Linux) or WinRM (Windows).
+
+### Prerequisites
+
+**Linux targets:**
+- SSH service running and accessible from the LanLens host
+- A user account with at least read access to `/etc/os-release`, `lscpu`, `free`, `lsblk`, and `systemctl`
+- For hypervisor inventory: `virsh`, `qm`, or `pct` installed and accessible to the scan user
+
+**Windows targets:**
+- WinRM (Windows Remote Management) enabled: `Enable-PSRemoting -Force`
+- NTLM authentication allowed (default)
+- Port 5985 (HTTP) reachable from LanLens host
+- For server roles/features: PowerShell with `Get-WindowsFeature` available (Windows Server)
+
+### Credential vault
+
+Credentials are managed in **Settings → Deep Scan Credentials**.
+
+| Field | Description |
+|-------|-------------|
+| Name | Descriptive name for this credential set |
+| Type | `Linux SSH` or `Windows WinRM` |
+| Username | Login username on the target device |
+| Password/Key | Encrypted at rest using Fernet (key derived from `SECRET_KEY`) |
+| Description | Optional notes |
+
+Credentials are **never returned in plaintext** by any API endpoint. The `encrypted_secret` column in the database contains a Fernet token and cannot be decrypted without the original `SECRET_KEY`.
+
+> **Note:** If you rotate `SECRET_KEY`, existing credentials become unreadable and must be re-entered.
+
+### Scan profiles
+
+| Profile | Collects |
+|---------|---------|
+| `hardware_only` | CPU, RAM, disks, vendor/model from DMI |
+| `os_services` | OS release, kernel, hostname, uptime, running systemd services |
+| `linux_container_host` | OS + services + Docker/Podman containers, K3s pods |
+| `windows_audit` | Windows OS, hardware, installed server roles/features, running services, licensing state, IIS sites, Hyper-V VMs, SQL Server, AD domain, DHCP scopes |
+| `hypervisor_inventory` | OS + services + virsh/KVM VM list, Proxmox QEMU and container lists |
+| `full` | All of the above |
+
+### Per-device configuration
+
+In the Device Detail page, expand the **Deep Scan** card:
+
+1. Click **Configure**
+2. Select a credential from the dropdown
+3. Choose a scan profile
+4. Optionally enable automatic scans and set an interval (minimum 5 minutes)
+5. Click **Save Configuration**
+6. Click **Run Deep Scan** to trigger an immediate scan
+
+### Finding types
+
+Findings are stored as key/value pairs grouped by `finding_type`:
+
+| Type | Content |
+|------|---------|
+| `hardware` | CPU, RAM, disks, vendor, model, serial number |
+| `os` | OS release, kernel version, hostname, uptime |
+| `service` | Running systemd services (Linux) or Windows services |
+| `container` | Docker/Podman containers, K3s pods |
+| `hypervisor` | VM list from virsh/qm/pct |
+| `vm_guest` | Enumerated VMs with MAC/IP where available |
+| `audit` | Windows features, licensing, IIS, AD, DHCP, SQL Server |
+
+### Hypervisor guest matching
+
+When a hypervisor scan completes, LanLens attempts to match each discovered guest VM against known devices:
+
+1. **MAC address match** (preferred) — compares guest MAC addresses from `virsh domiflist` against device MAC addresses in LanLens
+2. **IP address match** (fallback) — compares guest IP addresses against device IP addresses in LanLens
+
+Matched relationships are stored in `device_host_relationships` and displayed in the **Host / Guest** tab of both the host device and the guest device. Relationships are updated on each hypervisor scan (`last_confirmed_at` timestamp).
+
+### Auto-scan scheduling
+
+When `auto_scan_enabled` is set on a device, the deep scan scheduler (which polls every 60 seconds) will trigger a scan when `interval_minutes` has elapsed since `last_scan_at`. The scheduler ensures only one scan runs per device at a time.
+
+### Security notes
+
+- Credentials are encrypted using Fernet symmetric encryption. The key is derived from `SECRET_KEY` via SHA-256 and URL-safe base64 encoding.
+- The `encrypted_secret` column is never returned by any API endpoint.
+- All API endpoints require a valid session (HTTP-only cookie or Bearer token).
+- SSH connections use `AutoAddPolicy` for host key acceptance — suitable for internal networks. If strict host key checking is required, configure the scan user with a pre-approved `known_hosts` file.
+- WinRM connections use NTLM authentication over HTTP (port 5985). For production use, consider enabling HTTPS (port 5986) on Windows targets and updating the session URL accordingly.
+
+### New database tables (v1.4.0)
+
+| Table | Purpose |
+|-------|---------|
+| `credentials` | Encrypted credential store |
+| `device_deep_scan_config` | Per-device scan settings (one row per device) |
+| `deep_scan_runs` | Audit trail of every scan execution |
+| `deep_scan_findings` | Structured findings (hardware, OS, services, etc.) |
+| `device_host_relationships` | VM-to-host relationships |
+
+All tables are created automatically by the migration script on container start and are cascade-deleted when the parent device is removed.
+
+### New columns (v1.4.1)
+
+| Table | Column | Type | Description |
+|-------|--------|------|-------------|
+| `credentials` | `auth_method` | `VARCHAR(16)` | `password` (default) or `key` (SSH private key) |
+| `devices` | `cmdb_id` | `VARCHAR(64)` | Unique CMDB identifier (e.g. `DEV-0001`), nullable |
+
+### New tables (v1.4.1)
+
+| Table | Purpose |
+|-------|---------|
+| `auto_scan_rules` | Global rules for automatic deep scans by device class |
+
+---
+
+## CMDB IDs
+
+Each registered device can receive an automatically generated CMDB identifier. The format is `{PREFIX}-{NNNN}` where prefix and digit count are configurable in **Settings → System → CMDB IDs**.
+
+- IDs are generated on first device registration and can be regenerated from Device Detail.
+- Uniqueness is enforced by a database unique index; the generator retries up to 3 times on concurrent collision before returning HTTP 409.
+- Prefix defaults to `DEV`, digit count defaults to `4` (e.g. `DEV-0001`).
+
+---
+
+## External Database (MariaDB / PostgreSQL)
+
+Set the `DATABASE_URL` environment variable to use an external database instead of the built-in SQLite file:
+
+```yaml
+environment:
+  DATABASE_URL: "mysql+pymysql://user:password@host:3306/lanlens"
+```
+
+When `DATABASE_URL` is set:
+- SQLite-specific migrations are skipped; `Base.metadata.create_all()` generates dialect-correct DDL.
+- The database export endpoint returns HTTP 400 (SQLite-only feature).
+- All incremental `ALTER TABLE` migrations are dialect-compatible and run on both SQLite and MariaDB.
+
+See README for a full docker-compose example and connection string reference.
+
+---
+
+## SSH Key Authentication
+
+Credentials of type `linux_ssh` support two authentication methods:
+
+| `auth_method` | Secret content | Notes |
+|---|---|---|
+| `password` (default) | SSH password | Standard password-based SSH login |
+| `key` | PEM private key (RSA, Ed25519, ECDSA, DSS) | Key stored Fernet-encrypted; supports all paramiko key types |
+
+Select the auth method in the Credential Modal. The private key is stored encrypted and never returned by the API.
+
+---
+
+## UI Languages
+
+The frontend supports three languages, switchable via the TopBar toggle (EN → DE → IT → EN) or the Settings page:
+
+| Code | Language |
+|------|----------|
+| `en` | English |
+| `de` | Deutsch |
+| `it` | Italiano |
+
+---
+
+## Export & Import
+
+**Settings → System → Export & Import** provides:
+
+| Action | Endpoint | Description |
+|--------|----------|-------------|
+| Export Settings | `GET /api/admin/export/settings` | Downloads all settings as a JSON file |
+| Export Database | `GET /api/admin/export/database` | Downloads the SQLite `.db` file (SQLite only) |
+| Import Settings | `POST /api/admin/import/settings` | Uploads a previously exported settings JSON |
+
+All admin endpoints require a fully set-up account (`force_password_change = false`).

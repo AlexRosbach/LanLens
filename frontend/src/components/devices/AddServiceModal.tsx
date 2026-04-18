@@ -13,6 +13,7 @@ import Button from '../ui/Button'
 import Input from '../ui/Input'
 import Modal from '../ui/Modal'
 import ServiceIcon from './ServiceIcon'
+import { useI18n } from '../../i18n'
 
 interface Props {
   deviceId: number
@@ -26,6 +27,7 @@ const SERVICE_TYPES: ServiceType[] = ['web', 'api', 'ssh', 'rdp', 'database', 'm
 
 export default function AddServiceModal({ deviceId, editService, onClose, onSaved }: Props) {
   const isEdit = !!editService
+  const { t } = useI18n()
 
   const [selectedPreset, setSelectedPreset] = useState<ServicePreset | null>(null)
   const [showPresets, setShowPresets] = useState(!isEdit)
@@ -55,7 +57,7 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
   }
 
   async function handleSave() {
-    if (!name.trim()) { toast.error('Please enter a service name'); return }
+    if (!name.trim()) { toast.error(t('please_enter_service_name')); return }
 
     const data: ServiceCreate = {
       name: name.trim(),
@@ -76,15 +78,15 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
       let result: Service
       if (isEdit && editService) {
         result = await servicesApi.update(deviceId, editService.id, data)
-        toast.success('Service updated')
+        toast.success(t('service_updated'))
       } else {
         result = await servicesApi.create(deviceId, data)
-        toast.success('Service added')
+        toast.success(t('service_added'))
       }
       onSaved(result)
       onClose()
     } catch {
-      toast.error('Failed to save service')
+      toast.error(t('failed_to_save_service'))
     } finally {
       setSaving(false)
     }
@@ -94,13 +96,13 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
     <Modal
       open
       onClose={onClose}
-      title={isEdit ? `Edit — ${editService!.name}` : 'Add Service'}
+      title={isEdit ? t('edit_service_title', { name: editService!.name }) : t('add_service')}
       maxWidth="max-w-2xl"
     >
       {/* Preset picker (only on create) */}
       {!isEdit && showPresets && (
         <div className="mb-5">
-          <p className="text-sm text-text-muted mb-3">Choose a preset or scroll down for custom:</p>
+          <p className="text-sm text-text-muted mb-3">{t('choose_preset_or_custom')}</p>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-52 overflow-y-auto pr-1">
             {SERVICE_PRESETS.map((preset) => (
               <button
@@ -118,7 +120,7 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
             onClick={() => setShowPresets(false)}
             className="mt-3 text-xs text-text-subtle hover:text-primary transition-colors"
           >
-            Skip preset — configure manually →
+            {t('skip_preset_manual')}
           </button>
         </div>
       )}
@@ -128,14 +130,14 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
         {/* Name + type row */}
         <div className="grid grid-cols-2 gap-3">
           <Input
-            label="Service Name *"
+            label={t('service_name_required')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Grafana, N8N"
             autoFocus={!showPresets}
           />
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-text-muted">Type</label>
+            <label className="text-sm font-medium text-text-muted">{t('type')}</label>
             <select
               value={serviceType}
               onChange={(e) => setServiceType(e.target.value as ServiceType)}
@@ -169,13 +171,13 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-text-muted">Protocol</label>
+            <label className="text-sm font-medium text-text-muted">{t('protocol')}</label>
             <select value={protocol} onChange={(e) => setProtocol(e.target.value)} className="input-field">
               {PROTOCOLS.map((p) => <option key={p}>{p}</option>)}
             </select>
           </div>
           <Input
-            label="Version"
+            label={t('version')}
             value={version}
             onChange={(e) => setVersion(e.target.value)}
             placeholder="e.g. 10.5.1"
@@ -183,24 +185,24 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
         </div>
 
         <Input
-          label="Description"
+          label={t('description')}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="What does this service do?"
+          placeholder={t('service_description_placeholder')}
         />
 
         {/* Credentials section */}
         <div className="border border-border rounded-xl p-3 flex flex-col gap-3 bg-surface2/50">
-          <p className="text-xs font-medium text-text-subtle uppercase tracking-wider">Access Info</p>
+          <p className="text-xs font-medium text-text-subtle uppercase tracking-wider">{t('access_info')}</p>
           <div className="grid grid-cols-2 gap-3">
             <Input
-              label="Username / Login hint"
+              label={t('username_login_hint')}
               value={usernameHint}
               onChange={(e) => setUsernameHint(e.target.value)}
               placeholder="e.g. admin"
             />
             <Input
-              label="Password location"
+              label={t('password_location')}
               value={passwordLocation}
               onChange={(e) => setPasswordLocation(e.target.value)}
               placeholder="e.g. Vaultwarden → Servers"
@@ -215,14 +217,14 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
             className="input-field resize-none"
-            placeholder="Additional notes…"
+            placeholder={t('notes_placeholder')}
           />
         </div>
 
         <div className="flex gap-3 justify-end pt-1">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{t('cancel')}</Button>
           <Button onClick={handleSave} loading={saving}>
-            {isEdit ? 'Save Changes' : 'Add Service'}
+            {isEdit ? t('save_changes_label') : t('add_service')}
           </Button>
         </div>
       </div>

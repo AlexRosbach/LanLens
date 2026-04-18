@@ -5,7 +5,7 @@ import { formatMac, formatRelativeTime, formatDeviceLabel } from '../../utils/fo
 import { useI18n } from '../../i18n'
 import Badge from '../ui/Badge'
 import ConnectButtons from './ConnectButtons'
-import DeviceClassIcon from './DeviceClassIcon'
+import DeviceClassIcon, { isVmClass } from './DeviceClassIcon'
 
 interface Props {
   devices: Device[]
@@ -149,7 +149,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                         <p className="text-xs text-text-subtle font-mono truncate">
                           {formatMac(device.mac_address)}
                         </p>
@@ -166,6 +166,21 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                           </span>
                         )}
                       </div>
+                      {device.host_label && isVmClass(device.device_class) && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <svg className="w-3 h-3 text-text-subtle flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                          </svg>
+                          <p className="text-xs text-text-subtle truncate max-w-[160px]">
+                            {device.host_label}
+                          </p>
+                        </div>
+                      )}
+                      {device.hardware_summary && (
+                        <p className="text-xs text-text-subtle truncate mt-0.5 max-w-[200px]">
+                          {device.hardware_summary}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </td>
@@ -184,7 +199,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                   {formatRelativeTime(device.last_seen, lang)}
                 </td>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                  <ConnectButtons device={device} onScanRequested={onRefresh} />
+                  <ConnectButtons device={device} onScanRequested={onRefresh} compact />
                 </td>
               </tr>
             )
