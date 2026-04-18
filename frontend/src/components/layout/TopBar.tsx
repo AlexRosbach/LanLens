@@ -45,7 +45,7 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
     setScanning(true)
     try {
       await scanApi.start()
-      toast.success(lang === 'de' ? 'Netzwerkscan gestartet' : 'Network scan started')
+      toast.success(t('network_scan_started'))
       const poll = setInterval(async () => {
         const status = await scanApi.status()
         if (!status.is_running) {
@@ -53,14 +53,12 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
           setScanning(false)
           await fetchDevices()
           toast.success(
-            lang === 'de'
-              ? `Scan abgeschlossen — ${status.last_scan?.devices_found ?? 0} Geräte gefunden`
-              : `Scan complete — ${status.last_scan?.devices_found ?? 0} devices found`
+            t('scan_complete', { count: status.last_scan?.devices_found ?? 0 })
           )
         }
       }, 2000)
     } catch {
-      toast.error(lang === 'de' ? 'Scan konnte nicht gestartet werden' : 'Failed to start scan')
+      toast.error(t('failed_start_scan'))
       setScanning(false)
     }
   }
@@ -100,7 +98,7 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
         <button
           onClick={() => setLang(lang === 'en' ? 'de' : lang === 'de' ? 'it' : 'en')}
           className="text-xs font-medium text-text-subtle hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors border border-border"
-          title="Switch language"
+          title={t('switch_language')}
         >
           {lang === 'en' ? 'DE' : lang === 'de' ? 'IT' : 'EN'}
         </button>
@@ -109,7 +107,7 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
         <button
           onClick={toggleTheme}
           className="text-text-subtle hover:text-text-base p-2 rounded-lg hover:bg-surface2 transition-colors"
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={theme === 'dark' ? t('switch_to_light_mode') : t('switch_to_dark_mode')}
         >
           {theme === 'dark' ? (
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

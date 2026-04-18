@@ -109,7 +109,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
       setLatestRun(runsResp.data[0] ?? null)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      toast.error(msg || 'Failed to start deep scan')
+      toast.error(msg || t('failed_to_start_deep_scan'))
     } finally {
       setTriggering(false)
     }

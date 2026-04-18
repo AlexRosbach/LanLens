@@ -66,7 +66,7 @@ export default function VmHostSection({ deviceId }: Props) {
       setSelectedHostId('')
       await load()
     } catch {
-      toast.error('Failed to link host')
+      toast.error(t('failed_to_link_host'))
     } finally {
       setSaving(false)
     }
@@ -80,7 +80,7 @@ export default function VmHostSection({ deviceId }: Props) {
       toast.success(t('vm_host_unlinked'))
       await load()
     } catch {
-      toast.error('Failed to unlink')
+      toast.error(t('failed_to_unlink_host'))
     } finally {
       setRemovingId(null)
     }

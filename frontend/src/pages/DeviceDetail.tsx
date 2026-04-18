@@ -121,9 +121,9 @@ export default function DeviceDetail() {
       setDevice(updated)
       setForm(toEditState(updated))
       setEditing(false)
-      toast.success('Device updated')
+      toast.success(t('device_updated'))
     } catch {
-      toast.error('Failed to save')
+      toast.error(t('save_failed'))
     } finally {
       setSaving(false)
     }
@@ -135,20 +135,20 @@ export default function DeviceDetail() {
   }
 
   async function handleDelete() {
-    if (!device || !confirm('Delete this device? It will reappear on next scan.')) return
+    if (!device || !confirm(t('device_delete_confirm'))) return
     setDeleting(true)
     try {
       await devicesApi.delete(device.id)
-      toast.success('Device removed')
+      toast.success(t('device_removed'))
       navigate('/')
     } catch {
-      toast.error('Failed to delete')
+      toast.error(t('device_delete_failed'))
       setDeleting(false)
     }
   }
 
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
-  if (!device || !form) return <p className="text-text-muted">Device not found.</p>
+  if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
   const hasDocumentation = device.purpose || device.description || device.location ||
     device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
@@ -187,7 +187,7 @@ export default function DeviceDetail() {
                 </span>
               )}
             </div>
-            <p className="text-sm text-text-muted">{device.device_class} · {device.vendor ?? 'Unknown vendor'}</p>
+            <p className="text-sm text-text-muted">{device.device_class} · {device.vendor ?? t('vendor_unknown')}</p>
           </div>
         </div>
         <Badge variant={device.is_online ? 'success' : 'danger'} dot>
@@ -223,7 +223,7 @@ export default function DeviceDetail() {
               <Input label={t('asset_tag')} placeholder="e.g. SRV-001" {...field('assetTag')} />
               <div className="col-span-2 flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="block text-sm font-medium text-text-muted mb-1">CMDB ID</label>
+                  <label className="block text-sm font-medium text-text-muted mb-1">{t('cmdb_id')}</label>
                   <Input
                     value={form.cmdbId}
                     onChange={(e) => setForm((f) => f ? { ...f, cmdbId: e.target.value } : f)}
@@ -239,13 +239,13 @@ export default function DeviceDetail() {
                       const updated = await devicesApi.generateCmdbId(device.id)
                       setDevice(updated)
                       setForm(toEditState(updated))
-                      toast.success(`CMDB ID: ${updated.cmdb_id}`)
+                      toast.success(t('cmdb_id_generated', { id: updated.cmdb_id ?? '' }))
                     } catch {
                       toast.error('Failed to generate CMDB ID')
                     }
                   }}
                 >
-                  {lang === 'de' ? 'Generieren' : 'Generate'}
+                  {t('generate')}
                 </Button>
               </div>
             </div>

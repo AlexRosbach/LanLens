@@ -46,7 +46,7 @@ export default function DeepScanConfigForm({ deviceId, config, credentials, onSa
       onSaved(resp.data)
       toast.success(t('deep_scan_save_config') + ' ✓')
     } catch {
-      toast.error('Failed to save configuration')
+      toast.error(t('failed_to_save_configuration'))
     } finally {
       setSaving(false)
     }

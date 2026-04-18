@@ -25,9 +25,9 @@ export default function CredentialModal({ credential, onClose, onSaved }: Props)
   const [saving, setSaving] = useState(false)
 
   const handleSave = async () => {
-    if (!name.trim()) { toast.error(t('credential_name') + ' required'); return }
-    if (!username.trim()) { toast.error(t('credential_username') + ' required'); return }
-    if (!isEdit && !secret.trim()) { toast.error(t('credential_secret') + ' required'); return }
+    if (!name.trim()) { toast.error(t('credential_name') + t('credential_required_suffix')); return }
+    if (!username.trim()) { toast.error(t('credential_username') + t('credential_required_suffix')); return }
+    if (!isEdit && !secret.trim()) { toast.error(t('credential_secret') + t('credential_required_suffix')); return }
 
     setSaving(true)
     try {
@@ -54,10 +54,10 @@ export default function CredentialModal({ credential, onClose, onSaved }: Props)
         saved = resp.data
       }
       onSaved(saved)
-      toast.success(t('save_credential') + ' ✓')
+      toast.success(t('credential_save_success'))
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      toast.error(msg || 'Failed to save credential')
+      toast.error(msg || t('failed_to_save_credential'))
     } finally {
       setSaving(false)
     }
@@ -67,7 +67,7 @@ export default function CredentialModal({ credential, onClose, onSaved }: Props)
     <Modal
       open
       onClose={onClose}
-      title={isEdit ? t('credential_name') : t('add_credential')}
+      title={isEdit ? t('credential_modal_edit_title') : t('add_credential')}
     >
       <div className="space-y-4">
         <Input
@@ -142,7 +142,7 @@ export default function CredentialModal({ credential, onClose, onSaved }: Props)
               autoComplete="off"
               spellCheck={false}
             />
-            <p className="text-xs text-text-subtle">Paste the full PEM private key (RSA, Ed25519, ECDSA). The key is stored encrypted.</p>
+            <p className="text-xs text-text-subtle">{t('paste_private_key_hint')}</p>
           </div>
         ) : (
           <Input
@@ -162,7 +162,7 @@ export default function CredentialModal({ credential, onClose, onSaved }: Props)
         />
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{t('cancel')}</Button>
           <Button onClick={handleSave} loading={saving}>{t('save_credential')}</Button>
         </div>
       </div>

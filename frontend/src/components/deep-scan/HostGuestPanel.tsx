@@ -40,10 +40,10 @@ export default function HostGuestPanel({ deviceId, relationships, onRelationship
     setDeletingId(rel.id)
     try {
       await deepScanApi.deleteRelationship(deviceId, rel.id)
-      toast.success('Relationship removed')
+      toast.success(t('relationship_removed'))
       onRelationshipDeleted?.()
     } catch {
-      toast.error('Failed to remove relationship')
+      toast.error(t('failed_to_remove_relationship'))
     } finally {
       setDeletingId(null)
     }
@@ -53,10 +53,10 @@ export default function HostGuestPanel({ deviceId, relationships, onRelationship
     setApplyingId(guestDeviceId)
     try {
       await devicesApi.update(guestDeviceId, { label: suggestedLabel })
-      toast.success(`Label set to "${suggestedLabel}"`)
+      toast.success(t('label_set_to', { label: suggestedLabel }))
       onSuggestionApplied?.()
     } catch {
-      toast.error('Failed to apply label')
+      toast.error(t('failed_to_apply_label'))
     } finally {
       setApplyingId(null)
     }

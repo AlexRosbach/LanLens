@@ -88,8 +88,8 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
   )
 
   async function handleSave() {
-    if (!name.trim()) { toast.error(lang === 'de' ? 'Name erforderlich' : 'Name required'); return }
-    if (!credentialId) { toast.error(lang === 'de' ? 'Zugangsdaten erforderlich' : 'Credential required'); return }
+    if (!name.trim()) { toast.error(t('deep_scan_rule_name_required')); return }
+    if (!credentialId) { toast.error(t('deep_scan_credential_required')); return }
     setSaving(true)
     try {
       await onSave({
@@ -103,7 +103,7 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
       })
       onClose()
     } catch {
-      toast.error(lang === 'de' ? 'Speichern fehlgeschlagen' : 'Failed to save rule')
+      toast.error(t('deep_scan_rule_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -117,22 +117,22 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
         </h3>
 
         <Input
-          label={lang === 'de' ? 'Regelname' : 'Rule name'}
+          label={t('deep_scan_rule_name')}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={lang === 'de' ? 'z.B. Alle Server täglich' : 'e.g. All Servers daily'}
+          placeholder={t('deep_scan_rule_name_placeholder')}
         />
 
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-text-muted">
-            {lang === 'de' ? 'Geräteklasse (leer = alle)' : 'Device class (empty = all)'}
+            {t('deep_scan_device_class_optional')}
           </label>
           <select
             className="input-field"
             value={deviceClass}
             onChange={(e) => setDeviceClass(e.target.value)}
           >
-            <option value="">{lang === 'de' ? 'Alle Geräteklassen' : 'All device classes'}</option>
+            <option value="">{t('deep_scan_all_device_classes')}</option>
             {availableClasses.map((cls) => (
               <option key={cls} value={cls}>{cls}</option>
             ))}
@@ -159,8 +159,8 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
           {selectedCred && (
             <p className="text-xs text-text-subtle">
               {selectedCred.credential_type === 'linux_ssh'
-                ? (lang === 'de' ? '🐧 Nur Linux-Geräteklassen und -Profile verfügbar' : '🐧 Only Linux device classes and profiles available')
-                : (lang === 'de' ? '🪟 Nur Windows-Geräteklassen und -Profile verfügbar' : '🪟 Only Windows device classes and profiles available')}
+                ? t('deep_scan_linux_only_hint')
+                : t('deep_scan_windows_only_hint')}
             </p>
           )}
         </div>
@@ -214,11 +214,11 @@ export default function DeepScanSettings() {
     if (data.id) {
       const updated = await autoScanRulesApi.update(data.id, data)
       setRules((prev) => prev.map((r) => (r.id === data.id ? updated : r)))
-      toast.success(lang === 'de' ? 'Regel gespeichert' : 'Rule saved')
+      toast.success(t('deep_scan_rule_saved'))
     } else {
       const created = await autoScanRulesApi.create(data)
       setRules((prev) => [...prev, created])
-      toast.success(lang === 'de' ? 'Regel erstellt' : 'Rule created')
+      toast.success(t('deep_scan_rule_created'))
     }
   }
 
@@ -227,7 +227,7 @@ export default function DeepScanSettings() {
       const updated = await autoScanRulesApi.update(rule.id, { enabled: !rule.enabled })
       setRules((prev) => prev.map((r) => (r.id === rule.id ? updated : r)))
     } catch {
-      toast.error(lang === 'de' ? 'Fehler beim Aktualisieren' : 'Failed to update rule')
+      toast.error(t('deep_scan_rule_update_failed'))
     }
   }
 
@@ -236,9 +236,9 @@ export default function DeepScanSettings() {
     try {
       await autoScanRulesApi.delete(id)
       setRules((prev) => prev.filter((r) => r.id !== id))
-      toast.success(lang === 'de' ? 'Regel gelöscht' : 'Rule deleted')
+      toast.success(t('deep_scan_rule_deleted'))
     } catch {
-      toast.error(lang === 'de' ? 'Löschen fehlgeschlagen' : 'Failed to delete rule')
+      toast.error(t('deep_scan_rule_delete_failed'))
     }
   }
 
@@ -261,9 +261,7 @@ export default function DeepScanSettings() {
       <Card>
         <h2 className="text-lg font-semibold text-text-base mb-1">{t('deep_scan_profiles_title')}</h2>
         <p className="text-sm text-text-subtle mb-4">
-          {lang === 'de'
-            ? 'Übersicht aller verfügbaren Scan-Profile und was sie erfassen.'
-            : 'Overview of all available scan profiles and what they collect.'}
+          {t('deep_scan_profiles_description')}
         </p>
 
         <div className="space-y-3">
@@ -301,9 +299,7 @@ export default function DeepScanSettings() {
           <div>
             <h2 className="text-lg font-semibold text-text-base">{t('auto_scan_rules_title')}</h2>
             <p className="text-sm text-text-subtle mt-0.5">
-              {lang === 'de'
-                ? 'Globale Regeln: Alle passenden Geräte werden automatisch nach Ablauf des Intervalls gescannt — unabhängig von gerätespezifischen Einstellungen.'
-                : 'Global rules: All matching devices are scanned automatically after the interval elapses — independent of per-device settings.'}
+              {t('auto_scan_rules_description')}
             </p>
           </div>
           <Button size="sm" onClick={() => { setEditingRule(null); setShowRuleModal(true) }}>
@@ -331,19 +327,19 @@ export default function DeepScanSettings() {
                     </span>
                   ) : (
                     <span className="text-xs px-1.5 py-0.5 rounded-full bg-surface border border-border text-text-subtle">
-                      {lang === 'de' ? 'Alle Klassen' : 'All classes'}
+                      {t('all_classes')}
                     </span>
                   )}
                   {!rule.enabled && (
-                    <span className="text-xs text-warning">{lang === 'de' ? 'Deaktiviert' : 'Disabled'}</span>
+                    <span className="text-xs text-warning">{t('disabled')}</span>
                   )}
                 </div>
                 <p className="text-xs text-text-subtle">
-                  {lang === 'de' ? 'Profil' : 'Profile'}: <span className="text-text-muted">{t(('deep_scan_profile_' + rule.scan_profile) as Parameters<typeof t>[0])}</span>
+                  {t('profile')}: <span className="text-text-muted">{t(('deep_scan_profile_' + rule.scan_profile) as Parameters<typeof t>[0])}</span>
                   {' · '}
-                  {lang === 'de' ? 'Zugangsdaten' : 'Credential'}: <span className="text-text-muted">{credName(rule.credential_id)}</span>
+                  {t('credential')}: <span className="text-text-muted">{credName(rule.credential_id)}</span>
                   {' · '}
-                  {lang === 'de' ? 'Intervall' : 'Interval'}: <span className="text-text-muted">{rule.interval_minutes} min</span>
+                  {t('interval')}: <span className="text-text-muted">{rule.interval_minutes} min</span>
                 </p>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -352,7 +348,7 @@ export default function DeepScanSettings() {
                   className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
                     rule.enabled ? 'bg-primary' : 'bg-surface2 border border-border'
                   }`}
-                  title={rule.enabled ? (lang === 'de' ? 'Deaktivieren' : 'Disable') : (lang === 'de' ? 'Aktivieren' : 'Enable')}
+                  title={rule.enabled ? t('disable') : t('enable')}
                 >
                   <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${rule.enabled ? 'translate-x-5' : 'translate-x-1'}`} />
                 </button>
