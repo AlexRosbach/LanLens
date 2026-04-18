@@ -268,7 +268,7 @@ const translations = {
     "scan_interval": "Intervallo Scansione",
     "telegram": "Telegram",
     "save_changes": "Salva Modifiche",
-    "delete_confirm": "Sei sicuro?"
+    "delete_confirm": "Sei sicuro?",
 },
 } as const
 
