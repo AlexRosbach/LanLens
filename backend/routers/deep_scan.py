@@ -175,13 +175,13 @@ def update_deep_scan_config(
     if "scan_profile" in fields and data.scan_profile is not None:
         next_scan_profile = data.scan_profile
         config.scan_profile = data.scan_profile
-+
-+    if next_credential_id is not None:
-+        if credential is None:
-+            credential = db.query(Credential).filter(Credential.id == next_credential_id).first()
-+            if not credential:
-+                raise HTTPException(status_code=404, detail="Credential not found")
-+        _validate_profile_credential_compatibility(next_scan_profile, credential)
+
+    if next_credential_id is not None:
+        if credential is None:
+            credential = db.query(Credential).filter(Credential.id == next_credential_id).first()
+            if not credential:
+                raise HTTPException(status_code=404, detail="Credential not found")
+        _validate_profile_credential_compatibility(next_scan_profile, credential)
     if "auto_scan_enabled" in fields and data.auto_scan_enabled is not None:
         config.auto_scan_enabled = data.auto_scan_enabled
     if "interval_minutes" in fields and data.interval_minutes is not None:
