@@ -12,6 +12,10 @@
 
 LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, and connect to them.
 
+### Contributors
+
+Thanks to everyone helping shape LanLens, including community contributions that improved translations, UX consistency, and release polish.
+
 </div>
 
 > [!IMPORTANT]
