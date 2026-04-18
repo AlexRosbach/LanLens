@@ -362,7 +362,7 @@ export default function DeepScanSettings() {
                   size="sm"
                   onClick={() => handleDeleteRule(rule.id)}
                 >
-                  <span className="text-danger">{t('delete_segment')}</span>
+                  <span className="text-danger">{t('delete')}</span>
                 </Button>
               </div>
             </div>

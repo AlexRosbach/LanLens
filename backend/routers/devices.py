@@ -389,11 +389,12 @@ def update_device(
             prefix, digits = get_cmdb_settings(db)
             for _attempt in range(3):
                 try:
-                    device.cmdb_id = generate_cmdb_id(db, prefix, digits)
-                    db.flush()  # catch IntegrityError before full commit
+                    with db.begin_nested():
+                        device.cmdb_id = generate_cmdb_id(db, prefix, digits)
+                        db.flush()  # catch IntegrityError within savepoint only
                     break
                 except IntegrityError:
-                    db.rollback()  # retry with next available ID
+                    device.cmdb_id = None
         except Exception as exc:
             logger.warning("CMDB ID generation failed: %s", exc)
 

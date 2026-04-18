@@ -189,7 +189,11 @@ export default function Settings() {
   async function handleExportDatabase() {
     try {
       const resp = await adminApi.exportDatabase()
-      downloadBlob(resp.data, 'lanlens-backup.db')
+      const filename = adminApi.getFilenameFromDisposition(
+        resp.headers['content-disposition'],
+        'lanlens-backup.db'
+      )
+      downloadBlob(resp.data, filename)
     } catch {
       toast.error(t('database_export_failed'))
     }

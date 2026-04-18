@@ -194,7 +194,7 @@ function ServiceCard({
           )}
           {service.port && (
             <div>
-              <p className="text-text-subtle mb-0.5">{t('port_scan_range')}</p>
+              <p className="text-text-subtle mb-0.5">{t('port')}</p>
               <p className="text-text-muted font-mono">{service.port} / {service.protocol}</p>
             </div>
           )}

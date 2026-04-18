@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import type { Credential } from '../../api/credentials'
 import type { DeepScanConfig, ScanProfile } from '../../api/deepScan'
@@ -7,13 +7,13 @@ import Button from '../ui/Button'
 import Input from '../ui/Input'
 import { useI18n } from '../../i18n'
 
-const PROFILES: { value: ScanProfile; labelKey: string }[] = [
-  { value: 'hardware_only',        labelKey: 'deep_scan_profile_hardware_only' },
-  { value: 'os_services',          labelKey: 'deep_scan_profile_os_services' },
-  { value: 'linux_container_host', labelKey: 'deep_scan_profile_linux_container_host' },
-  { value: 'windows_audit',        labelKey: 'deep_scan_profile_windows_audit' },
-  { value: 'hypervisor_inventory', labelKey: 'deep_scan_profile_hypervisor_inventory' },
-  { value: 'full',                 labelKey: 'deep_scan_profile_full' },
+const PROFILES: { value: ScanProfile; labelKey: string; credType: 'both' | 'linux' | 'windows' }[] = [
+  { value: 'hardware_only',        labelKey: 'deep_scan_profile_hardware_only', credType: 'both' },
+  { value: 'os_services',          labelKey: 'deep_scan_profile_os_services', credType: 'both' },
+  { value: 'linux_container_host', labelKey: 'deep_scan_profile_linux_container_host', credType: 'linux' },
+  { value: 'windows_audit',        labelKey: 'deep_scan_profile_windows_audit', credType: 'windows' },
+  { value: 'hypervisor_inventory', labelKey: 'deep_scan_profile_hypervisor_inventory', credType: 'linux' },
+  { value: 'full',                 labelKey: 'deep_scan_profile_full', credType: 'both' },
 ]
 
 interface Props {
@@ -32,6 +32,19 @@ export default function DeepScanConfigForm({ deviceId, config, credentials, onSa
   const [autoEnabled, setAutoEnabled] = useState(config.auto_scan_enabled)
   const [interval, setInterval] = useState(config.interval_minutes)
   const [saving, setSaving] = useState(false)
+
+  const selectedCred = credentials.find((c) => c.id === credentialId)
+  const availableProfiles = PROFILES.filter((p) =>
+    p.credType === 'both' ||
+    (selectedCred?.credential_type === 'linux_ssh' && p.credType === 'linux') ||
+    (selectedCred?.credential_type === 'windows_winrm' && p.credType === 'windows')
+  )
+
+  useEffect(() => {
+    if (!availableProfiles.some((p) => p.value === profile) && availableProfiles[0]) {
+      setProfile(availableProfiles[0].value)
+    }
+  }, [availableProfiles, profile])
 
   const handleSave = async () => {
     setSaving(true)
@@ -99,7 +112,7 @@ export default function DeepScanConfigForm({ deviceId, config, credentials, onSa
           value={profile}
           onChange={(e) => setProfile(e.target.value as ScanProfile)}
         >
-          {PROFILES.map((p) => (
+          {availableProfiles.map((p) => (
             <option key={p.value} value={p.value}>
               {t(p.labelKey as Parameters<typeof t>[0])}
             </option>

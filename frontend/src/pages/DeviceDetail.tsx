@@ -325,7 +325,7 @@ export default function DeviceDetail() {
               <InfoRow label={t('os_info')} value={device.os_info} />
               {device.cmdb_id && (
                 <div>
-                  <p className="text-text-subtle text-xs mb-0.5">CMDB ID</p>
+                  <p className="text-text-subtle text-xs mb-0.5">{t('cmdb_id')}</p>
                   <p className="text-text-muted text-xs font-mono font-semibold text-primary">{device.cmdb_id}</p>
                 </div>
               )}

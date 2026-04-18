@@ -13,7 +13,7 @@ import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -67,15 +67,11 @@ def export_database(
     if not os.path.exists(DB_PATH):
         raise HTTPException(status_code=404, detail="Database file not found")
 
-    # Read file into memory before sending (avoids partial-read issues)
-    with open(DB_PATH, "rb") as f:
-        content = f.read()
-
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    return StreamingResponse(
-        io.BytesIO(content),
+    return FileResponse(
+        DB_PATH,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f"attachment; filename=lanlens-backup-{ts}.db"},
+        filename=f"lanlens-backup-{ts}.db",
     )
 
 

@@ -208,6 +208,33 @@ def update_port_scan_settings(
                 status_code=400,
                 detail="Invalid port_scan_range. Use 'top:N', a range like '1-65535', or a list like '22,80,443'.",
             )
+
+        for chunk in sanitised.split(","):
+            if not chunk:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid port_scan_range. Empty list items are not allowed.",
+                )
+            if "-" in chunk:
+                parts = chunk.split("-")
+                if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid port_scan_range. Ranges must look like 'start-end'.",
+                    )
+                start, end = int(parts[0]), int(parts[1])
+                if start < 1 or end > 65535 or start > end:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid port_scan_range. Ports must be between 1 and 65535.",
+                    )
+            else:
+                if not chunk.isdigit() or not 1 <= int(chunk) <= 65535:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid port_scan_range. Ports must be between 1 and 65535.",
+                    )
+
         # Store the sanitised value so what's saved matches what gets scanned
         spec = sanitised
 
