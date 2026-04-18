@@ -13,8 +13,10 @@ function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  document.body.appendChild(a)
   a.click()
-  URL.revokeObjectURL(url)
+  // Revoke after a tick so the browser has time to start the download
+  setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
 }
 
 export default function Settings() {
@@ -245,14 +247,17 @@ export default function Settings() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Sprache' : 'Language'}</label>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {lang === 'de' ? 'Sprache' : lang === 'it' ? 'Lingua' : 'Language'}
+                </label>
                 <select
                   className="input-field"
                   value={lang}
-                  onChange={(e) => setLang(e.target.value as 'de' | 'en')}
+                  onChange={(e) => setLang(e.target.value as 'en' | 'de' | 'it')}
                 >
                   <option value="en">English</option>
                   <option value="de">Deutsch</option>
+                  <option value="it">Italiano</option>
                 </select>
               </div>
 

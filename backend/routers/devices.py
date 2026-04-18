@@ -554,7 +554,11 @@ async def _do_single_port_scan(device_id: int, ip: str, port: int) -> None:
 
             existing.open_ports = json.dumps(current_ports)
             existing.scanned_at = __import__("datetime").datetime.utcnow()
-            # Update protocol flags
+            # Recompute protocol flags from scratch so a closed port clears its flag
+            existing.ssh_available   = False
+            existing.rdp_available   = False
+            existing.http_available  = False
+            existing.https_available = False
             for p in current_ports:
                 if p["port"] == 22:
                     existing.ssh_available = True

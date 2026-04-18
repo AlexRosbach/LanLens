@@ -149,7 +149,7 @@ async def send_smtp_for_notification(db: Session, notification) -> bool:
     msg["To"] = to_email
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: _send_smtp(host, port, username, password, from_email, to_email, msg, use_tls))
         return True
     except Exception as e:
@@ -175,7 +175,7 @@ async def send_smtp_test_message(host: str, port: int, username: str, password: 
     msg["From"] = from_email
     msg["To"] = to_email
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: _send_smtp(host, port, username, password, from_email, to_email, msg, use_tls))
         return True
     except Exception as e:

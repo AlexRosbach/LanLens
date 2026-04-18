@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 os.environ.setdefault("SECRET_KEY", "init-placeholder-32chars-do-not-use")
 
 from sqlalchemy import text, inspect as sa_inspect
-from backend.database import engine
+from backend.database import engine, IS_SQLITE
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -44,8 +44,7 @@ def _table_exists(conn, table: str) -> bool:
 
 def _index_exists(conn, index: str) -> bool:
     """Check if index exists — SQLite only (skipped for other DBs)."""
-    from backend.database import IS_SQLITE as _IS_SQLITE
-    if not _IS_SQLITE:
+    if not IS_SQLITE:
         return True  # Skip index creation for non-SQLite (handled by SQLAlchemy)
     try:
         result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND name=:index"), {"index": index})
@@ -55,15 +54,17 @@ def _index_exists(conn, index: str) -> bool:
 
 
 def _has_unique_device_views_constraint(conn) -> bool:
+    """Returns True if the unique index on device_views(user_id, device_id) exists.
+    Non-SQLite: always returns True — SQLAlchemy create_all() handles this via metadata."""
+    if not IS_SQLITE:
+        return True
     indexes = conn.execute(text("PRAGMA index_list(device_views)"))
     for row in indexes:
-        # row[2] = unique flag in SQLite PRAGMA index_list output
         if not row[2]:
             continue
         idx_name = row[1]
         columns = conn.execute(text(f"PRAGMA index_info({idx_name})")).fetchall()
-        column_names = [col[2] for col in columns]
-        if column_names == ["user_id", "device_id"]:
+        if [col[2] for col in columns] == ["user_id", "device_id"]:
             return True
     return False
 
@@ -84,8 +85,11 @@ def migrate():
             print("Migration: devices.segment_id already exists — skipped")
 
         # ── v1.2.4 ── Add server-side device view tracking ───────────────────
+        # CREATE TABLE uses SQLite-specific AUTOINCREMENT syntax.
+        # On MariaDB/PostgreSQL the table is already created by Base.metadata.create_all()
+        # in init_db.py using dialect-aware DDL — only run this block on SQLite.
         created_device_views = False
-        if not _table_exists(conn, "device_views"):
+        if IS_SQLITE and not _table_exists(conn, "device_views"):
             conn.execute(text(
                 "CREATE TABLE device_views ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -96,6 +100,8 @@ def migrate():
             ))
             created_device_views = True
             print("Migration: created device_views")
+        elif not IS_SQLITE:
+            print("Migration: device_views — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: device_views already exists — skipped")
 
@@ -107,12 +113,12 @@ def migrate():
             conn.commit()
         elif created_device_views:
             conn.commit()
-            print("Migration: device_views uniqueness already exists — skipped")
         else:
             print("Migration: device_views uniqueness already exists — skipped")
 
         # ── v1.4.0 ── Deep Scan feature tables ───────────────────────────────
-        if not _table_exists(conn, "credentials"):
+        # All CREATE TABLE blocks below are SQLite-only for the same reason.
+        if IS_SQLITE and not _table_exists(conn, "credentials"):
             conn.execute(text(
                 "CREATE TABLE credentials ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -126,10 +132,12 @@ def migrate():
                 ")"
             ))
             print("Migration: created credentials")
+        elif not IS_SQLITE:
+            print("Migration: credentials — skipped (non-SQLite)")
         else:
             print("Migration: credentials already exists — skipped")
 
-        if not _table_exists(conn, "device_deep_scan_config"):
+        if IS_SQLITE and not _table_exists(conn, "device_deep_scan_config"):
             conn.execute(text(
                 "CREATE TABLE device_deep_scan_config ("
                 "device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE, "
@@ -142,10 +150,12 @@ def migrate():
                 ")"
             ))
             print("Migration: created device_deep_scan_config")
+        elif not IS_SQLITE:
+            print("Migration: device_deep_scan_config — skipped (non-SQLite)")
         else:
             print("Migration: device_deep_scan_config already exists — skipped")
 
-        if not _table_exists(conn, "deep_scan_runs"):
+        if IS_SQLITE and not _table_exists(conn, "deep_scan_runs"):
             conn.execute(text(
                 "CREATE TABLE deep_scan_runs ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -164,10 +174,12 @@ def migrate():
                 "CREATE INDEX ix_deep_scan_runs_device_id ON deep_scan_runs(device_id)"
             ))
             print("Migration: created deep_scan_runs")
+        elif not IS_SQLITE:
+            print("Migration: deep_scan_runs — skipped (non-SQLite)")
         else:
             print("Migration: deep_scan_runs already exists — skipped")
 
-        if not _table_exists(conn, "deep_scan_findings"):
+        if IS_SQLITE and not _table_exists(conn, "deep_scan_findings"):
             conn.execute(text(
                 "CREATE TABLE deep_scan_findings ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -185,10 +197,12 @@ def migrate():
                 "ON deep_scan_findings(device_id, run_id)"
             ))
             print("Migration: created deep_scan_findings")
+        elif not IS_SQLITE:
+            print("Migration: deep_scan_findings — skipped (non-SQLite)")
         else:
             print("Migration: deep_scan_findings already exists — skipped")
 
-        if not _table_exists(conn, "device_host_relationships"):
+        if IS_SQLITE and not _table_exists(conn, "device_host_relationships"):
             conn.execute(text(
                 "CREATE TABLE device_host_relationships ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -206,11 +220,13 @@ def migrate():
                 "ON device_host_relationships(child_device_id, host_device_id)"
             ))
             print("Migration: created device_host_relationships")
+        elif not IS_SQLITE:
+            print("Migration: device_host_relationships — skipped (non-SQLite)")
         else:
             print("Migration: device_host_relationships already exists — skipped")
 
         # ── v1.4.1 ── Auto-scan rules ─────────────────────────────────────────
-        if not _table_exists(conn, "auto_scan_rules"):
+        if IS_SQLITE and not _table_exists(conn, "auto_scan_rules"):
             conn.execute(text(
                 "CREATE TABLE auto_scan_rules ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
@@ -225,6 +241,8 @@ def migrate():
                 ")"
             ))
             print("Migration: created auto_scan_rules")
+        elif not IS_SQLITE:
+            print("Migration: auto_scan_rules — skipped (non-SQLite)")
         else:
             print("Migration: auto_scan_rules already exists — skipped")
 

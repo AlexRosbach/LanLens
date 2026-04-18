@@ -130,15 +130,19 @@ def update_deep_scan_config(
 
     config = _get_or_create_config(device_id, db)
 
-    if data.enabled is not None:
+    # Use model_fields_set so credential_id: null can explicitly clear the assignment
+    fields = data.model_fields_set
+
+    if "enabled" in fields and data.enabled is not None:
         config.enabled = data.enabled
-    if data.credential_id is not None:
+    if "credential_id" in fields:
+        # null means "no credential assigned" — allowed to unset
         config.credential_id = data.credential_id
-    if data.scan_profile is not None:
+    if "scan_profile" in fields and data.scan_profile is not None:
         config.scan_profile = data.scan_profile
-    if data.auto_scan_enabled is not None:
+    if "auto_scan_enabled" in fields and data.auto_scan_enabled is not None:
         config.auto_scan_enabled = data.auto_scan_enabled
-    if data.interval_minutes is not None:
+    if "interval_minutes" in fields and data.interval_minutes is not None:
         config.interval_minutes = data.interval_minutes
 
     db.commit()

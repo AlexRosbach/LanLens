@@ -75,21 +75,26 @@ def update_rule(
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
 
-    if data.name is not None:
+    # Use model_fields_set so that an explicit `null` (e.g. device_class: null)
+    # can clear a field, while a missing key leaves the field unchanged.
+    fields = data.model_fields_set
+
+    if "name" in fields and data.name is not None:
         rule.name = data.name
-    if data.device_class is not None:
+    if "device_class" in fields:
+        # null means "all classes" — stored as NULL in DB
         rule.device_class = data.device_class or None
-    if data.credential_id is not None:
+    if "credential_id" in fields and data.credential_id is not None:
         if not db.query(Credential).filter(Credential.id == data.credential_id).first():
             raise HTTPException(status_code=404, detail="Credential not found")
         rule.credential_id = data.credential_id
-    if data.scan_profile is not None:
+    if "scan_profile" in fields and data.scan_profile is not None:
         rule.scan_profile = data.scan_profile
-    if data.interval_minutes is not None:
+    if "interval_minutes" in fields and data.interval_minutes is not None:
         if data.interval_minutes < 5:
             raise HTTPException(status_code=400, detail="interval_minutes must be at least 5")
         rule.interval_minutes = data.interval_minutes
-    if data.enabled is not None:
+    if "enabled" in fields and data.enabled is not None:
         rule.enabled = data.enabled
 
     db.commit()

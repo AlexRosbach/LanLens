@@ -1,10 +1,5 @@
 interface Props { deviceClass: string; className?: string }
 
-// Linux penguin path (simplified tux silhouette)
-const LINUX_BADGE = (
-  <title>Linux</title>
-)
-
 export default function DeviceClassIcon({ deviceClass, className = 'w-5 h-5' }: Props) {
   const cls = `${className} text-text-muted`
 

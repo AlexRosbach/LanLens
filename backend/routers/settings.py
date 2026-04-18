@@ -193,8 +193,15 @@ def update_port_scan_settings(
     if not spec:
         raise HTTPException(status_code=400, detail="port_scan_range must not be empty")
 
-    # Validate format: allow "top:N", digits, commas, hyphens only
-    if not spec.startswith("top:"):
+    # Validate format: "top:N" (N must be a positive integer) or digit/comma/hyphen list
+    if spec.startswith("top:"):
+        top_n = spec[4:]
+        if not top_n.isdigit() or int(top_n) < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid port_scan_range: 'top:N' requires N to be a positive integer (e.g. 'top:1000').",
+            )
+    else:
         sanitised = "".join(c for c in spec if c.isdigit() or c in ",-")
         if not sanitised:
             raise HTTPException(

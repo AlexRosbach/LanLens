@@ -1,13 +1,19 @@
-"""Admin endpoints: settings export/import, database export."""
+"""Admin endpoints: settings export/import, database export.
+
+Authorization: LanLens is a single-user application — only one account can
+be created. All endpoints require a valid session (`get_current_user`) AND
+that the user has completed initial setup (`force_password_change=False`).
+This prevents a freshly-created account that hasn't changed its default
+password from exporting secrets or downloading the database.
+"""
 
 import io
 import json
 import os
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -18,10 +24,20 @@ from ..schemas import MessageResponse
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+def _require_setup_complete(current_user: User = Depends(get_current_user)) -> User:
+    """Ensure the account has completed initial password setup before granting access."""
+    if current_user.force_password_change:
+        raise HTTPException(
+            status_code=403,
+            detail="Complete the initial password setup before accessing admin endpoints.",
+        )
+    return current_user
+
+
 @router.get("/export/settings")
 def export_settings(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(_require_setup_complete),
 ):
     """Export all application settings as a JSON file."""
     rows = db.query(Setting).all()
@@ -40,7 +56,7 @@ def export_settings(
 
 @router.get("/export/database")
 def export_database(
-    _: User = Depends(get_current_user),
+    _: User = Depends(_require_setup_complete),
 ):
     """Download the SQLite database file (only available when using SQLite)."""
     if not IS_SQLITE or not DB_PATH:
@@ -67,7 +83,7 @@ def export_database(
 async def import_settings(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(_require_setup_complete),
 ):
     """Import settings from a previously exported JSON file."""
     content = await file.read()
