@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { scanApi } from '../../api/scan'
@@ -21,10 +21,18 @@ function applyTheme(theme: Theme) {
   }
 }
 
+const languageOptions = {
+  en: { label: 'English', flag: '🇬🇧' },
+  de: { label: 'Deutsch', flag: '🇩🇪' },
+  it: { label: 'Italiano', flag: '🇮🇹' },
+} as const
+
 export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const [scanning, setScanning] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
+  const languageMenuRef = useRef<HTMLDivElement | null>(null)
   const { user, logout } = useAuthStore()
   const { fetchDevices, stats, devices } = useDeviceStore()
   const { lang, setLang, t } = useI18n()
@@ -34,6 +42,20 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
 
   // Apply saved theme on mount
   useEffect(() => { applyTheme(theme) }, [theme])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!languageMenuRef.current?.contains(event.target as Node)) {
+        setShowLanguageMenu(false)
+      }
+    }
+
+    if (showLanguageMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showLanguageMenu])
 
   function toggleTheme() {
     const next: Theme = theme === 'dark' ? 'light' : 'dark'
@@ -94,14 +116,36 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Language toggle: EN → DE → IT → EN */}
-        <button
-          onClick={() => setLang(lang === 'en' ? 'de' : lang === 'de' ? 'it' : 'en')}
-          className="text-xs font-medium text-text-subtle hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors border border-border"
-          title={t('switch_language')}
-        >
-          {lang === 'en' ? 'DE' : lang === 'de' ? 'IT' : 'EN'}
-        </button>
+        <div className="relative" ref={languageMenuRef}>
+          <button
+            onClick={() => setShowLanguageMenu((open) => !open)}
+            className="flex items-center gap-1.5 text-xs font-medium text-text-subtle hover:text-text-base px-2 py-1.5 rounded-lg hover:bg-surface2 transition-colors border border-border"
+            title={t('switch_language')}
+          >
+            <span>{languageOptions[lang].flag}</span>
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {showLanguageMenu && (
+            <div className="absolute right-0 top-10 bg-surface2 border border-border rounded-xl shadow-xl min-w-[140px] z-20 overflow-hidden animate-fade-in">
+              {Object.entries(languageOptions).map(([code, option]) => (
+                <button
+                  key={code}
+                  onClick={() => {
+                    setLang(code as 'en' | 'de' | 'it')
+                    setShowLanguageMenu(false)
+                  }}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${lang === code ? 'bg-surface text-text-base' : 'text-text-muted hover:text-text-base hover:bg-surface'}`}
+                >
+                  <span>{option.flag}</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Theme toggle */}
         <button
