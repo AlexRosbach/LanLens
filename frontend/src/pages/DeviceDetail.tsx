@@ -241,7 +241,7 @@ export default function DeviceDetail() {
                       setForm(toEditState(updated))
                       toast.success(t('cmdb_id_generated', { id: updated.cmdb_id ?? '' }))
                     } catch {
-                      toast.error('Failed to generate CMDB ID')
+                      toast.error(t('failed_generate_cmdb_id'))
                     }
                   }}
                 >

@@ -184,6 +184,7 @@ function extractCompact(finding: DeepScanFinding): string | null {
 
 function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: number }) {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useI18n()
   const lines = text.split('\n')
   const isLong = lines.length > maxLines
   const displayed = expanded || !isLong ? text : lines.slice(0, maxLines).join('\n')
@@ -199,7 +200,7 @@ function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: numbe
           onClick={() => setExpanded(!expanded)}
           className="text-xs text-primary hover:underline mt-1"
         >
-          {expanded ? 'Show less ▲' : `Show all ${lines.length} lines ▼`}
+          {expanded ? t('finding_show_less') : t('finding_show_all_lines', { count: lines.length })}
         </button>
       )}
     </div>
@@ -246,48 +247,49 @@ function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
 
 // ── Finding labels ─────────────────────────────────────────────────────────────
 
-const KEY_LABELS: Record<string, string> = {
-  vendor: 'Vendor',
-  model: 'Model',
-  serial: 'Serial',
-  cpu: 'CPU',
-  memory: 'Memory',
-  disks: 'Disks',
-  release: 'OS Release',
-  kernel: 'Kernel',
-  hostname: 'Hostname',
-  uptime: 'Uptime',
-  systemd_units: 'Running Services',
-  docker_containers: 'Docker Containers',
-  docker_info: 'Docker Info',
-  podman_containers: 'Podman Containers',
-  k3s_pods: 'k3s Pods',
-  kvm_vms: 'KVM VMs',
-  proxmox_qemu: 'Proxmox VMs',
-  proxmox_qemu_configs: 'Proxmox VM Configs',
-  proxmox_ct: 'Proxmox Containers',
-  proxmox_ct_configs: 'Proxmox CT Configs',
-  libvirt_nets: 'libvirt Networks',
-  computer_system: 'Computer System',
-  bios: 'BIOS',
-  processor: 'Processor',
-  physical_memory: 'Physical Memory',
-  disk_drives: 'Disk Drives',
-  operating_system: 'Operating System',
-  running_services: 'Running Services',
-  windows_features: 'Windows Features',
-  licensing: 'Licensing',
-  iis_sites: 'IIS Sites',
-  hyper_v_vms: 'Hyper-V VMs',
-  sql_instances: 'SQL Instances',
-  ad_domain: 'Active Directory Domain',
-  dhcp_scopes: 'DHCP Scopes',
+const KEY_LABEL_KEYS: Record<string, Parameters<typeof useI18n>[0]['t'] extends (key: infer K, ...args: any) => any ? K : never> = {
+  vendor: 'finding_vendor',
+  model: 'finding_model',
+  serial: 'finding_serial',
+  cpu: 'finding_cpu',
+  memory: 'finding_memory',
+  disks: 'finding_disks',
+  release: 'finding_release',
+  kernel: 'finding_kernel',
+  hostname: 'hostname',
+  uptime: 'finding_uptime',
+  systemd_units: 'finding_running_services',
+  docker_containers: 'finding_docker_containers',
+  docker_info: 'finding_docker_info',
+  podman_containers: 'finding_podman_containers',
+  k3s_pods: 'finding_k3s_pods',
+  kvm_vms: 'finding_kvm_vms',
+  proxmox_qemu: 'finding_proxmox_vms',
+  proxmox_qemu_configs: 'finding_proxmox_vm_configs',
+  proxmox_ct: 'finding_proxmox_containers',
+  proxmox_ct_configs: 'finding_proxmox_ct_configs',
+  libvirt_nets: 'finding_libvirt_networks',
+  computer_system: 'finding_computer_system',
+  bios: 'finding_bios',
+  processor: 'finding_processor',
+  physical_memory: 'finding_physical_memory',
+  disk_drives: 'finding_disk_drives',
+  operating_system: 'finding_operating_system',
+  running_services: 'finding_running_services',
+  windows_features: 'finding_windows_features',
+  licensing: 'finding_licensing',
+  iis_sites: 'finding_iis_sites',
+  hyper_v_vms: 'finding_hyper_v_vms',
+  sql_instances: 'finding_sql_instances',
+  ad_domain: 'finding_ad_domain',
+  dhcp_scopes: 'finding_dhcp_scopes',
 }
 
 // ── Full finding card (expanded mode) ─────────────────────────────────────────
 
 function FindingCard({ finding }: { finding: DeepScanFinding }) {
-  const label = KEY_LABELS[finding.key] ?? finding.key.replace(/_/g, ' ')
+  const { t } = useI18n()
+  const label = KEY_LABEL_KEYS[finding.key] ? t(KEY_LABEL_KEYS[finding.key]) : finding.key.replace(/_/g, ' ')
   const rawText = parseValue(finding.value)
 
   // Short single-line values → simple row
@@ -328,7 +330,7 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
       <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
       <CollapsiblePre text={rawText} />
       {finding.source && (
-        <span className="text-xs text-text-subtle">source: {finding.source}</span>
+        <span className="text-xs text-text-subtle">{t('source_label', { source: finding.source })}</span>
       )}
     </div>
   )
@@ -337,7 +339,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
 // ── Compact row ────────────────────────────────────────────────────────────────
 
 function CompactRow({ finding }: { finding: DeepScanFinding }) {
-  const label = KEY_LABELS[finding.key] ?? finding.key.replace(/_/g, ' ')
+  const { t } = useI18n()
+  const label = KEY_LABEL_KEYS[finding.key] ? t(KEY_LABEL_KEYS[finding.key]) : finding.key.replace(/_/g, ' ')
   const compact = extractCompact(finding)
   if (compact === null) return null
   return (

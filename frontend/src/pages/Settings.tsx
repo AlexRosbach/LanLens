@@ -225,7 +225,7 @@ export default function Settings() {
       {/* ── SYSTEM ────────────────────────────────────────────────────────── */}
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
-          {lang === 'de' ? 'System' : 'System'}
+          {t('system')}
         </h2>
         <div className="space-y-4">
           <Card>
@@ -233,18 +233,18 @@ export default function Settings() {
               <div>
                 <h2 className="text-lg font-semibold text-text-base">LanLens</h2>
                 <p className="text-sm text-text-subtle">
-                  {lang === 'de' ? 'Allgemeine Instanz- und Update-Einstellungen' : 'General instance and update settings'}
+                  {t('general_instance_settings')}
                 </p>
               </div>
               <Button onClick={checkForUpdates} loading={checkingUpdate}>
-                {lang === 'de' ? 'Jetzt auf Updates prüfen' : 'Check for updates now'}
+                {t('check_updates_now')}
               </Button>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm text-text-subtle mb-1">
-                  {lang === 'de' ? 'Sprache' : lang === 'it' ? 'Lingua' : 'Language'}
+                  {t('language')}
                 </label>
                 <select
                   className="input-field"
@@ -274,28 +274,26 @@ export default function Settings() {
 
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-1">
-              {lang === 'de' ? 'Export & Import' : 'Export & Import'}
+              {t('export_import')}
             </h2>
             <p className="text-sm text-text-subtle mb-4">
-              {lang === 'de'
-                ? 'Einstellungen und Datenbank sichern oder auf ein neues System übertragen.'
-                : 'Back up settings and database or migrate to a new system.'}
+              {t('back_up_settings_description')}
             </p>
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" onClick={handleExportSettings}>
-                {lang === 'de' ? '⬇ Einstellungen exportieren' : '⬇ Export Settings'}
+                {t('export_settings')}
               </Button>
               <Button variant="outline" onClick={handleExportDatabase}>
-                {lang === 'de' ? '⬇ Datenbank exportieren (.db)' : '⬇ Export Database (.db)'}
+                {t('export_database')}
               </Button>
             </div>
             <div className="mt-4 pt-4 border-t border-border space-y-3">
               <p className="text-xs text-text-subtle font-medium uppercase tracking-wide">
-                {lang === 'de' ? 'Importieren' : 'Import'}
+                {t('import_label')}
               </p>
               <label className="flex items-center gap-3 cursor-pointer group">
                 <span className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface2 text-text-muted group-hover:text-primary group-hover:border-primary/50 transition-colors">
-                  {lang === 'de' ? '⬆ Einstellungen importieren (.json)' : '⬆ Import Settings (.json)'}
+                  {t('import_settings')}
                 </span>
                 <input
                   type="file"
@@ -305,24 +303,20 @@ export default function Settings() {
                 />
               </label>
               <p className="text-xs text-text-subtle">
-                {lang === 'de'
-                  ? 'Für den Datenbankimport: Lege die .db Datei als DB_PATH im Container ab und starte neu.'
-                  : 'For database import: place the .db file at DB_PATH in the container and restart.'}
+                {t('database_import_hint')}
               </p>
             </div>
           </Card>
 
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-1">CMDB IDs</h2>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('cmdb_ids_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
-              {lang === 'de'
-                ? 'Automatische eindeutige ID für jedes registrierte Gerät. Format: PREFIX-NNNN'
-                : 'Automatic unique ID for every registered device. Format: PREFIX-NNNN'}
+              {t('cmdb_ids_description')}
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="block text-sm text-text-subtle mb-1">
-                  {lang === 'de' ? 'Präfix' : 'Prefix'}
+                  {t('prefix')}
                 </label>
                 <Input
                   value={current.cmdb_id_prefix}
@@ -333,7 +327,7 @@ export default function Settings() {
               </div>
               <div>
                 <label className="block text-sm text-text-subtle mb-1">
-                  {lang === 'de' ? 'Stellen (Ziffern)' : 'Digits'}
+                  {t('digits')}
                 </label>
                 <Input
                   type="number"
@@ -345,7 +339,7 @@ export default function Settings() {
               </div>
             </div>
             <div className="mt-2 text-xs text-text-subtle">
-              {lang === 'de' ? 'Vorschau:' : 'Preview:'}{' '}
+              {t('preview')}{' '}
               <span className="font-mono text-primary">
                 {current.cmdb_id_prefix || 'DEV'}-{'1'.padStart(current.cmdb_id_digits || 4, '0')}
               </span>
@@ -360,26 +354,22 @@ export default function Settings() {
       {/* ── DATABASE ──────────────────────────────────────────────────────── */}
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
-          {lang === 'de' ? 'Datenbank' : 'Database'}
+          {t('database')}
         </h2>
         <div className="space-y-4">
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-1">
-              {lang === 'de' ? 'Datenbankverbindung' : 'Database Connection'}
+              {t('database_connection')}
             </h2>
             <p className="text-sm text-text-subtle mb-3">
-              {lang === 'de'
-                ? 'Standardmäßig verwendet LanLens SQLite. Für produktive Umgebungen kann MariaDB/MySQL über die Umgebungsvariable DATABASE_URL konfiguriert werden.'
-                : 'LanLens uses SQLite by default. For production environments, MariaDB/MySQL can be configured via the DATABASE_URL environment variable.'}
+              {t('sqlite_default_description')}
             </p>
             <div className="bg-surface2 rounded-lg border border-border p-3 space-y-2 text-xs font-mono">
               <p className="text-text-subtle"># docker-compose.yml environment:</p>
               <p className="text-success">DATABASE_URL=mysql+pymysql://user:pass@mariadb:3306/lanlens</p>
             </div>
             <p className="text-xs text-text-subtle mt-3">
-              {lang === 'de'
-                ? 'Zusätzlich benötigtes Python-Paket: PyMySQL. Siehe Dokumentation für die vollständige MariaDB-Anleitung.'
-                : 'Additional Python package required: PyMySQL. See documentation for the full MariaDB setup guide.'}
+              {t('pymysql_hint')}
             </p>
           </Card>
         </div>
@@ -388,23 +378,21 @@ export default function Settings() {
       {/* ── NETWORK DISCOVERY ─────────────────────────────────────────────── */}
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
-          {lang === 'de' ? 'Netzwerk-Erkennung' : 'Network Discovery'}
+          {t('network_discovery')}
         </h2>
         <div className="space-y-4">
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'DHCP-Bereich' : 'DHCP range'}</h2>
+            <h2 className="text-lg font-semibold text-text-base mb-2">{t('dhcp_range_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
-              {lang === 'de'
-                ? 'Dieser Bereich wird nur für DHCP-Markierung und Einordnung der Geräte genutzt.'
-                : 'This range is only used for DHCP tagging and device classification.'}
+              {t('dhcp_tagging_description')}
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Start' : 'DHCP start'}</label>
+                <label className="block text-sm text-text-subtle mb-1">{t('dhcp_start_label')}</label>
                 <Input value={current.dhcp_start} onChange={(e) => setSettings({ ...current, dhcp_start: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'DHCP-Ende' : 'DHCP end'}</label>
+                <label className="block text-sm text-text-subtle mb-1">{t('dhcp_end_label')}</label>
                 <Input value={current.dhcp_end} onChange={(e) => setSettings({ ...current, dhcp_end: e.target.value })} />
               </div>
             </div>
@@ -414,19 +402,17 @@ export default function Settings() {
           </Card>
 
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Scan-Bereich' : 'Scan range'}</h2>
+            <h2 className="text-lg font-semibold text-text-base mb-2">{t('scan_range_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
-              {lang === 'de'
-                ? 'Dieser IPv4-Bereich wird aktiv per ARP gescannt. Das funktioniert direkt nur im lokal erreichbaren Layer-2-Netz.'
-                : 'This IPv4 range is actively scanned via ARP. This works directly only on the locally reachable Layer 2 network.'}
+              {t('arp_scan_description')}
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Start' : 'Scan start'}</label>
+                <label className="block text-sm text-text-subtle mb-1">{t('scan_start_label')}</label>
                 <Input value={current.scan_start} onChange={(e) => setSettings({ ...current, scan_start: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Scan-Ende' : 'Scan end'}</label>
+                <label className="block text-sm text-text-subtle mb-1">{t('scan_end_label')}</label>
                 <Input value={current.scan_end} onChange={(e) => setSettings({ ...current, scan_end: e.target.value })} />
               </div>
             </div>
@@ -436,9 +422,9 @@ export default function Settings() {
           </Card>
 
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-4">{lang === 'de' ? 'Scan-Zeitplan' : 'Scan schedule'}</h2>
+            <h2 className="text-lg font-semibold text-text-base mb-4">{t('scan_schedule_title')}</h2>
             <div>
-              <label className="block text-sm text-text-subtle mb-1">{lang === 'de' ? 'Intervall in Minuten' : 'Interval in minutes'}</label>
+              <label className="block text-sm text-text-subtle mb-1">{t('interval_minutes')}</label>
               <Input
                 type="number"
                 value={String(current.scan_interval_minutes)}
@@ -451,15 +437,13 @@ export default function Settings() {
           </Card>
 
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-2">{lang === 'de' ? 'Port-Scan-Bereich' : 'Port scan range'}</h2>
+            <h2 className="text-lg font-semibold text-text-base mb-2">{t('port_scan_range_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
-              {lang === 'de'
-                ? 'Legt fest, welche Ports bei einem Gerätescan geprüft werden. Beispiele: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'
-                : 'Defines which ports are checked when scanning a device. Examples: top:1000 · 1-65535 · 22,80,443 · 1-1024,8080,8443'}
+              {t('port_range_examples')}
             </p>
             <div>
               <label className="block text-sm text-text-subtle mb-1">
-                {lang === 'de' ? 'Port-Bereich / Liste' : 'Port range / list'}
+                {t('port_range_list')}
               </label>
               <Input
                 value={current.port_scan_range}
@@ -477,7 +461,7 @@ export default function Settings() {
       {/* ── NOTIFICATIONS ─────────────────────────────────────────────────── */}
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
-          {lang === 'de' ? 'Benachrichtigungen' : 'Notifications'}
+          {t('notifications')}
         </h2>
         <div className="space-y-4">
           <Card>
@@ -503,7 +487,7 @@ export default function Settings() {
                   checked={current.telegram_enabled}
                   onChange={(e) => setSettings({ ...current, telegram_enabled: e.target.checked })}
                 />
-                {lang === 'de' ? 'Telegram-Benachrichtigungen aktivieren' : 'Enable Telegram notifications'}
+                {t('enable_telegram_notifications')}
               </label>
               <label className="flex items-center gap-2 text-sm text-text-base">
                 <input
@@ -511,24 +495,24 @@ export default function Settings() {
                   checked={current.notify_telegram_update}
                   onChange={(e) => setSettings({ ...current, notify_telegram_update: e.target.checked })}
                 />
-                {lang === 'de' ? 'Update-Benachrichtigungen senden' : 'Send update notifications'}
+                {t('send_update_notifications')}
               </label>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
-              <Button onClick={testTelegram} variant="outline">{lang === 'de' ? 'Telegram testen' : 'Test Telegram'}</Button>
+              <Button onClick={testTelegram} variant="outline">{t('test_telegram')}</Button>
             </div>
           </Card>
 
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">
-              {lang === 'de' ? 'E-Mail (SMTP)' : 'Email (SMTP)'}
+              {t('notifications_email')}
             </h2>
             <div className="grid gap-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="block text-sm text-text-subtle mb-1">
-                    {lang === 'de' ? 'SMTP-Server' : 'SMTP Host'}
+                    {t('smtp_host_label')}
                   </label>
                   <Input
                     value={current.smtp_host}
@@ -548,7 +532,7 @@ export default function Settings() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="block text-sm text-text-subtle mb-1">
-                    {lang === 'de' ? 'Benutzername' : 'Username'}
+                    {t('username')}
                   </label>
                   <Input
                     value={current.smtp_username}
@@ -558,7 +542,7 @@ export default function Settings() {
                 </div>
                 <div>
                   <label className="block text-sm text-text-subtle mb-1">
-                    {lang === 'de' ? 'Passwort' : 'Password'}
+                    {t('password')}
                   </label>
                   <Input
                     type="password"
@@ -571,7 +555,7 @@ export default function Settings() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="block text-sm text-text-subtle mb-1">
-                    {lang === 'de' ? 'Absender-E-Mail' : 'From Email'}
+                    {t('from_email')}
                   </label>
                   <Input
                     value={current.smtp_from_email}
@@ -581,7 +565,7 @@ export default function Settings() {
                 </div>
                 <div>
                   <label className="block text-sm text-text-subtle mb-1">
-                    {lang === 'de' ? 'Empfänger-E-Mail' : 'To Email'}
+                    {t('to_email')}
                   </label>
                   <Input
                     value={current.smtp_to_email}
@@ -596,7 +580,7 @@ export default function Settings() {
                   checked={current.smtp_enabled}
                   onChange={(e) => setSettings({ ...current, smtp_enabled: e.target.checked })}
                 />
-                {lang === 'de' ? 'E-Mail-Benachrichtigungen aktivieren' : 'Enable email notifications'}
+                {t('enable_email_notifications')}
               </label>
               <label className="flex items-center gap-2 text-sm text-text-base">
                 <input
@@ -604,13 +588,13 @@ export default function Settings() {
                   checked={current.smtp_use_tls}
                   onChange={(e) => setSettings({ ...current, smtp_use_tls: e.target.checked })}
                 />
-                {lang === 'de' ? 'STARTTLS verwenden' : 'Use STARTTLS'}
+                {t('use_starttls')}
               </label>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveSmtp} loading={saving}>{t('save_changes')}</Button>
               <Button onClick={testSmtp} variant="outline">
-                {lang === 'de' ? 'E-Mail testen' : 'Test Email'}
+                {t('test_email')}
               </Button>
             </div>
           </Card>
