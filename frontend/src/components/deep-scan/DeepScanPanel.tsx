@@ -16,7 +16,7 @@ import DeepScanConfigForm from './DeepScanConfigForm'
 import FindingsGrid from './FindingsGrid'
 import HostGuestPanel from './HostGuestPanel'
 
-type Tab = 'hardware' | 'os' | 'service' | 'container' | 'audit' | 'host_guest'
+type Tab = 'hardware' | 'os' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest'
 
 const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'hardware',    labelKey: 'tab_hardware' },
@@ -24,6 +24,7 @@ const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'service',    labelKey: 'tab_services' },
   { key: 'container',  labelKey: 'tab_containers' },
   { key: 'audit',      labelKey: 'tab_audit' },
+  { key: 'hypervisor', labelKey: 'tab_hypervisor' },
   { key: 'host_guest', labelKey: 'tab_host_guest' },
 ]
 
@@ -117,6 +118,13 @@ export default function DeepScanPanel({ deviceId }: Props) {
   const findingsByTab = (tab: Tab) =>
     tab === 'host_guest' ? [] : findings.filter((f) => f.finding_type === tab)
 
+  // Only show tabs that have data (or are always shown)
+  const visibleTabs = TABS.filter((tab) => {
+    if (tab.key === 'host_guest') return true
+    if (tab.key === 'hypervisor') return findings.some((f) => f.finding_type === 'hypervisor')
+    return findings.some((f) => f.finding_type === tab.key)
+  })
+
   if (loading) {
     return (
       <div className="py-6 text-center text-sm text-text-subtle">{t('deep_scan_running')}</div>
@@ -185,7 +193,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
       {config?.enabled && (
         <>
           <div className="flex gap-1 border-b border-border overflow-x-auto">
-            {TABS.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}

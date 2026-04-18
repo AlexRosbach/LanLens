@@ -31,7 +31,7 @@ LanLens scans your local network, identifies devices by MAC/IP, and gives you a 
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
 - Telegram notifications for new devices and updates
-- English and German UI
+- English, German, and Italian UI
 - Responsive dashboard for desktop and mobile
 
 ---

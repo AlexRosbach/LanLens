@@ -212,10 +212,12 @@ def list_devices(
             if mem_raw:
                 for line in str(mem_raw).splitlines():
                     if line.lower().startswith("mem:"):
-                        mem_total = line.split()[1]
-                        # Convert Gi/Mi to GB/MB for clarity
-                        mem_total = mem_total.replace("Gi", " GB").replace("Mi", " MB").replace("Gib", " GB")
-                        parts.append(f"{mem_total} RAM")
+                        tokens = line.split()
+                        if len(tokens) >= 2:
+                            mem_total = tokens[1]
+                            # Convert Gi/Mi to GB/MB for clarity
+                            mem_total = mem_total.replace("Gi", " GB").replace("Mi", " MB").replace("Gib", " GB")
+                            parts.append(f"{mem_total} RAM")
                         break
             # Fallback to model
             if not parts:
@@ -385,7 +387,13 @@ def update_device(
         try:
             from ..services.cmdb import generate_cmdb_id, get_cmdb_settings
             prefix, digits = get_cmdb_settings(db)
-            device.cmdb_id = generate_cmdb_id(db, prefix, digits)
+            for _attempt in range(3):
+                try:
+                    device.cmdb_id = generate_cmdb_id(db, prefix, digits)
+                    db.flush()  # catch IntegrityError before full commit
+                    break
+                except IntegrityError:
+                    db.rollback()  # retry with next available ID
         except Exception as exc:
             logger.warning("CMDB ID generation failed: %s", exc)
 
@@ -445,7 +453,15 @@ def regenerate_cmdb_id(
         raise HTTPException(status_code=404, detail="Device not found")
     from ..services.cmdb import generate_cmdb_id, get_cmdb_settings
     prefix, digits = get_cmdb_settings(db)
-    device.cmdb_id = generate_cmdb_id(db, prefix, digits)
+    for _attempt in range(3):
+        try:
+            device.cmdb_id = generate_cmdb_id(db, prefix, digits)
+            db.flush()
+            break
+        except IntegrityError:
+            db.rollback()
+    else:
+        raise HTTPException(status_code=409, detail="Could not generate a unique CMDB ID after 3 attempts. Try again.")
     db.commit()
     db.refresh(device)
     dhcp_range = _get_dhcp_range(db)

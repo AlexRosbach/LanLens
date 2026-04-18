@@ -208,6 +208,8 @@ def update_port_scan_settings(
                 status_code=400,
                 detail="Invalid port_scan_range. Use 'top:N', a range like '1-65535', or a list like '22,80,443'.",
             )
+        # Store the sanitised value so what's saved matches what gets scanned
+        spec = sanitised
 
     _set(db, "port_scan_range", spec)
     db.commit()

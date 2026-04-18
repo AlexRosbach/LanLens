@@ -669,3 +669,83 @@ When `auto_scan_enabled` is set on a device, the deep scan scheduler (which poll
 | `device_host_relationships` | VM-to-host relationships |
 
 All tables are created automatically by the migration script on container start and are cascade-deleted when the parent device is removed.
+
+### New columns (v1.4.1)
+
+| Table | Column | Type | Description |
+|-------|--------|------|-------------|
+| `credentials` | `auth_method` | `VARCHAR(16)` | `password` (default) or `key` (SSH private key) |
+| `devices` | `cmdb_id` | `VARCHAR(64)` | Unique CMDB identifier (e.g. `DEV-0001`), nullable |
+
+### New tables (v1.4.1)
+
+| Table | Purpose |
+|-------|---------|
+| `auto_scan_rules` | Global rules for automatic deep scans by device class |
+
+---
+
+## CMDB IDs
+
+Each registered device can receive an automatically generated CMDB identifier. The format is `{PREFIX}-{NNNN}` where prefix and digit count are configurable in **Settings → System → CMDB IDs**.
+
+- IDs are generated on first device registration and can be regenerated from Device Detail.
+- Uniqueness is enforced by a database unique index; the generator retries up to 3 times on concurrent collision before returning HTTP 409.
+- Prefix defaults to `DEV`, digit count defaults to `4` (e.g. `DEV-0001`).
+
+---
+
+## External Database (MariaDB / PostgreSQL)
+
+Set the `DATABASE_URL` environment variable to use an external database instead of the built-in SQLite file:
+
+```yaml
+environment:
+  DATABASE_URL: "mysql+pymysql://user:password@host:3306/lanlens"
+```
+
+When `DATABASE_URL` is set:
+- SQLite-specific migrations are skipped; `Base.metadata.create_all()` generates dialect-correct DDL.
+- The database export endpoint returns HTTP 400 (SQLite-only feature).
+- All incremental `ALTER TABLE` migrations are dialect-compatible and run on both SQLite and MariaDB.
+
+See README for a full docker-compose example and connection string reference.
+
+---
+
+## SSH Key Authentication
+
+Credentials of type `linux_ssh` support two authentication methods:
+
+| `auth_method` | Secret content | Notes |
+|---|---|---|
+| `password` (default) | SSH password | Standard password-based SSH login |
+| `key` | PEM private key (RSA, Ed25519, ECDSA, DSS) | Key stored Fernet-encrypted; supports all paramiko key types |
+
+Select the auth method in the Credential Modal. The private key is stored encrypted and never returned by the API.
+
+---
+
+## UI Languages
+
+The frontend supports three languages, switchable via the TopBar toggle (EN → DE → IT → EN) or the Settings page:
+
+| Code | Language |
+|------|----------|
+| `en` | English |
+| `de` | Deutsch |
+| `it` | Italiano |
+
+---
+
+## Export & Import
+
+**Settings → System → Export & Import** provides:
+
+| Action | Endpoint | Description |
+|--------|----------|-------------|
+| Export Settings | `GET /api/admin/export/settings` | Downloads all settings as a JSON file |
+| Export Database | `GET /api/admin/export/database` | Downloads the SQLite `.db` file (SQLite only) |
+| Import Settings | `POST /api/admin/import/settings` | Uploads a previously exported settings JSON |
+
+All admin endpoints require a fully set-up account (`force_password_change = false`).

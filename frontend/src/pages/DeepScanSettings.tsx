@@ -181,7 +181,10 @@ function RuleModal({ credentials, initial, onSave, onClose }: RuleModalProps) {
           type="number"
           min={5}
           value={interval}
-          onChange={(e) => setInterval(Number(e.target.value) || 60)}
+          onChange={(e) => {
+            const parsed = parseInt(e.target.value, 10)
+            setInterval(Number.isFinite(parsed) ? Math.max(5, parsed) : 60)
+          }}
         />
 
         <div className="flex justify-end gap-2 pt-2">
