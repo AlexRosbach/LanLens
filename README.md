@@ -14,10 +14,6 @@ LanLens scans your local network, identifies devices by MAC/IP, and gives you a 
 
 </div>
 
----
-
-## Features
-
 > [!IMPORTANT]
 > ## 🎉 LanLens 1.4.1 is here, and this release is a big one
 > The new version brings major improvements across deep scan, hypervisor visibility, translations, UI polish, and settings behavior.
@@ -31,6 +27,12 @@ LanLens scans your local network, identifies devices by MAC/IP, and gives you a 
 > 3. Verify login, devices, segments, credentials, and deep-scan settings after startup.
 >
 > If you are running SQLite, back up the `.db` file first. If you are running MariaDB/MySQL, create a dump before the update.
+
+
+---
+
+## Features
+
 
 - Automatic LAN discovery via ARP scan
 - Device classification and offline MAC vendor lookup
