@@ -247,7 +247,7 @@ function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
 
 // ── Finding labels ─────────────────────────────────────────────────────────────
 
-const KEY_LABEL_KEYS: Record<string, Parameters<typeof useI18n>[0]['t'] extends (key: infer K, ...args: any) => any ? K : never> = {
+const KEY_LABEL_KEYS: Record<string, string> = {
   vendor: 'finding_vendor',
   model: 'finding_model',
   serial: 'finding_serial',
@@ -285,11 +285,16 @@ const KEY_LABEL_KEYS: Record<string, Parameters<typeof useI18n>[0]['t'] extends 
   dhcp_scopes: 'finding_dhcp_scopes',
 }
 
+function getFindingLabel(key: string, t: ReturnType<typeof useI18n>['t']) {
+  const labelKey = KEY_LABEL_KEYS[key]
+  return labelKey ? t(labelKey as Parameters<typeof t>[0]) : key.replace(/_/g, ' ')
+}
+
 // ── Full finding card (expanded mode) ─────────────────────────────────────────
 
 function FindingCard({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
-  const label = KEY_LABEL_KEYS[finding.key] ? t(KEY_LABEL_KEYS[finding.key]) : finding.key.replace(/_/g, ' ')
+  const label = getFindingLabel(finding.key, t)
   const rawText = parseValue(finding.value)
 
   // Short single-line values → simple row
@@ -340,7 +345,7 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
 
 function CompactRow({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
-  const label = KEY_LABEL_KEYS[finding.key] ? t(KEY_LABEL_KEYS[finding.key]) : finding.key.replace(/_/g, ' ')
+  const label = getFindingLabel(finding.key, t)
   const compact = extractCompact(finding)
   if (compact === null) return null
   return (
@@ -402,10 +407,10 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
           className="text-xs text-text-subtle hover:text-primary transition-colors"
         >
           {expanded
-            ? '▲ Compact'
+            ? `▲ ${t('collapse')}`
             : hiddenCount > 0
-              ? `▼ Show all (${findings.length} items)`
-              : `▼ Show full details`}
+              ? `▼ ${t('finding_show_all_lines', { count: findings.length })}`
+              : `▼ ${t('expand')}`}
         </button>
       </div>
     </div>
