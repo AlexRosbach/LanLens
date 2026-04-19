@@ -2,6 +2,11 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.4.2 — Device delete fix and stability improvements
+
+### Bug Fixes
+- Fixed device deletion from Device Detail. Devices with related VM host/guest relationships can now be removed cleanly together with their dependent records instead of failing during delete.
+
 ## v1.4.1 — Deep Scan improvements, OS-specific device classes, VM-host linking, CMDB, MariaDB & more
 
 ### Bug Fixes

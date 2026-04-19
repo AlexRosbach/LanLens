@@ -69,6 +69,16 @@ class Device(Base):
     deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
     deep_scan_findings = relationship("DeepScanFinding", back_populates="device",
                                       cascade="all, delete-orphan")
+    host_relationships = relationship(
+        "DeviceHostRelationship",
+        foreign_keys="DeviceHostRelationship.host_device_id",
+        cascade="all, delete-orphan",
+    )
+    child_relationships = relationship(
+        "DeviceHostRelationship",
+        foreign_keys="DeviceHostRelationship.child_device_id",
+        cascade="all, delete-orphan",
+    )
 
 
 class Service(Base):
