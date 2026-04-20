@@ -16,6 +16,26 @@ function parseValue(raw: unknown): string {
   return JSON.stringify(raw, null, 2)
 }
 
+function asArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw
+  if (raw && typeof raw === 'object') return [raw]
+  return []
+}
+
+function formatBytes(value: unknown): string | null {
+  const bytes = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(bytes) || bytes <= 0) return null
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = bytes
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+  const digits = size >= 100 || unit === 0 ? 0 : size >= 10 ? 1 : 2
+  return `${size.toFixed(digits)} ${units[unit]}`
+}
+
 /** Try to parse a key=value or KEY=VALUE block (for example /etc/os-release) into pairs. */
 function parseKvBlock(text: string): { key: string; value: string }[] | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -153,28 +173,109 @@ function extractCompact(finding: DeepScanFinding): string | null {
       }
       break
     }
-    case 'computer_system':
-    case 'operating_system':
-    case 'bios': {
-      // Windows JSON objects: extract key identifying field
+    case 'computer_system': {
       try {
-        const obj = typeof finding.value === 'object' ? finding.value as Record<string, unknown> : JSON.parse(raw)
-        if (obj) {
-          const val = obj['Caption'] || obj['Name'] || obj['Manufacturer'] || Object.values(obj)[0]
-          if (val && typeof val === 'string') return val
-        }
+        const obj = (typeof finding.value === 'object' ? finding.value : JSON.parse(raw)) as Record<string, unknown>
+        const host = obj['DNSHostName'] || obj['Name']
+        const model = obj['Model']
+        const cpu = obj['NumberOfLogicalProcessors']
+        const memory = formatBytes(obj['TotalPhysicalMemory'])
+        return [host, model, cpu ? `${cpu} threads` : null, memory].filter(Boolean).join(' · ') || null
+      } catch { /* ignore */ }
+      break
+    }
+    case 'operating_system': {
+      try {
+        const obj = (typeof finding.value === 'object' ? finding.value : JSON.parse(raw)) as Record<string, unknown>
+        return (obj['Caption'] || obj['Name'] || obj['Version']) as string || null
+      } catch { /* ignore */ }
+      break
+    }
+    case 'bios': {
+      try {
+        const obj = (typeof finding.value === 'object' ? finding.value : JSON.parse(raw)) as Record<string, unknown>
+        const vendor = obj['Manufacturer']
+        const version = obj['SMBIOSBIOSVersion'] || obj['Version']
+        return [vendor, version].filter(Boolean).join(' · ') || null
+      } catch { /* ignore */ }
+      break
+    }
+    case 'processor': {
+      try {
+        const items = asArray(finding.value)
+        const names = items
+          .map((item) => (item as Record<string, unknown>)?.Name)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        if (names.length > 0) return names.join(', ')
+      } catch { /* ignore */ }
+      break
+    }
+    case 'physical_memory': {
+      try {
+        const modules = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        const total = modules.reduce((sum, module) => sum + Number(module.Capacity || 0), 0)
+        const speed = modules[0]?.Speed
+        const totalLabel = formatBytes(total)
+        return [modules.length ? `${modules.length} module${modules.length !== 1 ? 's' : ''}` : null, totalLabel, speed ? `${speed} MHz` : null].filter(Boolean).join(' · ') || null
+      } catch { /* ignore */ }
+      break
+    }
+    case 'disk_drives': {
+      try {
+        const disks = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        if (disks.length === 0) return null
+        const preview = disks.slice(0, 3).map((disk) => {
+          const model = typeof disk.Model === 'string' ? disk.Model : 'Disk'
+          const size = formatBytes(disk.Size)
+          return [model, size].filter(Boolean).join(' ')
+        }).join(', ')
+        return `${disks.length} disk${disks.length !== 1 ? 's' : ''}: ${preview}${disks.length > 3 ? `… +${disks.length - 3}` : ''}`
       } catch { /* ignore */ }
       break
     }
     case 'running_services': {
-      const lines = raw.split('\n').filter((l) => l.trim())
-      const count = Math.max(0, lines.length - 1)
-      return `${count} service${count !== 1 ? 's' : ''} running`
+      try {
+        const services = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        if (services.length > 0) {
+          const names = services
+            .map((service) => (service.DisplayName || service.Name) as string | undefined)
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          const preview = names.slice(0, 5).join(', ')
+          return `${services.length} service${services.length !== 1 ? 's' : ''} running${preview ? ` — ${preview}${services.length > 5 ? `… +${services.length - 5}` : ''}` : ''}`
+        }
+      } catch { /* ignore */ }
+      break
     }
     case 'windows_features': {
-      const lines = raw.split('\n').filter((l) => l.trim())
-      const count = Math.max(0, lines.length - 1)
-      return `${count} feature${count !== 1 ? 's' : ''} installed`
+      try {
+        const features = asArray(finding.value)
+        if (features.length > 0) return `${features.length} feature${features.length !== 1 ? 's' : ''} installed`
+      } catch { /* ignore */ }
+      break
+    }
+    case 'licensing': {
+      try {
+        const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        const first = items[0]
+        if (first) {
+          const name = first.Name
+          const status = Number(first.LicenseStatus)
+          const statusLabel = Number.isFinite(status) ? (status === 1 ? 'Licensed' : `Status ${status}`) : null
+          return [name, statusLabel].filter(Boolean).join(' · ') || null
+        }
+      } catch { /* ignore */ }
+      break
+    }
+    case 'sql_instances': {
+      try {
+        const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        if (items.length === 0) return 'No SQL instances found'
+        const names = items
+          .map((item) => (item.DisplayName || item.Name) as string | undefined)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        return `${items.length} SQL service${items.length !== 1 ? 's' : ''}${names.length ? ` — ${names.join(', ')}` : ''}`
+      } catch { /* ignore */ }
+      break
     }
   }
   return null // hide in compact mode
@@ -296,6 +397,75 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
   const label = getFindingLabel(finding.key, t)
   const rawText = parseValue(finding.value)
+
+  if (finding.key === 'computer_system' && finding.value && typeof finding.value === 'object' && !Array.isArray(finding.value)) {
+    const obj = finding.value as Record<string, unknown>
+    const pairs = [
+      { key: 'Name', value: String(obj.DNSHostName || obj.Name || '—') },
+      { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
+      { key: 'Model', value: String(obj.Model || '—') },
+      { key: 'System Type', value: String(obj.SystemType || '—') },
+      { key: 'Logical Processors', value: String(obj.NumberOfLogicalProcessors || '—') },
+      { key: 'Memory', value: formatBytes(obj.TotalPhysicalMemory) || '—' },
+      { key: 'Hypervisor Present', value: String(obj.HypervisorPresent ?? '—') },
+    ]
+    return (
+      <div className="py-3 border-b border-border last:border-0 space-y-2">
+        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+        <KvTable pairs={pairs} />
+      </div>
+    )
+  }
+
+  if (finding.key === 'bios' && finding.value && typeof finding.value === 'object' && !Array.isArray(finding.value)) {
+    const obj = finding.value as Record<string, unknown>
+    const biosVersion = Array.isArray(obj.BIOSVersion) ? obj.BIOSVersion.join(', ') : String(obj.BIOSVersion || '—')
+    const pairs = [
+      { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
+      { key: 'Version', value: String(obj.SMBIOSBIOSVersion || obj.Version || '—') },
+      { key: 'BIOS Version', value: biosVersion },
+      { key: 'Release Date', value: String(obj.ReleaseDate || '—') },
+      { key: 'SMBIOS', value: `${String(obj.SMBIOSMajorVersion ?? '—')}.${String(obj.SMBIOSMinorVersion ?? '—')}` },
+    ]
+    return (
+      <div className="py-3 border-b border-border last:border-0 space-y-2">
+        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+        <KvTable pairs={pairs} />
+      </div>
+    )
+  }
+
+  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances') && Array.isArray(finding.value)) {
+    const items = finding.value as Record<string, unknown>[]
+    const rows = items.map((item) => Object.values(item).map((value) => {
+      if (Array.isArray(value)) return value.join(', ')
+      if (value && typeof value === 'object') return JSON.stringify(value)
+      if (typeof value === 'number' && ['Capacity', 'Size', 'TotalPhysicalMemory'].some((key) => Object.prototype.hasOwnProperty.call(item, key) && item[key] === value)) {
+        return formatBytes(value) || String(value)
+      }
+      return String(value ?? '—')
+    }))
+    const headers = Object.keys(items[0] || {})
+    return (
+      <div className="py-3 border-b border-border last:border-0 space-y-2">
+        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+        <DataTable headers={headers} rows={rows} />
+      </div>
+    )
+  }
+
+  if (finding.key === 'licensing' && finding.value) {
+    const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+    if (items.length > 0) {
+      const rows = items.map((item) => [String(item.Name || '—'), Number(item.LicenseStatus) === 1 ? 'Licensed' : String(item.LicenseStatus ?? '—')])
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={['Name', 'Status']} rows={rows} />
+        </div>
+      )
+    }
+  }
 
   // Short single-line values → simple row
   if (!rawText.includes('\n') && rawText.length < 120) {

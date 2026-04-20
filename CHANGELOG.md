@@ -2,6 +2,13 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.4.3 — Windows deep scan readability and audit cleanup
+
+### Improvements
+- Improved Windows deep scan rendering so services, hardware details and audit results are shown in readable summaries/tables instead of raw CIM/PowerShell dumps.
+- Fixed Windows running-services summaries so JSON results are counted and previewed correctly.
+- Filtered WinRM CLIXML/progress noise from saved findings to avoid useless SQL/audit output.
+
 ## v1.4.2 — Device delete fix and stability improvements
 
 ### Bug Fixes
