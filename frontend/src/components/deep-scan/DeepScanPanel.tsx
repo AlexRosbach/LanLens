@@ -170,9 +170,12 @@ export default function DeepScanPanel({ deviceId }: Props) {
           <StatusBadge run={latestRun} />
           {latestRun && (
             <span className="text-xs text-text-subtle">
-              {t('deep_scan_last_scan')}{' '}
-              {formatRelativeTime(latestRun.started_at, lang)}
-              {latestRun.status === 'error' && latestRun.error_message ? `, ${latestRun.error_message}` : ''}
+              {latestRun.status === 'error' && latestRun.error_message
+                ? t('deep_scan_last_scan_error', {
+                    time: formatRelativeTime(latestRun.started_at, lang),
+                    message: latestRun.error_message,
+                  })
+                : `${t('deep_scan_last_scan')} ${formatRelativeTime(latestRun.started_at, lang)}`}
             </span>
           )}
           {!latestRun && (
