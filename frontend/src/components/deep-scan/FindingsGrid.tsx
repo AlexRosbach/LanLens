@@ -36,6 +36,27 @@ function formatBytes(value: unknown): string | null {
   return `${size.toFixed(digits)} ${units[unit]}`
 }
 
+function formatCellValue(entryKey: string, value: unknown): string {
+  if (Array.isArray(value)) return value.join(', ')
+  if (value && typeof value === 'object') return JSON.stringify(value)
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'number' && ['Capacity', 'Size', 'TotalPhysicalMemory'].includes(entryKey)) {
+    return formatBytes(value) || String(value)
+  }
+  return String(value)
+}
+
+function buildTableFromItems(items: Record<string, unknown>[]): { headers: string[]; rows: string[][] } | null {
+  if (items.length === 0) return null
+  const headerSet = new Set<string>()
+  for (const item of items) {
+    Object.keys(item).forEach((key) => headerSet.add(key))
+  }
+  const headers = Array.from(headerSet)
+  const rows = items.map((item) => headers.map((header) => formatCellValue(header, item[header])))
+  return { headers, rows }
+}
+
 /** Try to parse a key=value or KEY=VALUE block (for example /etc/os-release) into pairs. */
 function parseKvBlock(text: string): { key: string; value: string }[] | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -435,22 +456,14 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances') && finding.value && typeof finding.value === 'object') {
+  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances' || finding.key === 'iis_sites' || finding.key === 'hyper_v_vms' || finding.key === 'dhcp_scopes') && finding.value && typeof finding.value === 'object') {
     const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
-    if (items.length > 0) {
-      const rows = items.map((item) => Object.entries(item).map(([entryKey, value]) => {
-        if (Array.isArray(value)) return value.join(', ')
-        if (value && typeof value === 'object') return JSON.stringify(value)
-        if (typeof value === 'number' && ['Capacity', 'Size', 'TotalPhysicalMemory'].includes(entryKey)) {
-          return formatBytes(value) || String(value)
-        }
-        return String(value ?? '—')
-      }))
-      const headers = Object.keys(items[0] || {})
+    const table = buildTableFromItems(items)
+    if (table) {
       return (
         <div className="py-3 border-b border-border last:border-0 space-y-2">
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
-          <DataTable headers={headers} rows={rows} />
+          <DataTable headers={table.headers} rows={table.rows} />
         </div>
       )
     }
@@ -499,6 +512,22 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
         <DataTable headers={table.headers} rows={table.rows} />
       </div>
     )
+  }
+
+  if (finding.value && typeof finding.value === 'object') {
+    const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+    const table = buildTableFromItems(items)
+    if (table) {
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={table.headers} rows={table.rows} />
+          {finding.source && (
+            <span className="text-xs text-text-subtle">{t('source_label', { source: finding.source })}</span>
+          )}
+        </div>
+      )
+    }
   }
 
   // Fallback: collapsible pre block
