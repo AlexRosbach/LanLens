@@ -9,6 +9,22 @@ interface Props {
 
 // ── Value helpers ──────────────────────────────────────────────────────────────
 
+function parseJsonString(raw: string): unknown {
+  const trimmed = raw.trim()
+  if (!trimmed) return raw
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return raw
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return raw
+  }
+}
+
+function normalizeStructuredValue(raw: unknown): unknown {
+  if (typeof raw === 'string') return parseJsonString(raw)
+  return raw
+}
+
 function parseValue(raw: unknown): string {
   if (raw === null || raw === undefined) return '—'
   if (typeof raw === 'string') return raw
@@ -17,8 +33,9 @@ function parseValue(raw: unknown): string {
 }
 
 function asArray(raw: unknown): unknown[] {
-  if (Array.isArray(raw)) return raw
-  if (raw && typeof raw === 'object') return [raw]
+  const normalized = normalizeStructuredValue(raw)
+  if (Array.isArray(normalized)) return normalized
+  if (normalized && typeof normalized === 'object') return [normalized]
   return []
 }
 
@@ -87,7 +104,8 @@ function parseTable(text: string): { headers: string[]; rows: string[][] } | nul
 
 /** Extract a one-liner summary from a finding for compact mode. Returns null = hide in compact. */
 function extractCompact(finding: DeepScanFinding): string | null {
-  const raw = parseValue(finding.value)
+  const normalizedValue = normalizeStructuredValue(finding.value)
+  const raw = parseValue(normalizedValue)
   const key = finding.key
 
   // Already a short single-line → always show
@@ -95,13 +113,11 @@ function extractCompact(finding: DeepScanFinding): string | null {
 
   switch (key) {
     case 'cpu': {
-      // lscpu: extract "Model name" line
       const line = raw.split('\n').find((l) => /model name/i.test(l))
       if (line) return line.split(':').slice(1).join(':').trim()
       break
     }
     case 'memory': {
-      // free -h: "Mem:  total  used  free …" → show total
       const line = raw.split('\n').find((l) => /^Mem:/i.test(l))
       if (line) {
         const total = line.split(/\s+/)[1]
@@ -110,9 +126,8 @@ function extractCompact(finding: DeepScanFinding): string | null {
       break
     }
     case 'disks': {
-      // lsblk: count disks and show name+size
       const lines = raw.split('\n').filter((l) => l.trim())
-      const diskLines = lines.slice(1) // skip header
+      const diskLines = lines.slice(1)
       if (diskLines.length > 0) {
         const parts = diskLines.map((l) => {
           const cols = l.trim().split(/\s+/)
@@ -123,7 +138,6 @@ function extractCompact(finding: DeepScanFinding): string | null {
       break
     }
     case 'release': {
-      // /etc/os-release: prefer PRETTY_NAME, fallback NAME + VERSION_ID
       const lines = raw.split('\n')
       const pretty = lines.find((l) => l.startsWith('PRETTY_NAME='))?.split('=').slice(1).join('=').replace(/"/g, '')
       if (pretty) return pretty
@@ -133,15 +147,11 @@ function extractCompact(finding: DeepScanFinding): string | null {
       if (name) return name
       break
     }
-    case 'kernel': {
-      // uname -a: first line
-      return raw.split('\n')[0].trim() || null
-    }
+    case 'kernel':
     case 'uptime': {
       return raw.split('\n')[0].trim() || null
     }
     case 'systemd_units': {
-      // systemctl list: count and first 8 service names
       const lines = raw.split('\n').filter((l) => l.trim())
       const names = lines.map((l) => l.trim().split(/\s+/)[0]).filter((n) => n && n.endsWith('.service'))
       if (names.length > 0) {
@@ -175,13 +185,20 @@ function extractCompact(finding: DeepScanFinding): string | null {
     }
     case 'k3s_pods': {
       const lines = raw.split('\n').filter((l) => l.trim())
-      const count = Math.max(0, lines.length - 1) // skip header
+      const count = Math.max(0, lines.length - 1)
       return `${count} pod${count !== 1 ? 's' : ''}`
     }
     case 'kvm_vms':
     case 'proxmox_qemu':
     case 'proxmox_ct':
     case 'hyper_v_vms': {
+      if (normalizedValue && typeof normalizedValue === 'object') {
+        const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+        const names = items
+          .map((item) => (item.Name || item.name) as string | undefined)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        if (items.length > 0) return `${items.length} VM${items.length !== 1 ? 's' : ''}${names.length ? `: ${names.join(', ')}` : ''}`
+      }
       const table = parseTable(raw)
       if (table) {
         const count = table.rows.length
@@ -196,54 +213,54 @@ function extractCompact(finding: DeepScanFinding): string | null {
     }
     case 'computer_system': {
       try {
-        const obj = (typeof finding.value === 'object' ? finding.value : JSON.parse(raw)) as Record<string, unknown>
+        const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
         const host = obj['DNSHostName'] || obj['Name']
         const model = obj['Model']
         const cpu = obj['NumberOfLogicalProcessors']
         const memory = formatBytes(obj['TotalPhysicalMemory'])
         return [host, model, cpu ? `${cpu} threads` : null, memory].filter(Boolean).join(' · ') || null
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'operating_system': {
       try {
-        const obj = (typeof finding.value === 'object' ? finding.value : JSON.parse(raw)) as Record<string, unknown>
+        const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
         return (obj['Caption'] || obj['Name'] || obj['Version']) as string || null
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'bios': {
       try {
-        const obj = (typeof finding.value === 'object' ? finding.value : JSON.parse(raw)) as Record<string, unknown>
+        const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
         const vendor = obj['Manufacturer']
         const version = obj['SMBIOSBIOSVersion'] || obj['Version']
         return [vendor, version].filter(Boolean).join(' · ') || null
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'processor': {
       try {
-        const items = asArray(finding.value)
+        const items = asArray(normalizedValue)
         const names = items
           .map((item) => (item as Record<string, unknown>)?.Name)
           .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         if (names.length > 0) return names.join(', ')
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'physical_memory': {
       try {
-        const modules = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        const modules = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
         const total = modules.reduce((sum, module) => sum + Number(module.Capacity || 0), 0)
         const speed = modules[0]?.Speed
         const totalLabel = formatBytes(total)
         return [modules.length ? `${modules.length} module${modules.length !== 1 ? 's' : ''}` : null, totalLabel, speed ? `${speed} MHz` : null].filter(Boolean).join(' · ') || null
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'disk_drives': {
       try {
-        const disks = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        const disks = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
         if (disks.length === 0) return null
         const preview = disks.slice(0, 3).map((disk) => {
           const model = typeof disk.Model === 'string' ? disk.Model : 'Disk'
@@ -251,12 +268,12 @@ function extractCompact(finding: DeepScanFinding): string | null {
           return [model, size].filter(Boolean).join(' ')
         }).join(', ')
         return `${disks.length} disk${disks.length !== 1 ? 's' : ''}: ${preview}${disks.length > 3 ? `… +${disks.length - 3}` : ''}`
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'running_services': {
       try {
-        const services = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        const services = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
         if (services.length > 0) {
           const names = services
             .map((service) => (service.DisplayName || service.Name) as string | undefined)
@@ -264,19 +281,19 @@ function extractCompact(finding: DeepScanFinding): string | null {
           const preview = names.slice(0, 5).join(', ')
           return `${services.length} service${services.length !== 1 ? 's' : ''} running${preview ? ` — ${preview}${services.length > 5 ? `… +${services.length - 5}` : ''}` : ''}`
         }
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'windows_features': {
       try {
-        const features = asArray(finding.value)
+        const features = asArray(normalizedValue)
         if (features.length > 0) return `${features.length} feature${features.length !== 1 ? 's' : ''} installed`
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'licensing': {
       try {
-        const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
         const first = items[0]
         if (first) {
           const name = first.Name
@@ -284,25 +301,23 @@ function extractCompact(finding: DeepScanFinding): string | null {
           const statusLabel = Number.isFinite(status) ? (status === 1 ? 'Licensed' : `Status ${status}`) : null
           return [name, statusLabel].filter(Boolean).join(' · ') || null
         }
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
     case 'sql_instances': {
       try {
-        const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+        const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
         if (items.length === 0) return 'No SQL instances found'
         const names = items
           .map((item) => (item.DisplayName || item.Name) as string | undefined)
           .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
         return `${items.length} SQL service${items.length !== 1 ? 's' : ''}${names.length ? ` — ${names.join(', ')}` : ''}`
-      } catch { /* ignore */ }
+      } catch { }
       break
     }
   }
-  return null // hide in compact mode
+  return null
 }
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: number }) {
   const [expanded, setExpanded] = useState(false)
@@ -367,8 +382,6 @@ function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   )
 }
 
-// ── Finding labels ─────────────────────────────────────────────────────────────
-
 const KEY_LABEL_KEYS: Record<string, string> = {
   vendor: 'finding_vendor',
   model: 'finding_model',
@@ -412,15 +425,14 @@ function getFindingLabel(key: string, t: ReturnType<typeof useI18n>['t']) {
   return labelKey ? t(labelKey as Parameters<typeof t>[0]) : key.replace(/_/g, ' ')
 }
 
-// ── Full finding card (expanded mode) ─────────────────────────────────────────
-
 function FindingCard({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
   const label = getFindingLabel(finding.key, t)
-  const rawText = parseValue(finding.value)
+  const normalizedValue = normalizeStructuredValue(finding.value)
+  const rawText = parseValue(normalizedValue)
 
-  if (finding.key === 'computer_system' && finding.value && typeof finding.value === 'object' && !Array.isArray(finding.value)) {
-    const obj = finding.value as Record<string, unknown>
+  if (finding.key === 'computer_system' && normalizedValue && typeof normalizedValue === 'object' && !Array.isArray(normalizedValue)) {
+    const obj = normalizedValue as Record<string, unknown>
     const pairs = [
       { key: 'Name', value: String(obj.DNSHostName || obj.Name || '—') },
       { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
@@ -438,8 +450,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  if (finding.key === 'bios' && finding.value && typeof finding.value === 'object' && !Array.isArray(finding.value)) {
-    const obj = finding.value as Record<string, unknown>
+  if (finding.key === 'bios' && normalizedValue && typeof normalizedValue === 'object' && !Array.isArray(normalizedValue)) {
+    const obj = normalizedValue as Record<string, unknown>
     const biosVersion = Array.isArray(obj.BIOSVersion) ? obj.BIOSVersion.join(', ') : String(obj.BIOSVersion || '—')
     const pairs = [
       { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
@@ -456,8 +468,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances' || finding.key === 'iis_sites' || finding.key === 'hyper_v_vms' || finding.key === 'dhcp_scopes') && finding.value && typeof finding.value === 'object') {
-    const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances' || finding.key === 'iis_sites' || finding.key === 'hyper_v_vms' || finding.key === 'dhcp_scopes') && normalizedValue && typeof normalizedValue === 'object') {
+    const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
     const table = buildTableFromItems(items)
     if (table) {
       return (
@@ -469,8 +481,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     }
   }
 
-  if (finding.key === 'licensing' && finding.value) {
-    const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+  if (finding.key === 'licensing' && normalizedValue) {
+    const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
     if (items.length > 0) {
       const rows = items.map((item) => [String(item.Name || '—'), Number(item.LicenseStatus) === 1 ? 'Licensed' : String(item.LicenseStatus ?? '—')])
       return (
@@ -482,7 +494,6 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     }
   }
 
-  // Short single-line values → simple row
   if (!rawText.includes('\n') && rawText.length < 120) {
     return (
       <div className="grid grid-cols-[minmax(160px,auto)_1fr] gap-x-4 items-start py-2 border-b border-border last:border-0">
@@ -492,7 +503,6 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  // Try key=value block (like /etc/os-release, lscpu)
   const kvPairs = parseKvBlock(rawText)
   if (kvPairs) {
     return (
@@ -503,19 +513,18 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  // Try column-aligned table
-  const table = parseTable(rawText)
-  if (table && table.rows.length > 0) {
+  const rawTable = parseTable(rawText)
+  if (rawTable && rawTable.rows.length > 0) {
     return (
       <div className="py-3 border-b border-border last:border-0 space-y-2">
         <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
-        <DataTable headers={table.headers} rows={table.rows} />
+        <DataTable headers={rawTable.headers} rows={rawTable.rows} />
       </div>
     )
   }
 
-  if (finding.value && typeof finding.value === 'object') {
-    const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+  if (normalizedValue && typeof normalizedValue === 'object') {
+    const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
     const table = buildTableFromItems(items)
     if (table) {
       return (
@@ -530,7 +539,6 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     }
   }
 
-  // Fallback: collapsible pre block
   return (
     <div className="py-3 border-b border-border last:border-0 space-y-2">
       <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
@@ -541,8 +549,6 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     </div>
   )
 }
-
-// ── Compact row ────────────────────────────────────────────────────────────────
 
 function CompactRow({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
@@ -557,8 +563,6 @@ function CompactRow({ finding }: { finding: DeepScanFinding }) {
   )
 }
 
-// ── Main export ────────────────────────────────────────────────────────────────
-
 export default function FindingsGrid({ findings, emptyMessage }: Props) {
   const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
@@ -571,21 +575,18 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
     )
   }
 
-  // In compact mode: only show findings that have a compact representation
   const visibleInCompact = findings.filter((f) => extractCompact(f) !== null)
   const hiddenCount = findings.length - visibleInCompact.length
 
   return (
     <div>
       {expanded ? (
-        // Expanded: show all findings in full detail
         <div className="divide-y divide-transparent">
           {findings.map((f) => (
             <FindingCard key={f.id} finding={f} />
           ))}
         </div>
       ) : (
-        // Compact: show summary rows for supported findings
         <div>
           {visibleInCompact.length === 0 ? (
             <p className="text-sm text-text-subtle py-4 text-center">
@@ -601,7 +602,6 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
         </div>
       )}
 
-      {/* Toggle */}
       <div className="flex justify-end mt-3">
         <button
           onClick={() => setExpanded(!expanded)}
