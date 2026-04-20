@@ -435,23 +435,25 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances') && Array.isArray(finding.value)) {
-    const items = finding.value as Record<string, unknown>[]
-    const rows = items.map((item) => Object.values(item).map((value) => {
-      if (Array.isArray(value)) return value.join(', ')
-      if (value && typeof value === 'object') return JSON.stringify(value)
-      if (typeof value === 'number' && ['Capacity', 'Size', 'TotalPhysicalMemory'].some((key) => Object.prototype.hasOwnProperty.call(item, key) && item[key] === value)) {
-        return formatBytes(value) || String(value)
-      }
-      return String(value ?? '—')
-    }))
-    const headers = Object.keys(items[0] || {})
-    return (
-      <div className="py-3 border-b border-border last:border-0 space-y-2">
-        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
-        <DataTable headers={headers} rows={rows} />
-      </div>
-    )
+  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances') && finding.value && typeof finding.value === 'object') {
+    const items = asArray(finding.value).map((item) => item as Record<string, unknown>)
+    if (items.length > 0) {
+      const rows = items.map((item) => Object.entries(item).map(([entryKey, value]) => {
+        if (Array.isArray(value)) return value.join(', ')
+        if (value && typeof value === 'object') return JSON.stringify(value)
+        if (typeof value === 'number' && ['Capacity', 'Size', 'TotalPhysicalMemory'].includes(entryKey)) {
+          return formatBytes(value) || String(value)
+        }
+        return String(value ?? '—')
+      }))
+      const headers = Object.keys(items[0] || {})
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={headers} rows={rows} />
+        </div>
+      )
+    }
   }
 
   if (finding.key === 'licensing' && finding.value) {
