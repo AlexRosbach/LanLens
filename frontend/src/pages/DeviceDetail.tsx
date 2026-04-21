@@ -74,6 +74,7 @@ export default function DeviceDetail() {
   const [singlePortLoading, setSinglePortLoading] = useState(false)
   const [portRangeLoading, setPortRangeLoading] = useState(false)
   const [fullScanLoading, setFullScanLoading] = useState(false)
+  const [portScanRunning, setPortScanRunning] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -95,6 +96,14 @@ export default function DeviceDetail() {
       setForm(toEditState(currentDevice))
     }).finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!portScanRunning || !device?.latest_scan?.scanned_at) return
+    const lastScanAt = new Date(device.latest_scan.scanned_at).getTime()
+    if (!Number.isNaN(lastScanAt) && Date.now() - lastScanAt < 60_000) {
+      setPortScanRunning(false)
+    }
+  }, [device?.latest_scan?.scanned_at, portScanRunning])
 
   function field(key: keyof EditState) {
     return {
@@ -420,6 +429,7 @@ export default function DeviceDetail() {
             <Button
               size="sm"
               loading={singlePortLoading}
+              disabled={portScanRunning}
               onClick={async () => {
                 if (!device) return
                 const port = Number(singlePort)
@@ -430,6 +440,7 @@ export default function DeviceDetail() {
                 setSinglePortLoading(true)
                 try {
                   await devicesApi.scanSinglePort(device.id, port)
+                  setPortScanRunning(true)
                   toast.success(t('single_port_scan_started', { port }))
                   setSinglePort('')
                 } catch {
@@ -450,6 +461,7 @@ export default function DeviceDetail() {
             <Button
               size="sm"
               loading={portRangeLoading}
+              disabled={portScanRunning}
               onClick={async () => {
                 if (!device) return
                 const range = portRange.trim()
@@ -460,6 +472,7 @@ export default function DeviceDetail() {
                 setPortRangeLoading(true)
                 try {
                   await devicesApi.scanPortRange(device.id, range)
+                  setPortScanRunning(true)
                   toast.success(t('port_range_scan_started', { range }))
                   setPortRange('')
                 } catch {
@@ -474,12 +487,13 @@ export default function DeviceDetail() {
             <Button
               variant="ghost"
               size="sm"
-              loading={fullScanLoading}
+              loading={fullScanLoading || portScanRunning}
               onClick={async () => {
                 if (!device) return
                 setFullScanLoading(true)
                 try {
                   await devicesApi.scanPorts(device.id)
+                  setPortScanRunning(true)
                   toast.success(t('port_scan_started'))
                 } catch {
                   toast.error(t('port_scan_failed'))
@@ -488,7 +502,7 @@ export default function DeviceDetail() {
                 }
               }}
             >
-              {t('scan_default_ports')}
+              {portScanRunning ? t('port_scan_running') : t('scan_default_ports')}
             </Button>
           </div>
         </div>
