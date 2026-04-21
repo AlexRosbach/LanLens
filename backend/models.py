@@ -72,12 +72,14 @@ class Device(Base):
     host_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.host_device_id",
-        cascade="all, delete-orphan",
+        cascade="all, delete",
+        passive_deletes=True,
     )
     child_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.child_device_id",
-        cascade="all, delete-orphan",
+        cascade="all, delete",
+        passive_deletes=True,
     )
 
 

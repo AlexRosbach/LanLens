@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.4.2-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.4.3-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -19,7 +19,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 </div>
 
 > [!IMPORTANT]
-> ## 🎉 LanLens 1.4.2 is here, and the latest release is ready
+> ## 🎉 LanLens 1.4.3 is here, and the latest release is ready
 > The new version brings major improvements across deep scan, hypervisor visibility, translations, UI polish, and settings behavior.
 >
 > ### Please read before updating
@@ -27,7 +27,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 >
 > **Recommended update flow:**
 > 1. Create a full backup of your LanLens database before pulling the new image.
-> 2. Only then update to `1.4.2`.
+> 2. Only then update to `1.4.3`.
 > 3. Verify login, devices, segments, credentials, and deep-scan settings after startup.
 >
 > If you are running SQLite, back up the `.db` file first. If you are running MariaDB/MySQL, create a dump before the update.

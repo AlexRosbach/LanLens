@@ -28,6 +28,45 @@ INTERESTING_PORTS = {
 }
 
 
+def normalize_port_spec(port_spec: Optional[str]) -> Optional[str]:
+    spec = (port_spec or "").strip().lower()
+    if not spec:
+        return None
+    if spec == "top:1000":
+        return "top:1000"
+    if spec.startswith("top:"):
+        try:
+            n = int(spec[4:])
+        except ValueError:
+            return None
+        return f"top:{n}" if n >= 1 else None
+
+    tokens = [token.strip() for token in spec.split(',') if token.strip()]
+    if not tokens:
+        return None
+
+    normalized_tokens = []
+    for token in tokens:
+        if '-' in token:
+            parts = token.split('-', 1)
+            if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+                return None
+            start = int(parts[0])
+            end = int(parts[1])
+            if start < 1 or end > 65535 or start > end:
+                return None
+            normalized_tokens.append(f"{start}-{end}")
+        else:
+            if not token.isdigit():
+                return None
+            port = int(token)
+            if port < 1 or port > 65535:
+                return None
+            normalized_tokens.append(str(port))
+
+    return ','.join(normalized_tokens)
+
+
 def _build_nmap_args(port_spec: Optional[str]) -> str:
     """Convert a port specification to nmap scan arguments.
 
@@ -38,20 +77,12 @@ def _build_nmap_args(port_spec: Optional[str]) -> str:
       - "22,80,443"             →  -p 22,80,443
       - "1-1024,8080,8443"      →  -p 1-1024,8080,8443
     """
-    spec = (port_spec or "").strip()
-    if not spec or spec == "top:1000":
+    normalized = normalize_port_spec(port_spec)
+    if not normalized or normalized == "top:1000":
         return "-sS -T4 --top-ports 1000"
-    if spec.startswith("top:"):
-        try:
-            n = max(1, int(spec[4:]))
-            return f"-sS -T4 --top-ports {n}"
-        except ValueError:
-            return "-sS -T4 --top-ports 1000"
-    # Custom port range or list — basic sanitisation: only digits, commas, hyphens
-    safe = "".join(c for c in spec if c.isdigit() or c in ",-")
-    if safe:
-        return f"-sS -T4 -p {safe}"
-    return "-sS -T4 --top-ports 1000"
+    if normalized.startswith("top:"):
+        return f"-sS -T4 --top-ports {int(normalized[4:])}"
+    return f"-sS -T4 -p {normalized}"
 
 
 def scan_ports(ip_address: str, port_spec: Optional[str] = None) -> Optional[Dict]:

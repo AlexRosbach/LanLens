@@ -22,7 +22,7 @@ from ..schemas import (
     PortScanResponse,
     SinglePortScanRequest,
 )
-from ..services.port_scanner import scan_ports_async, scan_single_port_async
+from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -567,9 +567,9 @@ async def trigger_port_range_scan(
     except ValueError:
         raise HTTPException(status_code=400, detail="Device has an invalid IP address")
 
-    port_spec = (body.port_range or "").strip()
-    if not port_spec:
-        raise HTTPException(status_code=400, detail="Port range is required")
+    port_spec = normalize_port_spec(body.port_range)
+    if not port_spec or port_spec.isdigit():
+        raise HTTPException(status_code=400, detail="Port range is invalid")
 
     background_tasks.add_task(_do_port_scan, device_id, device.ip_address, port_spec)
     return MessageResponse(message=f"Scan for port range '{port_spec}' started in background")

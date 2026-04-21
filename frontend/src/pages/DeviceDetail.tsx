@@ -413,6 +413,12 @@ export default function DeviceDetail() {
                 }
 
                 const isSinglePort = /^\d+$/.test(value)
+                const isPortRange = /^top:\d+$/.test(value) || /^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(value)
+
+                if (!isSinglePort && !isPortRange) {
+                  toast.error(t('port_range_invalid'))
+                  return
+                }
 
                 setPortScanInputLoading(true)
                 try {
