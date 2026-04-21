@@ -215,7 +215,7 @@ export default function DeviceDetail() {
       {/* Connect */}
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
-        <ConnectButtons device={device} onScanRequested={() => devicesApi.get(device.id).then(setDevice)} />
+        <ConnectButtons device={device} />
       </Card>
 
       {/* Identity & Documentation */}
@@ -407,14 +407,15 @@ export default function DeviceDetail() {
               </span>
             )}
           </h2>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Input
-              value={portScanInput}
-              onChange={(e) => setPortScanInput(e.target.value)}
-              placeholder={t('port_scan_input_placeholder')}
-              className="w-52"
-            />
-            <Button
+          <div className="flex flex-col gap-1 items-start">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                value={portScanInput}
+                onChange={(e) => setPortScanInput(e.target.value)}
+                placeholder={t('port_scan_input_placeholder')}
+                className="w-52"
+              />
+              <Button
               size="sm"
               loading={portScanInputLoading}
               disabled={portScanRunning}
@@ -462,9 +463,11 @@ export default function DeviceDetail() {
                   setPortScanInputLoading(false)
                 }
               }}
-            >
-              {portScanRunning ? t('port_scan_running') : t('scan_ports')}
-            </Button>
+              >
+                {portScanRunning ? t('port_scan_running') : t('scan_ports')}
+              </Button>
+            </div>
+            <p className="text-xs text-text-subtle">{t('port_scan_input_help')}</p>
           </div>
         </div>
         {device.latest_scan ? (
