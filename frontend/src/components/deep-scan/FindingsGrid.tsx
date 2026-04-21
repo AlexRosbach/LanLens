@@ -103,7 +103,7 @@ function parseTable(text: string): { headers: string[]; rows: string[][] } | nul
 // ── Compact extractors ─────────────────────────────────────────────────────────
 
 /** Extract a one-liner summary from a finding for compact mode. Returns null = hide in compact. */
-function extractCompact(finding: DeepScanFinding): string | null {
+function extractCompact(finding: DeepScanFinding, t: ReturnType<typeof useI18n>['t']): string | null {
   const normalizedValue = normalizeStructuredValue(finding.value)
   const raw = parseValue(normalizedValue)
   const key = finding.key
@@ -267,7 +267,7 @@ function extractCompact(finding: DeepScanFinding): string | null {
           const size = formatBytes(disk.Size)
           return [model, size].filter(Boolean).join(' ')
         }).join(', ')
-        return `${disks.length} disk${disks.length !== 1 ? 's' : ''}: ${preview}${disks.length > 3 ? `… +${disks.length - 3}` : ''}`
+        return `${t('finding_count_disks', { count: disks.length })}: ${preview}${disks.length > 3 ? `… +${disks.length - 3}` : ''}`
       } catch { }
       break
     }
@@ -279,7 +279,7 @@ function extractCompact(finding: DeepScanFinding): string | null {
             .map((service) => (service.DisplayName || service.Name) as string | undefined)
             .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
           const preview = names.slice(0, 5).join(', ')
-          return `${services.length} service${services.length !== 1 ? 's' : ''} running${preview ? ` — ${preview}${services.length > 5 ? `… +${services.length - 5}` : ''}` : ''}`
+          return `${t('finding_count_services_running', { count: services.length })}${preview ? ` — ${preview}${services.length > 5 ? `… +${services.length - 5}` : ''}` : ''}`
         }
       } catch { }
       break
@@ -287,7 +287,7 @@ function extractCompact(finding: DeepScanFinding): string | null {
     case 'windows_features': {
       try {
         const features = asArray(normalizedValue)
-        if (features.length > 0) return `${features.length} feature${features.length !== 1 ? 's' : ''} installed`
+        if (features.length > 0) return t('finding_count_features_installed', { count: features.length })
       } catch { }
       break
     }
@@ -298,7 +298,7 @@ function extractCompact(finding: DeepScanFinding): string | null {
         if (first) {
           const name = first.Name
           const status = Number(first.LicenseStatus)
-          const statusLabel = Number.isFinite(status) ? (status === 1 ? 'Licensed' : `Status ${status}`) : null
+          const statusLabel = Number.isFinite(status) ? (status === 1 ? t('finding_licensed') : t('finding_status_number', { status })) : null
           return [name, statusLabel].filter(Boolean).join(' · ') || null
         }
       } catch { }
@@ -307,11 +307,11 @@ function extractCompact(finding: DeepScanFinding): string | null {
     case 'sql_instances': {
       try {
         const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
-        if (items.length === 0) return 'No SQL instances found'
+        if (items.length === 0) return t('finding_no_sql_instances')
         const names = items
           .map((item) => (item.DisplayName || item.Name) as string | undefined)
           .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        return `${items.length} SQL service${items.length !== 1 ? 's' : ''}${names.length ? ` — ${names.join(', ')}` : ''}`
+        return `${t('finding_count_sql_services', { count: items.length })}${names.length ? ` — ${names.join(', ')}` : ''}`
       } catch { }
       break
     }
@@ -490,7 +490,7 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
   if (finding.key === 'licensing' && normalizedValue) {
     const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
     if (items.length > 0) {
-      const rows = items.map((item) => [String(item.Name || '—'), Number(item.LicenseStatus) === 1 ? 'Licensed' : String(item.LicenseStatus ?? '—')])
+      const rows = items.map((item) => [String(item.Name || '—'), Number(item.LicenseStatus) === 1 ? t('finding_licensed') : String(item.LicenseStatus ?? '—')])
       return (
         <div className="py-3 border-b border-border last:border-0 space-y-2">
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
@@ -559,7 +559,7 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
 function CompactRow({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
   const label = getFindingLabel(finding.key, t)
-  const compact = extractCompact(finding)
+  const compact = extractCompact(finding, t)
   if (compact === null) return null
   return (
     <div className="grid grid-cols-[minmax(120px,auto)_1fr] gap-x-4 items-start py-1.5 border-b border-border last:border-0">
@@ -581,7 +581,7 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
     )
   }
 
-  const visibleInCompact = findings.filter((f) => extractCompact(f) !== null)
+  const visibleInCompact = findings.filter((f) => extractCompact(f, t) !== null)
   const hiddenCount = findings.length - visibleInCompact.length
 
   return (
