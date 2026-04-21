@@ -1,7 +1,7 @@
 import ipaddress
 import json
 import logging
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceView, Notification, PortScan, Setting, User
+from ..models import DeepScanFinding, Device, DeviceView, Notification, PortScan, Segment, Setting, User
 from ..schemas import (
     DeviceListResponse,
     DeviceResponse,
@@ -59,6 +59,29 @@ def _is_dhcp(ip: Optional[str], dhcp_range) -> bool:
         return False
 
 
+def _get_matching_segment(ip: Optional[str], segments: List[Segment]) -> Optional[Segment]:
+    if not ip:
+        return None
+    try:
+        ip_int = int(ipaddress.IPv4Address(ip))
+    except Exception:
+        return None
+
+    best_match: Optional[Tuple[int, Segment]] = None
+    for segment in segments:
+        try:
+            start = int(ipaddress.IPv4Address(segment.ip_start))
+            end = int(ipaddress.IPv4Address(segment.ip_end))
+        except Exception:
+            continue
+        if start <= ip_int <= end:
+            span = end - start
+            if best_match is None or span < best_match[0]:
+                best_match = (span, segment)
+
+    return best_match[1] if best_match else None
+
+
 def _latest_scan_response(device: Device) -> Optional[PortScanResponse]:
     if not device.port_scans:
         return None
@@ -88,12 +111,14 @@ def _device_to_response(
     viewed_device_ids: Optional[Set[int]] = None,
     hardware_summaries: Optional[dict] = None,
     host_labels: Optional[dict] = None,
+    segments: Optional[List[Segment]] = None,
 ) -> DeviceResponse:
     from ..schemas import ServiceResponse
 
     if viewed_device_ids is None:
         viewed_device_ids = set()
     is_new = not device.is_registered and device.id not in viewed_device_ids
+    matched_segment = _get_matching_segment(device.ip_address, segments or [])
 
     return DeviceResponse(
         id=device.id,
@@ -103,9 +128,9 @@ def _device_to_response(
         label=device.label,
         device_class=device.device_class,
         vendor=device.vendor,
-        segment_id=device.segment_id,
-        segment_name=device.segment.name if device.segment else None,
-        segment_color=device.segment.color if device.segment else None,
+        segment_id=matched_segment.id if matched_segment else None,
+        segment_name=matched_segment.name if matched_segment else None,
+        segment_color=matched_segment.color if matched_segment else None,
         is_dhcp=_is_dhcp(device.ip_address, dhcp_range),
         purpose=device.purpose,
         description=device.description,
@@ -167,6 +192,7 @@ def list_devices(
     online = db.query(Device).filter(Device.is_online == True).count()
     unregistered = db.query(Device).filter(Device.is_registered == False).count()
     dhcp_range = _get_dhcp_range(db)
+    segments = db.query(Segment).all()
 
     # Batch-fetch hardware findings for device list display (cpu, memory, model)
     hardware_summaries: dict = {}
@@ -250,7 +276,7 @@ def list_devices(
                 host_labels[rel.child_device_id] = host_devices_map.get(rel.host_device_id, f"Host #{rel.host_device_id}")
 
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range, viewed_device_ids, hardware_summaries, host_labels) for d in all_devices],
+        items=[_device_to_response(d, dhcp_range, viewed_device_ids, hardware_summaries, host_labels, segments) for d in all_devices],
         total=total,
         online=online,
         offline=total - online,
@@ -276,8 +302,9 @@ def get_new_devices(
     unregistered = db.query(Device).filter(Device.is_registered == False).count()
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
+    segments = db.query(Segment).all()
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range, viewed_device_ids) for d in devices],
+        items=[_device_to_response(d, dhcp_range, viewed_device_ids, segments=segments) for d in devices],
         total=total,
         online=online,
         offline=total - online,
@@ -357,7 +384,8 @@ def get_device(
                 host_labels[device_id] = host_dev.label or host_dev.hostname or host_dev.mac_address
             else:
                 host_labels[device_id] = f"Host #{host_rel.host_device_id}"
-    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels)
+    segments = db.query(Segment).all()
+    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segments)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -403,7 +431,8 @@ def update_device(
     db.refresh(device)
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
-    return _device_to_response(device, dhcp_range, viewed_device_ids)
+    segments = db.query(Segment).all()
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segments=segments)
 
 
 @router.post("/{device_id}/mark-viewed", response_model=MessageResponse)
@@ -468,7 +497,8 @@ def regenerate_cmdb_id(
     db.refresh(device)
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
-    return _device_to_response(device, dhcp_range, viewed_device_ids)
+    segments = db.query(Segment).all()
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segments=segments)
 
 
 @router.post("/{device_id}/scan-ports", response_model=MessageResponse)

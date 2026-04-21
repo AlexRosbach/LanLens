@@ -66,7 +66,6 @@ export interface DeviceUpdate {
   label?: string
   device_class?: string
   is_registered?: boolean
-  segment_id?: number | null
   purpose?: string
   description?: string
   location?: string

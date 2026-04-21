@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, devicesApi } from '../api/devices'
-import { Segment, segmentsApi } from '../api/segments'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -19,7 +18,6 @@ import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from
 interface EditState {
   label: string
   deviceClass: string
-  segmentId: string
   purpose: string
   description: string
   location: string
@@ -35,7 +33,6 @@ function toEditState(d: Device): EditState {
   return {
     label: d.label ?? '',
     deviceClass: d.device_class,
-    segmentId: d.segment_id != null ? String(d.segment_id) : '',
     purpose: d.purpose ?? '',
     description: d.description ?? '',
     location: d.location ?? '',
@@ -68,7 +65,6 @@ export default function DeviceDetail() {
   const [form, setForm] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [segments, setSegments] = useState<Segment[]>([])
   const [portScanInput, setPortScanInput] = useState('')
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [fullScanLoading, setFullScanLoading] = useState(false)
@@ -76,12 +72,8 @@ export default function DeviceDetail() {
 
   useEffect(() => {
     if (!id) return
-    Promise.all([
-      devicesApi.get(Number(id)),
-      segmentsApi.list().catch(() => [] as Segment[]),
-    ]).then(async ([d, segs]) => {
+    devicesApi.get(Number(id)).then(async (d) => {
       let currentDevice = d
-      setSegments(segs)
       try {
         await devicesApi.markViewed(d.id)
         if (!d.is_registered) {
@@ -118,7 +110,6 @@ export default function DeviceDetail() {
       const updated = await devicesApi.update(device.id, {
         label: form.label.trim() || undefined,
         device_class: form.deviceClass,
-        segment_id: form.segmentId ? Number(form.segmentId) : null,
         purpose: form.purpose.trim() || undefined,
         description: form.description.trim() || undefined,
         location: form.location.trim() || undefined,
@@ -277,21 +268,6 @@ export default function DeviceDetail() {
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* Segment assignment */}
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-text-muted">{t('segment')}</label>
-              <select
-                value={form.segmentId}
-                onChange={(e) => setForm((f) => f ? { ...f, segmentId: e.target.value } : f)}
-                className="input-field"
-              >
-                <option value="">{t('no_segment')}</option>
-                {segments.map((s) => (
-                  <option key={s.id} value={String(s.id)}>{s.name}</option>
-                ))}
-              </select>
             </div>
 
             {/* Documentation fields */}
