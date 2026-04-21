@@ -24,9 +24,13 @@ export default function Settings() {
   const [settings, setSettings] = useState<AllSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
 
   useEffect(() => {
-    settingsApi.get().then(setSettings).catch(() => {
+    settingsApi.get().then((data) => {
+      setSettings(data)
+      setTelegramTokenDirty(false)
+    }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
   }, [lang])
@@ -51,6 +55,7 @@ export default function Settings() {
         notify_telegram_update: current.notify_telegram_update,
       })
       setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
+      setTelegramTokenDirty(false)
       toast.success(t('telegram_settings_saved'))
     } catch {
       toast.error(t('telegram_settings_save_failed'))
@@ -476,10 +481,16 @@ export default function Settings() {
                 <label className="block text-sm text-text-subtle mb-1">Bot Token</label>
                 <Input
                   type="password"
-                  value={current.telegram_bot_token}
-                  placeholder={current.telegram_bot_token ? 'Token gespeichert' : ''}
-                  onChange={(e) => setSettings({ ...current, telegram_bot_token: e.target.value })}
+                  value={telegramTokenDirty ? current.telegram_bot_token : ''}
+                  placeholder={current.telegram_bot_token ? '•••••••• (Token gespeichert)' : 'Neuen Bot Token eingeben'}
+                  onChange={(e) => {
+                    setTelegramTokenDirty(true)
+                    setSettings({ ...current, telegram_bot_token: e.target.value })
+                  }}
                 />
+                {!telegramTokenDirty && current.telegram_bot_token && (
+                  <p className="mt-1 text-xs text-text-subtle">Telegram Bot Token ist gespeichert und wird aus Sicherheitsgründen nicht im Klartext angezeigt.</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm text-text-subtle mb-1">Chat ID</label>
