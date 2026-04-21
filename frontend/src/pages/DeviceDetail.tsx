@@ -69,10 +69,8 @@ export default function DeviceDetail() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [segments, setSegments] = useState<Segment[]>([])
-  const [singlePort, setSinglePort] = useState('')
-  const [portRange, setPortRange] = useState('')
-  const [singlePortLoading, setSinglePortLoading] = useState(false)
-  const [portRangeLoading, setPortRangeLoading] = useState(false)
+  const [portScanInput, setPortScanInput] = useState('')
+  const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [fullScanLoading, setFullScanLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
 
@@ -421,68 +419,49 @@ export default function DeviceDetail() {
           </h2>
           <div className="flex items-center gap-2 flex-wrap">
             <Input
-              value={singlePort}
-              onChange={(e) => setSinglePort(e.target.value)}
-              placeholder={t('single_port_placeholder')}
-              className="w-28"
+              value={portScanInput}
+              onChange={(e) => setPortScanInput(e.target.value)}
+              placeholder={t('port_scan_input_placeholder')}
+              className="w-44"
             />
             <Button
               size="sm"
-              loading={singlePortLoading}
+              loading={portScanInputLoading}
               disabled={portScanRunning}
               onClick={async () => {
                 if (!device) return
-                const port = Number(singlePort)
-                if (!Number.isInteger(port) || port < 1 || port > 65535) {
-                  toast.error(t('single_port_invalid'))
+                const value = portScanInput.trim()
+                if (!value) {
+                  toast.error(t('port_scan_input_invalid'))
                   return
                 }
-                setSinglePortLoading(true)
+
+                const isSinglePort = /^\d+$/.test(value)
+
+                setPortScanInputLoading(true)
                 try {
-                  await devicesApi.scanSinglePort(device.id, port)
+                  if (isSinglePort) {
+                    const port = Number(value)
+                    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                      toast.error(t('single_port_invalid'))
+                      return
+                    }
+                    await devicesApi.scanSinglePort(device.id, port)
+                    toast.success(t('single_port_scan_started', { port }))
+                  } else {
+                    await devicesApi.scanPortRange(device.id, value)
+                    toast.success(t('port_range_scan_started', { range: value }))
+                  }
                   setPortScanRunning(true)
-                  toast.success(t('single_port_scan_started', { port }))
-                  setSinglePort('')
+                  setPortScanInput('')
                 } catch {
-                  toast.error(t('single_port_scan_failed'))
+                  toast.error(isSinglePort ? t('single_port_scan_failed') : t('port_range_scan_failed'))
                 } finally {
-                  setSinglePortLoading(false)
+                  setPortScanInputLoading(false)
                 }
               }}
             >
-              {t('scan_single_port')}
-            </Button>
-            <Input
-              value={portRange}
-              onChange={(e) => setPortRange(e.target.value)}
-              placeholder={t('port_range_placeholder')}
-              className="w-40"
-            />
-            <Button
-              size="sm"
-              loading={portRangeLoading}
-              disabled={portScanRunning}
-              onClick={async () => {
-                if (!device) return
-                const range = portRange.trim()
-                if (!range) {
-                  toast.error(t('port_range_invalid'))
-                  return
-                }
-                setPortRangeLoading(true)
-                try {
-                  await devicesApi.scanPortRange(device.id, range)
-                  setPortScanRunning(true)
-                  toast.success(t('port_range_scan_started', { range }))
-                  setPortRange('')
-                } catch {
-                  toast.error(t('port_range_scan_failed'))
-                } finally {
-                  setPortRangeLoading(false)
-                }
-              }}
-            >
-              {t('scan_port_range')}
+              {portScanRunning ? t('port_scan_running') : t('scan_port_custom')}
             </Button>
             <Button
               variant="ghost"
