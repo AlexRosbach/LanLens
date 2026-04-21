@@ -67,7 +67,6 @@ export default function DeviceDetail() {
   const [deleting, setDeleting] = useState(false)
   const [portScanInput, setPortScanInput] = useState('')
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
-  const [fullScanLoading, setFullScanLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
 
@@ -413,7 +412,7 @@ export default function DeviceDetail() {
               value={portScanInput}
               onChange={(e) => setPortScanInput(e.target.value)}
               placeholder={t('port_scan_input_placeholder')}
-              className="w-44"
+              className="w-52"
             />
             <Button
               size="sm"
@@ -422,22 +421,21 @@ export default function DeviceDetail() {
               onClick={async () => {
                 if (!device) return
                 const value = portScanInput.trim()
-                if (!value) {
-                  toast.error(t('port_scan_input_invalid'))
-                  return
-                }
-
+                const isDefaultScan = value.length === 0
                 const isSinglePort = /^\d+$/.test(value)
                 const isPortRange = /^top:\d+$/.test(value) || /^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(value)
 
-                if (!isSinglePort && !isPortRange) {
+                if (!isDefaultScan && !isSinglePort && !isPortRange) {
                   toast.error(t('port_range_invalid'))
                   return
                 }
 
                 setPortScanInputLoading(true)
                 try {
-                  if (isSinglePort) {
+                  if (isDefaultScan) {
+                    await devicesApi.scanPorts(device.id)
+                    toast.success(t('port_scan_started'))
+                  } else if (isSinglePort) {
                     const port = Number(value)
                     if (!Number.isInteger(port) || port < 1 || port > 65535) {
                       toast.error(t('single_port_invalid'))
@@ -453,34 +451,19 @@ export default function DeviceDetail() {
                   setPortScanRunning(true)
                   setPortScanInput('')
                 } catch {
-                  toast.error(isSinglePort ? t('single_port_scan_failed') : t('port_range_scan_failed'))
+                  toast.error(
+                    isDefaultScan
+                      ? t('port_scan_failed')
+                      : isSinglePort
+                        ? t('single_port_scan_failed')
+                        : t('port_range_scan_failed')
+                  )
                 } finally {
                   setPortScanInputLoading(false)
                 }
               }}
             >
-              {portScanRunning ? t('port_scan_running') : t('scan_port_custom')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              loading={fullScanLoading || portScanRunning}
-              onClick={async () => {
-                if (!device) return
-                setFullScanLoading(true)
-                try {
-                  await devicesApi.scanPorts(device.id)
-                  setPortScanRequestedAt(Date.now())
-                  setPortScanRunning(true)
-                  toast.success(t('port_scan_started'))
-                } catch {
-                  toast.error(t('port_scan_failed'))
-                } finally {
-                  setFullScanLoading(false)
-                }
-              }}
-            >
-              {portScanRunning ? t('port_scan_running') : t('scan_default_ports')}
+              {portScanRunning ? t('port_scan_running') : t('scan_ports')}
             </Button>
           </div>
         </div>
