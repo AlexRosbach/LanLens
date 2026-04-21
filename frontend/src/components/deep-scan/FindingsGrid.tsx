@@ -9,11 +9,69 @@ interface Props {
 
 // ── Value helpers ──────────────────────────────────────────────────────────────
 
+function parseJsonString(raw: string): unknown {
+  const trimmed = raw.trim()
+  if (!trimmed) return raw
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return raw
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return raw
+  }
+}
+
+function normalizeStructuredValue(raw: unknown): unknown {
+  if (typeof raw === 'string') return parseJsonString(raw)
+  return raw
+}
+
 function parseValue(raw: unknown): string {
   if (raw === null || raw === undefined) return '—'
   if (typeof raw === 'string') return raw
   if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw)
   return JSON.stringify(raw, null, 2)
+}
+
+function asArray(raw: unknown): unknown[] {
+  const normalized = normalizeStructuredValue(raw)
+  if (Array.isArray(normalized)) return normalized
+  if (normalized && typeof normalized === 'object') return [normalized]
+  return []
+}
+
+function formatBytes(value: unknown): string | null {
+  const bytes = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(bytes) || bytes <= 0) return null
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = bytes
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+  const digits = size >= 100 || unit === 0 ? 0 : size >= 10 ? 1 : 2
+  return `${size.toFixed(digits)} ${units[unit]}`
+}
+
+function formatCellValue(entryKey: string, value: unknown): string {
+  if (Array.isArray(value)) return value.join(', ')
+  if (value && typeof value === 'object') return JSON.stringify(value)
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'number' && ['Capacity', 'Size', 'TotalPhysicalMemory'].includes(entryKey)) {
+    return formatBytes(value) || String(value)
+  }
+  return String(value)
+}
+
+function buildTableFromItems(items: Record<string, unknown>[]): { headers: string[]; rows: string[][] } | null {
+  if (items.length === 0) return null
+  const headerSet = new Set<string>()
+  for (const item of items) {
+    Object.keys(item).forEach((key) => headerSet.add(key))
+  }
+  const headers = Array.from(headerSet).sort((a, b) => a.localeCompare(b))
+  const rows = items.map((item) => headers.map((header) => formatCellValue(header, item[header])))
+  return { headers, rows }
 }
 
 /** Try to parse a key=value or KEY=VALUE block (for example /etc/os-release) into pairs. */
@@ -45,8 +103,9 @@ function parseTable(text: string): { headers: string[]; rows: string[][] } | nul
 // ── Compact extractors ─────────────────────────────────────────────────────────
 
 /** Extract a one-liner summary from a finding for compact mode. Returns null = hide in compact. */
-function extractCompact(finding: DeepScanFinding): string | null {
-  const raw = parseValue(finding.value)
+function extractCompact(finding: DeepScanFinding, t: ReturnType<typeof useI18n>['t']): string | null {
+  const normalizedValue = normalizeStructuredValue(finding.value)
+  const raw = parseValue(normalizedValue)
   const key = finding.key
 
   // Already a short single-line → always show
@@ -54,13 +113,11 @@ function extractCompact(finding: DeepScanFinding): string | null {
 
   switch (key) {
     case 'cpu': {
-      // lscpu: extract "Model name" line
       const line = raw.split('\n').find((l) => /model name/i.test(l))
       if (line) return line.split(':').slice(1).join(':').trim()
       break
     }
     case 'memory': {
-      // free -h: "Mem:  total  used  free …" → show total
       const line = raw.split('\n').find((l) => /^Mem:/i.test(l))
       if (line) {
         const total = line.split(/\s+/)[1]
@@ -69,9 +126,8 @@ function extractCompact(finding: DeepScanFinding): string | null {
       break
     }
     case 'disks': {
-      // lsblk: count disks and show name+size
       const lines = raw.split('\n').filter((l) => l.trim())
-      const diskLines = lines.slice(1) // skip header
+      const diskLines = lines.slice(1)
       if (diskLines.length > 0) {
         const parts = diskLines.map((l) => {
           const cols = l.trim().split(/\s+/)
@@ -82,7 +138,6 @@ function extractCompact(finding: DeepScanFinding): string | null {
       break
     }
     case 'release': {
-      // /etc/os-release: prefer PRETTY_NAME, fallback NAME + VERSION_ID
       const lines = raw.split('\n')
       const pretty = lines.find((l) => l.startsWith('PRETTY_NAME='))?.split('=').slice(1).join('=').replace(/"/g, '')
       if (pretty) return pretty
@@ -92,15 +147,11 @@ function extractCompact(finding: DeepScanFinding): string | null {
       if (name) return name
       break
     }
-    case 'kernel': {
-      // uname -a: first line
-      return raw.split('\n')[0].trim() || null
-    }
+    case 'kernel':
     case 'uptime': {
       return raw.split('\n')[0].trim() || null
     }
     case 'systemd_units': {
-      // systemctl list: count and first 8 service names
       const lines = raw.split('\n').filter((l) => l.trim())
       const names = lines.map((l) => l.trim().split(/\s+/)[0]).filter((n) => n && n.endsWith('.service'))
       if (names.length > 0) {
@@ -134,13 +185,20 @@ function extractCompact(finding: DeepScanFinding): string | null {
     }
     case 'k3s_pods': {
       const lines = raw.split('\n').filter((l) => l.trim())
-      const count = Math.max(0, lines.length - 1) // skip header
+      const count = Math.max(0, lines.length - 1)
       return `${count} pod${count !== 1 ? 's' : ''}`
     }
     case 'kvm_vms':
     case 'proxmox_qemu':
     case 'proxmox_ct':
     case 'hyper_v_vms': {
+      if (normalizedValue && typeof normalizedValue === 'object') {
+        const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+        const names = items
+          .map((item) => (item.Name || item.name) as string | undefined)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        if (items.length > 0) return `${items.length} VM${items.length !== 1 ? 's' : ''}${names.length ? `: ${names.join(', ')}` : ''}`
+      }
       const table = parseTable(raw)
       if (table) {
         const count = table.rows.length
@@ -153,34 +211,119 @@ function extractCompact(finding: DeepScanFinding): string | null {
       }
       break
     }
-    case 'computer_system':
-    case 'operating_system':
-    case 'bios': {
-      // Windows JSON objects: extract key identifying field
+    case 'computer_system': {
       try {
-        const obj = typeof finding.value === 'object' ? finding.value as Record<string, unknown> : JSON.parse(raw)
-        if (obj) {
-          const val = obj['Caption'] || obj['Name'] || obj['Manufacturer'] || Object.values(obj)[0]
-          if (val && typeof val === 'string') return val
-        }
-      } catch { /* ignore */ }
+        const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
+        const host = obj['DNSHostName'] || obj['Name']
+        const model = obj['Model']
+        const cpu = obj['NumberOfLogicalProcessors']
+        const memory = formatBytes(obj['TotalPhysicalMemory'])
+        return [host, model, cpu ? `${cpu} threads` : null, memory].filter(Boolean).join(' · ') || null
+      } catch { }
+      break
+    }
+    case 'operating_system': {
+      try {
+        const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
+        return (obj['Caption'] || obj['Name'] || obj['Version']) as string || null
+      } catch { }
+      break
+    }
+    case 'bios': {
+      try {
+        const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
+        const vendor = obj['Manufacturer']
+        const version = obj['SMBIOSBIOSVersion'] || obj['Version']
+        return [vendor, version].filter(Boolean).join(' · ') || null
+      } catch { }
+      break
+    }
+    case 'processor': {
+      try {
+        const items = asArray(normalizedValue)
+        const names = items
+          .map((item) => (item as Record<string, unknown>)?.Name)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        if (names.length > 0) return names.join(', ')
+      } catch { }
+      break
+    }
+    case 'physical_memory': {
+      try {
+        const modules = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+        const total = modules.reduce((sum, module) => sum + Number(module.Capacity || 0), 0)
+        const speed = modules[0]?.Speed
+        const totalLabel = formatBytes(total)
+        return [modules.length ? `${modules.length} module${modules.length !== 1 ? 's' : ''}` : null, totalLabel, speed ? `${speed} MHz` : null].filter(Boolean).join(' · ') || null
+      } catch { }
+      break
+    }
+    case 'disk_drives': {
+      try {
+        const disks = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+        if (disks.length === 0) return null
+        const preview = disks.slice(0, 3).map((disk) => {
+          const model = typeof disk.Model === 'string' ? disk.Model : 'Disk'
+          const size = formatBytes(disk.Size)
+          return [model, size].filter(Boolean).join(' ')
+        }).join(', ')
+        return `${t('finding_count_disks', { count: disks.length })}: ${preview}${disks.length > 3 ? `… +${disks.length - 3}` : ''}`
+      } catch { }
       break
     }
     case 'running_services': {
-      const lines = raw.split('\n').filter((l) => l.trim())
-      const count = Math.max(0, lines.length - 1)
-      return `${count} service${count !== 1 ? 's' : ''} running`
+      try {
+        const services = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+        if (services.length > 0) {
+          const names = services
+            .map((service) => (service.DisplayName || service.Name) as string | undefined)
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          const preview = names.slice(0, 5).join(', ')
+          return `${t('finding_count_services_running', { count: services.length })}${preview ? ` — ${preview}${services.length > 5 ? `… +${services.length - 5}` : ''}` : ''}`
+        }
+      } catch { }
+      break
     }
     case 'windows_features': {
-      const lines = raw.split('\n').filter((l) => l.trim())
-      const count = Math.max(0, lines.length - 1)
-      return `${count} feature${count !== 1 ? 's' : ''} installed`
+      try {
+        const features = asArray(normalizedValue)
+        if (features.length > 0) return t('finding_count_features_installed', { count: features.length })
+      } catch { }
+      break
+    }
+    case 'licensing': {
+      try {
+        const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+        const first = items[0]
+        if (first) {
+          const name = first.Name
+          const status = Number(first.LicenseStatus)
+          const statusLabel = Number.isFinite(status) ? (status === 1 ? t('finding_licensed') : t('finding_status_number', { status })) : null
+          return [name, statusLabel].filter(Boolean).join(' · ') || null
+        }
+      } catch { }
+      break
+    }
+    case 'sql_instances': {
+      try {
+        const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+        if (items.length === 0) return t('finding_no_sql_instances')
+        const names = items
+          .map((item) => (item.DisplayName || item.Name) as string | undefined)
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        return `${t('finding_count_sql_services', { count: items.length })}${names.length ? ` — ${names.join(', ')}` : ''}`
+      } catch { }
+      break
     }
   }
-  return null // hide in compact mode
+  return null
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
+function normalizeSource(source: string | null | undefined): string | null {
+  if (!source) return null
+  if (source === 'for') return null
+  return source
+}
 
 function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: number }) {
   const [expanded, setExpanded] = useState(false)
@@ -200,7 +343,7 @@ function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: numbe
           onClick={() => setExpanded(!expanded)}
           className="text-xs text-primary hover:underline mt-1"
         >
-          {expanded ? t('finding_show_less') : t('finding_show_all_lines', { count: lines.length })}
+          {expanded ? `▲ ${t('collapse')}` : `▼ ${t('expand')}`}
         </button>
       )}
     </div>
@@ -245,8 +388,6 @@ function DataTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   )
 }
 
-// ── Finding labels ─────────────────────────────────────────────────────────────
-
 const KEY_LABEL_KEYS: Record<string, string> = {
   vendor: 'finding_vendor',
   model: 'finding_model',
@@ -290,14 +431,75 @@ function getFindingLabel(key: string, t: ReturnType<typeof useI18n>['t']) {
   return labelKey ? t(labelKey as Parameters<typeof t>[0]) : key.replace(/_/g, ' ')
 }
 
-// ── Full finding card (expanded mode) ─────────────────────────────────────────
-
 function FindingCard({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
   const label = getFindingLabel(finding.key, t)
-  const rawText = parseValue(finding.value)
+  const normalizedValue = normalizeStructuredValue(finding.value)
+  const rawText = parseValue(normalizedValue)
 
-  // Short single-line values → simple row
+  if (finding.key === 'computer_system' && normalizedValue && typeof normalizedValue === 'object' && !Array.isArray(normalizedValue)) {
+    const obj = normalizedValue as Record<string, unknown>
+    const pairs = [
+      { key: 'Name', value: String(obj.DNSHostName || obj.Name || '—') },
+      { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
+      { key: 'Model', value: String(obj.Model || '—') },
+      { key: 'System Type', value: String(obj.SystemType || '—') },
+      { key: 'Logical Processors', value: String(obj.NumberOfLogicalProcessors || '—') },
+      { key: 'Memory', value: formatBytes(obj.TotalPhysicalMemory) || '—' },
+      { key: 'Hypervisor Present', value: String(obj.HypervisorPresent ?? '—') },
+    ]
+    return (
+      <div className="py-3 border-b border-border last:border-0 space-y-2">
+        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+        <KvTable pairs={pairs} />
+      </div>
+    )
+  }
+
+  if (finding.key === 'bios' && normalizedValue && typeof normalizedValue === 'object' && !Array.isArray(normalizedValue)) {
+    const obj = normalizedValue as Record<string, unknown>
+    const biosVersion = Array.isArray(obj.BIOSVersion) ? obj.BIOSVersion.join(', ') : String(obj.BIOSVersion || '—')
+    const pairs = [
+      { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
+      { key: 'Version', value: String(obj.SMBIOSBIOSVersion || obj.Version || '—') },
+      { key: 'BIOS Version', value: biosVersion },
+      { key: 'Release Date', value: String(obj.ReleaseDate || '—') },
+      { key: 'SMBIOS', value: `${String(obj.SMBIOSMajorVersion ?? '—')}.${String(obj.SMBIOSMinorVersion ?? '—')}` },
+    ]
+    return (
+      <div className="py-3 border-b border-border last:border-0 space-y-2">
+        <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+        <KvTable pairs={pairs} />
+      </div>
+    )
+  }
+
+  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances' || finding.key === 'iis_sites' || finding.key === 'hyper_v_vms' || finding.key === 'dhcp_scopes') && normalizedValue && typeof normalizedValue === 'object') {
+    const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+    const table = buildTableFromItems(items)
+    if (table) {
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={table.headers} rows={table.rows} />
+        </div>
+      )
+    }
+  }
+
+  if (finding.key === 'licensing' && normalizedValue) {
+    const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+    if (items.length > 0) {
+      const rows = items.map((item) => [String(item.Name || '—'), Number(item.LicenseStatus) === 1 ? t('finding_licensed') : String(item.LicenseStatus ?? '—')])
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={['Name', 'Status']} rows={rows} />
+        </div>
+      )
+    }
+  }
+
   if (!rawText.includes('\n') && rawText.length < 120) {
     return (
       <div className="grid grid-cols-[minmax(160px,auto)_1fr] gap-x-4 items-start py-2 border-b border-border last:border-0">
@@ -307,7 +509,6 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  // Try key=value block (like /etc/os-release, lscpu)
   const kvPairs = parseKvBlock(rawText)
   if (kvPairs) {
     return (
@@ -318,35 +519,47 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  // Try column-aligned table
-  const table = parseTable(rawText)
-  if (table && table.rows.length > 0) {
+  const rawTable = parseTable(rawText)
+  if (rawTable && rawTable.rows.length > 0) {
     return (
       <div className="py-3 border-b border-border last:border-0 space-y-2">
         <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
-        <DataTable headers={table.headers} rows={table.rows} />
+        <DataTable headers={rawTable.headers} rows={rawTable.rows} />
       </div>
     )
   }
 
-  // Fallback: collapsible pre block
+  if (normalizedValue && typeof normalizedValue === 'object') {
+    const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
+    const table = buildTableFromItems(items)
+    if (table) {
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={table.headers} rows={table.rows} />
+          {normalizeSource(finding.source) && (
+            <span className="text-xs text-text-subtle">{t('source_label', { source: normalizeSource(finding.source) ?? '' })}</span>
+          )}
+        </div>
+      )
+    }
+  }
+
   return (
     <div className="py-3 border-b border-border last:border-0 space-y-2">
       <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
       <CollapsiblePre text={rawText} />
-      {finding.source && (
-        <span className="text-xs text-text-subtle">{t('source_label', { source: finding.source })}</span>
+      {normalizeSource(finding.source) && (
+        <span className="text-xs text-text-subtle">{t('source_label', { source: normalizeSource(finding.source) ?? '' })}</span>
       )}
     </div>
   )
 }
 
-// ── Compact row ────────────────────────────────────────────────────────────────
-
 function CompactRow({ finding }: { finding: DeepScanFinding }) {
   const { t } = useI18n()
   const label = getFindingLabel(finding.key, t)
-  const compact = extractCompact(finding)
+  const compact = extractCompact(finding, t)
   if (compact === null) return null
   return (
     <div className="grid grid-cols-[minmax(120px,auto)_1fr] gap-x-4 items-start py-1.5 border-b border-border last:border-0">
@@ -355,8 +568,6 @@ function CompactRow({ finding }: { finding: DeepScanFinding }) {
     </div>
   )
 }
-
-// ── Main export ────────────────────────────────────────────────────────────────
 
 export default function FindingsGrid({ findings, emptyMessage }: Props) {
   const { t } = useI18n()
@@ -370,21 +581,18 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
     )
   }
 
-  // In compact mode: only show findings that have a compact representation
-  const visibleInCompact = findings.filter((f) => extractCompact(f) !== null)
+  const visibleInCompact = findings.filter((f) => extractCompact(f, t) !== null)
   const hiddenCount = findings.length - visibleInCompact.length
 
   return (
     <div>
       {expanded ? (
-        // Expanded: show all findings in full detail
         <div className="divide-y divide-transparent">
           {findings.map((f) => (
             <FindingCard key={f.id} finding={f} />
           ))}
         </div>
       ) : (
-        // Compact: show summary rows for supported findings
         <div>
           {visibleInCompact.length === 0 ? (
             <p className="text-sm text-text-subtle py-4 text-center">
@@ -400,7 +608,6 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
         </div>
       )}
 
-      {/* Toggle */}
       <div className="flex justify-end mt-3">
         <button
           onClick={() => setExpanded(!expanded)}

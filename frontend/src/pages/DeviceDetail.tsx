@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, devicesApi } from '../api/devices'
-import { Segment, segmentsApi } from '../api/segments'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -19,7 +18,6 @@ import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from
 interface EditState {
   label: string
   deviceClass: string
-  segmentId: string
   purpose: string
   description: string
   location: string
@@ -35,7 +33,6 @@ function toEditState(d: Device): EditState {
   return {
     label: d.label ?? '',
     deviceClass: d.device_class,
-    segmentId: d.segment_id != null ? String(d.segment_id) : '',
     purpose: d.purpose ?? '',
     description: d.description ?? '',
     location: d.location ?? '',
@@ -68,16 +65,15 @@ export default function DeviceDetail() {
   const [form, setForm] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [segments, setSegments] = useState<Segment[]>([])
+  const [portScanInput, setPortScanInput] = useState('')
+  const [portScanInputLoading, setPortScanInputLoading] = useState(false)
+  const [portScanRunning, setPortScanRunning] = useState(false)
+  const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
 
   useEffect(() => {
     if (!id) return
-    Promise.all([
-      devicesApi.get(Number(id)),
-      segmentsApi.list().catch(() => [] as Segment[]),
-    ]).then(async ([d, segs]) => {
+    devicesApi.get(Number(id)).then(async (d) => {
       let currentDevice = d
-      setSegments(segs)
       try {
         await devicesApi.markViewed(d.id)
         if (!d.is_registered) {
@@ -90,6 +86,28 @@ export default function DeviceDetail() {
       setForm(toEditState(currentDevice))
     }).finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!portScanRunning || !device?.id) return
+
+    const timer = window.setInterval(async () => {
+      try {
+        const refreshed = await devicesApi.get(device.id)
+        setDevice(refreshed)
+
+        if (!refreshed.latest_scan?.scanned_at || portScanRequestedAt == null) return
+        const latestScanAt = new Date(refreshed.latest_scan.scanned_at).getTime()
+        if (!Number.isNaN(latestScanAt) && latestScanAt > portScanRequestedAt) {
+          setPortScanRunning(false)
+          setPortScanRequestedAt(null)
+        }
+      } catch {
+        // ignore transient polling errors while scan is running
+      }
+    }, 3000)
+
+    return () => window.clearInterval(timer)
+  }, [device?.id, portScanRequestedAt, portScanRunning])
 
   function field(key: keyof EditState) {
     return {
@@ -106,7 +124,6 @@ export default function DeviceDetail() {
       const updated = await devicesApi.update(device.id, {
         label: form.label.trim() || undefined,
         device_class: form.deviceClass,
-        segment_id: form.segmentId ? Number(form.segmentId) : null,
         purpose: form.purpose.trim() || undefined,
         description: form.description.trim() || undefined,
         location: form.location.trim() || undefined,
@@ -198,7 +215,7 @@ export default function DeviceDetail() {
       {/* Connect */}
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
-        <ConnectButtons device={device} onScanRequested={() => devicesApi.get(device.id).then(setDevice)} />
+        <ConnectButtons device={device} />
       </Card>
 
       {/* Identity & Documentation */}
@@ -265,21 +282,6 @@ export default function DeviceDetail() {
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* Segment assignment */}
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-text-muted">{t('segment')}</label>
-              <select
-                value={form.segmentId}
-                onChange={(e) => setForm((f) => f ? { ...f, segmentId: e.target.value } : f)}
-                className="input-field"
-              >
-                <option value="">{t('no_segment')}</option>
-                {segments.map((s) => (
-                  <option key={s.id} value={String(s.id)}>{s.name}</option>
-                ))}
-              </select>
             </div>
 
             {/* Documentation fields */}
@@ -395,16 +397,82 @@ export default function DeviceDetail() {
       </Card>
 
       {/* Open Ports */}
-      {device.latest_scan && (
-        <Card>
-          <h2 className="text-sm font-semibold text-text-muted mb-3">
+      <Card>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="text-sm font-semibold text-text-muted">
             {t('open_ports')}
-            <span className="ml-2 text-xs font-normal text-text-subtle">
-              (scanned {formatRelativeTime(device.latest_scan.scanned_at, lang)})
-            </span>
+            {device.latest_scan && (
+              <span className="ml-2 text-xs font-normal text-text-subtle">
+                ({t('last_scanned')} {formatRelativeTime(device.latest_scan.scanned_at, lang)})
+              </span>
+            )}
           </h2>
-          {device.latest_scan.open_ports.length === 0 ? (
-            <p className="text-sm text-text-subtle">No open ports found</p>
+          <div className="flex flex-col gap-1 items-start">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                value={portScanInput}
+                onChange={(e) => setPortScanInput(e.target.value)}
+                placeholder={t('port_scan_input_placeholder')}
+                className="w-52"
+              />
+              <Button
+              size="sm"
+              loading={portScanInputLoading}
+              disabled={portScanRunning}
+              onClick={async () => {
+                if (!device) return
+                const value = portScanInput.trim()
+                const isDefaultScan = value.length === 0
+                const isSinglePort = /^\d+$/.test(value)
+                const isPortRange = /^top:\d+$/.test(value) || /^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(value)
+
+                if (!isDefaultScan && !isSinglePort && !isPortRange) {
+                  toast.error(t('port_range_invalid'))
+                  return
+                }
+
+                setPortScanInputLoading(true)
+                try {
+                  if (isDefaultScan) {
+                    await devicesApi.scanPorts(device.id)
+                    toast.success(t('port_scan_started'))
+                  } else if (isSinglePort) {
+                    const port = Number(value)
+                    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                      toast.error(t('single_port_invalid'))
+                      return
+                    }
+                    await devicesApi.scanSinglePort(device.id, port)
+                    toast.success(t('single_port_scan_started', { port }))
+                  } else {
+                    await devicesApi.scanPortRange(device.id, value)
+                    toast.success(t('port_range_scan_started', { range: value }))
+                  }
+                  setPortScanRequestedAt(Date.now())
+                  setPortScanRunning(true)
+                  setPortScanInput('')
+                } catch {
+                  toast.error(
+                    isDefaultScan
+                      ? t('port_scan_failed')
+                      : isSinglePort
+                        ? t('single_port_scan_failed')
+                        : t('port_range_scan_failed')
+                  )
+                } finally {
+                  setPortScanInputLoading(false)
+                }
+              }}
+              >
+                {portScanRunning ? t('port_scan_running') : t('scan_ports')}
+              </Button>
+            </div>
+            <p className="text-xs text-text-subtle">{t('port_scan_input_help')}</p>
+          </div>
+        </div>
+        {device.latest_scan ? (
+          device.latest_scan.open_ports.length === 0 ? (
+            <p className="text-sm text-text-subtle">{t('no_open_ports_found')}</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {device.latest_scan.open_ports.map((p) => (
@@ -416,9 +484,11 @@ export default function DeviceDetail() {
                 </div>
               ))}
             </div>
-          )}
-        </Card>
-      )}
+          )
+        ) : (
+          <p className="text-sm text-text-subtle">{t('port_scan_not_scanned_yet')}</p>
+        )}
+      </Card>
 
       {/* Danger zone */}
       <Card>

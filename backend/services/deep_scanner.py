@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -128,24 +129,24 @@ _WIN_OS = [
 
 _WIN_SERVICES = [
     ("service", "running_services",
-     "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object Name,DisplayName | ConvertTo-Json -Compress"),
+     "$ProgressPreference='SilentlyContinue'; Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object Name,DisplayName,Status | ConvertTo-Json -Compress"),
 ]
 
 _WIN_AUDIT = [
     ("audit", "windows_features",
-     "Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName | ConvertTo-Json -Compress"),
+     "$ProgressPreference='SilentlyContinue'; Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName | ConvertTo-Json -Compress"),
     ("audit", "licensing",
-     "(Get-WmiObject -Query \"SELECT Name,LicenseStatus,PartialProductKey FROM SoftwareLicensingProduct WHERE PartialProductKey IS NOT NULL AND Name LIKE 'Windows%'\") | Select-Object Name,LicenseStatus | ConvertTo-Json -Compress"),
+     "$ProgressPreference='SilentlyContinue'; (Get-WmiObject -Query \"SELECT Name,LicenseStatus,PartialProductKey FROM SoftwareLicensingProduct WHERE PartialProductKey IS NOT NULL AND Name LIKE 'Windows%'\") | Select-Object Name,LicenseStatus | ConvertTo-Json -Compress"),
     ("audit", "iis_sites",
-     "if (Get-Module -ListAvailable WebAdministration) { Import-Module WebAdministration; Get-Website | Select-Object Name,State,PhysicalPath | ConvertTo-Json -Compress } else { Write-Output 'IIS_NOT_INSTALLED' }"),
+     "$ProgressPreference='SilentlyContinue'; if (Get-Module -ListAvailable WebAdministration) { Import-Module WebAdministration; Get-Website | Select-Object Name,State,PhysicalPath | ConvertTo-Json -Compress } else { Write-Output 'IIS_NOT_INSTALLED' }"),
     ("audit", "hyper_v_vms",
-     "if (Get-Module -ListAvailable Hyper-V) { Get-VM | Select-Object Name,State,Generation | ConvertTo-Json -Compress } else { Write-Output 'HYPERV_NOT_INSTALLED' }"),
+     "$ProgressPreference='SilentlyContinue'; if (Get-Module -ListAvailable Hyper-V) { Get-VM | Select-Object Name,State,Generation | ConvertTo-Json -Compress } else { Write-Output 'HYPERV_NOT_INSTALLED' }"),
     ("audit", "sql_instances",
-     "Get-Service | Where-Object {$_.Name -like 'MSSQL*'} | Select-Object Name,DisplayName,Status | ConvertTo-Json -Compress"),
+     "$ProgressPreference='SilentlyContinue'; Get-Service | Where-Object {$_.Name -like 'MSSQL*'} | Select-Object Name,DisplayName,Status | ConvertTo-Json -Compress"),
     ("audit", "ad_domain",
-     "try { (Get-ADDomain).DNSRoot } catch { Write-Output 'AD_NOT_INSTALLED' }"),
+     "$ProgressPreference='SilentlyContinue'; try { (Get-ADDomain).DNSRoot } catch { Write-Output 'AD_NOT_INSTALLED' }"),
     ("audit", "dhcp_scopes",
-     "try { Get-DhcpServerv4Scope | Select-Object ScopeId,Name,State | ConvertTo-Json -Compress } catch { Write-Output 'DHCP_NOT_INSTALLED' }"),
+     "$ProgressPreference='SilentlyContinue'; try { Get-DhcpServerv4Scope | Select-Object ScopeId,Name,State | ConvertTo-Json -Compress } catch { Write-Output 'DHCP_NOT_INSTALLED' }"),
 ]
 
 WIN_PROFILE_COMMANDS: Dict[str, List[Tuple[str, str, str]]] = {
@@ -511,6 +512,7 @@ def _run_windows_scan(
                 output = result.std_out.decode(errors="replace").strip()
                 if not output and result.std_err:
                     output = result.std_err.decode(errors="replace").strip()
+                output = _sanitize_winrm_output(output)
                 if output and output not in ("IIS_NOT_INSTALLED", "HYPERV_NOT_INSTALLED",
                                              "AD_NOT_INSTALLED", "DHCP_NOT_INSTALLED"):
                     _save_finding(db, device.id, run.id, finding_type, key, output, source="winrm/ps")
@@ -569,6 +571,22 @@ def _load_ssh_private_key(key_text: str):
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
+
+def _sanitize_winrm_output(output: str) -> str:
+    if not output:
+        return output
+
+    output = output.strip()
+
+    if output.startswith("#< CLIXML"):
+        return ""
+
+    output = re.sub(r"#<\s*CLIXML\s*", "", output, flags=re.IGNORECASE).strip()
+    output = re.sub(r"<Objs[^>]*>.*?</Objs>", "", output, flags=re.DOTALL)
+    output = output.strip()
+
+    return output
+
 
 def _save_finding(
     db: Session,

@@ -66,7 +66,6 @@ export interface DeviceUpdate {
   label?: string
   device_class?: string
   is_registered?: boolean
-  segment_id?: number | null
   purpose?: string
   description?: string
   location?: string
@@ -102,6 +101,9 @@ export const devicesApi = {
 
   scanSinglePort: (id: number, port: number) =>
     apiClient.post(`/devices/${id}/scan-single-port`, { port }).then((r) => r.data),
+
+  scanPortRange: (id: number, portRange: string) =>
+    apiClient.post(`/devices/${id}/scan-port-range`, { port_range: portRange }).then((r) => r.data),
 
   getRdpUrl: (id: number) => withBasePath(`/api/connect/${id}/rdp`),
 

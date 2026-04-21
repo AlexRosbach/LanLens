@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -25,6 +26,8 @@ from ..services.scanner import _detect_host_network, _network_host_bounds
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+TOKEN_MASK = "••••••••"
+
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_interval_minutes",
     "port_scan_range",
@@ -38,6 +41,29 @@ SETTING_KEYS = [
 def _get(db: Session, key: str, default: Any = None) -> Any:
     row = db.query(Setting).filter(Setting.key == key).first()
     return row.value if row else default
+
+
+def _mask_secret(value: str) -> str:
+    return TOKEN_MASK if value else ""
+
+
+def _parse_version_tuple(version: str) -> tuple[int, ...] | None:
+    match = re.match(r"^v?(\d+(?:\.\d+)*)", (version or "").strip())
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
+def _is_newer_version(latest_version: str, current_version: str) -> bool:
+    latest = _parse_version_tuple(latest_version)
+    current = _parse_version_tuple(current_version)
+    if latest is None or current is None:
+        return bool(latest_version) and latest_version != current_version
+
+    max_len = max(len(latest), len(current))
+    latest_padded = latest + (0,) * (max_len - len(latest))
+    current_padded = current + (0,) * (max_len - len(current))
+    return latest_padded > current_padded
 
 
 def _set(db: Session, key: str, value: str):
@@ -103,7 +129,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         scan_end=effective_scan_end,
         scan_interval_minutes=interval_minutes,
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
-        telegram_bot_token=_get(db, "telegram_bot_token", ""),
+        telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
         notify_telegram_update=_get(db, "notify_telegram_update", "false") == "true",
@@ -249,7 +275,12 @@ def update_telegram(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    _set(db, "telegram_bot_token", data.telegram_bot_token)
+    incoming_token = (data.telegram_bot_token or "").strip()
+    if incoming_token == "":
+        _set(db, "telegram_bot_token", "")
+    elif incoming_token != TOKEN_MASK:
+        _set(db, "telegram_bot_token", incoming_token)
+
     _set(db, "telegram_chat_id", data.telegram_chat_id)
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
@@ -349,7 +380,7 @@ async def check_update(
     from ..main import APP_VERSION
 
     latest, release_url = await _fetch_latest_release_info()
-    update_available = latest != "" and latest != APP_VERSION
+    update_available = _is_newer_version(latest, APP_VERSION)
     return {
         "current_version": APP_VERSION,
         "latest_version": latest,
@@ -368,7 +399,7 @@ async def notify_update_available(
 
     latest, release_url = await _fetch_latest_release_info()
 
-    if not latest or latest == APP_VERSION:
+    if not _is_newer_version(latest, APP_VERSION):
         return MessageResponse(message="Notification skipped (no newer update available)", success=False)
 
     already_notified_version = _get(db, "last_update_notified_version", "")

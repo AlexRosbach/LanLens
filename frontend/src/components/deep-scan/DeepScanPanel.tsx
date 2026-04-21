@@ -86,18 +86,35 @@ export default function DeepScanPanel({ deviceId }: Props) {
   // Poll if a scan is running
   useEffect(() => {
     if (latestRun?.status !== 'running') return
+
+    let lastSeenRunId = latestRun.id
+    let lastSeenStatus: DeepScanRun['status'] = latestRun.status
+
     const timer = setInterval(() => {
       deepScanApi.listRuns(deviceId, 1).then((r) => {
         const run = r.data[0] ?? null
         setLatestRun(run)
-        if (run?.status === 'done') {
+
+        if (!run) return
+
+        const statusChanged = run.id === lastSeenRunId && run.status !== lastSeenStatus
+        lastSeenRunId = run.id
+        lastSeenStatus = run.status
+
+        if (run.status === 'done') {
           deepScanApi.getFindings(deviceId).then((fr) => setFindings(fr.data))
           deepScanApi.getRelationships(deviceId).then((rr) => setRelationships(rr.data))
         }
+
+        if (statusChanged && run.status === 'error') {
+          toast.error(run.error_message || t('deep_scan_status_error'))
+        }
+      }).catch(() => {
+        // ignore transient polling failures
       })
     }, 3000)
     return () => clearInterval(timer)
-  }, [deviceId, latestRun?.status])
+  }, [deviceId, latestRun?.id, latestRun?.status, t])
 
   const handleTrigger = async () => {
     setTriggering(true)
@@ -143,7 +160,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
   }
 
   const canTrigger =
-    config?.enabled && config?.credential_id && latestRun?.status !== 'running'
+    Boolean(config?.enabled && config?.credential_id && latestRun?.status !== 'running')
 
   return (
     <div className="space-y-4">
@@ -153,8 +170,12 @@ export default function DeepScanPanel({ deviceId }: Props) {
           <StatusBadge run={latestRun} />
           {latestRun && (
             <span className="text-xs text-text-subtle">
-              {t('deep_scan_last_scan')}{' '}
-              {formatRelativeTime(latestRun.started_at, lang)}
+              {latestRun.status === 'error' && latestRun.error_message
+                ? t('deep_scan_last_scan_error', {
+                    time: formatRelativeTime(latestRun.started_at, lang),
+                    message: latestRun.error_message,
+                  })
+                : `${t('deep_scan_last_scan')} ${formatRelativeTime(latestRun.started_at, lang)}`}
             </span>
           )}
           {!latestRun && (

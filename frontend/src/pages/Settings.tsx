@@ -24,9 +24,13 @@ export default function Settings() {
   const [settings, setSettings] = useState<AllSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
 
   useEffect(() => {
-    settingsApi.get().then(setSettings).catch(() => {
+    settingsApi.get().then((data) => {
+      setSettings(data)
+      setTelegramTokenDirty(false)
+    }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
   }, [lang])
@@ -50,6 +54,8 @@ export default function Settings() {
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
       })
+      setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
+      setTelegramTokenDirty(false)
       toast.success(t('telegram_settings_saved'))
     } catch {
       toast.error(t('telegram_settings_save_failed'))
@@ -472,14 +478,22 @@ export default function Settings() {
             <h2 className="text-lg font-semibold text-text-base mb-4">Telegram</h2>
             <div className="grid gap-4">
               <div>
-                <label className="block text-sm text-text-subtle mb-1">Bot Token</label>
+                <label className="block text-sm text-text-subtle mb-1">{t('telegram_bot_token_label')}</label>
                 <Input
-                  value={current.telegram_bot_token}
-                  onChange={(e) => setSettings({ ...current, telegram_bot_token: e.target.value })}
+                  type="password"
+                  value={telegramTokenDirty ? current.telegram_bot_token : ''}
+                  placeholder={current.telegram_bot_token ? t('telegram_token_stored_placeholder') : t('telegram_token_new_placeholder')}
+                  onChange={(e) => {
+                    setTelegramTokenDirty(true)
+                    setSettings({ ...current, telegram_bot_token: e.target.value })
+                  }}
                 />
+                {!telegramTokenDirty && current.telegram_bot_token && (
+                  <p className="mt-1 text-xs text-text-subtle">{t('telegram_token_masked_hint')}</p>
+                )}
               </div>
               <div>
-                <label className="block text-sm text-text-subtle mb-1">Chat ID</label>
+                <label className="block text-sm text-text-subtle mb-1">{t('telegram_chat_id_label')}</label>
                 <Input
                   value={current.telegram_chat_id}
                   onChange={(e) => setSettings({ ...current, telegram_chat_id: e.target.value })}

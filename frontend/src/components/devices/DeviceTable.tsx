@@ -199,7 +199,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                   {formatRelativeTime(device.last_seen, lang)}
                 </td>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                  <ConnectButtons device={device} onScanRequested={onRefresh} compact />
+                  <ConnectButtons device={device} compact />
                 </td>
               </tr>
             )
