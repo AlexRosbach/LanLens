@@ -234,7 +234,7 @@ class ScanScheduleSettings(BaseModel):
 
 
 class TelegramSettings(BaseModel):
-    telegram_bot_token: str
+    telegram_bot_token: Optional[str] = ""
     telegram_chat_id: str
     telegram_enabled: bool
     notify_telegram_update: bool = False

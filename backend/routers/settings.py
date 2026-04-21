@@ -25,6 +25,8 @@ from ..services.scanner import _detect_host_network, _network_host_bounds
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+TOKEN_MASK = "••••••••"
+
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_interval_minutes",
     "port_scan_range",
@@ -38,6 +40,10 @@ SETTING_KEYS = [
 def _get(db: Session, key: str, default: Any = None) -> Any:
     row = db.query(Setting).filter(Setting.key == key).first()
     return row.value if row else default
+
+
+def _mask_secret(value: str) -> str:
+    return TOKEN_MASK if value else ""
 
 
 def _set(db: Session, key: str, value: str):
@@ -103,7 +109,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         scan_end=effective_scan_end,
         scan_interval_minutes=interval_minutes,
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
-        telegram_bot_token=_get(db, "telegram_bot_token", ""),
+        telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
         notify_telegram_update=_get(db, "notify_telegram_update", "false") == "true",
@@ -249,7 +255,10 @@ def update_telegram(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    _set(db, "telegram_bot_token", data.telegram_bot_token)
+    incoming_token = (data.telegram_bot_token or "").strip()
+    if incoming_token and incoming_token != TOKEN_MASK:
+        _set(db, "telegram_bot_token", incoming_token)
+
     _set(db, "telegram_chat_id", data.telegram_chat_id)
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")

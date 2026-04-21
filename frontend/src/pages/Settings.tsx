@@ -50,6 +50,7 @@ export default function Settings() {
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
       })
+      setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
       toast.success(t('telegram_settings_saved'))
     } catch {
       toast.error(t('telegram_settings_save_failed'))
@@ -474,7 +475,9 @@ export default function Settings() {
               <div>
                 <label className="block text-sm text-text-subtle mb-1">Bot Token</label>
                 <Input
+                  type="password"
                   value={current.telegram_bot_token}
+                  placeholder={current.telegram_bot_token ? 'Token gespeichert' : ''}
                   onChange={(e) => setSettings({ ...current, telegram_bot_token: e.target.value })}
                 />
               </div>
