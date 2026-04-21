@@ -103,6 +103,9 @@ export const devicesApi = {
   scanSinglePort: (id: number, port: number) =>
     apiClient.post(`/devices/${id}/scan-single-port`, { port }).then((r) => r.data),
 
+  scanPortRange: (id: number, portRange: string) =>
+    apiClient.post(`/devices/${id}/scan-port-range`, { port_range: portRange }).then((r) => r.data),
+
   getRdpUrl: (id: number) => withBasePath(`/api/connect/${id}/rdp`),
 
   generateCmdbId: (id: number) =>

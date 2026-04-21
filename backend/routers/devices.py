@@ -18,6 +18,7 @@ from ..schemas import (
     DeviceUpdate,
     MessageResponse,
     PortInfo,
+    PortRangeScanRequest,
     PortScanResponse,
     SinglePortScanRequest,
 )
@@ -515,6 +516,33 @@ async def _do_port_scan(device_id: int, ip: str, port_spec: str = "top:1000") ->
         db.commit()
     finally:
         db.close()
+
+
+@router.post("/{device_id}/scan-port-range", response_model=MessageResponse)
+async def trigger_port_range_scan(
+    device_id: int,
+    body: PortRangeScanRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if not device.ip_address:
+        raise HTTPException(status_code=400, detail="Device has no IP address")
+
+    try:
+        ipaddress.IPv4Address(device.ip_address)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Device has an invalid IP address")
+
+    port_spec = (body.port_range or "").strip()
+    if not port_spec:
+        raise HTTPException(status_code=400, detail="Port range is required")
+
+    background_tasks.add_task(_do_port_scan, device_id, device.ip_address, port_spec)
+    return MessageResponse(message=f"Scan for port range '{port_spec}' started in background")
 
 
 @router.post("/{device_id}/scan-single-port", response_model=MessageResponse)

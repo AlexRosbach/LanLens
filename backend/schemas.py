@@ -252,6 +252,10 @@ class SinglePortScanRequest(BaseModel):
     port: int
 
 
+class PortRangeScanRequest(BaseModel):
+    port_range: str
+
+
 class AllSettings(BaseModel):
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"

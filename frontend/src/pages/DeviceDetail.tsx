@@ -69,6 +69,11 @@ export default function DeviceDetail() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [segments, setSegments] = useState<Segment[]>([])
+  const [singlePort, setSinglePort] = useState('')
+  const [portRange, setPortRange] = useState('')
+  const [singlePortLoading, setSinglePortLoading] = useState(false)
+  const [portRangeLoading, setPortRangeLoading] = useState(false)
+  const [fullScanLoading, setFullScanLoading] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -395,16 +400,101 @@ export default function DeviceDetail() {
       </Card>
 
       {/* Open Ports */}
-      {device.latest_scan && (
-        <Card>
-          <h2 className="text-sm font-semibold text-text-muted mb-3">
+      <Card>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="text-sm font-semibold text-text-muted">
             {t('open_ports')}
-            <span className="ml-2 text-xs font-normal text-text-subtle">
-              (scanned {formatRelativeTime(device.latest_scan.scanned_at, lang)})
-            </span>
+            {device.latest_scan && (
+              <span className="ml-2 text-xs font-normal text-text-subtle">
+                ({t('last_scanned')} {formatRelativeTime(device.latest_scan.scanned_at, lang)})
+              </span>
+            )}
           </h2>
-          {device.latest_scan.open_ports.length === 0 ? (
-            <p className="text-sm text-text-subtle">No open ports found</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Input
+              value={singlePort}
+              onChange={(e) => setSinglePort(e.target.value)}
+              placeholder={t('single_port_placeholder')}
+              className="w-28"
+            />
+            <Button
+              size="sm"
+              loading={singlePortLoading}
+              onClick={async () => {
+                if (!device) return
+                const port = Number(singlePort)
+                if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                  toast.error(t('single_port_invalid'))
+                  return
+                }
+                setSinglePortLoading(true)
+                try {
+                  await devicesApi.scanSinglePort(device.id, port)
+                  toast.success(t('single_port_scan_started', { port }))
+                  setSinglePort('')
+                } catch {
+                  toast.error(t('single_port_scan_failed'))
+                } finally {
+                  setSinglePortLoading(false)
+                }
+              }}
+            >
+              {t('scan_single_port')}
+            </Button>
+            <Input
+              value={portRange}
+              onChange={(e) => setPortRange(e.target.value)}
+              placeholder={t('port_range_placeholder')}
+              className="w-40"
+            />
+            <Button
+              size="sm"
+              loading={portRangeLoading}
+              onClick={async () => {
+                if (!device) return
+                const range = portRange.trim()
+                if (!range) {
+                  toast.error(t('port_range_invalid'))
+                  return
+                }
+                setPortRangeLoading(true)
+                try {
+                  await devicesApi.scanPortRange(device.id, range)
+                  toast.success(t('port_range_scan_started', { range }))
+                  setPortRange('')
+                } catch {
+                  toast.error(t('port_range_scan_failed'))
+                } finally {
+                  setPortRangeLoading(false)
+                }
+              }}
+            >
+              {t('scan_port_range')}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={fullScanLoading}
+              onClick={async () => {
+                if (!device) return
+                setFullScanLoading(true)
+                try {
+                  await devicesApi.scanPorts(device.id)
+                  toast.success(t('port_scan_started'))
+                } catch {
+                  toast.error(t('port_scan_failed'))
+                } finally {
+                  setFullScanLoading(false)
+                }
+              }}
+            >
+              {t('scan_default_ports')}
+            </Button>
+          </div>
+        </div>
+        {device.latest_scan ? (
+          device.latest_scan.open_ports.length === 0 ? (
+            <p className="text-sm text-text-subtle">{t('no_open_ports_found')}</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {device.latest_scan.open_ports.map((p) => (
@@ -416,9 +506,11 @@ export default function DeviceDetail() {
                 </div>
               ))}
             </div>
-          )}
-        </Card>
-      )}
+          )
+        ) : (
+          <p className="text-sm text-text-subtle">{t('no_open_ports_found')}</p>
+        )}
+      </Card>
 
       {/* Danger zone */}
       <Card>

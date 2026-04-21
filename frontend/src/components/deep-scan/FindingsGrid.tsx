@@ -319,6 +319,12 @@ function extractCompact(finding: DeepScanFinding): string | null {
   return null
 }
 
+function normalizeSource(source: string | null | undefined): string | null {
+  if (!source) return null
+  if (source === 'for') return null
+  return source
+}
+
 function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: number }) {
   const [expanded, setExpanded] = useState(false)
   const { t } = useI18n()
@@ -337,7 +343,7 @@ function CollapsiblePre({ text, maxLines = 6 }: { text: string; maxLines?: numbe
           onClick={() => setExpanded(!expanded)}
           className="text-xs text-primary hover:underline mt-1"
         >
-          {expanded ? t('finding_show_less') : t('finding_show_all_lines', { count: lines.length })}
+          {expanded ? `▲ ${t('collapse')}` : `▼ ${t('expand')}`}
         </button>
       )}
     </div>
@@ -531,8 +537,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
         <div className="py-3 border-b border-border last:border-0 space-y-2">
           <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
           <DataTable headers={table.headers} rows={table.rows} />
-          {finding.source && (
-            <span className="text-xs text-text-subtle">{t('source_label', { source: finding.source })}</span>
+          {normalizeSource(finding.source) && (
+            <span className="text-xs text-text-subtle">{t('source_label', { source: normalizeSource(finding.source) ?? '' })}</span>
           )}
         </div>
       )
@@ -543,8 +549,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     <div className="py-3 border-b border-border last:border-0 space-y-2">
       <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
       <CollapsiblePre text={rawText} />
-      {finding.source && (
-        <span className="text-xs text-text-subtle">{t('source_label', { source: finding.source })}</span>
+      {normalizeSource(finding.source) && (
+        <span className="text-xs text-text-subtle">{t('source_label', { source: normalizeSource(finding.source) ?? '' })}</span>
       )}
     </div>
   )
