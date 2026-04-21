@@ -69,7 +69,7 @@ function buildTableFromItems(items: Record<string, unknown>[]): { headers: strin
   for (const item of items) {
     Object.keys(item).forEach((key) => headerSet.add(key))
   }
-  const headers = Array.from(headerSet)
+  const headers = Array.from(headerSet).sort((a, b) => a.localeCompare(b))
   const rows = items.map((item) => headers.map((header) => formatCellValue(header, item[header])))
   return { headers, rows }
 }

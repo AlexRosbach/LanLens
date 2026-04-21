@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+MAX_TOP_PORTS = 5000
 
 INTERESTING_PORTS = {
     22: "ssh",
@@ -39,7 +40,7 @@ def normalize_port_spec(port_spec: Optional[str]) -> Optional[str]:
             n = int(spec[4:])
         except ValueError:
             return None
-        return f"top:{n}" if n >= 1 else None
+        return f"top:{n}" if 1 <= n <= MAX_TOP_PORTS else None
 
     tokens = [token.strip() for token in spec.split(',') if token.strip()]
     if not tokens:

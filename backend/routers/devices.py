@@ -1,7 +1,8 @@
 import ipaddress
 import json
 import logging
-from typing import List, Optional, Set, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
@@ -59,7 +60,29 @@ def _is_dhcp(ip: Optional[str], dhcp_range) -> bool:
         return False
 
 
-def _get_matching_segment(ip: Optional[str], segments: List[Segment]) -> Optional[Segment]:
+@dataclass(frozen=True)
+class SegmentRange:
+    start: int
+    end: int
+    span: int
+    segment: Segment
+
+
+def _prepare_segment_ranges(segments: List[Segment]) -> List[SegmentRange]:
+    prepared: List[SegmentRange] = []
+    for segment in segments:
+        try:
+            start = int(ipaddress.IPv4Address(segment.ip_start))
+            end = int(ipaddress.IPv4Address(segment.ip_end))
+        except Exception:
+            continue
+        if start > end:
+            continue
+        prepared.append(SegmentRange(start=start, end=end, span=end - start, segment=segment))
+    return prepared
+
+
+def _get_matching_segment(ip: Optional[str], segment_ranges: List[SegmentRange]) -> Optional[Segment]:
     if not ip:
         return None
     try:
@@ -67,19 +90,13 @@ def _get_matching_segment(ip: Optional[str], segments: List[Segment]) -> Optiona
     except Exception:
         return None
 
-    best_match: Optional[Tuple[int, Segment]] = None
-    for segment in segments:
-        try:
-            start = int(ipaddress.IPv4Address(segment.ip_start))
-            end = int(ipaddress.IPv4Address(segment.ip_end))
-        except Exception:
-            continue
-        if start <= ip_int <= end:
-            span = end - start
-            if best_match is None or span < best_match[0]:
-                best_match = (span, segment)
+    best_match: Optional[SegmentRange] = None
+    for entry in segment_ranges:
+        if entry.start <= ip_int <= entry.end:
+            if best_match is None or entry.span < best_match.span:
+                best_match = entry
 
-    return best_match[1] if best_match else None
+    return best_match.segment if best_match else None
 
 
 def _latest_scan_response(device: Device) -> Optional[PortScanResponse]:
@@ -111,14 +128,14 @@ def _device_to_response(
     viewed_device_ids: Optional[Set[int]] = None,
     hardware_summaries: Optional[dict] = None,
     host_labels: Optional[dict] = None,
-    segments: Optional[List[Segment]] = None,
+    segment_ranges: Optional[List[SegmentRange]] = None,
 ) -> DeviceResponse:
     from ..schemas import ServiceResponse
 
     if viewed_device_ids is None:
         viewed_device_ids = set()
     is_new = not device.is_registered and device.id not in viewed_device_ids
-    matched_segment = _get_matching_segment(device.ip_address, segments or [])
+    matched_segment = _get_matching_segment(device.ip_address, segment_ranges or [])
 
     return DeviceResponse(
         id=device.id,
@@ -192,7 +209,7 @@ def list_devices(
     online = db.query(Device).filter(Device.is_online == True).count()
     unregistered = db.query(Device).filter(Device.is_registered == False).count()
     dhcp_range = _get_dhcp_range(db)
-    segments = db.query(Segment).all()
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
 
     # Batch-fetch hardware findings for device list display (cpu, memory, model)
     hardware_summaries: dict = {}
@@ -276,7 +293,7 @@ def list_devices(
                 host_labels[rel.child_device_id] = host_devices_map.get(rel.host_device_id, f"Host #{rel.host_device_id}")
 
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range, viewed_device_ids, hardware_summaries, host_labels, segments) for d in all_devices],
+        items=[_device_to_response(d, dhcp_range, viewed_device_ids, hardware_summaries, host_labels, segment_ranges) for d in all_devices],
         total=total,
         online=online,
         offline=total - online,
@@ -302,9 +319,9 @@ def get_new_devices(
     unregistered = db.query(Device).filter(Device.is_registered == False).count()
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
-    segments = db.query(Segment).all()
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range, viewed_device_ids, segments=segments) for d in devices],
+        items=[_device_to_response(d, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges) for d in devices],
         total=total,
         online=online,
         offline=total - online,
@@ -384,8 +401,8 @@ def get_device(
                 host_labels[device_id] = host_dev.label or host_dev.hostname or host_dev.mac_address
             else:
                 host_labels[device_id] = f"Host #{host_rel.host_device_id}"
-    segments = db.query(Segment).all()
-    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segments)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segment_ranges)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -431,8 +448,8 @@ def update_device(
     db.refresh(device)
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
-    segments = db.query(Segment).all()
-    return _device_to_response(device, dhcp_range, viewed_device_ids, segments=segments)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges)
 
 
 @router.post("/{device_id}/mark-viewed", response_model=MessageResponse)
@@ -497,8 +514,8 @@ def regenerate_cmdb_id(
     db.refresh(device)
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
-    segments = db.query(Segment).all()
-    return _device_to_response(device, dhcp_range, viewed_device_ids, segments=segments)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges)
 
 
 @router.post("/{device_id}/scan-ports", response_model=MessageResponse)

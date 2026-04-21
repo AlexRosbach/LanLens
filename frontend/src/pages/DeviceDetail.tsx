@@ -483,7 +483,7 @@ export default function DeviceDetail() {
             </div>
           )
         ) : (
-          <p className="text-sm text-text-subtle">{t('no_open_ports_found')}</p>
+          <p className="text-sm text-text-subtle">{t('port_scan_not_scanned_yet')}</p>
         )}
       </Card>
 
