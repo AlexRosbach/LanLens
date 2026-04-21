@@ -276,7 +276,9 @@ def update_telegram(
     _: User = Depends(get_current_user),
 ):
     incoming_token = (data.telegram_bot_token or "").strip()
-    if incoming_token and incoming_token != TOKEN_MASK:
+    if incoming_token == "":
+        _set(db, "telegram_bot_token", "")
+    elif incoming_token != TOKEN_MASK:
         _set(db, "telegram_bot_token", incoming_token)
 
     _set(db, "telegram_chat_id", data.telegram_chat_id)
