@@ -69,6 +69,7 @@ export default function DeviceDetail() {
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [fullScanLoading, setFullScanLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
+  const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -88,12 +89,26 @@ export default function DeviceDetail() {
   }, [id])
 
   useEffect(() => {
-    if (!portScanRunning || !device?.latest_scan?.scanned_at) return
-    const lastScanAt = new Date(device.latest_scan.scanned_at).getTime()
-    if (!Number.isNaN(lastScanAt) && Date.now() - lastScanAt < 60_000) {
-      setPortScanRunning(false)
-    }
-  }, [device?.latest_scan?.scanned_at, portScanRunning])
+    if (!portScanRunning || !device?.id) return
+
+    const timer = window.setInterval(async () => {
+      try {
+        const refreshed = await devicesApi.get(device.id)
+        setDevice(refreshed)
+
+        if (!refreshed.latest_scan?.scanned_at || portScanRequestedAt == null) return
+        const latestScanAt = new Date(refreshed.latest_scan.scanned_at).getTime()
+        if (!Number.isNaN(latestScanAt) && latestScanAt > portScanRequestedAt) {
+          setPortScanRunning(false)
+          setPortScanRequestedAt(null)
+        }
+      } catch {
+        // ignore transient polling errors while scan is running
+      }
+    }, 3000)
+
+    return () => window.clearInterval(timer)
+  }, [device?.id, portScanRequestedAt, portScanRunning])
 
   function field(key: keyof EditState) {
     return {
@@ -434,6 +449,7 @@ export default function DeviceDetail() {
                     await devicesApi.scanPortRange(device.id, value)
                     toast.success(t('port_range_scan_started', { range: value }))
                   }
+                  setPortScanRequestedAt(Date.now())
                   setPortScanRunning(true)
                   setPortScanInput('')
                 } catch {
@@ -454,6 +470,7 @@ export default function DeviceDetail() {
                 setFullScanLoading(true)
                 try {
                   await devicesApi.scanPorts(device.id)
+                  setPortScanRequestedAt(Date.now())
                   setPortScanRunning(true)
                   toast.success(t('port_scan_started'))
                 } catch {
