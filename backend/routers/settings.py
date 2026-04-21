@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 from typing import Any
 
@@ -44,6 +45,25 @@ def _get(db: Session, key: str, default: Any = None) -> Any:
 
 def _mask_secret(value: str) -> str:
     return TOKEN_MASK if value else ""
+
+
+def _parse_version_tuple(version: str) -> tuple[int, ...] | None:
+    match = re.match(r"^v?(\d+(?:\.\d+)*)", (version or "").strip())
+    if not match:
+        return None
+    return tuple(int(part) for part in match.group(1).split("."))
+
+
+def _is_newer_version(latest_version: str, current_version: str) -> bool:
+    latest = _parse_version_tuple(latest_version)
+    current = _parse_version_tuple(current_version)
+    if latest is None or current is None:
+        return bool(latest_version) and latest_version != current_version
+
+    max_len = max(len(latest), len(current))
+    latest_padded = latest + (0,) * (max_len - len(latest))
+    current_padded = current + (0,) * (max_len - len(current))
+    return latest_padded > current_padded
 
 
 def _set(db: Session, key: str, value: str):
@@ -358,7 +378,7 @@ async def check_update(
     from ..main import APP_VERSION
 
     latest, release_url = await _fetch_latest_release_info()
-    update_available = latest != "" and latest != APP_VERSION
+    update_available = _is_newer_version(latest, APP_VERSION)
     return {
         "current_version": APP_VERSION,
         "latest_version": latest,
@@ -377,7 +397,7 @@ async def notify_update_available(
 
     latest, release_url = await _fetch_latest_release_info()
 
-    if not latest or latest == APP_VERSION:
+    if not _is_newer_version(latest, APP_VERSION):
         return MessageResponse(message="Notification skipped (no newer update available)", success=False)
 
     already_notified_version = _get(db, "last_update_notified_version", "")
