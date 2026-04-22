@@ -8,7 +8,7 @@ import ipaddress
 import json
 import logging
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -34,6 +34,8 @@ def is_scan_running() -> bool:
 
 DEFAULT_SCAN_START = "192.168.1.1"
 DEFAULT_SCAN_END = "192.168.1.254"
+MIN_OFFLINE_GRACE_MINUTES = 15
+MISSED_SCAN_MULTIPLIER = 3
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -117,6 +119,17 @@ def _summarize_range(start: str, end: str) -> List[str]:
     if int(start_ip) > int(end_ip):
         raise ValueError("scan_start must be less than or equal to scan_end")
     return [str(net) for net in ipaddress.summarize_address_range(start_ip, end_ip)]
+
+
+def _get_offline_grace_period(db: Session) -> timedelta:
+    interval_row = _get_setting_row(db, "scan_interval_minutes")
+    try:
+        interval_minutes = int(interval_row.value) if interval_row and interval_row.value else 5
+    except (TypeError, ValueError):
+        interval_minutes = 5
+
+    grace_minutes = max(MIN_OFFLINE_GRACE_MINUTES, interval_minutes * MISSED_SCAN_MULTIPLIER)
+    return timedelta(minutes=grace_minutes)
 
 
 def _derive_scan_targets(db: Session) -> tuple[List[str], str, str, str]:
@@ -227,12 +240,17 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 if hostname:
                     existing.hostname = hostname
 
-        # Mark absent devices as offline
+        # Mark absent devices as offline only after a grace period.
+        # A single missed ARP reply should not immediately flip stable devices offline.
         devices_offline = 0
+        offline_cutoff = datetime.utcnow() - _get_offline_grace_period(db)
         for mac_addr, device in existing_devices.items():
-            if mac_addr not in found_macs and device.is_online:
-                device.is_online = False
-                devices_offline += 1
+            if mac_addr in found_macs or not device.is_online:
+                continue
+            if device.last_seen and device.last_seen > offline_cutoff:
+                continue
+            device.is_online = False
+            devices_offline += 1
 
         scan_run.devices_found = len(found_macs)
         scan_run.devices_new = devices_new
