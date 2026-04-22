@@ -1,0 +1,46 @@
+name: Translation issue
+description: Report missing, incorrect, or inconsistent translations in the UI.
+title: "[Translation]: "
+labels:
+  - i18n
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for missing translations, mixed-language UI, or wording issues.
+
+  - type: input
+    id: language
+    attributes:
+      label: Language
+      placeholder: Italian
+    validations:
+      required: true
+
+  - type: input
+    id: area
+    attributes:
+      label: Affected page or component
+      placeholder: Device detail, Settings, Deep Scan panel
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_text
+    attributes:
+      label: Current text
+      placeholder: Paste the wrong or missing text here.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_text
+    attributes:
+      label: Suggested correct text
+      placeholder: Paste the corrected translation here.
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or additional context
+      description: Add a screenshot if the location is hard to describe.
