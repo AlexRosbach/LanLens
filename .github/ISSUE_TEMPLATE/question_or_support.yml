@@ -1,0 +1,33 @@
+name: Question / support
+description: Ask a usage question or get help with setup, configuration, or expected behavior.
+title: "[Question]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for setup questions, expected behavior, or general support topics.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What do you need help with?
+      placeholder: How should scan ranges be configured when LanLens runs in Docker on a different subnet?
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Relevant details
+      placeholder: |
+        - LanLens version:
+        - Deployment method:
+        - Network setup:
+        - What you already tried:
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Logs, screenshots, or extra context

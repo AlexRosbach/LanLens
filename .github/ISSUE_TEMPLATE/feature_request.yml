@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest an improvement or a new capability for LanLens.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Clear feature requests help a lot when prioritizing and implementing improvements.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: Managing device segments manually is confusing and error-prone.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      placeholder: Segment assignment should be calculated automatically from IP ranges.
+    validations:
+      required: true
+
+  - type: textarea
+    id: benefit
+    attributes:
+      label: Why would this help?
+      placeholder: It would remove duplicate maintenance and make the UI easier to understand.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds you considered
+      placeholder: A manual override would also work, but automatic calculation would be cleaner.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context, mockups, or screenshots

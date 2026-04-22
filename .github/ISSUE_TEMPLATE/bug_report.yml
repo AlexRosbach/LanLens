@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a reproducible problem or regression in LanLens.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill in the details below so the issue can be reproduced and fixed faster.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and the actual behavior.
+      placeholder: Devices are shown as offline even though they are reachable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+      placeholder: Devices should remain online unless they have really disappeared from the network.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide exact steps if possible.
+      placeholder: |
+        1. Open Devices
+        2. Wait for a scheduled scan
+        3. Observe that several active devices flip to offline
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Share the most relevant environment details.
+      placeholder: |
+        - LanLens version: 1.4.3
+        - Deployment: Docker / Docker Compose
+        - Host OS: Debian 13
+        - Browser: Firefox 145
+        - Network size: around 100 devices
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or additional context
+      description: Paste logs or add screenshots if they help.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I am using a current LanLens version or I have verified the problem still exists on a recent test build.
+          required: false
+        - label: I searched existing issues and did not find an identical report.
+          required: false
