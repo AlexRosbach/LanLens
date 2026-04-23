@@ -2,6 +2,12 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.4.4 — Network discovery stability improvements
+
+### Bug Fixes
+- Fixed false offline status changes caused by single missed ARP replies during scheduled discovery.
+- Devices now remain online until they have been absent for a grace period derived from the configured scan interval, with a minimum of 15 minutes.
+
 ## v1.4.3 — Windows deep scan readability and audit cleanup
 
 ### Improvements
