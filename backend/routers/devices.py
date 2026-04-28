@@ -126,6 +126,16 @@ def _get_viewed_device_ids(db: Session, current_user: User) -> Set[int]:
     }
 
 
+def _count_new_devices(db: Session, current_user: User) -> int:
+    viewed_subquery = db.query(DeviceView.device_id).filter(DeviceView.user_id == current_user.id)
+    return (
+        db.query(Device)
+        .filter(Device.is_registered == False)
+        .filter(~Device.id.in_(viewed_subquery))
+        .count()
+    )
+
+
 def _device_to_response(
     device: Device,
     dhcp_range=None,
@@ -211,7 +221,7 @@ def list_devices(
 
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
-    unregistered = db.query(Device).filter(Device.is_registered == False).count()
+    unregistered = _count_new_devices(db, current_user)
     dhcp_range = _get_dhcp_range(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
 
@@ -320,7 +330,7 @@ def get_new_devices(
     )
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
-    unregistered = db.query(Device).filter(Device.is_registered == False).count()
+    unregistered = _count_new_devices(db, current_user)
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
