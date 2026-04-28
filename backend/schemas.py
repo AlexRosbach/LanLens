@@ -40,6 +40,10 @@ class ServiceCreate(BaseModel):
     name: str
     service_type: str = "web"
     icon_key: Optional[str] = None
+    icon_url: Optional[str] = None
+    service_group_id: Optional[int] = None
+    icon_url: Optional[str] = None
+    service_group_id: Optional[int] = None
     url: Optional[str] = None
     port: Optional[int] = None
     protocol: str = "https"
@@ -72,6 +76,8 @@ class ServiceResponse(BaseModel):
     name: str
     service_type: str
     icon_key: Optional[str]
+    icon_url: Optional[str] = None
+    service_group_id: Optional[int] = None
     url: Optional[str]
     port: Optional[int]
     protocol: str
@@ -83,6 +89,30 @@ class ServiceResponse(BaseModel):
     sort_order: int
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+
+class ServiceGroupCreate(BaseModel):
+    name: str
+    color: str = "#6366f1"
+    sort_order: int = 0
+
+
+class ServiceGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class ServiceGroupResponse(BaseModel):
+    id: int
+    name: str
+    color: str
+    sort_order: int
+    created_at: datetime
 
     class Config:
         from_attributes = True

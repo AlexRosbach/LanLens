@@ -95,6 +95,8 @@ class Service(Base):
     name = Column(String(255), nullable=False)           # display name
     service_type = Column(String(64), default="web")     # web/api/ssh/db/monitoring/other
     icon_key = Column(String(64), nullable=True)         # icon identifier for frontend
+    icon_url = Column(String(2048), nullable=True)        # optional custom icon URL
+    service_group_id = Column(Integer, ForeignKey("service_groups.id", ondelete="SET NULL"), nullable=True)
 
     # ── Connection ─────────────────────────────────────────────────────────────
     url = Column(String(2048), nullable=True)            # full URL or base URL
@@ -114,6 +116,19 @@ class Service(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     device = relationship("Device", back_populates="services")
+    service_group = relationship("ServiceGroup", back_populates="services")
+
+
+class ServiceGroup(Base):
+    __tablename__ = "service_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, unique=True)
+    color = Column(String(16), default="#6366f1")
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    services = relationship("Service", back_populates="service_group")
 
 
 class DeviceIpHistory(Base):

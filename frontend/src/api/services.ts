@@ -8,6 +8,8 @@ export interface Service {
   name: string
   service_type: ServiceType
   icon_key: string | null
+  icon_url: string | null
+  service_group_id: number | null
   url: string | null
   port: number | null
   protocol: string
@@ -25,6 +27,8 @@ export interface ServiceCreate {
   name: string
   service_type?: ServiceType
   icon_key?: string
+  icon_url?: string
+  service_group_id?: number | null
   url?: string
   port?: number
   protocol?: string
@@ -38,15 +42,38 @@ export interface ServiceCreate {
 
 export type ServiceUpdate = Partial<ServiceCreate>
 
-export interface ServiceDirectoryItem extends Pick<Service, 'id' | 'device_id' | 'name' | 'service_type' | 'icon_key' | 'url' | 'port' | 'protocol' | 'description' | 'version'> {
+export interface ServiceDirectoryItem extends Pick<Service, 'id' | 'device_id' | 'name' | 'service_type' | 'icon_key' | 'icon_url' | 'service_group_id' | 'url' | 'port' | 'protocol' | 'description' | 'version'> {
+  service_group_name: string | null
+  service_group_color: string | null
   device_label: string
   device_ip: string | null
   device_class: string
 }
 
+
+export interface ServiceGroup {
+  id: number
+  name: string
+  color: string
+  sort_order: number
+  created_at: string
+}
+
 export const servicesApi = {
   listAll: () =>
     apiClient.get<ServiceDirectoryItem[]>('/services').then((r) => r.data),
+
+  listGroups: () =>
+    apiClient.get<ServiceGroup[]>('/services/groups').then((r) => r.data),
+
+  createGroup: (data: { name: string; color?: string; sort_order?: number }) =>
+    apiClient.post<ServiceGroup>('/services/groups', data).then((r) => r.data),
+
+  updateGroup: (groupId: number, data: Partial<{ name: string; color: string; sort_order: number }>) =>
+    apiClient.put<ServiceGroup>(`/services/groups/${groupId}`, data).then((r) => r.data),
+
+  deleteGroup: (groupId: number) =>
+    apiClient.delete(`/services/groups/${groupId}`),
 
   list: (deviceId: number) =>
     apiClient.get<Service[]>(`/devices/${deviceId}/services`).then((r) => r.data),

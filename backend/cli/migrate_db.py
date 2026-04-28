@@ -301,6 +301,39 @@ def migrate():
         else:
             print("Migration: device_ip_history already exists — skipped")
 
+
+        # ── v1.4.4 ── Service groups and custom service icons ───────────────
+        if IS_SQLITE and not _table_exists(conn, "service_groups"):
+            conn.execute(text(
+                "CREATE TABLE service_groups ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL UNIQUE, "
+                "color VARCHAR(16) DEFAULT '#6366f1', "
+                "sort_order INTEGER DEFAULT 0, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created service_groups")
+        elif not IS_SQLITE:
+            print("Migration: service_groups — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: service_groups already exists — skipped")
+
+        if not _column_exists(conn, "services", "icon_url"):
+            conn.execute(text("ALTER TABLE services ADD COLUMN icon_url VARCHAR(2048)"))
+            conn.commit()
+            print("Migration: added services.icon_url")
+        else:
+            print("Migration: services.icon_url already exists — skipped")
+
+        if not _column_exists(conn, "services", "service_group_id"):
+            conn.execute(text("ALTER TABLE services ADD COLUMN service_group_id INTEGER REFERENCES service_groups(id) ON DELETE SET NULL"))
+            conn.commit()
+            print("Migration: added services.service_group_id")
+        else:
+            print("Migration: services.service_group_id already exists — skipped")
+
         conn.commit()
 
 

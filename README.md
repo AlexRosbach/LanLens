@@ -28,7 +28,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - DHCP badge detection
 - Segments with colour, range, and IP usage
 - Per-device documentation fields, IP history, and manual offline-device status re-checks
-- Service inventory per device, plus optional Services directory page
+- Service inventory per device, plus optional Services directory page with groups and custom icon URLs
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap
 - **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory

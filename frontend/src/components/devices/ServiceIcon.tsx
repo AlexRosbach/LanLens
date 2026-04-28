@@ -2,6 +2,7 @@ import { ServiceType } from '../../api/services'
 
 interface Props {
   iconKey?: string | null
+  iconUrl?: string | null
   serviceType?: ServiceType
   className?: string
 }
@@ -51,8 +52,15 @@ export function ServiceTypeTag({ type }: { type: ServiceType }) {
   )
 }
 
-export default function ServiceIcon({ iconKey, serviceType = 'web', className = 'w-8 h-8' }: Props) {
+export default function ServiceIcon({ iconKey, iconUrl, serviceType = 'web', className = 'w-8 h-8' }: Props) {
   const emoji = iconKey ? ICON_EMOJIS[iconKey] : null
+  if (iconUrl) {
+    return (
+      <div className={`${className} rounded-lg bg-surface2 border border-border flex items-center justify-center overflow-hidden`}>
+        <img src={iconUrl} alt="" className="w-full h-full object-contain p-1" loading="lazy" referrerPolicy="no-referrer" />
+      </div>
+    )
+  }
   const colors = TYPE_COLORS[serviceType] ?? TYPE_COLORS.other
 
   if (emoji) {
