@@ -15,7 +15,8 @@ export default function Services() {
   const [groups, setGroups] = useState<ServiceGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [newGroupName, setNewGroupName] = useState('')
+  const [newSeparatorName, setNewSeparatorName] = useState('')
+  const [draggedServiceId, setDraggedServiceId] = useState<number | null>(null)
 
   async function load() {
     const [serviceItems, groupItems] = await Promise.all([servicesApi.listAll(), servicesApi.listGroups()])
@@ -42,16 +43,16 @@ export default function Services() {
     return map
   }, [filtered, groups])
 
-  async function createGroup() {
-    const name = newGroupName.trim()
+  async function createSeparator() {
+    const name = newSeparatorName.trim()
     if (!name) return
     try {
       await servicesApi.createGroup({ name })
-      setNewGroupName('')
+      setNewSeparatorName('')
       await load()
-      toast.success(t('service_group_created'))
+      toast.success(t('service_separator_created'))
     } catch {
-      toast.error(t('service_group_create_failed'))
+      toast.error(t('service_separator_create_failed'))
     }
   }
 
@@ -64,9 +65,17 @@ export default function Services() {
     }
   }
 
+  async function dropServiceInto(sectionId: string) {
+    if (draggedServiceId == null) return
+    const service = services.find((item) => item.id === draggedServiceId)
+    setDraggedServiceId(null)
+    if (!service) return
+    await moveService(service, sectionId === 'ungrouped' ? '' : sectionId)
+  }
+
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
 
-  const sections = [...groups.map((g) => ({ id: String(g.id), name: g.name, color: g.color })), { id: 'ungrouped', name: t('service_group_ungrouped'), color: '#64748b' }]
+  const sections = [...groups.map((g) => ({ id: String(g.id), name: g.name, color: g.color })), { id: 'ungrouped', name: t('service_separator_ungrouped'), color: '#64748b' }]
 
   return (
     <div className="flex flex-col gap-5">
@@ -80,10 +89,11 @@ export default function Services() {
 
       <Card>
         <div className="flex items-end gap-3 flex-wrap">
-          <Input label={t('new_service_group')} value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Homelab, Monitoring, Media…" />
-          <Button onClick={createGroup}>{t('add')}</Button>
+          <Input label={t('new_service_separator')} value={newSeparatorName} onChange={(e) => setNewSeparatorName(e.target.value)} placeholder="Homelab, Monitoring, Media…" />
+          <Button onClick={createSeparator}>{t('add_separator')}</Button>
         </div>
-        <p className="text-xs text-text-subtle mt-3">{t('service_icon_license_note')}</p>
+        <p className="text-xs text-text-subtle mt-3">{t('service_separator_help')}</p>
+        <p className="text-xs text-text-subtle mt-1">{t('service_icon_license_note')}</p>
       </Card>
 
       {filtered.length === 0 ? (
@@ -92,8 +102,13 @@ export default function Services() {
         const items = grouped.get(section.id) ?? []
         if (items.length === 0 && section.id !== 'ungrouped') return null
         return (
-          <div key={section.id} className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
+          <div
+            key={section.id}
+            className="flex flex-col gap-3 rounded-xl border border-transparent hover:border-primary/20 transition-colors"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => dropServiceInto(section.id)}
+          >
+            <div className="flex items-center gap-2 px-1">
               <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: section.color }} />
               <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider">{section.name}</h2>
             </div>
@@ -102,7 +117,13 @@ export default function Services() {
                 {items.map((service) => {
                   const href = service.url || (service.device_ip && service.port ? `${service.protocol}://${service.device_ip}:${service.port}` : null)
                   return (
-                    <Card key={service.id} className="flex flex-col gap-3">
+                    <Card
+                      key={service.id}
+                      className={`flex flex-col gap-3 cursor-grab active:cursor-grabbing ${draggedServiceId === service.id ? 'opacity-60 ring-1 ring-primary' : ''}`}
+                      draggable
+                      onDragStart={() => setDraggedServiceId(service.id)}
+                      onDragEnd={() => setDraggedServiceId(null)}
+                    >
                       <div className="flex items-start gap-3">
                         <ServiceIcon iconKey={service.icon_key} iconUrl={service.icon_url} serviceType={service.service_type} />
                         <div className="min-w-0 flex-1">
@@ -115,7 +136,7 @@ export default function Services() {
                       </div>
                       {service.description && <p className="text-sm text-text-muted line-clamp-2">{service.description}</p>}
                       <select value={service.service_group_id ?? ''} onChange={(e) => moveService(service, e.target.value)} className="input-field text-xs">
-                        <option value="">{t('service_group_ungrouped')}</option>
+                        <option value="">{t('service_separator_ungrouped')}</option>
                         {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
                       </select>
                       <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
