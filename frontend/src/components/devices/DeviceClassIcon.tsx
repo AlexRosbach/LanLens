@@ -7,12 +7,13 @@ export default function DeviceClassIcon({ deviceClass, className = 'w-5 h-5' }: 
   const base =
     deviceClass === 'Linux Server' || deviceClass === 'Windows Server' ? 'Server' :
     deviceClass === 'Linux VM'     || deviceClass === 'Windows VM'     ? 'VM' :
-    deviceClass === 'Linux Workstation' || deviceClass === 'Windows Workstation' ? 'Workstation' :
+    deviceClass === 'Linux Workstation' || deviceClass === 'Windows Workstation' || deviceClass === 'Apple Workstation' ? 'Workstation' :
     deviceClass
 
   const osAccent =
     deviceClass.startsWith('Linux ') ? 'text-success' :
     deviceClass.startsWith('Windows ') ? 'text-primary' :
+    deviceClass.startsWith('Apple ') ? 'text-text-base' :
     null
 
   const icon = (() => {
@@ -144,7 +145,7 @@ export const DEVICE_CLASSES = [
   // Virtual machines
   'VM', 'Linux VM', 'Windows VM',
   // Workstations
-  'Workstation', 'Linux Workstation', 'Windows Workstation',
+  'Workstation', 'Linux Workstation', 'Windows Workstation', 'Apple Workstation',
   // Storage & network
   'NAS', 'Router', 'Switch', 'AP', 'Firewall',
   // End-user & IoT

@@ -34,6 +34,7 @@ export default function Dashboard() {
   const [segments, setSegments] = useState<Segment[]>([])
 
   const newDevicesCount = devices.filter((d) => d.is_new).length
+  const deviceClassOptions = Array.from(new Set([...DEVICE_CLASSES, ...devices.map((d) => d.device_class).filter(Boolean)])).sort()
 
   useEffect(() => {
     fetchDevices()
@@ -130,7 +131,7 @@ export default function Dashboard() {
           className="input-field w-auto"
         >
           <option value="">{t('all_classes')}</option>
-          {DEVICE_CLASSES.map((c) => <option key={c}>{c}</option>)}
+          {deviceClassOptions.map((c) => <option key={c}>{c}</option>)}
         </select>
 
         {segments.length > 0 && (

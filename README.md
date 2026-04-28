@@ -39,10 +39,10 @@ Thanks to everyone helping shape LanLens, including community contributions that
 
 
 - Automatic LAN discovery via ARP scan
-- Device classification and offline MAC vendor lookup
+- Device classification, custom device classes, and offline MAC vendor lookup
 - DHCP badge detection
 - Segments with colour, range, and IP usage
-- Per-device documentation fields
+- Per-device documentation fields and manual offline-device status re-checks
 - Service inventory per device
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap

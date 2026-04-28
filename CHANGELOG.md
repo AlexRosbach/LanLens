@@ -8,6 +8,10 @@ All notable changes to this project should be documented in this file.
 - Fixed false offline status changes caused by single missed ARP replies during scheduled discovery.
 - Devices now remain online until they have been absent for a grace period derived from the configured scan interval, with a minimum of 15 minutes.
 
+### New Features
+- Added manual device status re-checks for offline devices from Device Detail.
+- Added `Apple Workstation` as a device class and enabled custom device classes in registration/detail editing.
+
 ## v1.4.3 — Windows deep scan readability and audit cleanup
 
 ### Improvements

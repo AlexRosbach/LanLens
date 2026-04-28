@@ -15,7 +15,8 @@ VENDOR_RULES = [
     (["synology", "qnap", "buffalo", "western digital"], "NAS"),
     (["dell emc", "hewlett packard enterprise", "supermicro", "ibm", "lenovo system x"], "Server"),
     # Workstations / PCs
-    (["apple", "intel corporate", "dell", "hewlett packard", "lenovo", "acer", "asus", "msi"], "Workstation"),
+    (["apple"], "Apple Workstation"),
+    (["intel corporate", "dell", "hewlett packard", "lenovo", "acer", "asus", "msi"], "Workstation"),
     # Mobile devices
     (["samsung mobile", "huawei device", "oneplus", "oppo", "vivo", "motorola mobility", "sony mobile",
       "lg mobile", "xiaomi communications", "realme"], "Mobile"),

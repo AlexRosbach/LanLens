@@ -1,7 +1,9 @@
+import asyncio
 import ipaddress
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -23,7 +25,9 @@ from ..schemas import (
     PortScanResponse,
     SinglePortScanRequest,
 )
+from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
+from ..services.scanner import _arp_scan, _get_hostname
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -443,6 +447,56 @@ def update_device(
                     device.cmdb_id = None
         except Exception as exc:
             logger.warning("CMDB ID generation failed: %s", exc)
+
+    db.commit()
+    db.refresh(device)
+    dhcp_range = _get_dhcp_range(db)
+    viewed_device_ids = _get_viewed_device_ids(db, current_user)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges)
+
+
+@router.post("/{device_id}/refresh-status", response_model=DeviceResponse)
+async def refresh_device_status(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if not device.ip_address:
+        raise HTTPException(status_code=400, detail="Device has no IP address")
+
+    try:
+        ipaddress.IPv4Address(device.ip_address)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Device has an invalid IP address")
+
+    results = await asyncio.get_event_loop().run_in_executor(None, _arp_scan, [device.ip_address])
+    expected_mac = normalize_mac(device.mac_address)
+    matched = None
+    for ip, mac in results:
+        if normalize_mac(mac) == expected_mac:
+            matched = (ip, mac)
+            break
+
+    if matched:
+        ip, mac = matched
+        device.ip_address = ip
+        device.is_online = True
+        device.last_seen = datetime.utcnow()
+        hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, ip)
+        if hostname:
+            device.hostname = hostname
+        vendor = lookup_vendor(normalize_mac(mac))
+        if vendor:
+            device.vendor = vendor
+            if not device.device_class or device.device_class == "Unknown":
+                from ..services.device_classifier import classify_device
+                device.device_class = classify_device(vendor, device.hostname or "")
+    else:
+        device.is_online = False
 
     db.commit()
     db.refresh(device)

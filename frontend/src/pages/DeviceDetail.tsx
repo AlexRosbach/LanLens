@@ -65,6 +65,7 @@ export default function DeviceDetail() {
   const [form, setForm] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [refreshStatusLoading, setRefreshStatusLoading] = useState(false)
   const [portScanInput, setPortScanInput] = useState('')
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
@@ -123,7 +124,7 @@ export default function DeviceDetail() {
     try {
       const updated = await devicesApi.update(device.id, {
         label: form.label.trim() || undefined,
-        device_class: form.deviceClass,
+        device_class: form.deviceClass.trim() || 'Unknown',
         purpose: form.purpose.trim() || undefined,
         description: form.description.trim() || undefined,
         location: form.location.trim() || undefined,
@@ -161,6 +162,21 @@ export default function DeviceDetail() {
     } catch {
       toast.error(t('device_delete_failed'))
       setDeleting(false)
+    }
+  }
+
+  async function handleRefreshStatus() {
+    if (!device) return
+    setRefreshStatusLoading(true)
+    try {
+      const updated = await devicesApi.refreshStatus(device.id)
+      setDevice(updated)
+      setForm(toEditState(updated))
+      toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
+    } catch {
+      toast.error(t('device_status_refresh_failed'))
+    } finally {
+      setRefreshStatusLoading(false)
     }
   }
 
@@ -207,9 +223,16 @@ export default function DeviceDetail() {
             <p className="text-sm text-text-muted">{device.device_class} · {device.vendor ?? t('vendor_unknown')}</p>
           </div>
         </div>
-        <Badge variant={device.is_online ? 'success' : 'danger'} dot>
-          {device.is_online ? t('badge_online') : t('badge_offline')}
-        </Badge>
+        <div className="flex flex-col items-end gap-2">
+          <Badge variant={device.is_online ? 'success' : 'danger'} dot>
+            {device.is_online ? t('badge_online') : t('badge_offline')}
+          </Badge>
+          {!device.is_online && (
+            <Button variant="ghost" size="sm" loading={refreshStatusLoading} onClick={handleRefreshStatus}>
+              {t('refresh_status')}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Connect */}
@@ -282,6 +305,12 @@ export default function DeviceDetail() {
                   </button>
                 ))}
               </div>
+              <Input
+                label={t('custom_device_class')}
+                placeholder={t('custom_device_class_placeholder')}
+                value={DEVICE_CLASSES.includes(form.deviceClass) ? '' : form.deviceClass}
+                onChange={(e) => setForm((f) => f ? { ...f, deviceClass: e.target.value } : f)}
+              />
             </div>
 
             {/* Documentation fields */}

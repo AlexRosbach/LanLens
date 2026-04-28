@@ -94,6 +94,9 @@ export const devicesApi = {
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
 
+  refreshStatus: (id: number) =>
+    apiClient.post<Device>(`/devices/${id}/refresh-status`).then((r) => r.data),
+
   scanPorts: (id: number) => apiClient.post(`/devices/${id}/scan-ports`).then((r) => r.data),
 
   getPorts: (id: number) =>
