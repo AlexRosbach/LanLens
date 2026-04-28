@@ -12,7 +12,7 @@ All notable changes to this project should be documented in this file.
 - Added manual device status re-checks for offline devices from Device Detail.
 - Added per-device IP history based on MAC address so previous addresses remain visible in Device Detail.
 - Added optional Services navigation with a Services directory page for opening configured device services directly.
-- Added Service separators so users can visually group services and drag services under separators.
+- Added Service segments so users can create/manage groupings and drag services into them.
 - Added custom service icon URLs; official brand logos are not bundled by default because individual logos may have brand/trademark restrictions despite Simple Icons being CC0 as a package.
 - Split Settings into a tabbed sub-navigation for System, Database, Network Discovery and Notifications.
 - Dashboard device table now sorts by IP address by default.

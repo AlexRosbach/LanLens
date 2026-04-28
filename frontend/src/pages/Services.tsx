@@ -9,14 +9,24 @@ import Spinner from '../components/ui/Spinner'
 import ServiceIcon, { ServiceTypeTag } from '../components/devices/ServiceIcon'
 import { useI18n } from '../i18n'
 
+type Section = {
+  id: string
+  name: string
+  color: string
+  group?: ServiceGroup
+}
+
 export default function Services() {
   const { t } = useI18n()
   const [services, setServices] = useState<ServiceDirectoryItem[]>([])
   const [groups, setGroups] = useState<ServiceGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [newSeparatorName, setNewSeparatorName] = useState('')
+  const [newSegmentName, setNewSegmentName] = useState('')
   const [draggedServiceId, setDraggedServiceId] = useState<number | null>(null)
+  const [dragOverSection, setDragOverSection] = useState<string | null>(null)
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
+  const [editingName, setEditingName] = useState('')
 
   async function load() {
     const [serviceItems, groupItems] = await Promise.all([servicesApi.listAll(), servicesApi.listGroups()])
@@ -39,43 +49,81 @@ export default function Services() {
     const map = new Map<string, ServiceDirectoryItem[]>()
     for (const group of groups) map.set(String(group.id), [])
     map.set('ungrouped', [])
-    for (const service of filtered) map.get(service.service_group_id ? String(service.service_group_id) : 'ungrouped')?.push(service)
+    for (const service of filtered) {
+      const key = service.service_group_id ? String(service.service_group_id) : 'ungrouped'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)?.push(service)
+    }
     return map
   }, [filtered, groups])
 
-  async function createSeparator() {
-    const name = newSeparatorName.trim()
+  const sections: Section[] = [
+    ...groups.map((group) => ({ id: String(group.id), name: group.name, color: group.color, group })),
+    { id: 'ungrouped', name: t('service_segment_ungrouped'), color: '#64748b' },
+  ]
+
+  async function createSegment() {
+    const name = newSegmentName.trim()
     if (!name) return
     try {
-      await servicesApi.createGroup({ name })
-      setNewSeparatorName('')
+      await servicesApi.createGroup({ name, sort_order: groups.length })
+      setNewSegmentName('')
       await load()
-      toast.success(t('service_separator_created'))
+      toast.success(t('service_segment_created'))
     } catch {
-      toast.error(t('service_separator_create_failed'))
+      toast.error(t('service_segment_create_failed'))
     }
   }
 
-  async function moveService(service: ServiceDirectoryItem, groupId: string) {
+  function startEditing(group: ServiceGroup) {
+    setEditingGroupId(group.id)
+    setEditingName(group.name)
+  }
+
+  async function saveSegment(groupId: number) {
+    const name = editingName.trim()
+    if (!name) return
     try {
-      await servicesApi.update(service.device_id, service.id, { service_group_id: groupId ? Number(groupId) : null })
+      await servicesApi.updateGroup(groupId, { name })
+      setEditingGroupId(null)
+      setEditingName('')
+      await load()
+      toast.success(t('service_segment_saved'))
+    } catch {
+      toast.error(t('service_segment_save_failed'))
+    }
+  }
+
+  async function deleteSegment(groupId: number) {
+    if (!window.confirm(t('service_segment_delete_confirm'))) return
+    try {
+      await servicesApi.deleteGroup(groupId)
+      await load()
+      toast.success(t('service_segment_deleted'))
+    } catch {
+      toast.error(t('service_segment_delete_failed'))
+    }
+  }
+
+  async function moveServiceToSection(sectionId: string) {
+    if (draggedServiceId == null) return
+    const service = services.find((item) => item.id === draggedServiceId)
+    setDraggedServiceId(null)
+    setDragOverSection(null)
+    if (!service) return
+
+    const nextGroupId = sectionId === 'ungrouped' ? null : Number(sectionId)
+    if (service.service_group_id === nextGroupId) return
+
+    try {
+      await servicesApi.update(service.device_id, service.id, { service_group_id: nextGroupId })
       await load()
     } catch {
       toast.error(t('failed_to_save_service'))
     }
   }
 
-  async function dropServiceInto(sectionId: string) {
-    if (draggedServiceId == null) return
-    const service = services.find((item) => item.id === draggedServiceId)
-    setDraggedServiceId(null)
-    if (!service) return
-    await moveService(service, sectionId === 'ungrouped' ? '' : sectionId)
-  }
-
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
-
-  const sections = [...groups.map((g) => ({ id: String(g.id), name: g.name, color: g.color })), { id: 'ungrouped', name: t('service_separator_ungrouped'), color: '#64748b' }]
 
   return (
     <div className="flex flex-col gap-5">
@@ -89,68 +137,99 @@ export default function Services() {
 
       <Card>
         <div className="flex items-end gap-3 flex-wrap">
-          <Input label={t('new_service_separator')} value={newSeparatorName} onChange={(e) => setNewSeparatorName(e.target.value)} placeholder="Homelab, Monitoring, Media…" />
-          <Button onClick={createSeparator}>{t('add_separator')}</Button>
+          <Input label={t('new_service_segment')} value={newSegmentName} onChange={(e) => setNewSegmentName(e.target.value)} placeholder="Homelab, Monitoring, Media…" />
+          <Button onClick={createSegment}>{t('add_segment')}</Button>
         </div>
-        <p className="text-xs text-text-subtle mt-3">{t('service_separator_help')}</p>
+        <p className="text-xs text-text-subtle mt-3">{t('service_segment_help')}</p>
         <p className="text-xs text-text-subtle mt-1">{t('service_icon_license_note')}</p>
       </Card>
 
       {filtered.length === 0 ? (
         <Card><p className="text-sm text-text-subtle">{t('no_services_configured')}</p></Card>
-      ) : sections.map((section) => {
-        const items = grouped.get(section.id) ?? []
-        if (items.length === 0 && section.id !== 'ungrouped') return null
-        return (
-          <div
-            key={section.id}
-            className="flex flex-col gap-3 rounded-xl border border-transparent hover:border-primary/20 transition-colors"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => dropServiceInto(section.id)}
-          >
-            <div className="flex items-center gap-2 px-1">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: section.color }} />
-              <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider">{section.name}</h2>
-            </div>
-            {items.length === 0 ? <Card><p className="text-sm text-text-subtle">{t('no_services_configured')}</p></Card> : (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {items.map((service) => {
-                  const href = service.url || (service.device_ip && service.port ? `${service.protocol}://${service.device_ip}:${service.port}` : null)
-                  return (
-                    <Card
-                      key={service.id}
-                      className={`flex flex-col gap-3 cursor-grab active:cursor-grabbing ${draggedServiceId === service.id ? 'opacity-60 ring-1 ring-primary' : ''}`}
-                      draggable
-                      onDragStart={() => setDraggedServiceId(service.id)}
-                      onDragEnd={() => setDraggedServiceId(null)}
-                    >
-                      <div className="flex items-start gap-3">
-                        <ServiceIcon iconKey={service.icon_key} iconUrl={service.icon_url} serviceType={service.service_type} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h2 className="font-semibold text-text-base truncate">{service.name}</h2>
-                            <ServiceTypeTag type={service.service_type} />
+      ) : (
+        <div className="flex flex-col gap-5">
+          {sections.map((section) => {
+            const items = grouped.get(section.id) ?? []
+            const isDropTarget = dragOverSection === section.id
+            return (
+              <section
+                key={section.id}
+                className={`rounded-2xl border p-3 transition-colors ${isDropTarget ? 'border-primary bg-primary/5' : 'border-border/60 bg-surface/30'}`}
+                onDragOver={(e) => { e.preventDefault(); setDragOverSection(section.id) }}
+                onDragLeave={() => setDragOverSection((current) => current === section.id ? null : current)}
+                onDrop={() => moveServiceToSection(section.id)}
+              >
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: section.color }} />
+                    {editingGroupId === section.group?.id ? (
+                      <input className="input-field h-9 max-w-xs" value={editingName} onChange={(e) => setEditingName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && section.group && saveSegment(section.group.id)} autoFocus />
+                    ) : (
+                      <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider truncate">{section.name}</h2>
+                    )}
+                    <span className="text-xs text-text-subtle">{items.length}</span>
+                  </div>
+                  {section.group && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      {editingGroupId === section.group.id ? (
+                        <>
+                          <button className="text-xs text-primary hover:text-primary/80" onClick={() => saveSegment(section.group!.id)}>{t('save')}</button>
+                          <button className="text-xs text-text-subtle hover:text-text-base" onClick={() => setEditingGroupId(null)}>{t('cancel')}</button>
+                        </>
+                      ) : (
+                        <>
+                          <button className="text-xs text-text-subtle hover:text-primary" onClick={() => startEditing(section.group!)}>{t('edit')}</button>
+                          <button className="text-xs text-danger hover:text-danger/80" onClick={() => deleteSegment(section.group!.id)}>{t('delete')}</button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {items.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-text-subtle text-center">
+                    {t('drop_services_here')}
+                  </div>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {items.map((service) => {
+                      const href = service.url || (service.device_ip && service.port ? `${service.protocol}://${service.device_ip}:${service.port}` : null)
+                      return (
+                        <Card
+                          key={service.id}
+                          className={`flex flex-col gap-3 cursor-grab active:cursor-grabbing select-none ${draggedServiceId === service.id ? 'opacity-60 ring-1 ring-primary' : ''}`}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.effectAllowed = 'move'
+                            setDraggedServiceId(service.id)
+                          }}
+                          onDragEnd={() => { setDraggedServiceId(null); setDragOverSection(null) }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <ServiceIcon iconKey={service.icon_key} iconUrl={service.icon_url} serviceType={service.service_type} />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h2 className="font-semibold text-text-base truncate">{service.name}</h2>
+                                <ServiceTypeTag type={service.service_type} />
+                              </div>
+                              <p className="text-xs text-text-subtle truncate">{SERVICE_TYPE_LABELS[service.service_type] ?? service.service_type} · {service.device_label}</p>
+                            </div>
                           </div>
-                          <p className="text-xs text-text-subtle truncate">{SERVICE_TYPE_LABELS[service.service_type] ?? service.service_type} · {service.device_label}</p>
-                        </div>
-                      </div>
-                      {service.description && <p className="text-sm text-text-muted line-clamp-2">{service.description}</p>}
-                      <select value={service.service_group_id ?? ''} onChange={(e) => moveService(service, e.target.value)} className="input-field text-xs">
-                        <option value="">{t('service_separator_ungrouped')}</option>
-                        {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
-                      </select>
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
-                        <Link to={`/devices/${service.device_id}`} className="text-xs text-text-subtle hover:text-primary">{service.device_ip ?? t('ip_address')} →</Link>
-                        {href && <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:text-primary/80">{t('open_service')} →</a>}
-                      </div>
-                    </Card>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )
-      })}
+                          {service.description && <p className="text-sm text-text-muted line-clamp-2">{service.description}</p>}
+                          <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
+                            <Link to={`/devices/${service.device_id}`} className="text-xs text-text-subtle hover:text-primary">{service.device_ip ?? t('ip_address')} →</Link>
+                            {href && <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:text-primary/80">{t('open_service')} →</a>}
+                          </div>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
+              </section>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
