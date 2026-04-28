@@ -78,7 +78,7 @@ export default function Dashboard() {
     { labelKey: 'total' as const, value: stats.total, color: 'text-text-base' },
     { labelKey: 'online' as const, value: stats.online, color: 'text-success' },
     { labelKey: 'offline' as const, value: stats.offline, color: 'text-danger' },
-    { labelKey: 'unregistered' as const, value: stats.unregistered, color: 'text-warning' },
+    { labelKey: 'filter_new' as const, value: stats.unregistered, color: 'text-warning' },
   ]
 
   return (

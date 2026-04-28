@@ -270,6 +270,37 @@ def migrate():
         else:
             print("Migration: devices.cmdb_id already exists — skipped")
 
+
+        # ── v1.4.4 ── IP history per device ──────────────────────────────────
+        if IS_SQLITE and not _table_exists(conn, "device_ip_history"):
+            conn.execute(text(
+                "CREATE TABLE device_ip_history ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "ip_address VARCHAR(45) NOT NULL, "
+                "first_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "seen_count INTEGER NOT NULL DEFAULT 1"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX ix_device_ip_history_device_ip "
+                "ON device_ip_history(device_id, ip_address)"
+            ))
+            conn.execute(text(
+                "INSERT OR IGNORE INTO device_ip_history "
+                "(device_id, ip_address, first_seen, last_seen, seen_count) "
+                "SELECT id, ip_address, COALESCE(first_seen, CURRENT_TIMESTAMP), "
+                "COALESCE(last_seen, CURRENT_TIMESTAMP), 1 "
+                "FROM devices WHERE ip_address IS NOT NULL"
+            ))
+            conn.commit()
+            print("Migration: created device_ip_history")
+        elif not IS_SQLITE:
+            print("Migration: device_ip_history — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: device_ip_history already exists — skipped")
+
         conn.commit()
 
 

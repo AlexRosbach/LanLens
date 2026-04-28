@@ -13,6 +13,15 @@ export interface PortScanResult {
   https_available: boolean
 }
 
+export interface DeviceIpHistoryEntry {
+  id: number
+  device_id: number
+  ip_address: string
+  first_seen: string
+  last_seen: string
+  seen_count: number
+}
+
 export interface Device {
   id: number
   mac_address: string
@@ -52,6 +61,7 @@ export interface Device {
   // Relations
   latest_scan: PortScanResult | null
   services: Service[]
+  ip_history?: DeviceIpHistoryEntry[]
 }
 
 export interface DeviceListResponse {
@@ -86,6 +96,9 @@ export const devicesApi = {
   }) => apiClient.get<DeviceListResponse>('/devices', { params }).then((r) => r.data),
 
   get: (id: number) => apiClient.get<Device>(`/devices/${id}`).then((r) => r.data),
+
+  getIpHistory: (id: number) =>
+    apiClient.get<DeviceIpHistoryEntry[]>(`/devices/${id}/ip-history`).then((r) => r.data),
 
   markViewed: (id: number) => apiClient.post(`/devices/${id}/mark-viewed`).then((r) => r.data),
 

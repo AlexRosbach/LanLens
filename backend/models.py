@@ -64,6 +64,7 @@ class Device(Base):
                             order_by="Service.sort_order")
     segment = relationship("Segment", back_populates="devices", foreign_keys=[segment_id])
     device_views = relationship("DeviceView", back_populates="device", cascade="all, delete-orphan")
+    ip_history = relationship("DeviceIpHistory", back_populates="device", cascade="all, delete-orphan", order_by="DeviceIpHistory.last_seen.desc()")
     deep_scan_config = relationship("DeviceDeepScanConfig", back_populates="device",
                                     uselist=False, cascade="all, delete-orphan")
     deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
@@ -113,6 +114,22 @@ class Service(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     device = relationship("Device", back_populates="services")
+
+
+class DeviceIpHistory(Base):
+    __tablename__ = "device_ip_history"
+    __table_args__ = (
+        UniqueConstraint("device_id", "ip_address", name="uq_device_ip_history_device_ip"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    ip_address = Column(String(45), nullable=False)
+    first_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    seen_count = Column(Integer, default=1, nullable=False)
+
+    device = relationship("Device", back_populates="ip_history")
 
 
 class PortScan(Base):

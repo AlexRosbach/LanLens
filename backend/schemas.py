@@ -96,7 +96,7 @@ DEVICE_CLASSES = [
     # Virtual machines
     "VM", "Linux VM", "Windows VM",
     # Workstations
-    "Workstation", "Linux Workstation", "Windows Workstation",
+    "Workstation", "Linux Workstation", "Windows Workstation", "Apple Workstation",
     # Storage & network
     "NAS", "Router", "Switch", "AP", "Firewall",
     # End-user & IoT
@@ -128,6 +128,18 @@ class PortInfo(BaseModel):
     protocol: str
     service: str
     state: str
+
+
+class DeviceIpHistoryResponse(BaseModel):
+    id: int
+    device_id: int
+    ip_address: str
+    first_seen: datetime
+    last_seen: datetime
+    seen_count: int
+
+    class Config:
+        from_attributes = True
 
 
 class PortScanResponse(BaseModel):
@@ -182,6 +194,7 @@ class DeviceResponse(BaseModel):
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
+    ip_history: List[DeviceIpHistoryResponse] = []
 
     class Config:
         from_attributes = True
