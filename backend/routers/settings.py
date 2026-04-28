@@ -19,6 +19,7 @@ from ..schemas import (
     ServerUrlSettings,
     SmtpSettings,
     TelegramSettings,
+    UiSettings,
 )
 from ..services.notification import send_test_message, send_update_notification
 from ..services.scheduler import update_interval
@@ -35,6 +36,7 @@ SETTING_KEYS = [
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
+    "show_services_nav",
 ]
 
 
@@ -147,6 +149,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         smtp_use_tls=_get(db, "smtp_use_tls", "true") != "false",
         cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
         cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
+        show_services_nav=_get(db, "show_services_nav", "false") == "true",
     )
 
 
@@ -286,6 +289,17 @@ def update_telegram(
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
     db.commit()
     return MessageResponse(message="Telegram settings updated")
+
+
+@router.put("/ui", response_model=MessageResponse)
+def update_ui_settings(
+    data: UiSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
+    db.commit()
+    return MessageResponse(message="UI settings updated")
 
 
 @router.put("/server-url", response_model=MessageResponse)

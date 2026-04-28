@@ -38,7 +38,16 @@ export interface ServiceCreate {
 
 export type ServiceUpdate = Partial<ServiceCreate>
 
+export interface ServiceDirectoryItem extends Pick<Service, 'id' | 'device_id' | 'name' | 'service_type' | 'icon_key' | 'url' | 'port' | 'protocol' | 'description' | 'version'> {
+  device_label: string
+  device_ip: string | null
+  device_class: string
+}
+
 export const servicesApi = {
+  listAll: () =>
+    apiClient.get<ServiceDirectoryItem[]>('/services').then((r) => r.data),
+
   list: (deviceId: number) =>
     apiClient.get<Service[]>(`/devices/${deviceId}/services`).then((r) => r.data),
 

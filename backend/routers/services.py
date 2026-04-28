@@ -9,6 +9,7 @@ from ..models import Device, Service, User
 from ..schemas import MessageResponse, ServiceCreate, ServiceResponse, ServiceUpdate
 
 router = APIRouter(prefix="/api/devices/{device_id}/services", tags=["services"])
+global_router = APIRouter(prefix="/api/services", tags=["services"])
 
 
 def _get_device_or_404(device_id: int, db: Session) -> Device:
@@ -100,3 +101,34 @@ def delete_service(
     db.delete(service)
     db.commit()
     return MessageResponse(message="Service deleted")
+
+
+@global_router.get("")
+def list_all_services(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rows = (
+        db.query(Service, Device)
+        .join(Device, Service.device_id == Device.id)
+        .order_by(Service.name, Device.label, Device.hostname, Device.ip_address)
+        .all()
+    )
+    return [
+        {
+            "id": service.id,
+            "device_id": service.device_id,
+            "name": service.name,
+            "service_type": service.service_type,
+            "icon_key": service.icon_key,
+            "url": service.url,
+            "port": service.port,
+            "protocol": service.protocol,
+            "description": service.description,
+            "version": service.version,
+            "device_label": device.label or device.hostname or device.mac_address,
+            "device_ip": device.ip_address,
+            "device_class": device.device_class,
+        }
+        for service, device in rows
+    ]

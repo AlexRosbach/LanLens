@@ -39,8 +39,8 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
   const navigate = useNavigate()
   const { t, lang } = useI18n()
-  const [sortKey, setSortKey] = useState<SortKey>('last_seen')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [sortKey, setSortKey] = useState<SortKey>('ip')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {

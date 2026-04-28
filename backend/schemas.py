@@ -257,6 +257,10 @@ class ServerUrlSettings(BaseModel):
     server_url: str
 
 
+class UiSettings(BaseModel):
+    show_services_nav: bool = False
+
+
 class PortScanSettings(BaseModel):
     port_scan_range: str  # e.g. "top:1000", "1-65535", "22,80,443", "1-1024,8080,8443"
 
@@ -294,6 +298,7 @@ class AllSettings(BaseModel):
     smtp_use_tls: bool = True
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
+    show_services_nav: bool = False
 
 
 class SmtpSettings(BaseModel):

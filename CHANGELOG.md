@@ -11,6 +11,9 @@ All notable changes to this project should be documented in this file.
 ### New Features
 - Added manual device status re-checks for offline devices from Device Detail.
 - Added per-device IP history based on MAC address so previous addresses remain visible in Device Detail.
+- Added optional Services navigation with a Services directory page for opening configured device services directly.
+- Split Settings into a tabbed sub-navigation for System, Database, Network Discovery and Notifications.
+- Dashboard device table now sorts by IP address by default.
 - Added `Apple Workstation` as a device class and enabled custom device classes in registration/detail editing.
 - Consolidated the dashboard `Unregistered` counter with `New` device semantics so both show the same user-visible state.
 
