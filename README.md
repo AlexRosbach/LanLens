@@ -18,21 +18,6 @@ Thanks to everyone helping shape LanLens, including community contributions that
 
 </div>
 
-> [!IMPORTANT]
-> ## 🎉 LanLens 1.4.3 is here, and the latest release is ready
-> The new version brings major improvements across deep scan, hypervisor visibility, translations, UI polish, and settings behavior.
->
-> ### Please read before updating
-> This release includes **database-related changes**. A backup before updating is **strongly recommended** and should be treated as mandatory for productive setups.
->
-> **Recommended update flow:**
-> 1. Create a full backup of your LanLens database before pulling the new image.
-> 2. Only then update to `1.4.3`.
-> 3. Verify login, devices, segments, credentials, and deep-scan settings after startup.
->
-> If you are running SQLite, back up the `.db` file first. If you are running MariaDB/MySQL, create a dump before the update.
-
-
 ---
 
 ## Features
