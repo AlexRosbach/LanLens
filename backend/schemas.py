@@ -40,6 +40,8 @@ class ServiceCreate(BaseModel):
     name: str
     service_type: str = "web"
     icon_key: Optional[str] = None
+    icon_url: Optional[str] = None
+    service_group_id: Optional[int] = None
     url: Optional[str] = None
     port: Optional[int] = None
     protocol: str = "https"
@@ -55,6 +57,8 @@ class ServiceUpdate(BaseModel):
     name: Optional[str] = None
     service_type: Optional[str] = None
     icon_key: Optional[str] = None
+    icon_url: Optional[str] = None
+    service_group_id: Optional[int] = None
     url: Optional[str] = None
     port: Optional[int] = None
     protocol: Optional[str] = None
@@ -72,6 +76,8 @@ class ServiceResponse(BaseModel):
     name: str
     service_type: str
     icon_key: Optional[str]
+    icon_url: Optional[str] = None
+    service_group_id: Optional[int] = None
     url: Optional[str]
     port: Optional[int]
     protocol: str
@@ -88,6 +94,30 @@ class ServiceResponse(BaseModel):
         from_attributes = True
 
 
+
+class ServiceGroupCreate(BaseModel):
+    name: str
+    color: str = "#6366f1"
+    sort_order: int = 0
+
+
+class ServiceGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class ServiceGroupResponse(BaseModel):
+    id: int
+    name: str
+    color: str
+    sort_order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [
@@ -96,7 +126,7 @@ DEVICE_CLASSES = [
     # Virtual machines
     "VM", "Linux VM", "Windows VM",
     # Workstations
-    "Workstation", "Linux Workstation", "Windows Workstation",
+    "Workstation", "Linux Workstation", "Windows Workstation", "Apple Workstation",
     # Storage & network
     "NAS", "Router", "Switch", "AP", "Firewall",
     # End-user & IoT
@@ -128,6 +158,18 @@ class PortInfo(BaseModel):
     protocol: str
     service: str
     state: str
+
+
+class DeviceIpHistoryResponse(BaseModel):
+    id: int
+    device_id: int
+    ip_address: str
+    first_seen: datetime
+    last_seen: datetime
+    seen_count: int
+
+    class Config:
+        from_attributes = True
 
 
 class PortScanResponse(BaseModel):
@@ -182,6 +224,7 @@ class DeviceResponse(BaseModel):
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
+    ip_history: List[DeviceIpHistoryResponse] = []
 
     class Config:
         from_attributes = True
@@ -244,6 +287,10 @@ class ServerUrlSettings(BaseModel):
     server_url: str
 
 
+class UiSettings(BaseModel):
+    show_services_nav: bool = False
+
+
 class PortScanSettings(BaseModel):
     port_scan_range: str  # e.g. "top:1000", "1-65535", "22,80,443", "1-1024,8080,8443"
 
@@ -281,6 +328,7 @@ class AllSettings(BaseModel):
     smtp_use_tls: bool = True
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
+    show_services_nav: bool = False
 
 
 class SmtpSettings(BaseModel):

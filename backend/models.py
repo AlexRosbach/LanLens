@@ -64,6 +64,7 @@ class Device(Base):
                             order_by="Service.sort_order")
     segment = relationship("Segment", back_populates="devices", foreign_keys=[segment_id])
     device_views = relationship("DeviceView", back_populates="device", cascade="all, delete-orphan")
+    ip_history = relationship("DeviceIpHistory", back_populates="device", cascade="all, delete-orphan", order_by="DeviceIpHistory.last_seen.desc()")
     deep_scan_config = relationship("DeviceDeepScanConfig", back_populates="device",
                                     uselist=False, cascade="all, delete-orphan")
     deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
@@ -94,6 +95,8 @@ class Service(Base):
     name = Column(String(255), nullable=False)           # display name
     service_type = Column(String(64), default="web")     # web/api/ssh/db/monitoring/other
     icon_key = Column(String(64), nullable=True)         # icon identifier for frontend
+    icon_url = Column(String(2048), nullable=True)        # optional custom icon URL
+    service_group_id = Column(Integer, ForeignKey("service_groups.id", ondelete="SET NULL"), nullable=True)
 
     # ── Connection ─────────────────────────────────────────────────────────────
     url = Column(String(2048), nullable=True)            # full URL or base URL
@@ -113,6 +116,35 @@ class Service(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     device = relationship("Device", back_populates="services")
+    service_group = relationship("ServiceGroup", back_populates="services")
+
+
+class ServiceGroup(Base):
+    __tablename__ = "service_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, unique=True)
+    color = Column(String(16), default="#6366f1")
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    services = relationship("Service", back_populates="service_group")
+
+
+class DeviceIpHistory(Base):
+    __tablename__ = "device_ip_history"
+    __table_args__ = (
+        UniqueConstraint("device_id", "ip_address", name="uq_device_ip_history_device_ip"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    ip_address = Column(String(45), nullable=False)
+    first_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    seen_count = Column(Integer, default=1, nullable=False)
+
+    device = relationship("Device", back_populates="ip_history")
 
 
 class PortScan(Base):

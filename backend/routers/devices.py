@@ -1,7 +1,9 @@
+import asyncio
 import ipaddress
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -12,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceView, Notification, PortScan, Segment, Setting, User
+from ..models import DeepScanFinding, Device, DeviceIpHistory, DeviceView, Notification, PortScan, Segment, Setting, User
 from ..schemas import (
+    DeviceIpHistoryResponse,
     DeviceListResponse,
     DeviceResponse,
     DeviceUpdate,
@@ -23,7 +26,9 @@ from ..schemas import (
     PortScanResponse,
     SinglePortScanRequest,
 )
+from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
+from ..services.scanner import _arp_scan, _get_hostname, record_device_ip_history
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -122,6 +127,16 @@ def _get_viewed_device_ids(db: Session, current_user: User) -> Set[int]:
     }
 
 
+def _count_new_devices(db: Session, current_user: User) -> int:
+    viewed_subquery = db.query(DeviceView.device_id).filter(DeviceView.user_id == current_user.id)
+    return (
+        db.query(Device)
+        .filter(Device.is_registered == False)
+        .filter(~Device.id.in_(viewed_subquery))
+        .count()
+    )
+
+
 def _device_to_response(
     device: Device,
     dhcp_range=None,
@@ -129,13 +144,26 @@ def _device_to_response(
     hardware_summaries: Optional[dict] = None,
     host_labels: Optional[dict] = None,
     segment_ranges: Optional[List[SegmentRange]] = None,
+    include_ip_history: bool = False,
+    db: Optional[Session] = None,
 ) -> DeviceResponse:
-    from ..schemas import ServiceResponse
+    from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
     if viewed_device_ids is None:
         viewed_device_ids = set()
     is_new = not device.is_registered and device.id not in viewed_device_ids
     matched_segment = _get_matching_segment(device.ip_address, segment_ranges or [])
+
+    ip_history = []
+    if include_ip_history and db is not None:
+        latest_ip_history = (
+            db.query(DeviceIpHistory)
+            .filter(DeviceIpHistory.device_id == device.id)
+            .order_by(DeviceIpHistory.last_seen.desc())
+            .limit(10)
+            .all()
+        )
+        ip_history = [DeviceIpHistoryResponse.model_validate(entry) for entry in latest_ip_history]
 
     return DeviceResponse(
         id=device.id,
@@ -167,6 +195,7 @@ def _device_to_response(
         cmdb_id=device.cmdb_id,
         latest_scan=_latest_scan_response(device),
         services=[ServiceResponse.model_validate(s) for s in device.services],
+        ip_history=ip_history,
     )
 
 
@@ -207,7 +236,7 @@ def list_devices(
 
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
-    unregistered = db.query(Device).filter(Device.is_registered == False).count()
+    unregistered = _count_new_devices(db, current_user)
     dhcp_range = _get_dhcp_range(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
 
@@ -316,7 +345,7 @@ def get_new_devices(
     )
     total = db.query(Device).count()
     online = db.query(Device).filter(Device.is_online == True).count()
-    unregistered = db.query(Device).filter(Device.is_registered == False).count()
+    unregistered = _count_new_devices(db, current_user)
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
@@ -326,6 +355,24 @@ def get_new_devices(
         online=online,
         offline=total - online,
         unregistered=unregistered,
+    )
+
+
+@router.get("/{device_id}/ip-history", response_model=List[DeviceIpHistoryResponse])
+def get_device_ip_history(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    return (
+        db.query(DeviceIpHistory)
+        .filter(DeviceIpHistory.device_id == device_id)
+        .order_by(DeviceIpHistory.last_seen.desc())
+        .all()
     )
 
 
@@ -402,7 +449,7 @@ def get_device(
             else:
                 host_labels[device_id] = f"Host #{host_rel.host_device_id}"
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
-    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segment_ranges)
+    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segment_ranges, include_ip_history=True, db=db)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -450,6 +497,58 @@ def update_device(
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges)
+
+
+@router.post("/{device_id}/refresh-status", response_model=DeviceResponse)
+async def refresh_device_status(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if not device.ip_address:
+        raise HTTPException(status_code=400, detail="Device has no IP address")
+
+    try:
+        ipaddress.IPv4Address(device.ip_address)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Device has an invalid IP address")
+
+    results = await asyncio.get_event_loop().run_in_executor(None, _arp_scan, [device.ip_address])
+    expected_mac = normalize_mac(device.mac_address)
+    matched = None
+    for ip, mac in results:
+        if normalize_mac(mac) == expected_mac:
+            matched = (ip, mac)
+            break
+
+    if matched:
+        ip, mac = matched
+        seen_at = datetime.utcnow()
+        device.ip_address = ip
+        device.is_online = True
+        device.last_seen = seen_at
+        record_device_ip_history(db, device, ip, seen_at)
+        hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, ip)
+        if hostname:
+            device.hostname = hostname
+        vendor = lookup_vendor(normalize_mac(mac))
+        if vendor:
+            device.vendor = vendor
+            if not device.device_class or device.device_class == "Unknown":
+                from ..services.device_classifier import classify_device
+                device.device_class = classify_device(vendor, device.hostname or "")
+    else:
+        device.is_online = False
+
+    db.commit()
+    db.refresh(device)
+    dhcp_range = _get_dhcp_range(db)
+    viewed_device_ids = _get_viewed_device_ids(db, current_user)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
 
 
 @router.post("/{device_id}/mark-viewed", response_model=MessageResponse)

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Device, devicesApi } from '../api/devices'
+import { Device, DeviceIpHistoryEntry, devicesApi } from '../api/devices'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -60,11 +60,13 @@ export default function DeviceDetail() {
   const navigate = useNavigate()
   const { t, lang } = useI18n()
   const [device, setDevice] = useState<Device | null>(null)
+  const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [refreshStatusLoading, setRefreshStatusLoading] = useState(false)
   const [portScanInput, setPortScanInput] = useState('')
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
@@ -83,7 +85,9 @@ export default function DeviceDetail() {
         // best effort
       }
       setDevice(currentDevice)
+      setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
+      devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
     }).finally(() => setLoading(false))
   }, [id])
 
@@ -123,7 +127,7 @@ export default function DeviceDetail() {
     try {
       const updated = await devicesApi.update(device.id, {
         label: form.label.trim() || undefined,
-        device_class: form.deviceClass,
+        device_class: form.deviceClass.trim() || 'Unknown',
         purpose: form.purpose.trim() || undefined,
         description: form.description.trim() || undefined,
         location: form.location.trim() || undefined,
@@ -161,6 +165,23 @@ export default function DeviceDetail() {
     } catch {
       toast.error(t('device_delete_failed'))
       setDeleting(false)
+    }
+  }
+
+  async function handleRefreshStatus() {
+    if (!device) return
+    setRefreshStatusLoading(true)
+    try {
+      const updated = await devicesApi.refreshStatus(device.id)
+      setDevice(updated)
+      setForm(toEditState(updated))
+      setIpHistory(updated.ip_history ?? ipHistory)
+      devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
+      toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
+    } catch {
+      toast.error(t('device_status_refresh_failed'))
+    } finally {
+      setRefreshStatusLoading(false)
     }
   }
 
@@ -207,9 +228,16 @@ export default function DeviceDetail() {
             <p className="text-sm text-text-muted">{device.device_class} · {device.vendor ?? t('vendor_unknown')}</p>
           </div>
         </div>
-        <Badge variant={device.is_online ? 'success' : 'danger'} dot>
-          {device.is_online ? t('badge_online') : t('badge_offline')}
-        </Badge>
+        <div className="flex flex-col items-end gap-2">
+          <Badge variant={device.is_online ? 'success' : 'danger'} dot>
+            {device.is_online ? t('badge_online') : t('badge_offline')}
+          </Badge>
+          {!device.is_online && (
+            <Button variant="ghost" size="sm" loading={refreshStatusLoading} onClick={handleRefreshStatus}>
+              {t('refresh_status')}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Connect */}
@@ -282,6 +310,12 @@ export default function DeviceDetail() {
                   </button>
                 ))}
               </div>
+              <Input
+                label={t('custom_device_class')}
+                placeholder={t('custom_device_class_placeholder')}
+                value={DEVICE_CLASSES.includes(form.deviceClass) ? '' : form.deviceClass}
+                onChange={(e) => setForm((f) => f ? { ...f, deviceClass: e.target.value } : f)}
+              />
             </div>
 
             {/* Documentation fields */}
@@ -368,6 +402,37 @@ export default function DeviceDetail() {
                 No documentation yet — click <strong>{t('edit')}</strong> to add purpose, location, responsible, and more.
               </p>
             )}
+          </div>
+        )}
+      </Card>
+
+      {/* IP History */}
+      <Card>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('ip_history')}</h2>
+        {ipHistory.length === 0 ? (
+          <p className="text-sm text-text-subtle">{t('ip_history_empty')}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
+                  <th className="py-2 pr-3 text-left font-medium">{t('ip_address')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('first_seen')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('last_seen')}</th>
+                  <th className="py-2 text-left font-medium">{t('seen_count')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ipHistory.map((entry) => (
+                  <tr key={entry.id} className="border-b border-border last:border-0">
+                    <td className="py-2 pr-3 font-mono text-text-muted">{entry.ip_address}</td>
+                    <td className="py-2 pr-3 text-text-subtle">{formatDateTime(entry.first_seen)}</td>
+                    <td className="py-2 pr-3 text-text-subtle">{formatRelativeTime(entry.last_seen, lang)}</td>
+                    <td className="py-2 text-text-subtle">{entry.seen_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>

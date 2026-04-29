@@ -7,6 +7,7 @@ import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { adminApi } from '../api/admin'
 import { useI18n } from '../i18n'
+import { useUiSettingsStore } from '../store/uiSettingsStore'
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -25,10 +26,13 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
+  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications'>('system')
+  const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
 
   useEffect(() => {
     settingsApi.get().then((data) => {
       setSettings(data)
+      setShowServicesNav(data.show_services_nav)
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
@@ -211,7 +215,10 @@ export default function Settings() {
     try {
       const result = await adminApi.importSettings(file)
       toast.success(result.data.message || t('settings_imported'))
-      settingsApi.get().then(setSettings)
+      settingsApi.get().then((data) => {
+        setSettings(data)
+        setShowServicesNav(data.show_services_nav)
+      })
     } catch {
       toast.error(t('import_failed'))
     }
@@ -230,9 +237,42 @@ export default function Settings() {
     }
   }
 
+  async function saveUi() {
+    setSaving(true)
+    try {
+      await settingsApi.updateUi(current.show_services_nav)
+      setShowServicesNav(current.show_services_nav)
+      toast.success(t('ui_settings_saved'))
+    } catch {
+      toast.error(t('ui_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const settingSections = [
+    { key: 'system' as const, label: t('system') },
+    { key: 'database' as const, label: t('database') },
+    { key: 'network' as const, label: t('network_discovery') },
+    { key: 'notifications' as const, label: t('notifications') },
+  ]
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      <div className="flex gap-2 overflow-x-auto rounded-xl border border-border bg-surface p-1">
+        {settingSections.map((section) => (
+          <button
+            key={section.key}
+            onClick={() => setActiveSection(section.key)}
+            className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${activeSection === section.key ? 'bg-primary-dim text-primary' : 'text-text-muted hover:text-text-base hover:bg-surface2'}`}
+          >
+            {section.label}
+          </button>
+        ))}
+      </div>
+
       {/* ── SYSTEM ────────────────────────────────────────────────────────── */}
+      {activeSection === 'system' && (
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
           {t('system')}
@@ -279,6 +319,22 @@ export default function Settings() {
 
             <div className="mt-4">
               <Button onClick={saveServerUrl} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('ui_settings')}</h2>
+            <p className="text-sm text-text-subtle mb-4">{t('ui_settings_description')}</p>
+            <label className="flex items-center gap-2 text-sm text-text-base">
+              <input
+                type="checkbox"
+                checked={current.show_services_nav}
+                onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
+              />
+              {t('show_services_nav')}
+            </label>
+            <div className="mt-4">
+              <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
 
@@ -360,8 +416,10 @@ export default function Settings() {
           </Card>
         </div>
       </div>
+      )}
 
       {/* ── DATABASE ──────────────────────────────────────────────────────── */}
+      {activeSection === 'database' && (
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
           {t('database')}
@@ -384,8 +442,10 @@ export default function Settings() {
           </Card>
         </div>
       </div>
+      )}
 
       {/* ── NETWORK DISCOVERY ─────────────────────────────────────────────── */}
+      {activeSection === 'network' && (
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
           {t('network_discovery')}
@@ -467,8 +527,10 @@ export default function Settings() {
           </Card>
         </div>
       </div>
+      )}
 
       {/* ── NOTIFICATIONS ─────────────────────────────────────────────────── */}
+      {activeSection === 'notifications' && (
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
           {t('notifications')}
@@ -618,6 +680,7 @@ export default function Settings() {
           </Card>
         </div>
       </div>
+      )}
     </div>
   )
 }

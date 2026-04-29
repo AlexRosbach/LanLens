@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { withBasePath } from '../../utils/basePath'
 import { useDeviceStore } from '../../store/deviceStore'
@@ -5,6 +6,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useI18n } from '../../i18n'
 import { APP_VERSION, GITHUB_REPO } from '../../version'
 import { dismissUpdate, useUpdateCheck } from '../../hooks/useUpdateCheck'
+import { useUiSettingsStore } from '../../store/uiSettingsStore'
 
 interface Props {
   onClose?: () => void
@@ -16,6 +18,12 @@ export default function Sidebar({ onClose }: Props) {
   const { t } = useI18n()
   const update = useUpdateCheck()
   const navigate = useNavigate()
+  const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
+  const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
+
+  useEffect(() => {
+    fetchUiSettings().catch(() => {})
+  }, [fetchUiSettings])
 
   function handleNavClick() {
     onClose?.()
@@ -43,6 +51,16 @@ export default function Sidebar({ onClose }: Props) {
       ),
       badge: unreadCount,
     },
+    ...(showServicesNav ? [{
+      to: '/services',
+      label: t('nav_services'),
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+            d="M13.828 10.172a4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1-1m-.656-4.656a4 4 0 015.656 0l3 3a4 4 0 01-5.656 5.656l-1-1M14 7h.01M10 7h.01M7 7h.01M17 7h.01" />
+        </svg>
+      ),
+    }] : []),
     {
       to: '/segments',
       label: t('nav_segments'),

@@ -17,7 +17,9 @@ interface Props {
 export default function RegisterDeviceModal({ device, onClose, onSaved }: Props) {
   const { t } = useI18n()
   const [label, setLabel] = useState(device?.label ?? '')
-  const [deviceClass, setDeviceClass] = useState(device?.device_class ?? 'Unknown')
+  const initialDeviceClass = device?.device_class ?? 'Unknown'
+  const [deviceClass, setDeviceClass] = useState(DEVICE_CLASSES.includes(initialDeviceClass) ? initialDeviceClass : 'Unknown')
+  const [customDeviceClass, setCustomDeviceClass] = useState(DEVICE_CLASSES.includes(initialDeviceClass) ? '' : initialDeviceClass)
   const [purpose, setPurpose] = useState(device?.purpose ?? '')
   const [location, setLocation] = useState(device?.location ?? '')
   const [passwordLocation, setPasswordLocation] = useState(device?.password_location ?? '')
@@ -32,7 +34,7 @@ export default function RegisterDeviceModal({ device, onClose, onSaved }: Props)
     try {
       const updated = await devicesApi.update(device!.id, {
         label: label.trim(),
-        device_class: deviceClass,
+        device_class: customDeviceClass.trim() || deviceClass,
         purpose: purpose.trim() || undefined,
         location: location.trim() || undefined,
         password_location: passwordLocation.trim() || undefined,
@@ -86,7 +88,7 @@ export default function RegisterDeviceModal({ device, onClose, onSaved }: Props)
             {DEVICE_CLASSES.map((cls) => (
               <button
                 key={cls}
-                onClick={() => setDeviceClass(cls)}
+                onClick={() => { setDeviceClass(cls); setCustomDeviceClass('') }}
                 className={`flex items-center gap-2 p-2.5 rounded-lg border text-xs font-medium transition-colors
                   ${deviceClass === cls
                     ? 'border-primary bg-primary-dim text-primary'
@@ -98,6 +100,12 @@ export default function RegisterDeviceModal({ device, onClose, onSaved }: Props)
               </button>
             ))}
           </div>
+          <Input
+            label={t('custom_device_class')}
+            placeholder={t('custom_device_class_placeholder')}
+            value={customDeviceClass}
+            onChange={(e) => setCustomDeviceClass(e.target.value)}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">

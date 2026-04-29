@@ -270,6 +270,87 @@ def migrate():
         else:
             print("Migration: devices.cmdb_id already exists — skipped")
 
+
+        # ── v1.4.4 ── IP history per device ──────────────────────────────────
+        if IS_SQLITE and not _table_exists(conn, "device_ip_history"):
+            conn.execute(text(
+                "CREATE TABLE device_ip_history ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "ip_address VARCHAR(45) NOT NULL, "
+                "first_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "seen_count INTEGER NOT NULL DEFAULT 1"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX ix_device_ip_history_device_ip "
+                "ON device_ip_history(device_id, ip_address)"
+            ))
+            conn.commit()
+            print("Migration: created device_ip_history")
+        elif not IS_SQLITE:
+            print("Migration: device_ip_history table — handled by create_all")
+        else:
+            print("Migration: device_ip_history already exists — skipped")
+
+        if IS_SQLITE:
+            conn.execute(text(
+                "INSERT OR IGNORE INTO device_ip_history "
+                "(device_id, ip_address, first_seen, last_seen, seen_count) "
+                "SELECT id, ip_address, COALESCE(first_seen, CURRENT_TIMESTAMP), "
+                "COALESCE(last_seen, CURRENT_TIMESTAMP), 1 "
+                "FROM devices WHERE ip_address IS NOT NULL"
+            ))
+        elif _table_exists(conn, "device_ip_history"):
+            conn.execute(text(
+                "INSERT INTO device_ip_history "
+                "(device_id, ip_address, first_seen, last_seen, seen_count) "
+                "SELECT d.id, d.ip_address, COALESCE(d.first_seen, CURRENT_TIMESTAMP), "
+                "COALESCE(d.last_seen, CURRENT_TIMESTAMP), 1 "
+                "FROM devices d "
+                "WHERE d.ip_address IS NOT NULL "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM device_ip_history h "
+                "WHERE h.device_id = d.id AND h.ip_address = d.ip_address"
+                ")"
+            ))
+        conn.commit()
+        print("Migration: backfilled device_ip_history from existing device IPs")
+
+
+        # ── v1.4.4 ── Service groups and custom service icons ───────────────
+        if IS_SQLITE and not _table_exists(conn, "service_groups"):
+            conn.execute(text(
+                "CREATE TABLE service_groups ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL UNIQUE, "
+                "color VARCHAR(16) DEFAULT '#6366f1', "
+                "sort_order INTEGER DEFAULT 0, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created service_groups")
+        elif not IS_SQLITE:
+            print("Migration: service_groups — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: service_groups already exists — skipped")
+
+        if not _column_exists(conn, "services", "icon_url"):
+            conn.execute(text("ALTER TABLE services ADD COLUMN icon_url VARCHAR(2048)"))
+            conn.commit()
+            print("Migration: added services.icon_url")
+        else:
+            print("Migration: services.icon_url already exists — skipped")
+
+        if not _column_exists(conn, "services", "service_group_id"):
+            conn.execute(text("ALTER TABLE services ADD COLUMN service_group_id INTEGER REFERENCES service_groups(id) ON DELETE SET NULL"))
+            conn.commit()
+            print("Migration: added services.service_group_id")
+        else:
+            print("Migration: services.service_group_id already exists — skipped")
+
         conn.commit()
 
 

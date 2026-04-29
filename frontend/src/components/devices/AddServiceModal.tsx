@@ -35,6 +35,7 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
   const [name, setName] = useState(editService?.name ?? '')
   const [serviceType, setServiceType] = useState<ServiceType>(editService?.service_type ?? 'web')
   const [iconKey, setIconKey] = useState(editService?.icon_key ?? '')
+  const [iconUrl, setIconUrl] = useState(editService?.icon_url ?? '')
   const [url, setUrl] = useState(editService?.url ?? '')
   const [port, setPort] = useState<string>(editService?.port?.toString() ?? '')
   const [protocol, setProtocol] = useState(editService?.protocol ?? 'https')
@@ -63,6 +64,7 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
       name: name.trim(),
       service_type: serviceType,
       icon_key: iconKey || undefined,
+      icon_url: iconUrl.trim() || undefined,
       url: url.trim() || undefined,
       port: port ? parseInt(port) : undefined,
       protocol,
@@ -149,6 +151,13 @@ export default function AddServiceModal({ deviceId, editService, onClose, onSave
             </select>
           </div>
         </div>
+
+        <Input
+          label={t('custom_icon_url')}
+          value={iconUrl}
+          onChange={(e) => setIconUrl(e.target.value)}
+          placeholder="https://example.com/icon.svg"
+        />
 
         {/* URL + port + protocol */}
         <div className="grid grid-cols-3 gap-3">

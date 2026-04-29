@@ -10,6 +10,7 @@ import Notifications from './pages/Notifications'
 import DeepScanSettings from './pages/DeepScanSettings'
 import Segments from './pages/Segments'
 import Settings from './pages/Settings'
+import Services from './pages/Services'
 import { useAuthStore } from './store/authStore'
 import { useNotificationStore } from './store/notificationStore'
 import { I18nProvider } from './i18n'
@@ -94,6 +95,7 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="devices/:id" element={<DeviceDetail />} />
               <Route path="segments" element={<Segments />} />
+              <Route path="services" element={<Services />} />
               <Route path="settings" element={<Settings />} />
               <Route path="deep-scan-settings" element={<DeepScanSettings />} />
               <Route path="notifications" element={<Notifications />} />

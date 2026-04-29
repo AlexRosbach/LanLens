@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.4.3-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.4.4-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -18,32 +18,17 @@ Thanks to everyone helping shape LanLens, including community contributions that
 
 </div>
 
-> [!IMPORTANT]
-> ## 🎉 LanLens 1.4.3 is here, and the latest release is ready
-> The new version brings major improvements across deep scan, hypervisor visibility, translations, UI polish, and settings behavior.
->
-> ### Please read before updating
-> This release includes **database-related changes**. A backup before updating is **strongly recommended** and should be treated as mandatory for productive setups.
->
-> **Recommended update flow:**
-> 1. Create a full backup of your LanLens database before pulling the new image.
-> 2. Only then update to `1.4.3`.
-> 3. Verify login, devices, segments, credentials, and deep-scan settings after startup.
->
-> If you are running SQLite, back up the `.db` file first. If you are running MariaDB/MySQL, create a dump before the update.
-
-
 ---
 
 ## Features
 
 
 - Automatic LAN discovery via ARP scan
-- Device classification and offline MAC vendor lookup
+- Device classification, custom device classes, and offline MAC vendor lookup
 - DHCP badge detection
 - Segments with colour, range, and IP usage
-- Per-device documentation fields
-- Service inventory per device
+- Per-device documentation fields, IP history, and manual offline-device status re-checks
+- Service inventory per device, plus optional Services directory page with user-managed segments, drag-and-drop grouping, explicit segment dropdown assignment, and custom icon URLs
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap
 - **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory
@@ -184,7 +169,7 @@ PyMySQL>=1.1.0
 ```yaml
 services:
   lanlens:
-    image: ghcr.io/alexrosbach/lanlens:latest
+    image: alexrosbach/lanlens:latest
     environment:
       DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens
       SECRET_KEY: your-secret-key-here
@@ -322,7 +307,8 @@ Database migrations run automatically on container start.
 
 ## Releases
 
-- Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
+- Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
+- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.4.4` for this release.
 - GitHub releases should be maintained for release-based update checks and Telegram update notifications
 - Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
 

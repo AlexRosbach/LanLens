@@ -2,6 +2,24 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.4.4 — Network discovery stability improvements
+
+### Bug Fixes
+- Fixed false offline status changes caused by single missed ARP replies during scheduled discovery.
+- Devices now remain online until they have been absent for a grace period derived from the configured scan interval, with a minimum of 15 minutes.
+
+### New Features
+- Added manual device status re-checks for offline devices from Device Detail.
+- Added per-device IP history based on MAC address so previous addresses remain visible in Device Detail.
+- Added optional Services navigation with a Services directory page for opening configured device services directly.
+- Added Service segments so users can create/manage groupings, drag services into them, or use an explicit segment dropdown per service card for reliable mobile/touch assignment.
+- Added custom service icon URLs; official brand logos are not bundled by default because individual logos may have brand/trademark restrictions despite Simple Icons being CC0 as a package.
+- Split Settings into a tabbed sub-navigation for System, Database, Network Discovery and Notifications.
+- Docker Hub images are published as `alexrosbach/lanlens:latest` and `alexrosbach/lanlens:1.4.4`.
+- Dashboard device table now sorts by IP address by default.
+- Added `Apple Workstation` as a device class and enabled custom device classes in registration/detail editing.
+- Consolidated the dashboard `Unregistered` counter with `New` device semantics so both show the same user-visible state.
+
 ## v1.4.3 — Windows deep scan readability and audit cleanup
 
 ### Improvements

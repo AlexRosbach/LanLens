@@ -25,6 +25,7 @@ export interface AllSettings {
   smtp_use_tls: boolean
   cmdb_id_prefix: string
   cmdb_id_digits: number
+  show_services_nav: boolean
 }
 
 export interface UpdateCheckResponse {
@@ -65,6 +66,9 @@ export const settingsApi = {
 
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),
+
+  updateUi: (show_services_nav: boolean) =>
+    apiClient.put('/settings/ui', { show_services_nav }).then((r) => r.data),
 
   updateSmtp: (data: {
     smtp_host: string

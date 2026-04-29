@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import Device, Service, User
-from ..schemas import MessageResponse, ServiceCreate, ServiceResponse, ServiceUpdate
+from ..models import Device, Service, ServiceGroup, User
+from ..schemas import MessageResponse, ServiceCreate, ServiceGroupCreate, ServiceGroupResponse, ServiceGroupUpdate, ServiceResponse, ServiceUpdate
 
 router = APIRouter(prefix="/api/devices/{device_id}/services", tags=["services"])
+global_router = APIRouter(prefix="/api/services", tags=["services"])
 
 
 def _get_device_or_404(device_id: int, db: Session) -> Device:
@@ -100,3 +101,91 @@ def delete_service(
     db.delete(service)
     db.commit()
     return MessageResponse(message="Service deleted")
+
+
+@global_router.get("")
+def list_all_services(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rows = (
+        db.query(Service, Device)
+        .join(Device, Service.device_id == Device.id)
+        .order_by(Service.name, Device.label, Device.hostname, Device.ip_address)
+        .all()
+    )
+    return [
+        {
+            "id": service.id,
+            "device_id": service.device_id,
+            "name": service.name,
+            "service_type": service.service_type,
+            "icon_key": service.icon_key,
+            "icon_url": service.icon_url,
+            "service_group_id": service.service_group_id,
+            "service_group_name": service.service_group.name if service.service_group else None,
+            "service_group_color": service.service_group.color if service.service_group else None,
+            "url": service.url,
+            "port": service.port,
+            "protocol": service.protocol,
+            "description": service.description,
+            "version": service.version,
+            "device_label": device.label or device.hostname or device.mac_address,
+            "device_ip": device.ip_address,
+            "device_class": device.device_class,
+        }
+        for service, device in rows
+    ]
+
+
+@global_router.get("/groups", response_model=List[ServiceGroupResponse])
+def list_service_groups(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    return db.query(ServiceGroup).order_by(ServiceGroup.sort_order, ServiceGroup.name).all()
+
+
+@global_router.post("/groups", response_model=ServiceGroupResponse, status_code=201)
+def create_service_group(
+    data: ServiceGroupCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    group = ServiceGroup(**data.model_dump())
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    return group
+
+
+@global_router.put("/groups/{group_id}", response_model=ServiceGroupResponse)
+def update_service_group(
+    group_id: int,
+    data: ServiceGroupUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    group = db.query(ServiceGroup).filter(ServiceGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Service group not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(group, field, value)
+    db.commit()
+    db.refresh(group)
+    return group
+
+
+@global_router.delete("/groups/{group_id}", response_model=MessageResponse)
+def delete_service_group(
+    group_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    group = db.query(ServiceGroup).filter(ServiceGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Service group not found")
+    db.query(Service).filter(Service.service_group_id == group_id).update({"service_group_id": None})
+    db.delete(group)
+    db.commit()
+    return MessageResponse(message="Service group deleted")
