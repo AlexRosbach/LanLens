@@ -112,13 +112,29 @@ export default function Services() {
     setDragOverSection(null)
     if (!service) return
 
-    const nextGroupId = sectionId === 'ungrouped' ? null : Number(sectionId)
+    await moveServiceToGroup(service, sectionId === 'ungrouped' ? null : Number(sectionId))
+  }
+
+  async function moveServiceToGroup(service: ServiceDirectoryItem, nextGroupId: number | null) {
     if (service.service_group_id === nextGroupId) return
+
+    const previousServices = services
+    setServices((current) => current.map((item) => (
+      item.id === service.id
+        ? {
+            ...item,
+            service_group_id: nextGroupId,
+            service_group_name: nextGroupId == null ? null : groups.find((group) => group.id === nextGroupId)?.name ?? item.service_group_name,
+            service_group_color: nextGroupId == null ? null : groups.find((group) => group.id === nextGroupId)?.color ?? item.service_group_color,
+          }
+        : item
+    )))
 
     try {
       await servicesApi.update(service.device_id, service.id, { service_group_id: nextGroupId })
       await load()
     } catch {
+      setServices(previousServices)
       toast.error(t('failed_to_save_service'))
     }
   }
@@ -216,6 +232,24 @@ export default function Services() {
                             </div>
                           </div>
                           {service.description && <p className="text-sm text-text-muted line-clamp-2">{service.description}</p>}
+                          <div className="flex items-center gap-2 pt-2 border-t border-border">
+                            <label className="text-xs text-text-subtle" htmlFor={`service-group-${service.id}`}>
+                              {t('segments')}
+                            </label>
+                            <select
+                              id={`service-group-${service.id}`}
+                              className="input-field h-8 text-xs flex-1 min-w-0"
+                              value={service.service_group_id ?? 'ungrouped'}
+                              onChange={(e) => moveServiceToGroup(service, e.target.value === 'ungrouped' ? null : Number(e.target.value))}
+                              onClick={(e) => e.stopPropagation()}
+                              onDragStart={(e) => e.preventDefault()}
+                            >
+                              <option value="ungrouped">{t('service_segment_ungrouped')}</option>
+                              {groups.map((group) => (
+                                <option key={group.id} value={group.id}>{group.name}</option>
+                              ))}
+                            </select>
+                          </div>
                           <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
                             <Link to={`/devices/${service.device_id}`} className="text-xs text-text-subtle hover:text-primary">{service.device_ip ?? t('ip_address')} →</Link>
                             {href && <a href={href} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:text-primary/80">{t('open_service')} →</a>}
