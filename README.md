@@ -28,7 +28,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - DHCP badge detection
 - Segments with colour, range, and IP usage
 - Per-device documentation fields, IP history, and manual offline-device status re-checks
-- Service inventory per device, plus optional Services directory page with user-managed segments and custom icon URLs
+- Service inventory per device, plus optional Services directory page with user-managed segments, drag-and-drop grouping, explicit segment dropdown assignment, and custom icon URLs
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap
 - **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory
@@ -169,7 +169,7 @@ PyMySQL>=1.1.0
 ```yaml
 services:
   lanlens:
-    image: ghcr.io/alexrosbach/lanlens:latest
+    image: alexrosbach/lanlens:latest
     environment:
       DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens
       SECRET_KEY: your-secret-key-here
@@ -307,7 +307,8 @@ Database migrations run automatically on container start.
 
 ## Releases
 
-- Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
+- Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
+- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.4.4` for this release.
 - GitHub releases should be maintained for release-based update checks and Telegram update notifications
 - Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
 

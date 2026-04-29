@@ -28,6 +28,7 @@ LanLens is a single-container Docker application that:
 - Classifies devices heuristically (Server, VM, IoT, Router, etc.)
 - Performs per-device port scans using nmap
 - Provides a React-based dark-themed web UI for management
+- Documents device services and groups them in the optional Services directory via drag-and-drop or explicit segment selection
 - Sends Telegram notifications for newly discovered devices
 - Supports SSH link, RDP file download, and web browser connection
 
@@ -84,7 +85,7 @@ backend/
 frontend/
   src/
     api/            Axios-based typed API clients per domain
-    store/          Zustand state stores (auth, devices)
+    store/          Zustand state stores (auth, devices, UI settings)
     components/
       ui/           Button, Input, Modal, Badge, Card, Spinner
       layout/       Sidebar, TopBar, Layout
@@ -487,6 +488,7 @@ Creates the `admin` user with the default password if no users exist in the data
 |-------|---------|
 | `authStore` | JWT token, user object, login/logout/refresh actions |
 | `deviceStore` | Device list, stats (total/online/offline/unregistered), fetchDevices |
+| `uiSettingsStore` | Shared UI preferences such as Services navigation visibility |
 
 ### Route Guards
 
@@ -503,6 +505,17 @@ The `TopBar` polls `GET /api/scan/status` every 2 seconds while a scan is runnin
 ---
 
 ## Configuration Reference
+
+### Docker images
+
+LanLens images are published on Docker Hub:
+
+```text
+alexrosbach/lanlens:latest
+alexrosbach/lanlens:1.4.4
+```
+
+Use `latest` for the newest build or pin the release tag for reproducible deployments.
 
 ### docker-compose.yml Environment Variables
 
