@@ -24,6 +24,7 @@ from ..schemas import (
 from ..services.notification import send_test_message, send_update_notification
 from ..services.scheduler import update_interval
 from ..services.scanner import _detect_host_network, _network_host_bounds
+from ..services.settings_helpers import get_scan_interval_minutes
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -102,10 +103,7 @@ async def _fetch_latest_release_info() -> tuple[str, str]:
 
 @router.get("", response_model=AllSettings)
 def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    try:
-        interval_minutes = int(_get(db, "scan_interval_minutes", "5") or "5")
-    except (ValueError, TypeError):
-        interval_minutes = 5
+    interval_minutes = get_scan_interval_minutes(db)
 
     dhcp_start = _get(db, "dhcp_start", "192.168.1.1")
     dhcp_end = _get(db, "dhcp_end", "192.168.1.254")

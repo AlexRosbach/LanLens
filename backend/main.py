@@ -7,10 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings  # validates SECRET_KEY on import — must be first
 from .database import SessionLocal
-from .models import Setting, TokenBlacklist
+from .models import TokenBlacklist
 from .routers import admin, auth, auto_scan_rules, connect, credentials, deep_scan, devices, notifications, scan, segments, services
 from .routers import settings as settings_router
 from .services import deep_scan_scheduler, scheduler
+from .services.settings_helpers import get_scan_interval_minutes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,11 +63,7 @@ def _cleanup_expired_tokens(db_session) -> None:
 async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
-        row = db.query(Setting).filter(Setting.key == "scan_interval_minutes").first()
-        try:
-            interval = int(row.value) if row and row.value else 5
-        except (ValueError, TypeError):
-            interval = 5
+        interval = get_scan_interval_minutes(db)
         _cleanup_expired_tokens(db)
     finally:
         db.close()

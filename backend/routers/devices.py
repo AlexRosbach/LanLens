@@ -145,6 +145,7 @@ def _device_to_response(
     host_labels: Optional[dict] = None,
     segment_ranges: Optional[List[SegmentRange]] = None,
     include_ip_history: bool = False,
+    db: Optional[Session] = None,
 ) -> DeviceResponse:
     from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
@@ -154,8 +155,15 @@ def _device_to_response(
     matched_segment = _get_matching_segment(device.ip_address, segment_ranges or [])
 
     ip_history = []
-    if include_ip_history:
-        ip_history = [DeviceIpHistoryResponse.model_validate(entry) for entry in device.ip_history[:10]]
+    if include_ip_history and db is not None:
+        latest_ip_history = (
+            db.query(DeviceIpHistory)
+            .filter(DeviceIpHistory.device_id == device.id)
+            .order_by(DeviceIpHistory.last_seen.desc())
+            .limit(10)
+            .all()
+        )
+        ip_history = [DeviceIpHistoryResponse.model_validate(entry) for entry in latest_ip_history]
 
     return DeviceResponse(
         id=device.id,
@@ -441,7 +449,7 @@ def get_device(
             else:
                 host_labels[device_id] = f"Host #{host_rel.host_device_id}"
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
-    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segment_ranges, include_ip_history=True)
+    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segment_ranges, include_ip_history=True, db=db)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)
@@ -540,7 +548,7 @@ async def refresh_device_status(
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
-    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True)
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
 
 
 @router.post("/{device_id}/mark-viewed", response_model=MessageResponse)

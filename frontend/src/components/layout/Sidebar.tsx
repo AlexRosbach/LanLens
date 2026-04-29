@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { withBasePath } from '../../utils/basePath'
 import { useDeviceStore } from '../../store/deviceStore'
@@ -6,7 +6,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useI18n } from '../../i18n'
 import { APP_VERSION, GITHUB_REPO } from '../../version'
 import { dismissUpdate, useUpdateCheck } from '../../hooks/useUpdateCheck'
-import { settingsApi } from '../../api/settings'
+import { useUiSettingsStore } from '../../store/uiSettingsStore'
 
 interface Props {
   onClose?: () => void
@@ -18,11 +18,12 @@ export default function Sidebar({ onClose }: Props) {
   const { t } = useI18n()
   const update = useUpdateCheck()
   const navigate = useNavigate()
-  const [showServicesNav, setShowServicesNav] = useState(false)
+  const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
+  const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
 
   useEffect(() => {
-    settingsApi.get().then((s) => setShowServicesNav(s.show_services_nav)).catch(() => {})
-  }, [])
+    fetchUiSettings().catch(() => {})
+  }, [fetchUiSettings])
 
   function handleNavClick() {
     onClose?.()

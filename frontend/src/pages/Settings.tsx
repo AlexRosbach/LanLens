@@ -7,6 +7,7 @@ import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { adminApi } from '../api/admin'
 import { useI18n } from '../i18n'
+import { useUiSettingsStore } from '../store/uiSettingsStore'
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -26,10 +27,12 @@ export default function Settings() {
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications'>('system')
+  const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
 
   useEffect(() => {
     settingsApi.get().then((data) => {
       setSettings(data)
+      setShowServicesNav(data.show_services_nav)
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
@@ -212,7 +215,10 @@ export default function Settings() {
     try {
       const result = await adminApi.importSettings(file)
       toast.success(result.data.message || t('settings_imported'))
-      settingsApi.get().then(setSettings)
+      settingsApi.get().then((data) => {
+        setSettings(data)
+        setShowServicesNav(data.show_services_nav)
+      })
     } catch {
       toast.error(t('import_failed'))
     }
@@ -235,6 +241,7 @@ export default function Settings() {
     setSaving(true)
     try {
       await settingsApi.updateUi(current.show_services_nav)
+      setShowServicesNav(current.show_services_nav)
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))

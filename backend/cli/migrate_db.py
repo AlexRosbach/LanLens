@@ -287,6 +287,14 @@ def migrate():
                 "CREATE UNIQUE INDEX ix_device_ip_history_device_ip "
                 "ON device_ip_history(device_id, ip_address)"
             ))
+            conn.commit()
+            print("Migration: created device_ip_history")
+        elif not IS_SQLITE:
+            print("Migration: device_ip_history table — handled by create_all")
+        else:
+            print("Migration: device_ip_history already exists — skipped")
+
+        if IS_SQLITE:
             conn.execute(text(
                 "INSERT OR IGNORE INTO device_ip_history "
                 "(device_id, ip_address, first_seen, last_seen, seen_count) "
@@ -294,12 +302,21 @@ def migrate():
                 "COALESCE(last_seen, CURRENT_TIMESTAMP), 1 "
                 "FROM devices WHERE ip_address IS NOT NULL"
             ))
-            conn.commit()
-            print("Migration: created device_ip_history")
-        elif not IS_SQLITE:
-            print("Migration: device_ip_history — skipped (non-SQLite, handled by create_all)")
-        else:
-            print("Migration: device_ip_history already exists — skipped")
+        elif _table_exists(conn, "device_ip_history"):
+            conn.execute(text(
+                "INSERT INTO device_ip_history "
+                "(device_id, ip_address, first_seen, last_seen, seen_count) "
+                "SELECT d.id, d.ip_address, COALESCE(d.first_seen, CURRENT_TIMESTAMP), "
+                "COALESCE(d.last_seen, CURRENT_TIMESTAMP), 1 "
+                "FROM devices d "
+                "WHERE d.ip_address IS NOT NULL "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM device_ip_history h "
+                "WHERE h.device_id = d.id AND h.ip_address = d.ip_address"
+                ")"
+            ))
+        conn.commit()
+        print("Migration: backfilled device_ip_history from existing device IPs")
 
 
         # ── v1.4.4 ── Service groups and custom service icons ───────────────

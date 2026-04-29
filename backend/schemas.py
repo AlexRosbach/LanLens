@@ -42,8 +42,6 @@ class ServiceCreate(BaseModel):
     icon_key: Optional[str] = None
     icon_url: Optional[str] = None
     service_group_id: Optional[int] = None
-    icon_url: Optional[str] = None
-    service_group_id: Optional[int] = None
     url: Optional[str] = None
     port: Optional[int] = None
     protocol: str = "https"
@@ -59,6 +57,8 @@ class ServiceUpdate(BaseModel):
     name: Optional[str] = None
     service_type: Optional[str] = None
     icon_key: Optional[str] = None
+    icon_url: Optional[str] = None
+    service_group_id: Optional[int] = None
     url: Optional[str] = None
     port: Optional[int] = None
     protocol: Optional[str] = None

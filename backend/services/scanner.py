@@ -18,6 +18,7 @@ from ..models import Device, DeviceIpHistory, Notification, ScanRun, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification
+from .settings_helpers import get_scan_interval_minutes
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +123,7 @@ def _summarize_range(start: str, end: str) -> List[str]:
 
 
 def _get_offline_grace_period(db: Session) -> timedelta:
-    interval_row = _get_setting_row(db, "scan_interval_minutes")
-    try:
-        interval_minutes = int(interval_row.value) if interval_row and interval_row.value else 5
-    except (TypeError, ValueError):
-        interval_minutes = 5
-
+    interval_minutes = get_scan_interval_minutes(db)
     grace_minutes = max(MIN_OFFLINE_GRACE_MINUTES, interval_minutes * MISSED_SCAN_MULTIPLIER)
     return timedelta(minutes=grace_minutes)
 
@@ -135,23 +131,52 @@ def _get_offline_grace_period(db: Session) -> timedelta:
 def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Optional[datetime] = None) -> None:
     if not ip:
         return
+
     observed_at = seen_at or datetime.utcnow()
-    row = (
+    values = {
+        "device_id": device.id,
+        "ip_address": ip,
+        "first_seen": observed_at,
+        "last_seen": observed_at,
+        "seen_count": 1,
+    }
+    dialect = db.bind.dialect.name if db.bind is not None else ""
+
+    if dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        stmt = sqlite_insert(DeviceIpHistory).values(**values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["device_id", "ip_address"],
+            set_={
+                "last_seen": observed_at,
+                "seen_count": DeviceIpHistory.seen_count + 1,
+            },
+        )
+        db.execute(stmt)
+        return
+
+    if dialect in {"mysql", "mariadb"}:
+        from sqlalchemy.dialects.mysql import insert as mysql_insert
+
+        stmt = mysql_insert(DeviceIpHistory).values(**values)
+        stmt = stmt.on_duplicate_key_update(
+            last_seen=observed_at,
+            seen_count=DeviceIpHistory.seen_count + 1,
+        )
+        db.execute(stmt)
+        return
+
+    existing = (
         db.query(DeviceIpHistory)
         .filter(DeviceIpHistory.device_id == device.id, DeviceIpHistory.ip_address == ip)
         .first()
     )
-    if row:
-        row.last_seen = observed_at
-        row.seen_count = (row.seen_count or 0) + 1
+    if existing:
+        existing.last_seen = observed_at
+        existing.seen_count = (existing.seen_count or 0) + 1
     else:
-        db.add(DeviceIpHistory(
-            device_id=device.id,
-            ip_address=ip,
-            first_seen=observed_at,
-            last_seen=observed_at,
-            seen_count=1,
-        ))
+        db.add(DeviceIpHistory(**values))
 
 
 def _derive_scan_targets(db: Session) -> tuple[List[str], str, str, str]:
@@ -269,7 +294,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         # Mark absent devices as offline only after a grace period.
         # A single missed ARP reply should not immediately flip stable devices offline.
         devices_offline = 0
-        offline_cutoff = datetime.utcnow() - _get_offline_grace_period(db)
+        scan_reference_time = scan_run.started_at or datetime.utcnow()
+        offline_cutoff = scan_reference_time - _get_offline_grace_period(db)
         for mac_addr, device in existing_devices.items():
             if mac_addr in found_macs or not device.is_online:
                 continue
