@@ -104,7 +104,7 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
     for target in targets:
         try:
             completed = subprocess.run(
-                ["nmap", "-sn", "-oX", "-", target],
+                ["nmap", "-sn", "-n", "-oX", "-", target],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -181,6 +181,16 @@ def _parse_additional_scan_targets(value: Optional[str]) -> List[str]:
         if target not in targets:
             targets.append(target)
     return targets
+
+
+def _dedupe_discovery_results(results: List[DiscoveryResult]) -> List[DiscoveryResult]:
+    """Deduplicate discoveries by IP, preferring entries with real MAC addresses."""
+    by_ip: dict[str, DiscoveryResult] = {}
+    for result in results:
+        existing = by_ip.get(result.ip)
+        if existing is None or (not existing.mac and result.mac):
+            by_ip[result.ip] = result
+    return list(by_ip.values())
 
 
 def _get_hostname(ip: str) -> Optional[str]:
@@ -298,11 +308,12 @@ def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Opti
 def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
     start_row = _get_setting_row(db, "scan_start")
     end_row = _get_setting_row(db, "scan_end")
+    additional_targets_row = _get_setting_row(db, "scan_additional_targets")
+    routed_targets = _parse_additional_scan_targets(additional_targets_row.value if additional_targets_row else "")
 
     if start_row and end_row and start_row.value and end_row.value:
         try:
             arp_targets = _summarize_range(start_row.value, end_row.value)
-            routed_targets = _parse_additional_scan_targets(_get_setting_row(db, "scan_additional_targets").value if _get_setting_row(db, "scan_additional_targets") else "")
             return arp_targets, routed_targets, start_row.value, end_row.value, "configured"
         except Exception as e:
             logger.warning(f"Configured scan range invalid, ignoring it: {e}")
@@ -312,7 +323,6 @@ def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, s
             ipaddress.IPv4Address(start_row.value)
             network = ipaddress.IPv4Network(f"{start_row.value}/24", strict=False)
             start, end = _network_host_bounds(network)
-            routed_targets = _parse_additional_scan_targets(_get_setting_row(db, "scan_additional_targets").value if _get_setting_row(db, "scan_additional_targets") else "")
             return [str(network)], routed_targets, start, end, "configured-start-/24"
         except Exception as e:
             logger.warning(f"Configured scan_start is invalid, ignoring it: {e}")
@@ -320,14 +330,12 @@ def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, s
     detected = _detect_host_network()
     if detected:
         start, end = _network_host_bounds(detected)
-        routed_targets = _parse_additional_scan_targets(_get_setting_row(db, "scan_additional_targets").value if _get_setting_row(db, "scan_additional_targets") else "")
         return [str(detected)], routed_targets, start, end, "auto-detected"
 
     fallback_targets = _summarize_range(DEFAULT_SCAN_START, DEFAULT_SCAN_END)
     logger.warning(
         "No valid configured scan range and auto-detection failed, falling back to 192.168.1.1-192.168.1.254"
     )
-    routed_targets = _parse_additional_scan_targets(_get_setting_row(db, "scan_additional_targets").value if _get_setting_row(db, "scan_additional_targets") else "")
     return fallback_targets, routed_targets, DEFAULT_SCAN_START, DEFAULT_SCAN_END, "fallback"
 
 
@@ -357,6 +365,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             logger.info(f"Starting routed nmap ping scan via targets: {', '.join(routed_scan_targets)}")
             routed_results = await asyncio.get_event_loop().run_in_executor(None, _nmap_ping_scan, routed_scan_targets)
             results.extend(routed_results)
+        results = _dedupe_discovery_results(results)
         logger.info(f"Network scan found {len(results)} hosts")
 
         # Pre-load all known devices to avoid N+1 queries
@@ -364,8 +373,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         existing_devices: Dict[str, Device] = {
             d.mac_address: d for d in all_devices if d.mac_address
         }
-        existing_ip_only_devices: Dict[str, Device] = {
-            d.ip_address: d for d in all_devices if d.ip_address and _is_ip_only_identifier(d.mac_address)
+        existing_devices_by_ip: Dict[str, Device] = {
+            d.ip_address: d for d in all_devices if d.ip_address
         }
 
         found_macs = set()
@@ -373,15 +382,15 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
 
         for result in results:
             ip = result.ip
-            mac_normalized = result.mac or _pseudo_mac_for_ip(ip)
+            existing = existing_devices.get(result.mac) if result.mac else existing_devices_by_ip.get(ip)
+            mac_normalized = result.mac or (existing.mac_address if existing and existing.mac_address else _pseudo_mac_for_ip(ip))
             found_macs.add(mac_normalized)
 
             vendor = None if _is_ip_only_identifier(mac_normalized) else lookup_vendor(mac_normalized)
             hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, ip)
 
-            existing = existing_devices.get(mac_normalized)
-            if existing is None and _is_ip_only_identifier(mac_normalized):
-                existing = existing_ip_only_devices.get(ip)
+            if existing is None:
+                existing = existing_devices.get(mac_normalized)
 
             seen_at = datetime.utcnow()
 
@@ -402,8 +411,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 db.flush()
                 record_device_ip_history(db, new_device, ip, seen_at)
                 existing_devices[mac_normalized] = new_device
-                if _is_ip_only_identifier(mac_normalized):
-                    existing_ip_only_devices[ip] = new_device
+                existing_devices_by_ip[ip] = new_device
                 devices_new += 1
 
                 notification = Notification(

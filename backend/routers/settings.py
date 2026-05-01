@@ -191,7 +191,7 @@ def update_scan_range(
         raise HTTPException(status_code=400, detail="Scan start must be less than or equal to scan end")
 
     try:
-        additional_targets = ",\n".join(_parse_additional_scan_targets(data.scan_additional_targets or ""))
+        additional_targets = "\n".join(_parse_additional_scan_targets(data.scan_additional_targets or ""))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
