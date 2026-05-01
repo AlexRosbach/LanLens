@@ -270,6 +270,7 @@ class DhcpSettings(BaseModel):
 class ScanRangeSettings(BaseModel):
     scan_start: str
     scan_end: str
+    scan_additional_targets: Optional[str] = ""
 
 
 class ScanScheduleSettings(BaseModel):
@@ -308,6 +309,7 @@ class AllSettings(BaseModel):
     dhcp_end: Optional[str] = "192.168.1.254"
     scan_start: Optional[str] = "192.168.1.1"
     scan_end: Optional[str] = "192.168.1.254"
+    scan_additional_targets: Optional[str] = ""
     scan_interval_minutes: int = 5
     port_scan_range: str = "top:1000"
     telegram_bot_token: Optional[str] = ""

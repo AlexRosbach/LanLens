@@ -42,10 +42,11 @@ async def send_telegram_for_notification(db: Session, notification: Notification
         link_line = ""
         if server_url and device.id:
             link_line = f'\n\n<a href="{server_url}/devices/{device.id}">Open in LanLens →</a>'
+        mac_label = "IP-only discovery" if device.mac_address and device.mac_address.startswith("ip:") else device.mac_address
         text = (
             f"<b>LanLens — New Device Detected</b>\n\n"
             f"<b>IP:</b> {device.ip_address or 'unknown'}\n"
-            f"<b>MAC:</b> <code>{device.mac_address}</code>\n"
+            f"<b>MAC:</b> <code>{mac_label or '—'}</code>\n"
             f"<b>Vendor:</b> {device.vendor or 'Unknown'}\n"
             f"<b>Class:</b> {device.device_class}\n"
             f"<b>Hostname:</b> {device.hostname or '—'}"
