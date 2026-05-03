@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/idoit", tags=["idoit"])
 class IdoitConfigPayload(BaseModel):
     idoit_enabled: Optional[bool] = None
     idoit_base_url: Optional[str] = None
+    idoit_jsonrpc_path: Optional[str] = None
     idoit_api_key: Optional[str] = None
     idoit_timeout_seconds: Optional[int] = None
     idoit_default_object_type: Optional[str] = None
@@ -36,6 +37,7 @@ def _config_response(db: Session) -> dict[str, Any]:
     return {
         "idoit_enabled": cfg.enabled,
         "idoit_base_url": cfg.base_url,
+        "idoit_jsonrpc_path": cfg.jsonrpc_path,
         "idoit_api_key_configured": bool(cfg.api_key),
         "idoit_timeout_seconds": cfg.timeout_seconds,
         "idoit_default_object_type": cfg.default_object_type,

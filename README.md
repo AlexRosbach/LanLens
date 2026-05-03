@@ -324,7 +324,7 @@ Database migrations run automatically on container start.
 
 LanLens 1.5.0 starts the one-way i-doit integration: LanLens is the source of truth, i-doit is the target. The first safe workflow is:
 
-1. Configure the i-doit base URL and API key in the `/api/idoit/config` API.
+1. Configure the i-doit base URL, JSON-RPC path and API key in the `/api/idoit/config` API.
 2. Choose the writable i-doit field used for LanLens sync/reference/status metadata (`idoit_sync_status_field`).
 3. Import or edit the mapping JSON.
 4. Run `POST /api/idoit/test-connection`.
@@ -332,7 +332,7 @@ LanLens 1.5.0 starts the one-way i-doit integration: LanLens is the source of tr
 6. Run `POST /api/idoit/devices/{device_id}/dry-run` before any real sync.
 7. Use `POST /api/idoit/devices/{device_id}/sync` only after the preview looks correct.
 
-The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL and API key. Cloud installations may still differ in URL, enabled modules, token creation flow, and user permissions.
+The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL, JSON-RPC path and API key. On-prem deployments can keep the default `/src/jsonrpc.php` path or set a custom reverse-proxy path; Cloud installations may differ in URL, enabled modules, token creation flow, and user permissions.
 
 Recommended i-doit permissions: create/update only the object types and categories you want LanLens to manage. Avoid administrator-wide tokens for routine sync.
 

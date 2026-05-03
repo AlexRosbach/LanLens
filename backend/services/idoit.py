@@ -40,6 +40,7 @@ DEFAULT_MAPPING = {
 SETTING_DEFAULTS = {
     "idoit_enabled": "false",
     "idoit_base_url": "",
+    "idoit_jsonrpc_path": "/src/jsonrpc.php",
     "idoit_api_key": "",
     "idoit_timeout_seconds": "15",
     "idoit_default_object_type": "C__OBJTYPE__SERVER",
@@ -53,12 +54,29 @@ SETTING_DEFAULTS = {
 class IdoitConfig:
     enabled: bool
     base_url: str
+    jsonrpc_path: str
     api_key: str
     timeout_seconds: int
     default_object_type: str
     auto_sync_enabled: bool
     sync_status_field: str
     mapping: dict[str, Any]
+
+
+def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php") -> str:
+    """Build the i-doit JSON-RPC endpoint for Cloud and on-prem installs.
+
+    Cloud and on-prem both speak JSON-RPC, but on-prem deployments often sit
+    behind a reverse proxy or custom sub-path. If base_url already points to
+    jsonrpc.php, keep it as-is; otherwise append the configured path.
+    """
+    base = (base_url or "").rstrip("/")
+    path = (jsonrpc_path or "/src/jsonrpc.php").strip()
+    if base.endswith("jsonrpc.php"):
+        return base
+    if not path.startswith("/"):
+        path = "/" + path
+    return base + path
 
 
 def _get_setting(db: Session, key: str) -> str:
@@ -87,6 +105,7 @@ def get_config(db: Session) -> IdoitConfig:
     return IdoitConfig(
         enabled=_get_setting(db, "idoit_enabled") == "true",
         base_url=(_get_setting(db, "idoit_base_url") or "").rstrip("/"),
+        jsonrpc_path=_get_setting(db, "idoit_jsonrpc_path") or "/src/jsonrpc.php",
         api_key=_get_setting(db, "idoit_api_key"),
         timeout_seconds=timeout,
         default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__SERVER",
@@ -190,9 +209,7 @@ def log_sync(db: Session, device_id: Optional[int], mode: str, result: str, mess
 class IdoitClient:
     def __init__(self, config: IdoitConfig):
         self.config = config
-        self.endpoint = config.base_url.rstrip("/")
-        if not self.endpoint.endswith("jsonrpc.php"):
-            self.endpoint = self.endpoint + "/src/jsonrpc.php"
+        self.endpoint = build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path)
         self._session_id: Optional[str] = None
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
