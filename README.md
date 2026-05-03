@@ -12,6 +12,10 @@
 
 LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, and connect to them.
 
+> [!IMPORTANT]
+> LanLens is intended exclusively for use in your own network or in networks where you have explicit permission to scan and monitor devices.
+> Features such as network discovery and port scanning can be misused against third-party systems. You are responsible for complying with applicable laws, policies, and authorization requirements. The project maintainer cannot be held liable for misuse or unauthorized scanning performed with this tool.
+
 ### Contributors
 
 Thanks to everyone helping shape LanLens, including community contributions that improved translations, UX consistency, and release polish.
