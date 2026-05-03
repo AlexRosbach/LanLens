@@ -41,6 +41,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
   const { t, lang } = useI18n()
   const [sortKey, setSortKey] = useState<SortKey>('ip')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const ipOnlyHostLabel = t('ip_only_host')
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -56,7 +57,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
     return [...list].sort((a, b) => {
       switch (sortKey) {
         case 'device':
-          return sign * formatDeviceLabel(a).localeCompare(formatDeviceLabel(b))
+          return sign * formatDeviceLabel(a, ipOnlyHostLabel).localeCompare(formatDeviceLabel(b, ipOnlyHostLabel))
         case 'ip':
           return sign * (ipToInt(a.ip_address) - ipToInt(b.ip_address))
         case 'vendor':
@@ -133,7 +134,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="font-medium text-text-base leading-tight truncate">
-                          {formatDeviceLabel(device)}
+                          {formatDeviceLabel(device, ipOnlyHostLabel)}
                         </p>
                         {isNew && (
                           <button
@@ -151,7 +152,7 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                         <p className="text-xs text-text-subtle font-mono truncate">
-                          {formatMac(device.mac_address)}
+                          {formatMac(device.mac_address, ipOnlyHostLabel)}
                         </p>
                         {device.segment_name && (
                           <span

@@ -6,14 +6,13 @@ Requires NET_RAW capability (Docker: cap_add: [NET_RAW, NET_ADMIN]).
 import asyncio
 import hashlib
 import ipaddress
-import json
 import logging
 import socket
 import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -41,6 +40,8 @@ DEFAULT_SCAN_START = "192.168.1.1"
 DEFAULT_SCAN_END = "192.168.1.254"
 MIN_OFFLINE_GRACE_MINUTES = 15
 MISSED_SCAN_MULTIPLIER = 3
+MAX_ROUTED_SCAN_TARGETS = 32
+MAX_ROUTED_SCAN_HOSTS = 4096
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -163,8 +164,16 @@ def _validate_nmap_target(raw_target: str) -> str:
             pass
 
     try:
-        return str(ipaddress.IPv4Network(target, strict=False))
+        network = ipaddress.IPv4Network(target, strict=False)
+        if network.num_addresses > MAX_ROUTED_SCAN_HOSTS:
+            raise ValueError(
+                f"Scan target '{target}' is too large. "
+                f"Use a smaller IPv4 CIDR with at most {MAX_ROUTED_SCAN_HOSTS} addresses."
+            )
+        return str(network)
     except ValueError as e:
+        if "too large" in str(e):
+            raise
         raise ValueError(f"Invalid scan target '{target}'. Use an IPv4 address or CIDR, e.g. 192.168.10.0/24") from e
 
 
@@ -173,12 +182,20 @@ def _parse_additional_scan_targets(value: Optional[str]) -> List[str]:
         return []
 
     targets: list[str] = []
+    total_addresses = 0
     for part in value.replace("\n", ",").split(","):
         part = part.strip()
         if not part:
             continue
         target = _validate_nmap_target(part)
         if target not in targets:
+            if len(targets) >= MAX_ROUTED_SCAN_TARGETS:
+                raise ValueError(f"Too many routed scan targets. Maximum is {MAX_ROUTED_SCAN_TARGETS}.")
+            total_addresses += 1 if "/" not in target else ipaddress.IPv4Network(target, strict=False).num_addresses
+            if total_addresses > MAX_ROUTED_SCAN_HOSTS:
+                raise ValueError(
+                    f"Routed scan target set is too large. Maximum total size is {MAX_ROUTED_SCAN_HOSTS} addresses."
+                )
             targets.append(target)
     return targets
 
@@ -309,7 +326,12 @@ def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, s
     start_row = _get_setting_row(db, "scan_start")
     end_row = _get_setting_row(db, "scan_end")
     additional_targets_row = _get_setting_row(db, "scan_additional_targets")
-    routed_targets = _parse_additional_scan_targets(additional_targets_row.value if additional_targets_row else "")
+    additional_targets_value = additional_targets_row.value if additional_targets_row else ""
+    try:
+        routed_targets = _parse_additional_scan_targets(additional_targets_value)
+    except ValueError as e:
+        logger.warning(f"Configured routed scan targets are invalid, ignoring them for this scan: {e}")
+        routed_targets = []
 
     if start_row and end_row and start_row.value and end_row.value:
         try:

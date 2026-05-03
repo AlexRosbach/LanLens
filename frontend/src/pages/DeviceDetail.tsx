@@ -206,7 +206,7 @@ export default function DeviceDetail() {
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-bold text-text-base">{formatDeviceLabel(device)}</h1>
+              <h1 className="text-lg font-bold text-text-base">{formatDeviceLabel(device, t('ip_only_host'))}</h1>
               {device.is_dhcp && (
                 <span className="text-xs bg-primary-dim text-primary border border-primary/20 px-1.5 py-0.5 rounded-full">
                   {t('badge_dhcp')}
@@ -354,7 +354,7 @@ export default function DeviceDetail() {
             {/* Network identity */}
             <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
               <InfoRow label={t('ip_address')} value={device.ip_address} mono />
-              <InfoRow label={t('mac_address')} value={formatMac(device.mac_address)} mono />
+              <InfoRow label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} mono />
               <InfoRow label={t('hostname')} value={device.hostname} mono />
               <InfoRow label={t('vendor')} value={device.vendor} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />

@@ -1,9 +1,9 @@
 import { formatDistanceToNow, format } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
 
-export function formatMac(mac: string | null): string {
+export function formatMac(mac: string | null, ipOnlyLabel?: string): string {
   if (!mac) return '—'
-  if (mac.startsWith('ip:')) return 'IP-only discovery'
+  if (mac.startsWith('ip:')) return ipOnlyLabel ?? mac
   return mac.toUpperCase()
 }
 
@@ -42,6 +42,9 @@ export function formatDateTime(dateStr: string): string {
   }
 }
 
-export function formatDeviceLabel(device: { label: string | null; hostname: string | null; mac_address: string }): string {
-  return device.label || device.hostname || (device.mac_address.startsWith('ip:') ? 'IP-only host' : device.mac_address)
+export function formatDeviceLabel(
+  device: { label: string | null; hostname: string | null; mac_address: string },
+  ipOnlyLabel?: string,
+): string {
+  return device.label || device.hostname || (device.mac_address.startsWith('ip:') && ipOnlyLabel ? ipOnlyLabel : device.mac_address)
 }
