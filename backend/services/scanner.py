@@ -404,8 +404,17 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
 
         for result in results:
             ip = result.ip
-            existing = existing_devices.get(result.mac) if result.mac else existing_devices_by_ip.get(ip)
+            existing = existing_devices.get(result.mac) if result.mac else None
+            ip_matched_existing = existing_devices_by_ip.get(ip)
+            if existing is None and ip_matched_existing is not None and (
+                not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
+            ):
+                existing = ip_matched_existing
             mac_normalized = result.mac or (existing.mac_address if existing and existing.mac_address else _pseudo_mac_for_ip(ip))
+            if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
+                existing_devices.pop(existing.mac_address, None)
+                existing.mac_address = result.mac
+                existing_devices[result.mac] = existing
             found_macs.add(mac_normalized)
 
             vendor = None if _is_ip_only_identifier(mac_normalized) else lookup_vendor(mac_normalized)
