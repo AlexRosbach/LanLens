@@ -23,7 +23,8 @@ from ..schemas import (
 )
 from ..services.notification import send_test_message, send_update_notification
 from ..services.scheduler import update_interval
-from ..services.scanner import _detect_host_network, _network_host_bounds, _parse_additional_scan_targets
+from ..services.scanner import _detect_host_network, _network_host_bounds
+from ..services.scan_targets import parse_additional_scan_targets
 from ..services.settings_helpers import get_scan_interval_minutes
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -191,7 +192,7 @@ def update_scan_range(
         raise HTTPException(status_code=400, detail="Scan start must be less than or equal to scan end")
 
     try:
-        additional_targets = "\n".join(_parse_additional_scan_targets(data.scan_additional_targets or ""))
+        additional_targets = "\n".join(parse_additional_scan_targets(data.scan_additional_targets or ""))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

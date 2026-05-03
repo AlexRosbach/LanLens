@@ -46,5 +46,8 @@ export function formatDeviceLabel(
   device: { label: string | null; hostname: string | null; mac_address: string },
   ipOnlyLabel?: string,
 ): string {
-  return device.label || device.hostname || (device.mac_address.startsWith('ip:') && ipOnlyLabel ? ipOnlyLabel : device.mac_address)
+  if (device.label) return device.label
+  if (device.hostname) return device.hostname
+  if (device.mac_address.startsWith('ip:') && ipOnlyLabel) return ipOnlyLabel
+  return device.mac_address
 }

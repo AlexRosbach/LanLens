@@ -14,6 +14,7 @@ from ..models import Notification, Setting
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+IP_ONLY_HOST_LABEL = "IP-only host"
 
 
 def _get_telegram_config(db: Session):
@@ -42,7 +43,7 @@ async def send_telegram_for_notification(db: Session, notification: Notification
         link_line = ""
         if server_url and device.id:
             link_line = f'\n\n<a href="{server_url}/devices/{device.id}">Open in LanLens →</a>'
-        mac_label = "IP-only discovery" if device.mac_address and device.mac_address.startswith("ip:") else device.mac_address
+        mac_label = IP_ONLY_HOST_LABEL if device.mac_address and device.mac_address.startswith("ip:") else device.mac_address
         text = (
             f"<b>LanLens — New Device Detected</b>\n\n"
             f"<b>IP:</b> {device.ip_address or 'unknown'}\n"

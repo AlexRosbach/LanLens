@@ -21,6 +21,7 @@ from ..models import Device, DeviceIpHistory, Notification, ScanRun, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification
+from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
 
 logger = logging.getLogger(__name__)
@@ -40,8 +41,6 @@ DEFAULT_SCAN_START = "192.168.1.1"
 DEFAULT_SCAN_END = "192.168.1.254"
 MIN_OFFLINE_GRACE_MINUTES = 15
 MISSED_SCAN_MULTIPLIER = 3
-MAX_ROUTED_SCAN_TARGETS = 32
-MAX_ROUTED_SCAN_HOSTS = 4096
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -101,103 +100,59 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
     """
     results: list[DiscoveryResult] = []
     seen_ips: set[str] = set()
+    if not targets:
+        return results
 
-    for target in targets:
-        try:
-            completed = subprocess.run(
-                ["nmap", "-sn", "-n", "-oX", "-", target],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-        except FileNotFoundError:
-            logger.error("nmap ping scan failed: nmap binary is not installed")
-            return results
-        except subprocess.TimeoutExpired:
-            logger.warning(f"nmap ping scan timed out for {target}")
-            continue
-        except Exception as e:
-            logger.error(f"nmap ping scan failed for {target}: {e}")
-            continue
-
-        if completed.returncode not in (0, 1):
-            logger.warning(f"nmap ping scan returned {completed.returncode} for {target}: {completed.stderr.strip()}")
-
-        try:
-            root = ET.fromstring(completed.stdout)
-        except ET.ParseError as e:
-            logger.warning(f"Could not parse nmap XML for {target}: {e}")
-            continue
-
-        for host in root.findall("host"):
-            status = host.find("status")
-            if status is not None and status.attrib.get("state") != "up":
-                continue
-
-            ip = None
-            mac = None
-            for address in host.findall("address"):
-                addr_type = address.attrib.get("addrtype")
-                if addr_type == "ipv4":
-                    ip = address.attrib.get("addr")
-                elif addr_type == "mac":
-                    raw_mac = address.attrib.get("addr")
-                    mac = normalize_mac(raw_mac) if raw_mac else None
-
-            if ip and ip not in seen_ips:
-                seen_ips.add(ip)
-                results.append(DiscoveryResult(ip=ip, mac=mac))
-
-    return results
-
-
-def _validate_nmap_target(raw_target: str) -> str:
-    target = raw_target.strip()
-    if not target:
-        raise ValueError("empty scan target")
-
-    if "/" not in target:
-        try:
-            return str(ipaddress.IPv4Address(target))
-        except ValueError:
-            pass
+    total_addresses = sum(routed_target_address_count(target) for target in targets)
+    timeout_seconds = min(300, max(60, 30 + int(total_addresses * 0.05)))
 
     try:
-        network = ipaddress.IPv4Network(target, strict=False)
-        if network.num_addresses > MAX_ROUTED_SCAN_HOSTS:
-            raise ValueError(
-                f"Scan target '{target}' is too large. "
-                f"Use a smaller IPv4 CIDR with at most {MAX_ROUTED_SCAN_HOSTS} addresses."
-            )
-        return str(network)
-    except ValueError as e:
-        if "too large" in str(e):
-            raise
-        raise ValueError(f"Invalid scan target '{target}'. Use an IPv4 address or CIDR, e.g. 192.168.10.0/24") from e
+        completed = subprocess.run(
+            ["nmap", "-sn", "-n", "-oX", "-", *targets],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError:
+        logger.error("nmap ping scan failed: nmap binary is not installed")
+        return results
+    except subprocess.TimeoutExpired:
+        logger.warning(f"nmap ping scan timed out after {timeout_seconds}s for {len(targets)} targets")
+        return results
+    except Exception as e:
+        logger.error(f"nmap ping scan failed for routed targets: {e}")
+        return results
 
+    if completed.returncode not in (0, 1):
+        logger.warning(f"nmap ping scan returned {completed.returncode}: {completed.stderr.strip()}")
 
-def _parse_additional_scan_targets(value: Optional[str]) -> List[str]:
-    if not value:
-        return []
+    try:
+        root = ET.fromstring(completed.stdout)
+    except ET.ParseError as e:
+        logger.warning(f"Could not parse nmap XML for routed targets: {e}")
+        return results
 
-    targets: list[str] = []
-    total_addresses = 0
-    for part in value.replace("\n", ",").split(","):
-        part = part.strip()
-        if not part:
+    for host in root.findall("host"):
+        status = host.find("status")
+        if status is not None and status.attrib.get("state") != "up":
             continue
-        target = _validate_nmap_target(part)
-        if target not in targets:
-            if len(targets) >= MAX_ROUTED_SCAN_TARGETS:
-                raise ValueError(f"Too many routed scan targets. Maximum is {MAX_ROUTED_SCAN_TARGETS}.")
-            total_addresses += 1 if "/" not in target else ipaddress.IPv4Network(target, strict=False).num_addresses
-            if total_addresses > MAX_ROUTED_SCAN_HOSTS:
-                raise ValueError(
-                    f"Routed scan target set is too large. Maximum total size is {MAX_ROUTED_SCAN_HOSTS} addresses."
-                )
-            targets.append(target)
-    return targets
+
+        ip = None
+        mac = None
+        for address in host.findall("address"):
+            addr_type = address.attrib.get("addrtype")
+            if addr_type == "ipv4":
+                ip = address.attrib.get("addr")
+            elif addr_type == "mac":
+                raw_mac = address.attrib.get("addr")
+                mac = normalize_mac(raw_mac) if raw_mac else None
+
+        if ip and ip not in seen_ips:
+            seen_ips.add(ip)
+            results.append(DiscoveryResult(ip=ip, mac=mac))
+
+    return results
 
 
 def _dedupe_discovery_results(results: List[DiscoveryResult]) -> List[DiscoveryResult]:
@@ -328,7 +283,7 @@ def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, s
     additional_targets_row = _get_setting_row(db, "scan_additional_targets")
     additional_targets_value = additional_targets_row.value if additional_targets_row else ""
     try:
-        routed_targets = _parse_additional_scan_targets(additional_targets_value)
+        routed_targets = parse_additional_scan_targets(additional_targets_value)
     except ValueError as e:
         logger.warning(f"Configured routed scan targets are invalid, ignoring them for this scan: {e}")
         routed_targets = []
