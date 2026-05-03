@@ -318,20 +318,22 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 
 ```
 1. APScheduler triggers run_scan() every N minutes
-2. scanner.py reads dhcp_start/dhcp_end from DB settings
-3. Derives /24 network from dhcp_start (e.g., 192.168.1.0/24)
-4. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=network)
+2. scanner.py reads scan_start/scan_end plus optional scan_additional_targets from DB settings
+3. scan_start/scan_end are summarized into ARP targets for the directly reachable Layer-2 network
+4. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=target)
    srp() with timeout=3s
-5. For each (ip, mac) in responses:
-   a. Normalize MAC to XX:XX:XX:XX:XX:XX
-   b. mac_vendor.py: manuf.MacParser().get_manuf(mac) → vendor string
-   c. DB upsert:
-      - If MAC exists: update ip, last_seen, is_online=True
-      - If new MAC: insert with is_registered=False, create Notification
-   d. Reverse DNS lookup (socket.gethostbyaddr) in thread pool
-6. MACs not in current scan: is_online = False
-7. Write ScanRun summary to DB
-8. Send pending Telegram notifications
+5. Optional routed scan targets are scanned with `nmap -sn -oX - <target>`
+6. For each discovered host:
+   a. Normalize MAC to XX:XX:XX:XX:XX:XX when available
+   b. Routed hosts without MAC receive a stable internal `ip:` identifier and are displayed as IP-only discoveries
+   c. mac_vendor.py: manuf.MacParser().get_manuf(mac) → vendor string when a real MAC exists
+   d. DB upsert:
+      - If identifier exists: update ip, last_seen, is_online=True
+      - If new identifier: insert with is_registered=False, create Notification
+   e. Reverse DNS lookup (socket.gethostbyaddr) in thread pool
+7. Devices not found in the current scan are marked offline only after the configured grace period
+8. Write ScanRun summary to DB
+9. Send pending Telegram notifications
 ```
 
 ### Port Scan Flow
@@ -438,7 +440,7 @@ ARP scanning requires sending raw Ethernet frames to the broadcast address. This
 
 `network_mode: host` makes the container share the host's network stack, giving it direct access to the physical NIC. This is the simplest and most reliable approach for ARP scanning.
 
-**Alternative (bridge mode)**: Remove `network_mode: host` and add `ports: ["8080:80"]`. ARP scanning will not work from a bridge network. You would need to replace scapy ARP with nmap ping sweep (`-sn`) which uses ICMP and works without raw sockets.
+**Alternative (bridge mode)**: Remove `network_mode: host` and add `ports: ["8080:80"]`. ARP scanning will not work from a bridge network. Additional routed scan targets still use nmap ping sweep (`-sn`), but the primary local ARP range needs host networking/raw-socket access for full MAC/vendor discovery.
 
 ### Capabilities
 
@@ -512,7 +514,7 @@ LanLens images are published on Docker Hub:
 
 ```text
 alexrosbach/lanlens:latest
-alexrosbach/lanlens:1.4.4
+alexrosbach/lanlens:1.4.5
 ```
 
 Use `latest` for the newest build or pin the release tag for reproducible deployments.

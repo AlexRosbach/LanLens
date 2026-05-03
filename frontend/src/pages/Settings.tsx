@@ -83,7 +83,7 @@ export default function Settings() {
   async function saveScanRange() {
     setSaving(true)
     try {
-      await settingsApi.updateScanRange(current.scan_start, current.scan_end)
+      await settingsApi.updateScanRange(current.scan_start, current.scan_end, current.scan_additional_targets)
       toast.success(t('scan_range_saved'))
     } catch {
       toast.error(t('scan_range_save_failed'))
@@ -485,6 +485,16 @@ export default function Settings() {
                 <label className="block text-sm text-text-subtle mb-1">{t('scan_end_label')}</label>
                 <Input value={current.scan_end} onChange={(e) => setSettings({ ...current, scan_end: e.target.value })} />
               </div>
+            </div>
+            <div className="mt-4">
+              <label className="block text-sm text-text-subtle mb-1">{t('additional_scan_targets_label')}</label>
+              <textarea
+                className="w-full min-h-24 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base focus:outline-none focus:ring-2 focus:ring-primary/40"
+                value={current.scan_additional_targets || ''}
+                onChange={(e) => setSettings({ ...current, scan_additional_targets: e.target.value })}
+                placeholder="192.168.10.0/24\n10.10.0.0/24"
+              />
+              <p className="mt-2 text-xs text-text-subtle">{t('additional_scan_targets_hint')}</p>
             </div>
             <div className="mt-4">
               <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>

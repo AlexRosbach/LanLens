@@ -519,22 +519,21 @@ async def refresh_device_status(
     results = await asyncio.get_event_loop().run_in_executor(None, _arp_scan, [device.ip_address])
     expected_mac = normalize_mac(device.mac_address)
     matched = None
-    for ip, mac in results:
-        if normalize_mac(mac) == expected_mac:
-            matched = (ip, mac)
+    for result in results:
+        if normalize_mac(result.mac) == expected_mac:
+            matched = result
             break
 
     if matched:
-        ip, mac = matched
         seen_at = datetime.utcnow()
-        device.ip_address = ip
+        device.ip_address = matched.ip
         device.is_online = True
         device.last_seen = seen_at
-        record_device_ip_history(db, device, ip, seen_at)
-        hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, ip)
+        record_device_ip_history(db, device, matched.ip, seen_at)
+        hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, matched.ip)
         if hostname:
             device.hostname = hostname
-        vendor = lookup_vendor(normalize_mac(mac))
+        vendor = lookup_vendor(normalize_mac(matched.mac))
         if vendor:
             device.vendor = vendor
             if not device.device_class or device.device_class == "Unknown":

@@ -24,6 +24,7 @@ from ..schemas import (
 from ..services.notification import send_test_message, send_update_notification
 from ..services.scheduler import update_interval
 from ..services.scanner import _detect_host_network, _network_host_bounds
+from ..services.scan_targets import parse_additional_scan_targets
 from ..services.settings_helpers import get_scan_interval_minutes
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 TOKEN_MASK = "••••••••"
 
 SETTING_KEYS = [
-    "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_interval_minutes",
+    "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
     "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
@@ -127,6 +128,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         dhcp_end=dhcp_end,
         scan_start=effective_scan_start,
         scan_end=effective_scan_end,
+        scan_additional_targets=_get(db, "scan_additional_targets", "") or "",
         scan_interval_minutes=interval_minutes,
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
         telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
@@ -189,8 +191,14 @@ def update_scan_range(
     if int(start_ip) > int(end_ip):
         raise HTTPException(status_code=400, detail="Scan start must be less than or equal to scan end")
 
+    try:
+        additional_targets = "\n".join(parse_additional_scan_targets(data.scan_additional_targets or ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     _set(db, "scan_start", data.scan_start)
     _set(db, "scan_end", data.scan_end)
+    _set(db, "scan_additional_targets", additional_targets)
     db.commit()
     return MessageResponse(message="Scan range updated")
 

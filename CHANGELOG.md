@@ -2,6 +2,16 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.4.5 — Multi-subnet discovery
+
+### New Features
+- Added optional routed scan targets in Settings → Network Discovery. Additional IPv4 CIDRs/addresses are discovered with `nmap -sn`, enabling host discovery beyond the directly connected Layer-2 LAN.
+- Added stable IP-only tracking for routed hosts where MAC/vendor data is unavailable. These devices are shown as IP-only discoveries instead of exposing synthetic identifiers in the UI.
+
+### Documentation
+- Documented local ARP discovery versus routed subnet discovery, including the expected MAC/vendor limitation for routed networks.
+- Docker Hub images are published as `alexrosbach/lanlens:latest` and `alexrosbach/lanlens:1.4.5`.
+
 ## v1.4.4 — Network discovery stability improvements
 
 ### Bug Fixes

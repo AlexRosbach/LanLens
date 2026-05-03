@@ -4,12 +4,15 @@ Discovers all devices on the local network and updates the database.
 Requires NET_RAW capability (Docker: cap_add: [NET_RAW, NET_ADMIN]).
 """
 import asyncio
+import hashlib
 import ipaddress
-import json
 import logging
 import socket
+import subprocess
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +21,7 @@ from ..models import Device, DeviceIpHistory, Notification, ScanRun, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification
+from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
 
 logger = logging.getLogger(__name__)
@@ -43,28 +47,122 @@ def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
     return db.query(Setting).filter(Setting.key == key).first()
 
 
-def _arp_scan(targets: List[str]) -> List[Tuple[str, str]]:
-    """Perform ARP scan over one or more target CIDRs/ranges."""
+@dataclass(frozen=True)
+class DiscoveryResult:
+    ip: str
+    mac: Optional[str] = None
+
+
+def _pseudo_mac_for_ip(ip: str) -> str:
+    """Return a stable pseudo identifier for IP-only routed-scan results.
+
+    The current device model requires a unique non-empty MAC-like identifier.
+    Routed subnets often do not expose MAC addresses, so we keep those hosts
+    trackable with a deterministic, clearly non-MAC `ip:` identifier.
+    """
+    return f"ip:{hashlib.sha1(ip.encode('utf-8')).hexdigest()[:14]}"
+
+
+def _is_ip_only_identifier(value: Optional[str]) -> bool:
+    return bool(value and value.startswith("ip:"))
+
+
+def _arp_scan(targets: List[str]) -> List[DiscoveryResult]:
+    """Perform ARP scan over one or more directly reachable target CIDRs/ranges."""
     try:
         from scapy.layers.l2 import ARP, Ether
         from scapy.sendrecv import srp
 
-        results: list[tuple[str, str]] = []
+        results: list[DiscoveryResult] = []
         seen: set[tuple[str, str]] = set()
 
         for target in targets:
             packet = Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=target)
             answered, _ = srp(packet, timeout=3, verbose=False)
             for _, rcv in answered:
-                item = (rcv.psrc, rcv.hwsrc)
+                mac = normalize_mac(rcv.hwsrc)
+                item = (rcv.psrc, mac)
                 if item not in seen:
                     seen.add(item)
-                    results.append(item)
+                    results.append(DiscoveryResult(ip=rcv.psrc, mac=mac))
 
         return results
     except Exception as e:
         logger.error(f"ARP scan failed: {e}")
         return []
+
+
+def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
+    """Discover hosts in routed networks using nmap ping scan.
+
+    nmap may return MAC addresses for local L2 targets, but routed subnets
+    usually only provide IP/hostname reachability.
+    """
+    results: list[DiscoveryResult] = []
+    seen_ips: set[str] = set()
+    if not targets:
+        return results
+
+    total_addresses = sum(routed_target_address_count(target) for target in targets)
+    timeout_seconds = min(300, max(60, 30 + int(total_addresses * 0.05)))
+
+    try:
+        completed = subprocess.run(
+            ["nmap", "-sn", "-n", "-oX", "-", *targets],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError:
+        logger.error("nmap ping scan failed: nmap binary is not installed")
+        return results
+    except subprocess.TimeoutExpired:
+        logger.warning(f"nmap ping scan timed out after {timeout_seconds}s for {len(targets)} targets")
+        return results
+    except Exception as e:
+        logger.error(f"nmap ping scan failed for routed targets: {e}")
+        return results
+
+    if completed.returncode not in (0, 1):
+        logger.warning(f"nmap ping scan returned {completed.returncode}: {completed.stderr.strip()}")
+
+    try:
+        root = ET.fromstring(completed.stdout)
+    except ET.ParseError as e:
+        logger.warning(f"Could not parse nmap XML for routed targets: {e}")
+        return results
+
+    for host in root.findall("host"):
+        status = host.find("status")
+        if status is not None and status.attrib.get("state") != "up":
+            continue
+
+        ip = None
+        mac = None
+        for address in host.findall("address"):
+            addr_type = address.attrib.get("addrtype")
+            if addr_type == "ipv4":
+                ip = address.attrib.get("addr")
+            elif addr_type == "mac":
+                raw_mac = address.attrib.get("addr")
+                mac = normalize_mac(raw_mac) if raw_mac else None
+
+        if ip and ip not in seen_ips:
+            seen_ips.add(ip)
+            results.append(DiscoveryResult(ip=ip, mac=mac))
+
+    return results
+
+
+def _dedupe_discovery_results(results: List[DiscoveryResult]) -> List[DiscoveryResult]:
+    """Deduplicate discoveries by IP, preferring entries with real MAC addresses."""
+    by_ip: dict[str, DiscoveryResult] = {}
+    for result in results:
+        existing = by_ip.get(result.ip)
+        if existing is None or (not existing.mac and result.mac):
+            by_ip[result.ip] = result
+    return list(by_ip.values())
 
 
 def _get_hostname(ip: str) -> Optional[str]:
@@ -179,14 +277,21 @@ def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Opti
         db.add(DeviceIpHistory(**values))
 
 
-def _derive_scan_targets(db: Session) -> tuple[List[str], str, str, str]:
+def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
     start_row = _get_setting_row(db, "scan_start")
     end_row = _get_setting_row(db, "scan_end")
+    additional_targets_row = _get_setting_row(db, "scan_additional_targets")
+    additional_targets_value = additional_targets_row.value if additional_targets_row else ""
+    try:
+        routed_targets = parse_additional_scan_targets(additional_targets_value)
+    except ValueError as e:
+        logger.warning(f"Configured routed scan targets are invalid, ignoring them for this scan: {e}")
+        routed_targets = []
 
     if start_row and end_row and start_row.value and end_row.value:
         try:
-            targets = _summarize_range(start_row.value, end_row.value)
-            return targets, start_row.value, end_row.value, "configured"
+            arp_targets = _summarize_range(start_row.value, end_row.value)
+            return arp_targets, routed_targets, start_row.value, end_row.value, "configured"
         except Exception as e:
             logger.warning(f"Configured scan range invalid, ignoring it: {e}")
 
@@ -195,20 +300,20 @@ def _derive_scan_targets(db: Session) -> tuple[List[str], str, str, str]:
             ipaddress.IPv4Address(start_row.value)
             network = ipaddress.IPv4Network(f"{start_row.value}/24", strict=False)
             start, end = _network_host_bounds(network)
-            return [str(network)], start, end, "configured-start-/24"
+            return [str(network)], routed_targets, start, end, "configured-start-/24"
         except Exception as e:
             logger.warning(f"Configured scan_start is invalid, ignoring it: {e}")
 
     detected = _detect_host_network()
     if detected:
         start, end = _network_host_bounds(detected)
-        return [str(detected)], start, end, "auto-detected"
+        return [str(detected)], routed_targets, start, end, "auto-detected"
 
     fallback_targets = _summarize_range(DEFAULT_SCAN_START, DEFAULT_SCAN_END)
     logger.warning(
         "No valid configured scan range and auto-detection failed, falling back to 192.168.1.1-192.168.1.254"
     )
-    return fallback_targets, DEFAULT_SCAN_START, DEFAULT_SCAN_END, "fallback"
+    return fallback_targets, routed_targets, DEFAULT_SCAN_START, DEFAULT_SCAN_END, "fallback"
 
 
 async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
@@ -226,31 +331,52 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
     db.commit()
 
     try:
-        scan_targets, effective_start, effective_end, source = _derive_scan_targets(db)
+        scan_targets, routed_scan_targets, effective_start, effective_end, source = _derive_scan_targets(db)
         logger.info(
             f"Starting ARP scan using {source} range {effective_start} - {effective_end} "
-            f"via targets: {', '.join(scan_targets)}"
+            f"via ARP targets: {', '.join(scan_targets)}"
         )
 
         results = await asyncio.get_event_loop().run_in_executor(None, _arp_scan, scan_targets)
-        logger.info(f"ARP scan found {len(results)} hosts")
+        if routed_scan_targets:
+            logger.info(f"Starting routed nmap ping scan via targets: {', '.join(routed_scan_targets)}")
+            routed_results = await asyncio.get_event_loop().run_in_executor(None, _nmap_ping_scan, routed_scan_targets)
+            results.extend(routed_results)
+        results = _dedupe_discovery_results(results)
+        logger.info(f"Network scan found {len(results)} hosts")
 
         # Pre-load all known devices to avoid N+1 queries
+        all_devices = db.query(Device).all()
         existing_devices: Dict[str, Device] = {
-            d.mac_address: d for d in db.query(Device).all()
+            d.mac_address: d for d in all_devices if d.mac_address
+        }
+        existing_devices_by_ip: Dict[str, Device] = {
+            d.ip_address: d for d in all_devices if d.ip_address
         }
 
         found_macs = set()
         devices_new = 0
 
-        for ip, mac in results:
-            mac_normalized = normalize_mac(mac)
+        for result in results:
+            ip = result.ip
+            existing = existing_devices.get(result.mac) if result.mac else None
+            ip_matched_existing = existing_devices_by_ip.get(ip)
+            if existing is None and ip_matched_existing is not None and (
+                not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
+            ):
+                existing = ip_matched_existing
+            mac_normalized = result.mac or (existing.mac_address if existing and existing.mac_address else _pseudo_mac_for_ip(ip))
+            if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
+                existing_devices.pop(existing.mac_address, None)
+                existing.mac_address = result.mac
+                existing_devices[result.mac] = existing
             found_macs.add(mac_normalized)
 
-            vendor = lookup_vendor(mac_normalized)
+            vendor = None if _is_ip_only_identifier(mac_normalized) else lookup_vendor(mac_normalized)
             hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, ip)
 
-            existing = existing_devices.get(mac_normalized)
+            if existing is None:
+                existing = existing_devices.get(mac_normalized)
 
             seen_at = datetime.utcnow()
 
@@ -271,6 +397,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 db.flush()
                 record_device_ip_history(db, new_device, ip, seen_at)
                 existing_devices[mac_normalized] = new_device
+                existing_devices_by_ip[ip] = new_device
                 devices_new += 1
 
                 notification = Notification(

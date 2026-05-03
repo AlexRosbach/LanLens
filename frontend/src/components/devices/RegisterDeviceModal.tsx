@@ -57,7 +57,7 @@ export default function RegisterDeviceModal({ device, onClose, onSaved }: Props)
       <div className="bg-surface2 rounded-lg p-3 mb-4 grid grid-cols-2 gap-2 text-xs">
         <div>
           <p className="text-text-subtle mb-0.5">{t('mac_address')}</p>
-          <p className="font-mono text-text-muted">{formatMac(device.mac_address)}</p>
+          <p className="font-mono text-text-muted">{formatMac(device.mac_address, t('ip_only_host'))}</p>
         </div>
         <div>
           <p className="text-text-subtle mb-0.5">{t('ip_address')}</p>

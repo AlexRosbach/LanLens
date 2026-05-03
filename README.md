@@ -6,11 +6,15 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.4.4-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.4.5-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
 LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, and connect to them.
+
+> [!IMPORTANT]
+> LanLens is intended exclusively for use in your own network or in networks where you have explicit permission to scan and monitor devices.
+> Features such as network discovery and port scanning can be misused against third-party systems. You are responsible for complying with applicable laws, policies, and authorization requirements. The project maintainer cannot be held liable for misuse or unauthorized scanning performed with this tool.
 
 ### Contributors
 
@@ -130,13 +134,15 @@ You will be forced to change the password on first login.
 In **Settings → Network** LanLens now keeps these concerns separate:
 
 - **DHCP range**: used for DHCP tagging / classification only
-- **Scan range**: used for the active ARP network scan
+- **Scan range**: used for the active ARP network scan on the directly reachable Layer-2 network
+- **Additional routed scan targets**: optional IPv4 CIDRs/addresses scanned with `nmap -sn` for other routed subnets
 - **Scan interval**: controls the schedule
 
 Notes:
 - LanLens auto-detects the host subnet as the default scan range when no explicit scan range was saved yet.
 - The configured `scan start` and `scan end` define the actual IPv4 scan range, so larger ranges inside the directly reachable local network are supported.
-- ARP scanning works directly only on the locally reachable Layer-2 network. A routed remote subnet is not automatically reachable just by entering another IP range.
+- ARP scanning works directly only on the locally reachable Layer-2 network. Use **Additional routed scan targets** for other subnets, for example `192.168.10.0/24`.
+- Routed subnet discovery uses nmap ping scan. Across routed networks, MAC addresses and vendor information are often unavailable; LanLens tracks those hosts as IP-only discoveries.
 
 ### Telegram
 
@@ -308,7 +314,7 @@ Database migrations run automatically on container start.
 ## Releases
 
 - Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
-- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.4.4` for this release.
+- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.4.5` for this release.
 - GitHub releases should be maintained for release-based update checks and Telegram update notifications
 - Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
 
