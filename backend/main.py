@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings  # validates SECRET_KEY on import — must be first
 from .database import SessionLocal
 from .models import TokenBlacklist
-from .routers import admin, auth, auto_scan_rules, connect, credentials, deep_scan, devices, notifications, scan, segments, services
+from .routers import admin, auth, auto_scan_rules, connect, credentials, deep_scan, devices, idoit, notifications, scan, segments, services
 from .routers import settings as settings_router
 from .services import deep_scan_scheduler, scheduler
 from .services.settings_helpers import get_scan_interval_minutes
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
     logger.info("LanLens stopped")
 
 
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.5.0"
 
 app = FastAPI(
     title="LanLens",
@@ -110,6 +110,7 @@ app.include_router(segments.router)
 app.include_router(credentials.router)
 app.include_router(deep_scan.router)
 app.include_router(auto_scan_rules.router)
+app.include_router(idoit.router)
 
 
 @app.websocket("/ws/scan-updates")

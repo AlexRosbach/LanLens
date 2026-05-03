@@ -2,6 +2,17 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.0 — i-doit CMDB sync foundation
+
+### New Features
+- Added backend foundation for one-way LanLens → i-doit sync.
+- Added configurable i-doit URL/API key settings, mapping JSON, sync status field, and auto-sync flag storage.
+- Added i-doit connection test, mapping validation, per-device dry-run preview, manual sync-state endpoint, and sync log API.
+- Added per-device i-doit sync state and audit log database tables.
+
+### Documentation
+- Added first setup notes for i-doit Cloud/on-prem JSON-RPC access, safe first-run workflow, mapping, status field selection, and troubleshooting.
+
 ## v1.4.5 — Multi-subnet discovery
 
 ### New Features

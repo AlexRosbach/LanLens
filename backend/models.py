@@ -70,6 +70,9 @@ class Device(Base):
     deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
     deep_scan_findings = relationship("DeepScanFinding", back_populates="device",
                                       cascade="all, delete-orphan")
+    idoit_sync = relationship("IdoitDeviceSync", back_populates="device", uselist=False,
+                              cascade="all, delete-orphan")
+    idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", cascade="all, delete-orphan")
     host_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.host_device_id",
@@ -196,6 +199,39 @@ class Notification(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="notifications")
+
+
+class IdoitDeviceSync(Base):
+    """Per-device i-doit one-way sync state."""
+    __tablename__ = "idoit_device_sync"
+
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    status = Column(String(32), default="never_synced", nullable=False)
+    idoit_object_id = Column(String(64), nullable=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    last_mode = Column(String(16), nullable=True)
+    payload_hash = Column(String(64), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    device = relationship("Device", back_populates="idoit_sync")
+
+
+class IdoitSyncLog(Base):
+    """Audit log for i-doit dry-runs and sync attempts."""
+    __tablename__ = "idoit_sync_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    mode = Column(String(16), nullable=False)  # dry_run/manual/bulk/auto/test
+    result = Column(String(16), nullable=False)  # success/failure/skipped
+    idoit_object_id = Column(String(64), nullable=True)
+    message = Column(Text, nullable=True)
+    details_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    device = relationship("Device", back_populates="idoit_sync_logs")
 
 
 class TokenBlacklist(Base):

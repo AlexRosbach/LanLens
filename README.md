@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.4.5-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.0-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -314,9 +314,34 @@ Database migrations run automatically on container start.
 ## Releases
 
 - Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
-- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.4.5` for this release.
+- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.0` for this release.
 - GitHub releases should be maintained for release-based update checks and Telegram update notifications
 - Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
+
+---
+
+## i-doit / CMDB Sync (v1.5.0 dev)
+
+LanLens 1.5.0 starts the one-way i-doit integration: LanLens is the source of truth, i-doit is the target. The first safe workflow is:
+
+1. Configure the i-doit base URL and API key in the `/api/idoit/config` API.
+2. Choose the writable i-doit field used for LanLens sync/reference/status metadata (`idoit_sync_status_field`).
+3. Import or edit the mapping JSON.
+4. Run `POST /api/idoit/test-connection`.
+5. Run `POST /api/idoit/test-mapping`.
+6. Run `POST /api/idoit/devices/{device_id}/dry-run` before any real sync.
+7. Use `POST /api/idoit/devices/{device_id}/sync` only after the preview looks correct.
+
+The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL and API key. Cloud installations may still differ in URL, enabled modules, token creation flow, and user permissions.
+
+Recommended i-doit permissions: create/update only the object types and categories you want LanLens to manage. Avoid administrator-wide tokens for routine sync.
+
+Troubleshooting checklist:
+
+- Authentication failed: verify API key/token and JSON-RPC endpoint URL.
+- Object type/category/field not found: adjust the mapping JSON to your i-doit schema.
+- Selected sync status field is not writable: choose another writable custom/status/reference field.
+- Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
 
 ---
 

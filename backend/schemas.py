@@ -221,6 +221,10 @@ class DeviceResponse(BaseModel):
     host_label: Optional[str] = None
     # CMDB
     cmdb_id: Optional[str] = None
+    idoit_sync_status: Optional[str] = None
+    idoit_object_id: Optional[str] = None
+    idoit_last_sync_at: Optional[datetime] = None
+    idoit_last_error: Optional[str] = None
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []

@@ -351,6 +351,49 @@ def migrate():
         else:
             print("Migration: services.service_group_id already exists — skipped")
 
+        # ── v1.5.0 ── i-doit one-way sync state/logs ───────────────────────
+        if IS_SQLITE and not _table_exists(conn, "idoit_device_sync"):
+            conn.execute(text(
+                "CREATE TABLE idoit_device_sync ("
+                "device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE, "
+                "status VARCHAR(32) NOT NULL DEFAULT 'never_synced', "
+                "idoit_object_id VARCHAR(64), "
+                "last_sync_at DATETIME, "
+                "last_success_at DATETIME, "
+                "last_error TEXT, "
+                "last_mode VARCHAR(16), "
+                "payload_hash VARCHAR(64), "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created idoit_device_sync")
+        elif not IS_SQLITE:
+            print("Migration: idoit_device_sync — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: idoit_device_sync already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "idoit_sync_logs"):
+            conn.execute(text(
+                "CREATE TABLE idoit_sync_logs ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL, "
+                "mode VARCHAR(16) NOT NULL, "
+                "result VARCHAR(16) NOT NULL, "
+                "idoit_object_id VARCHAR(64), "
+                "message TEXT, "
+                "details_json TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_idoit_sync_logs_device_id ON idoit_sync_logs(device_id)"))
+            conn.commit()
+            print("Migration: created idoit_sync_logs")
+        elif not IS_SQLITE:
+            print("Migration: idoit_sync_logs — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: idoit_sync_logs already exists — skipped")
+
         conn.commit()
 
 
