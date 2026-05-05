@@ -72,7 +72,7 @@ class Device(Base):
                                       cascade="all, delete-orphan")
     idoit_sync = relationship("IdoitDeviceSync", back_populates="device", uselist=False,
                               cascade="all, delete-orphan")
-    idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", cascade="all, delete-orphan")
+    idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", passive_deletes=True)
     host_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.host_device_id",

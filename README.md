@@ -322,15 +322,15 @@ Database migrations run automatically on container start.
 
 ## i-doit / CMDB Sync (v1.5.0 dev)
 
-LanLens 1.5.0 starts the one-way i-doit integration: LanLens is the source of truth, i-doit is the target. The first safe workflow is:
+LanLens 1.5.0 starts the one-way i-doit integration foundation. LanLens is intended to be the source of truth and i-doit the target, but this first slice is deliberately limited to configuration, connection checks, local mapping validation, payload preview, sync-state tracking and audit logs. It does **not** perform live i-doit object/category writes yet.
 
 1. Configure the i-doit base URL, JSON-RPC path and API key in the `/api/idoit/config` API.
 2. Choose the writable i-doit field used for LanLens sync/reference/status metadata (`idoit_sync_status_field`).
 3. Import or edit the mapping JSON.
 4. Run `POST /api/idoit/test-connection`.
-5. Run `POST /api/idoit/test-mapping`.
-6. Run `POST /api/idoit/devices/{device_id}/dry-run` before any real sync.
-7. Use `POST /api/idoit/devices/{device_id}/sync` only after the preview looks correct.
+5. Run `POST /api/idoit/test-mapping` for local JSON structure validation. This does not verify remote i-doit object types/categories/fields yet.
+6. Run `POST /api/idoit/devices/{device_id}/dry-run` to inspect the generated payload before any future live sync implementation.
+7. Use `POST /api/idoit/devices/{device_id}/sync` only as a LanLens-side validation/state marker in this release; it records no upstream i-doit write.
 
 The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL, JSON-RPC path and API key. On-prem deployments can keep the default `/src/jsonrpc.php` path or set a custom reverse-proxy path; Cloud installations may differ in URL, enabled modules, token creation flow, and user permissions.
 

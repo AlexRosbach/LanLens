@@ -44,7 +44,7 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_auto_sync_enabled": cfg.auto_sync_enabled,
         "idoit_sync_status_field": cfg.sync_status_field,
         "idoit_mapping_json": cfg.mapping,
-        "mapping_errors": validate_mapping(cfg.mapping, cfg.sync_status_field),
+        "mapping_errors": validate_mapping(cfg.mapping, cfg.sync_status_field, cfg.default_object_type, cfg.mapping_error),
     }
 
 
@@ -56,7 +56,7 @@ def read_config(db: Session = Depends(get_db), _: User = Depends(get_current_use
 @router.put("/config")
 def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     data = payload.model_dump(exclude_unset=True)
-    if "idoit_api_key" in data and data["idoit_api_key"] in (None, "", "••••••••"):
+    if "idoit_api_key" in data and data["idoit_api_key"] == "••••••••":
         data.pop("idoit_api_key")
     update_config(db, data)
     return _config_response(db)
@@ -76,12 +76,15 @@ async def test_connection(db: Session = Depends(get_db), _: User = Depends(get_c
 @router.post("/test-mapping")
 def test_mapping(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     cfg = get_config(db)
+    errors = validate_mapping(cfg.mapping, cfg.sync_status_field, cfg.default_object_type, cfg.mapping_error)
     return {
-        "ok": not validate_mapping(cfg.mapping, cfg.sync_status_field),
-        "errors": validate_mapping(cfg.mapping, cfg.sync_status_field),
+        "ok": not errors,
+        "errors": errors,
         "objectType": cfg.mapping.get("objectType") or cfg.default_object_type,
         "syncStatusField": cfg.sync_status_field,
         "fieldCount": len(cfg.mapping.get("fields") or {}),
+        "scope": "local_structure_only",
+        "remoteValidation": "not_performed",
     }
 
 

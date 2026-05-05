@@ -7,7 +7,7 @@ All notable changes to this project should be documented in this file.
 ### New Features
 - Added backend foundation for one-way LanLens → i-doit sync.
 - Added configurable i-doit URL/API key settings, JSON-RPC path for Cloud/on-prem deployments, mapping JSON, sync status field, and auto-sync flag storage.
-- Added i-doit connection test, mapping validation, per-device dry-run preview, manual sync-state endpoint, and sync log API.
+- Added i-doit connection test, local mapping validation, per-device dry-run preview, manual validation/state endpoint, and sync log API. Live i-doit writes remain intentionally disabled in this foundation slice.
 - Added per-device i-doit sync state and audit log database tables.
 
 ### Documentation

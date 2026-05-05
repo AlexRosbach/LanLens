@@ -24,7 +24,7 @@ DEFAULT_MAPPING = {
     "objectType": "C__OBJTYPE__SERVER",
     "identity": {
         "externalIdField": "C__CATG__GLOBAL.description",
-        "syncStatusField": "C__CATG__GLOBAL.description",
+        "syncStatusField": "C__CATG__GLOBAL.comment",
         "fallback": ["mac_address", "hostname", "ip_address"],
     },
     "fields": {
@@ -45,7 +45,7 @@ SETTING_DEFAULTS = {
     "idoit_timeout_seconds": "15",
     "idoit_default_object_type": "C__OBJTYPE__SERVER",
     "idoit_auto_sync_enabled": "false",
-    "idoit_sync_status_field": "C__CATG__GLOBAL.description",
+    "idoit_sync_status_field": "C__CATG__GLOBAL.comment",
     "idoit_mapping_json": json.dumps(DEFAULT_MAPPING, indent=2),
 }
 
@@ -61,6 +61,7 @@ class IdoitConfig:
     auto_sync_enabled: bool
     sync_status_field: str
     mapping: dict[str, Any]
+    mapping_error: Optional[str] = None
 
 
 def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php") -> str:
@@ -94,10 +95,12 @@ def _set_setting(db: Session, key: str, value: str) -> None:
 
 def get_config(db: Session) -> IdoitConfig:
     raw_mapping = _get_setting(db, "idoit_mapping_json") or SETTING_DEFAULTS["idoit_mapping_json"]
+    mapping_error = None
     try:
         mapping = json.loads(raw_mapping)
-    except Exception:
-        mapping = DEFAULT_MAPPING.copy()
+    except Exception as exc:
+        mapping = {}
+        mapping_error = f"Mapping JSON is invalid: {exc}"
     try:
         timeout = max(3, min(120, int(_get_setting(db, "idoit_timeout_seconds") or "15")))
     except ValueError:
@@ -110,8 +113,9 @@ def get_config(db: Session) -> IdoitConfig:
         timeout_seconds=timeout,
         default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__SERVER",
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
-        sync_status_field=_get_setting(db, "idoit_sync_status_field") or "C__CATG__GLOBAL.description",
+        sync_status_field=_get_setting(db, "idoit_sync_status_field") or "C__CATG__GLOBAL.comment",
         mapping=mapping,
+        mapping_error=mapping_error,
     )
 
 
@@ -131,12 +135,19 @@ def update_config(db: Session, payload: dict[str, Any]) -> IdoitConfig:
     return get_config(db)
 
 
-def validate_mapping(mapping: dict[str, Any], sync_status_field: Optional[str] = None) -> list[str]:
+def validate_mapping(
+    mapping: dict[str, Any],
+    sync_status_field: Optional[str] = None,
+    default_object_type: Optional[str] = None,
+    mapping_error: Optional[str] = None,
+) -> list[str]:
     errors: list[str] = []
+    if mapping_error:
+        errors.append(mapping_error)
     if not isinstance(mapping, dict):
-        return ["Mapping must be a JSON object"]
-    if not mapping.get("objectType"):
-        errors.append("Mapping requires objectType")
+        return errors + ["Mapping must be a JSON object"]
+    if not (mapping.get("objectType") or default_object_type):
+        errors.append("Mapping requires objectType or idoit_default_object_type")
     fields = mapping.get("fields")
     if not isinstance(fields, dict) or not fields:
         errors.append("Mapping requires at least one field mapping")
@@ -166,7 +177,11 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     for lanlens_field, idoit_field in (config.mapping.get("fields") or {}).items():
         if idoit_field and source.get(lanlens_field) is not None:
             fields[idoit_field] = source[lanlens_field]
-    fields[config.sync_status_field] = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
+    sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
+    if fields.get(config.sync_status_field):
+        fields[config.sync_status_field] = f"{fields[config.sync_status_field]}\n{sync_reference}"
+    else:
+        fields[config.sync_status_field] = sync_reference
     return {
         "objectType": config.mapping.get("objectType") or config.default_object_type,
         "title": label,
@@ -232,24 +247,28 @@ class IdoitClient:
         return result
 
     async def test_connection(self) -> dict[str, Any]:
-        result = await self.login()
-        return {"ok": True, "endpoint": self.endpoint, "result": result}
+        await self.login()
+        return {"ok": True, "endpoint": self.endpoint, "authenticated": bool(self._session_id)}
 
 
 def dry_run(db: Session, device: Device) -> dict[str, Any]:
     config = get_config(db)
-    errors = validate_mapping(config.mapping, config.sync_status_field)
+    errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     payload = device_payload(device, config)
     state = get_or_create_state(db, device)
     digest = payload_hash(payload)
-    action = "update" if state.idoit_object_id else "create"
+    action = "update" if state.idoit_object_id else "unresolved"
     warnings = []
     if not device.cmdb_id:
         warnings.append("Device has no LanLens CMDB ID; matching will fall back to MAC/hostname/IP")
+    if not state.idoit_object_id:
+        warnings.append("No stored i-doit object id yet; dry-run does not query i-doit, so create/update is unresolved until live matching is enabled")
     if errors:
         state.status = "mapping_error"
-    elif state.payload_hash and state.payload_hash != digest:
-        state.status = "pending_changes"
+        state.last_error = "; ".join(errors)
+    else:
+        state.last_error = None
+        state.status = "pending_changes" if state.payload_hash and state.payload_hash != digest else "preview_ready"
     log_sync(db, device.id, "dry_run", "failure" if errors else "success", "Dry run generated", {"payload": payload, "errors": errors, "warnings": warnings, "action": action})
     db.commit()
     return {"device_id": device.id, "action": action, "payload_hash": digest, "payload": payload, "errors": errors, "warnings": warnings, "idoit_object_id": state.idoit_object_id}
@@ -264,7 +283,7 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
     """
     config = get_config(db)
     payload = device_payload(device, config)
-    errors = validate_mapping(config.mapping, config.sync_status_field)
+    errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     state = get_or_create_state(db, device)
     now = datetime.utcnow()
     state.last_sync_at = now
@@ -275,10 +294,9 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
         state.last_error = "; ".join(errors)
         result = "failure"
     else:
-        state.status = "pending_changes" if not state.idoit_object_id else "synced"
+        state.status = "validated_pending_sync"
         state.last_error = None
-        state.last_success_at = now
-        result = "success"
-    log_sync(db, device.id, "manual", result, "LanLens-side i-doit sync validation completed", {"payload": payload, "errors": errors}, state.idoit_object_id)
+        result = "skipped"
+    log_sync(db, device.id, "manual", result, "LanLens-side i-doit validation completed; no upstream write performed", {"payload": payload, "errors": errors, "upstream_write_performed": False}, state.idoit_object_id)
     db.commit()
-    return {"device_id": device.id, "status": state.status, "errors": errors, "payload_hash": state.payload_hash}
+    return {"device_id": device.id, "status": state.status, "errors": errors, "payload_hash": state.payload_hash, "upstream_write_performed": False}
