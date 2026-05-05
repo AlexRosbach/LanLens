@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
@@ -212,7 +212,7 @@ def list_devices(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Device)
+    query = db.query(Device).options(joinedload(Device.idoit_sync))
 
     if online_only is True:
         query = query.filter(Device.is_online == True)
@@ -342,6 +342,7 @@ def get_new_devices(
     viewed_subquery = db.query(DeviceView.device_id).filter(DeviceView.user_id == current_user.id)
     devices = (
         db.query(Device)
+        .options(joinedload(Device.idoit_sync))
         .filter(Device.is_registered == False)
         .filter(~Device.id.in_(viewed_subquery))
         .order_by(Device.last_seen.desc())
@@ -386,7 +387,7 @@ def get_device(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    device = db.query(Device).filter(Device.id == device_id).first()
+    device = db.query(Device).options(joinedload(Device.idoit_sync)).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     dhcp_range = _get_dhcp_range(db)

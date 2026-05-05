@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Device, IdoitDeviceSync, IdoitSyncLog, Setting
@@ -158,6 +159,20 @@ def validate_mapping(
     return errors
 
 
+def _mapping_dict(config: IdoitConfig) -> dict[str, Any]:
+    return config.mapping if isinstance(config.mapping, dict) else {}
+
+
+def _mapping_fields(config: IdoitConfig) -> dict[str, Any]:
+    fields = _mapping_dict(config).get("fields")
+    return fields if isinstance(fields, dict) else {}
+
+
+def _mapping_identity(config: IdoitConfig) -> dict[str, Any]:
+    identity = _mapping_dict(config).get("identity")
+    return identity if isinstance(identity, dict) else {}
+
+
 def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     label = device.label or device.hostname or device.cmdb_id or device.ip_address or device.mac_address
     source = {
@@ -174,16 +189,20 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
         "os_info": device.os_info,
     }
     fields = {}
-    for lanlens_field, idoit_field in (config.mapping.get("fields") or {}).items():
+    for lanlens_field, idoit_field in _mapping_fields(config).items():
         if idoit_field and source.get(lanlens_field) is not None:
             fields[idoit_field] = source[lanlens_field]
+    external_id_field = _mapping_identity(config).get("externalIdField")
+    external_id_value = device.cmdb_id or device.mac_address
+    if external_id_field and external_id_value and not fields.get(external_id_field):
+        fields[external_id_field] = external_id_value
     sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
     if fields.get(config.sync_status_field):
         fields[config.sync_status_field] = f"{fields[config.sync_status_field]}\n{sync_reference}"
     else:
         fields[config.sync_status_field] = sync_reference
     return {
-        "objectType": config.mapping.get("objectType") or config.default_object_type,
+        "objectType": _mapping_dict(config).get("objectType") or config.default_object_type,
         "title": label,
         "identity": {
             "cmdb_id": device.cmdb_id,
@@ -204,7 +223,13 @@ def get_or_create_state(db: Session, device: Device) -> IdoitDeviceSync:
     if not state:
         state = IdoitDeviceSync(device_id=device.id, status="never_synced")
         db.add(state)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            state = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == device.id).first()
+            if not state:
+                raise
     return state
 
 
@@ -288,7 +313,6 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
     now = datetime.utcnow()
     state.last_sync_at = now
     state.last_mode = "manual"
-    state.payload_hash = payload_hash(payload)
     if errors:
         state.status = "mapping_error"
         state.last_error = "; ".join(errors)

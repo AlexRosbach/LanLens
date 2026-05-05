@@ -77,12 +77,14 @@ async def test_connection(db: Session = Depends(get_db), _: User = Depends(get_c
 def test_mapping(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     cfg = get_config(db)
     errors = validate_mapping(cfg.mapping, cfg.sync_status_field, cfg.default_object_type, cfg.mapping_error)
+    mapping = cfg.mapping if isinstance(cfg.mapping, dict) else {}
+    fields = mapping.get("fields") if isinstance(mapping.get("fields"), dict) else {}
     return {
         "ok": not errors,
         "errors": errors,
-        "objectType": cfg.mapping.get("objectType") or cfg.default_object_type,
+        "objectType": mapping.get("objectType") or cfg.default_object_type,
         "syncStatusField": cfg.sync_status_field,
-        "fieldCount": len(cfg.mapping.get("fields") or {}),
+        "fieldCount": len(fields),
         "scope": "local_structure_only",
         "remoteValidation": "not_performed",
     }
