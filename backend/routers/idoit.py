@@ -43,7 +43,8 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_default_object_type": cfg.default_object_type,
         "idoit_auto_sync_enabled": cfg.auto_sync_enabled,
         "idoit_sync_status_field": cfg.sync_status_field,
-        "idoit_mapping_json": cfg.mapping,
+        "idoit_mapping_json": cfg.mapping_raw if cfg.mapping_error else cfg.mapping,
+        "idoit_mapping_parse_error": cfg.mapping_error,
         "mapping_errors": validate_mapping(cfg.mapping, cfg.sync_status_field, cfg.default_object_type, cfg.mapping_error),
     }
 

@@ -224,6 +224,7 @@ class DeviceResponse(BaseModel):
     idoit_sync_status: Optional[str] = None
     idoit_object_id: Optional[str] = None
     idoit_last_sync_at: Optional[datetime] = None
+    idoit_last_validation_at: Optional[datetime] = None
     idoit_last_error: Optional[str] = None
     # Relations
     latest_scan: Optional[PortScanResponse] = None

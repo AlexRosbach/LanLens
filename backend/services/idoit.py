@@ -63,6 +63,7 @@ class IdoitConfig:
     sync_status_field: str
     mapping: dict[str, Any]
     mapping_error: Optional[str] = None
+    mapping_raw: str = ""
 
 
 def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php") -> str:
@@ -117,6 +118,7 @@ def get_config(db: Session) -> IdoitConfig:
         sync_status_field=_get_setting(db, "idoit_sync_status_field") or "C__CATG__GLOBAL.comment",
         mapping=mapping,
         mapping_error=mapping_error,
+        mapping_raw=raw_mapping,
     )
 
 
@@ -152,6 +154,8 @@ def validate_mapping(
     fields = mapping.get("fields")
     if not isinstance(fields, dict) or not fields:
         errors.append("Mapping requires at least one field mapping")
+    elif invalid_targets := [name for name, target in fields.items() if not isinstance(target, str) or not target.strip()]:
+        errors.append(f"Mapping field targets must be non-empty strings: {', '.join(invalid_targets)}")
     identity = mapping.get("identity") or {}
     configured_status = sync_status_field or identity.get("syncStatusField")
     if not configured_status:
@@ -190,8 +194,16 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     }
     fields = {}
     for lanlens_field, idoit_field in _mapping_fields(config).items():
-        if idoit_field and source.get(lanlens_field) is not None:
-            fields[idoit_field] = source[lanlens_field]
+        if not isinstance(idoit_field, str) or not idoit_field.strip():
+            continue
+        if lanlens_field in source:
+            value = source[lanlens_field]
+        else:
+            value = getattr(device, lanlens_field, None)
+            if callable(value):
+                value = None
+        if value is not None:
+            fields[idoit_field] = value
     external_id_field = _mapping_identity(config).get("externalIdField")
     external_id_value = device.cmdb_id or device.mac_address
     if external_id_field and external_id_value and not fields.get(external_id_field):
@@ -280,23 +292,16 @@ def dry_run(db: Session, device: Device) -> dict[str, Any]:
     config = get_config(db)
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     payload = device_payload(device, config)
-    state = get_or_create_state(db, device)
+    state = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == device.id).first()
     digest = payload_hash(payload)
-    action = "update" if state.idoit_object_id else "unresolved"
+    action = "update" if state and state.idoit_object_id else "unresolved"
     warnings = []
     if not device.cmdb_id:
         warnings.append("Device has no LanLens CMDB ID; matching will fall back to MAC/hostname/IP")
-    if not state.idoit_object_id:
+    if not state or not state.idoit_object_id:
         warnings.append("No stored i-doit object id yet; dry-run does not query i-doit, so create/update is unresolved until live matching is enabled")
-    if errors:
-        state.status = "mapping_error"
-        state.last_error = "; ".join(errors)
-    else:
-        state.last_error = None
-        state.status = "pending_changes" if state.payload_hash and state.payload_hash != digest else "preview_ready"
-    log_sync(db, device.id, "dry_run", "failure" if errors else "success", "Dry run generated", {"payload": payload, "errors": errors, "warnings": warnings, "action": action})
-    db.commit()
-    return {"device_id": device.id, "action": action, "payload_hash": digest, "payload": payload, "errors": errors, "warnings": warnings, "idoit_object_id": state.idoit_object_id}
+    pending_change = bool(state and state.payload_hash and state.payload_hash != digest)
+    return {"device_id": device.id, "action": action, "payload_hash": digest, "payload": payload, "errors": errors, "warnings": warnings, "idoit_object_id": state.idoit_object_id if state else None, "pending_change": pending_change}
 
 
 def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
@@ -313,6 +318,7 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
     now = datetime.utcnow()
     state.last_sync_at = now
     state.last_mode = "manual"
+    state.payload_hash = payload_hash(payload)
     if errors:
         state.status = "mapping_error"
         state.last_error = "; ".join(errors)

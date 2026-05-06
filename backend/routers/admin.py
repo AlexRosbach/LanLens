@@ -41,8 +41,10 @@ def export_settings(
 ):
     """Export all application settings as a JSON file."""
     rows = db.query(Setting).all()
+    from ..main import APP_VERSION
+
     data = {
-        "version": "1.4.5",
+        "version": APP_VERSION,
         "exported_at": datetime.utcnow().isoformat() + "Z",
         "settings": {r.key: r.value for r in rows},
     }
