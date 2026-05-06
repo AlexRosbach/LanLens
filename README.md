@@ -151,6 +151,23 @@ Configure Telegram in **Settings → Notifications**:
 - chat ID
 - optional test message
 
+### Webhook / Gotify
+
+LanLens can also send new-device notifications to a generic JSON webhook, including Gotify.
+
+Configure this in **Settings → Notifications → Webhook / Gotify**:
+- enable webhook notifications
+- enter the full webhook URL
+- send a test webhook
+
+For Gotify, use the complete message endpoint including the app token, for example:
+
+```text
+https://gotify.example.com/message?token=YOUR_APP_TOKEN
+```
+
+LanLens sends JSON with `title`, `message`, `priority`, `event_type`, `device_id`, and `source` fields.
+
 ---
 
 ## Using MariaDB / External Database

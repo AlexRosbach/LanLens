@@ -24,6 +24,8 @@ export interface AllSettings {
   smtp_to_email: string
   smtp_enabled: boolean
   smtp_use_tls: boolean
+  webhook_url: string
+  webhook_enabled: boolean
   cmdb_id_prefix: string
   cmdb_id_digits: number
   show_services_nav: boolean
@@ -83,6 +85,13 @@ export const settingsApi = {
   }) => apiClient.put('/settings/smtp', data).then((r) => r.data),
 
   testSmtp: () => apiClient.post('/settings/smtp/test').then((r) => r.data),
+
+  updateWebhook: (data: {
+    webhook_url: string
+    webhook_enabled: boolean
+  }) => apiClient.put('/settings/webhook', data).then((r) => r.data),
+
+  testWebhook: () => apiClient.post('/settings/webhook/test').then((r) => r.data),
 
   updateCmdb: (prefix: string, digits: number) =>
     apiClient.put('/settings/cmdb', null, { params: { prefix, digits } }).then((r) => r.data),

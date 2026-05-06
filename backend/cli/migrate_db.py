@@ -394,6 +394,13 @@ def migrate():
         else:
             print("Migration: idoit_sync_logs already exists — skipped")
 
+        if not _column_exists(conn, "notifications", "webhook_sent"):
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN webhook_sent BOOLEAN DEFAULT 0"))
+            conn.commit()
+            print("Migration: added notifications.webhook_sent")
+        else:
+            print("Migration: notifications.webhook_sent already exists — skipped")
+
         conn.commit()
 
 

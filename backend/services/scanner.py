@@ -14,13 +14,14 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import Device, DeviceIpHistory, Notification, ScanRun, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
-from .notification import send_telegram_for_notification
+from .notification import send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
 
@@ -439,7 +440,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         db.commit()
 
         if devices_new > 0:
-            await _send_telegram_notifications(db)
+            await _send_notification_deliveries(db)
 
         logger.info(
             f"Scan complete: {len(found_macs)} found, "
@@ -463,20 +464,21 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         _scan_running = False
 
 
-async def _send_telegram_notifications(db: Session) -> None:
-    """Send Telegram messages for unsent new-device notifications."""
+async def _send_notification_deliveries(db: Session) -> None:
+    """Send configured external deliveries for unsent new-device notifications."""
     unsent = (
         db.query(Notification)
         .filter(
             Notification.event_type == "new_device",
-            Notification.telegram_sent == False,
+            or_(Notification.telegram_sent == False, Notification.webhook_sent == False),
         )
         .all()
     )
 
     for notif in unsent:
-        success = await send_telegram_for_notification(db, notif)
-        if success:
+        if not notif.telegram_sent and await send_telegram_for_notification(db, notif):
             notif.telegram_sent = True
+        if not notif.webhook_sent and await send_webhook_for_notification(db, notif):
+            notif.webhook_sent = True
 
     db.commit()

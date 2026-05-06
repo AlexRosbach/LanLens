@@ -9,6 +9,8 @@ All notable changes to this project should be documented in this file.
 - Added configurable i-doit URL/API key settings, JSON-RPC path for Cloud/on-prem deployments, mapping JSON, sync status field, and auto-sync flag storage.
 - Added i-doit connection test, local mapping validation, per-device dry-run preview, manual validation/state endpoint, and sync log API. Live i-doit writes remain intentionally disabled in this foundation slice.
 - Added per-device i-doit sync state and audit log database tables.
+- Added generic webhook notifications for new devices, including Gotify-compatible JSON payloads and a test-send action in Settings → Notifications.
+- Added Simplified Chinese UI language support.
 
 ### Documentation
 - Added first setup notes for i-doit Cloud/on-prem JSON-RPC access, safe first-run workflow, mapping, status field selection, and troubleshooting.

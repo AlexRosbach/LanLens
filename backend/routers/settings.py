@@ -20,8 +20,9 @@ from ..schemas import (
     SmtpSettings,
     TelegramSettings,
     UiSettings,
+    WebhookSettings,
 )
-from ..services.notification import send_test_message, send_update_notification
+from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message
 from ..services.scheduler import update_interval
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
@@ -36,6 +37,7 @@ SETTING_KEYS = [
     "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline",
+    "webhook_url", "webhook_enabled",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
     "show_services_nav",
@@ -147,6 +149,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         smtp_to_email=_get(db, "smtp_to_email", ""),
         smtp_enabled=_get(db, "smtp_enabled", "false") == "true",
         smtp_use_tls=_get(db, "smtp_use_tls", "true") != "false",
+        webhook_url=_get(db, "webhook_url", ""),
+        webhook_enabled=_get(db, "webhook_enabled", "false") == "true",
         cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
         cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
@@ -352,6 +356,36 @@ def update_smtp(
     _set(db, "smtp_use_tls", "true" if data.smtp_use_tls else "false")
     db.commit()
     return MessageResponse(message="SMTP settings updated")
+
+
+@router.put("/webhook", response_model=MessageResponse)
+def update_webhook(
+    data: WebhookSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    url = data.webhook_url.strip()
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=400, detail="Webhook URL must start with http:// or https://")
+    _set(db, "webhook_url", url)
+    _set(db, "webhook_enabled", "true" if data.webhook_enabled else "false")
+    db.commit()
+    return MessageResponse(message="Webhook settings updated")
+
+
+@router.post("/webhook/test", response_model=MessageResponse)
+async def test_webhook(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    webhook_url = _get(db, "webhook_url", "")
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="Webhook not configured")
+
+    success = await send_webhook_test_message(webhook_url)
+    if success:
+        return MessageResponse(message="Test webhook sent successfully")
+    raise HTTPException(status_code=502, detail="Failed to send test webhook — check the URL")
 
 
 @router.post("/smtp/test", response_model=MessageResponse)

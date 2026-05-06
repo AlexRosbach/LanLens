@@ -29,6 +29,34 @@ def _get_telegram_config(db: Session):
     }
 
 
+def _get_webhook_config(db: Session):
+    def get(key: str) -> str:
+        row = db.query(Setting).filter(Setting.key == key).first()
+        return row.value if row else ""
+
+    return {
+        "enabled": get("webhook_enabled") == "true",
+        "url": get("webhook_url"),
+    }
+
+
+def _notification_title_and_message(notification: Notification) -> tuple[str, str]:
+    device = notification.device
+    if device:
+        mac_label = IP_ONLY_HOST_LABEL if device.mac_address and device.mac_address.startswith("ip:") else device.mac_address
+        title = "LanLens — New Device Detected"
+        message = (
+            f"New device detected\n\n"
+            f"IP: {device.ip_address or 'unknown'}\n"
+            f"MAC: {mac_label or '—'}\n"
+            f"Vendor: {device.vendor or 'Unknown'}\n"
+            f"Class: {device.device_class}\n"
+            f"Hostname: {device.hostname or '—'}"
+        )
+        return title, message
+    return "LanLens Notification", notification.message
+
+
 async def send_telegram_for_notification(db: Session, notification: Notification) -> bool:
     """Send a Telegram message for a specific Notification object."""
     config = _get_telegram_config(db)
@@ -75,6 +103,49 @@ async def send_update_notification(db: Session, current_version: str, latest_ver
         f'<a href="{release_url}">View release notes →</a>'
     )
     return await _send_message(config["bot_token"], config["chat_id"], text)
+
+
+async def send_webhook_for_notification(db: Session, notification: Notification) -> bool:
+    """Send a generic JSON webhook, compatible with services like Gotify."""
+    config = _get_webhook_config(db)
+    if not config["enabled"] or not config["url"]:
+        return False
+
+    title, message = _notification_title_and_message(notification)
+    payload = {
+        "title": title,
+        "message": message,
+        "priority": 5,
+        "event_type": notification.event_type,
+        "device_id": notification.device_id,
+        "source": "LanLens",
+    }
+    return await _send_webhook(config["url"], payload)
+
+
+async def send_webhook_test_message(webhook_url: str) -> bool:
+    """Send a test webhook payload."""
+    payload = {
+        "title": "LanLens — Test Notification",
+        "message": "Webhook notifications are configured correctly.",
+        "priority": 5,
+        "event_type": "test",
+        "source": "LanLens",
+    }
+    return await _send_webhook(webhook_url, payload)
+
+
+async def _send_webhook(webhook_url: str, payload: dict) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(webhook_url, json=payload)
+            if 200 <= response.status_code < 300:
+                return True
+            logger.warning(f"Webhook returned {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to send webhook notification: {e}")
+        return False
 
 
 async def send_test_message(bot_token: str, chat_id: str) -> bool:

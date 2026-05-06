@@ -289,6 +289,11 @@ class TelegramSettings(BaseModel):
     notify_telegram_update: bool = False
 
 
+class WebhookSettings(BaseModel):
+    webhook_url: str = ""
+    webhook_enabled: bool = False
+
+
 class ServerUrlSettings(BaseModel):
     server_url: str
 
@@ -333,6 +338,8 @@ class AllSettings(BaseModel):
     smtp_to_email: str = ""
     smtp_enabled: bool = False
     smtp_use_tls: bool = True
+    webhook_url: str = ""
+    webhook_enabled: bool = False
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
     show_services_nav: bool = False
@@ -358,6 +365,7 @@ class NotificationResponse(BaseModel):
     message: str
     is_read: bool
     telegram_sent: bool
+    webhook_sent: bool = False
     created_at: datetime
 
     class Config:

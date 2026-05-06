@@ -196,6 +196,7 @@ class Notification(Base):
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
     telegram_sent = Column(Boolean, default=False)
+    webhook_sent = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="notifications")

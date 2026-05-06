@@ -167,6 +167,30 @@ export default function Settings() {
     }
   }
 
+  async function saveWebhook() {
+    setSaving(true)
+    try {
+      await settingsApi.updateWebhook({
+        webhook_url: current.webhook_url,
+        webhook_enabled: current.webhook_enabled,
+      })
+      toast.success(t('webhook_settings_saved'))
+    } catch {
+      toast.error(t('webhook_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function testWebhook() {
+    try {
+      await settingsApi.testWebhook()
+      toast.success(t('test_webhook_sent'))
+    } catch {
+      toast.error(t('webhook_test_failed'))
+    }
+  }
+
   async function checkForUpdates() {
     setCheckingUpdate(true)
     try {
@@ -319,6 +343,39 @@ export default function Settings() {
 
             <div className="mt-4">
               <Button onClick={saveServerUrl} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-4">
+              {t('notifications_webhook')}
+            </h2>
+            <div className="grid gap-4">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {t('webhook_url_label')}
+                </label>
+                <Input
+                  value={current.webhook_url}
+                  onChange={(e) => setSettings({ ...current, webhook_url: e.target.value })}
+                  placeholder="https://gotify.example.com/message?token=..."
+                />
+                <p className="mt-1 text-xs text-text-subtle">{t('webhook_url_hint')}</p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.webhook_enabled}
+                  onChange={(e) => setSettings({ ...current, webhook_enabled: e.target.checked })}
+                />
+                {t('enable_webhook_notifications')}
+              </label>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <Button onClick={saveWebhook} loading={saving}>{t('save_changes')}</Button>
+              <Button onClick={testWebhook} variant="outline">
+                {t('test_webhook')}
+              </Button>
             </div>
           </Card>
 
