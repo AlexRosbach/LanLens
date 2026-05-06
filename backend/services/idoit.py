@@ -268,7 +268,7 @@ class IdoitClient:
         headers = {"Content-Type": "application/json"}
         if self._session_id:
             headers["X-RPC-Auth-Session"] = self._session_id
-        body = {"version": "2.0", "method": method, "params": params or {}, "id": 1}
+        body = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
         async with httpx.AsyncClient(timeout=self.config.timeout_seconds) as client:
             res = await client.post(self.endpoint, headers=headers, json=body)
             res.raise_for_status()
