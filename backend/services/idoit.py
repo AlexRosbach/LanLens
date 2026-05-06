@@ -156,10 +156,18 @@ def validate_mapping(
         errors.append("Mapping requires at least one field mapping")
     elif invalid_targets := [name for name, target in fields.items() if not isinstance(target, str) or not target.strip()]:
         errors.append(f"Mapping field targets must be non-empty strings: {', '.join(invalid_targets)}")
-    identity = mapping.get("identity") or {}
-    configured_status = sync_status_field or identity.get("syncStatusField")
-    if not configured_status:
+    identity_raw = mapping.get("identity") or {}
+    if not isinstance(identity_raw, dict):
+        errors.append("Mapping identity must be a JSON object when provided")
+        identity = {}
+    else:
+        identity = identity_raw
+    configured_status = sync_status_field if isinstance(sync_status_field, str) and sync_status_field.strip() else identity.get("syncStatusField")
+    if not isinstance(configured_status, str) or not configured_status.strip():
         errors.append("A writable i-doit sync/reference/status field must be configured")
+    external_id_field = identity.get("externalIdField")
+    if external_id_field is not None and (not isinstance(external_id_field, str) or not external_id_field.strip()):
+        errors.append("Mapping identity.externalIdField must be a non-empty string when provided")
     return errors
 
 
@@ -175,6 +183,15 @@ def _mapping_fields(config: IdoitConfig) -> dict[str, Any]:
 def _mapping_identity(config: IdoitConfig) -> dict[str, Any]:
     identity = _mapping_dict(config).get("identity")
     return identity if isinstance(identity, dict) else {}
+
+
+def _sync_status_field(config: IdoitConfig) -> str:
+    if isinstance(config.sync_status_field, str) and config.sync_status_field.strip():
+        return config.sync_status_field.strip()
+    identity_status = _mapping_identity(config).get("syncStatusField")
+    if isinstance(identity_status, str) and identity_status.strip():
+        return identity_status.strip()
+    return "C__CATG__GLOBAL.comment"
 
 
 def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
@@ -206,13 +223,14 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
             fields[idoit_field] = value
     external_id_field = _mapping_identity(config).get("externalIdField")
     external_id_value = device.cmdb_id or device.mac_address
-    if external_id_field and external_id_value and not fields.get(external_id_field):
+    if isinstance(external_id_field, str) and external_id_field.strip() and external_id_value and not fields.get(external_id_field):
         fields[external_id_field] = external_id_value
     sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
-    if fields.get(config.sync_status_field):
-        fields[config.sync_status_field] = f"{fields[config.sync_status_field]}\n{sync_reference}"
+    sync_status_field = _sync_status_field(config)
+    if fields.get(sync_status_field):
+        fields[sync_status_field] = f"{fields[sync_status_field]}\n{sync_reference}"
     else:
-        fields[config.sync_status_field] = sync_reference
+        fields[sync_status_field] = sync_reference
     return {
         "objectType": _mapping_dict(config).get("objectType") or config.default_object_type,
         "title": label,
@@ -315,8 +333,6 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
     payload = device_payload(device, config)
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     state = get_or_create_state(db, device)
-    now = datetime.utcnow()
-    state.last_sync_at = now
     state.last_mode = "manual"
     state.payload_hash = payload_hash(payload)
     if errors:
@@ -324,6 +340,7 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
         state.last_error = "; ".join(errors)
         result = "failure"
     else:
+        state.last_sync_at = datetime.utcnow()
         state.status = "validated_pending_sync"
         state.last_error = None
         result = "skipped"
