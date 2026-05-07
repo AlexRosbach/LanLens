@@ -9,7 +9,9 @@ export interface IdoitConfig {
   idoit_default_object_type: string
   idoit_auto_sync_enabled: boolean
   idoit_sync_status_field: string
+  idoit_mapping_json: string
   idoit_mapping_raw: string
+  idoit_mapping_parsed?: Record<string, unknown>
   idoit_mapping_parse_error?: string | null
   mapping_errors: string[]
 }

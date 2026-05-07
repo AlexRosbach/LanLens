@@ -35,6 +35,8 @@ export default function Settings() {
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
 
   useEffect(() => {
+    // Load settings once on mount. Language switches should only re-render labels,
+    // not re-fetch and overwrite form fields or the mapping editor mid-edit.
     settingsApi.get().then((data) => {
       setSettings(data)
       setShowServicesNav(data.show_services_nav)
@@ -43,7 +45,7 @@ export default function Settings() {
       toast.error(t('settings_load_failed'))
     })
     loadIdoitConfig()
-  }, [lang])
+  }, [])
 
   if (!settings) {
     return (
@@ -56,6 +58,8 @@ export default function Settings() {
   const current = settings
 
   async function loadIdoitConfig() {
+    // This endpoint is optional for the rest of Settings. If it fails, keep the
+    // CMDB card usable by showing an inline retry instead of an endless spinner.
     setIdoitLoadError(false)
     try {
       const data = await idoitApi.getConfig()

@@ -1,6 +1,9 @@
-"""
-Telegram notification service.
-Sends messages to a configured Telegram bot chat.
+"""Notification delivery helpers for Telegram, webhook/Gotify and SMTP.
+
+The webhook path deliberately validates targets server-side before sending so a
+misconfigured or malicious URL cannot make the LanLens container call local
+services. Private LAN addresses are allowed because Gotify/self-hosted webhooks
+are a common deployment pattern.
 """
 import asyncio
 import ipaddress
@@ -20,7 +23,12 @@ IP_ONLY_HOST_LABEL = "IP-only host"
 
 
 async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
-    """Validate webhook URL and block unsafe SSRF targets."""
+    """Validate webhook URL and block unsafe SSRF targets.
+
+    We allow RFC1918/private LAN ranges for self-hosted Gotify instances, but
+    reject loopback/link-local/reserved endpoints that commonly expose metadata
+    services or host-local admin APIs from inside containers.
+    """
     parsed = urlparse((webhook_url or "").strip())
     if parsed.scheme not in {"http", "https"}:
         return False, "Webhook URL must start with http:// or https://"
@@ -48,9 +56,13 @@ async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
             ip = ipaddress.ip_address(address)
         except ValueError:
             return False, "Webhook URL resolved to an invalid address"
-        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+
+        # Normalize IPv4-mapped IPv6 first, otherwise ::ffff:127.0.0.1 can
+        # evade IPv4 loopback/link-local checks on some Python versions.
+        check_ip = ip.ipv4_mapped if getattr(ip, "ipv4_mapped", None) else ip
+        if check_ip.is_loopback or check_ip.is_link_local or check_ip.is_multicast or check_ip.is_reserved or check_ip.is_unspecified:
             return False, "Webhook URL must not resolve to a local, link-local, multicast or reserved address"
-        if ip.version == 4 and ip == ipaddress.ip_address("169.254.169.254"):
+        if check_ip.version == 4 and check_ip == ipaddress.ip_address("169.254.169.254"):
             return False, "Webhook URL must not target cloud metadata endpoints"
 
     return True, ""
@@ -175,6 +187,8 @@ async def send_webhook_test_message(webhook_url: str) -> bool:
 
 
 async def _send_webhook(webhook_url: str, payload: dict) -> bool:
+    # Re-validate at send time as a safety net: settings may have been imported
+    # directly or DNS may have changed since the URL was saved.
     valid, reason = await validate_webhook_url(webhook_url)
     if not valid:
         logger.warning(f"Rejected webhook URL: {reason}")

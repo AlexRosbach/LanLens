@@ -43,7 +43,10 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_default_object_type": cfg.default_object_type,
         "idoit_auto_sync_enabled": cfg.auto_sync_enabled,
         "idoit_sync_status_field": cfg.sync_status_field,
-        "idoit_mapping_json": cfg.mapping,
+        # Keep the editable setting as a string and expose the parsed object
+        # separately. That avoids clients guessing whether idoit_mapping_json is
+        # raw JSON text or already-decoded data.
+        "idoit_mapping_json": cfg.mapping_raw,
         "idoit_mapping_raw": cfg.mapping_raw,
         "idoit_mapping_parsed": cfg.mapping,
         "idoit_mapping_parse_error": cfg.mapping_error,
