@@ -5,7 +5,6 @@ Sends messages to a configured Telegram bot chat.
 import asyncio
 import ipaddress
 import logging
-import socket
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -20,8 +19,8 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 IP_ONLY_HOST_LABEL = "IP-only host"
 
 
-def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
-    """Validate webhook URL and block common SSRF targets."""
+async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
+    """Validate webhook URL and block unsafe SSRF targets."""
     parsed = urlparse((webhook_url or "").strip())
     if parsed.scheme not in {"http", "https"}:
         return False, "Webhook URL must start with http:// or https://"
@@ -33,15 +32,15 @@ def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
         return False, "Webhook URL must not target localhost"
 
     try:
-        addresses = {
-            info[4][0]
-            for info in socket.getaddrinfo(
-                hostname,
-                parsed.port or (443 if parsed.scheme == "https" else 80),
-                type=socket.SOCK_STREAM,
-            )
-        }
-    except socket.gaierror:
+        loop = asyncio.get_running_loop()
+        resolved = await loop.getaddrinfo(
+            hostname,
+            parsed.port or (443 if parsed.scheme == "https" else 80),
+            type=0,
+            proto=0,
+        )
+        addresses = {info[4][0] for info in resolved}
+    except OSError:
         return False, "Webhook URL host could not be resolved"
 
     for address in addresses:
@@ -49,15 +48,10 @@ def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
             ip = ipaddress.ip_address(address)
         except ValueError:
             return False, "Webhook URL resolved to an invalid address"
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return False, "Webhook URL must not resolve to a private, local, link-local, multicast or reserved address"
+        if ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            return False, "Webhook URL must not resolve to a local, link-local, multicast or reserved address"
+        if ip.version == 4 and ip == ipaddress.ip_address("169.254.169.254"):
+            return False, "Webhook URL must not target cloud metadata endpoints"
 
     return True, ""
 
@@ -181,7 +175,7 @@ async def send_webhook_test_message(webhook_url: str) -> bool:
 
 
 async def _send_webhook(webhook_url: str, payload: dict) -> bool:
-    valid, reason = validate_webhook_url(webhook_url)
+    valid, reason = await validate_webhook_url(webhook_url)
     if not valid:
         logger.warning(f"Rejected webhook URL: {reason}")
         return False

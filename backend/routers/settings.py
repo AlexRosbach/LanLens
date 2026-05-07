@@ -360,14 +360,16 @@ def update_smtp(
 
 
 @router.put("/webhook", response_model=MessageResponse)
-def update_webhook(
+async def update_webhook(
     data: WebhookSettings,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     url = data.webhook_url.strip()
+    if data.webhook_enabled and not url:
+        raise HTTPException(status_code=400, detail="Webhook URL is required when webhook notifications are enabled")
     if url:
-        valid, reason = validate_webhook_url(url)
+        valid, reason = await validate_webhook_url(url)
         if not valid:
             raise HTTPException(status_code=400, detail=reason)
     _set(db, "webhook_url", url)

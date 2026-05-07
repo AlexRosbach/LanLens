@@ -28,6 +28,7 @@ export default function Settings() {
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
   const [idoitConfig, setIdoitConfig] = useState<IdoitConfig | null>(null)
+  const [idoitLoadError, setIdoitLoadError] = useState(false)
   const [idoitApiKey, setIdoitApiKey] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'cmdb'>('system')
@@ -41,12 +42,7 @@ export default function Settings() {
     }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
-    idoitApi.getConfig().then((data) => {
-      setIdoitConfig(data)
-      setIdoitApiKey('')
-    }).catch(() => {
-      toast.error(t('idoit_settings_load_failed'))
-    })
+    loadIdoitConfig()
   }, [lang])
 
   if (!settings) {
@@ -58,6 +54,19 @@ export default function Settings() {
   }
 
   const current = settings
+
+  async function loadIdoitConfig() {
+    setIdoitLoadError(false)
+    try {
+      const data = await idoitApi.getConfig()
+      setIdoitConfig(data)
+      setIdoitApiKey('')
+    } catch {
+      setIdoitConfig(null)
+      setIdoitLoadError(true)
+      toast.error(t('idoit_settings_load_failed'))
+    }
+  }
 
   async function saveTelegram() {
     setSaving(true)
@@ -831,7 +840,14 @@ export default function Settings() {
               {t('idoit_integration_description')}
             </p>
             {!idoitConfig ? (
-              <div className="py-6"><Spinner /></div>
+              idoitLoadError ? (
+                <div className="rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm text-danger">
+                  <p className="mb-3">{t('idoit_settings_load_failed')}</p>
+                  <Button onClick={loadIdoitConfig} variant="outline">{t('retry')}</Button>
+                </div>
+              ) : (
+                <div className="py-6"><Spinner /></div>
+              )
             ) : (
               <>
                 <div className="grid gap-4 md:grid-cols-2">
