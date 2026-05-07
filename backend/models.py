@@ -9,6 +9,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
+    false,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -197,7 +198,7 @@ class Notification(Base):
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
     telegram_sent = Column(Boolean, default=False)
-    webhook_sent = Column(Boolean, nullable=False, default=False, server_default="0")
+    webhook_sent = Column(Boolean, nullable=False, default=False, server_default=false())
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="notifications")

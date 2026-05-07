@@ -407,12 +407,12 @@ def migrate():
         # Track webhook delivery separately from Telegram so disabled/unconfigured
         # channels do not make old notification rows look permanently pending.
         if not _column_exists(conn, "notifications", "webhook_sent"):
-            conn.execute(text("ALTER TABLE notifications ADD COLUMN webhook_sent BOOLEAN NOT NULL DEFAULT 0"))
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN webhook_sent BOOLEAN NOT NULL DEFAULT FALSE"))
             conn.commit()
             print("Migration: added notifications.webhook_sent")
         else:
             print("Migration: notifications.webhook_sent already exists — skipped")
-        conn.execute(text("UPDATE notifications SET webhook_sent = 0 WHERE webhook_sent IS NULL"))
+        conn.execute(text("UPDATE notifications SET webhook_sent = FALSE WHERE webhook_sent IS NULL"))
         conn.commit()
 
         conn.commit()
