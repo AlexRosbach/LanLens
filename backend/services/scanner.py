@@ -222,12 +222,18 @@ def _summarize_range(start: str, end: str) -> List[str]:
 
 
 def _get_offline_grace_period(db: Session) -> timedelta:
+    # Do not mark a device offline just because one ARP/ping round missed it.
+    # The grace window scales with the configured interval but never drops below
+    # 15 minutes, which avoids noisy offline flapping on busy WLANs.
     interval_minutes = get_scan_interval_minutes(db)
     grace_minutes = max(MIN_OFFLINE_GRACE_MINUTES, interval_minutes * MISSED_SCAN_MULTIPLIER)
     return timedelta(minutes=grace_minutes)
 
 
 def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Optional[datetime] = None) -> None:
+    # Keep IP history up to date without duplicate rows. SQLite and MySQL have
+    # different upsert syntaxes, so use dialect-specific paths and fall back to
+    # a portable read/update path for other engines.
     if not ip:
         return
 
@@ -279,6 +285,9 @@ def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Opti
 
 
 def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
+    # Primary scan range is ARP/L2. Additional routed targets use nmap ping scan
+    # because MAC addresses are usually unavailable beyond the local broadcast
+    # domain. Return effective bounds/source so scan logs explain what happened.
     start_row = _get_setting_row(db, "scan_start")
     end_row = _get_setting_row(db, "scan_end")
     additional_targets_row = _get_setting_row(db, "scan_additional_targets")
@@ -465,7 +474,12 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
 
 
 async def _send_notification_deliveries(db: Session) -> None:
-    """Send configured external deliveries for unsent new-device notifications."""
+    """Send configured external deliveries for unsent new-device notifications.
+
+    Only query rows for channels that are currently enabled. Otherwise disabled
+    channels leave *_sent=false forever and old notifications would be scanned
+    again after every discovery run.
+    """
     def get_setting(key: str) -> str:
         row = db.query(Setting).filter(Setting.key == key).first()
         return row.value if row and row.value is not None else ""

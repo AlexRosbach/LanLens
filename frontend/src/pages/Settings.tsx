@@ -297,6 +297,8 @@ export default function Settings() {
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
         idoit_mapping_json: idoitConfig.idoit_mapping_raw,
+        // Do not send an empty API key: the backend interprets omitted as
+        // "keep existing secret", while an explicit non-empty value rotates it.
         ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
       }
       const updated = await idoitApi.updateConfig(payload)
@@ -937,6 +939,8 @@ export default function Settings() {
                   />
                 </div>
 
+                {/* The mapping editor intentionally stays plain text so invalid JSON
+                    can be fixed in-place instead of being hidden by a parser. */}
                 {idoitConfig.mapping_errors?.length > 0 && (
                   <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
                     <p className="font-medium mb-1">{t('idoit_mapping_validation')}</p>

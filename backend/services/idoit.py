@@ -96,6 +96,9 @@ def _set_setting(db: Session, key: str, value: str) -> None:
 
 
 def get_config(db: Session) -> IdoitConfig:
+    # Keep both the raw mapping text and parsed representation. The UI must be
+    # able to show malformed JSON back to the operator so it can be corrected
+    # without direct DB access.
     raw_mapping = _get_setting(db, "idoit_mapping_json") or SETTING_DEFAULTS["idoit_mapping_json"]
     mapping_error = None
     try:
@@ -144,6 +147,9 @@ def validate_mapping(
     default_object_type: Optional[str] = None,
     mapping_error: Optional[str] = None,
 ) -> list[str]:
+    # This is intentionally local/schema-only validation. It prevents malformed
+    # LanLens mapping JSON from crashing preview/sync endpoints. Remote category
+    # validation against i-doit belongs to a later live-sync implementation.
     errors: list[str] = []
     if mapping_error:
         errors.append(mapping_error)
@@ -195,6 +201,9 @@ def _sync_status_field(config: IdoitConfig) -> str:
 
 
 def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
+    # Build the future i-doit write payload without contacting i-doit. Dry-run
+    # and placeholder sync both use this so operators can inspect exactly what
+    # would be sent once live upstream writes are enabled.
     label = device.label or device.hostname or device.cmdb_id or device.ip_address or device.mac_address
     source = {
         "label": label,
@@ -225,6 +234,10 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     external_id_value = device.cmdb_id or device.mac_address
     if isinstance(external_id_field, str) and external_id_field.strip() and external_id_value and not fields.get(external_id_field):
         fields[external_id_field] = external_id_value
+
+    # Store a human-readable LanLens reference in a dedicated/comment-like field.
+    # If a user maps their CMDB ID to the same field, append instead of replacing
+    # so duplicate-prevention identifiers are not lost.
     sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
     sync_status_field = _sync_status_field(config)
     if fields.get(sync_status_field):
@@ -249,6 +262,9 @@ def payload_hash(payload: dict[str, Any]) -> str:
 
 
 def get_or_create_state(db: Session, device: Device) -> IdoitDeviceSync:
+    # Dry-run/sync can be triggered more than once from the UI. Handle the
+    # check-then-insert race by re-reading after an IntegrityError instead of
+    # surfacing a 500 to the operator.
     state = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == device.id).first()
     if not state:
         state = IdoitDeviceSync(device_id=device.id, status="never_synced")
@@ -307,6 +323,9 @@ class IdoitClient:
 
 
 def dry_run(db: Session, device: Device) -> dict[str, Any]:
+    # Read-only preview: do not mutate sync state here. The UI uses this to show
+    # payload, validation errors, and whether the local device changed since the
+    # last placeholder validation.
     config = get_config(db)
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     payload = device_payload(device, config)
@@ -325,9 +344,10 @@ def dry_run(db: Session, device: Device) -> dict[str, Any]:
 def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
     """Persist sync state after LanLens-side validation.
 
-    Real i-doit object create/update is intentionally kept behind live API wiring;
-    this gives users a safe first v1.5.0 baseline with config, validation, dry-run,
-    sync status and audit logging before credentials are available.
+    Real i-doit object create/update is intentionally kept behind live API wiring.
+    v1.5.0 records validation attempts, payload hashes and audit logs only, so
+    API consumers must treat this as "validated pending sync" rather than proof
+    that i-doit was updated.
     """
     config = get_config(db)
     payload = device_payload(device, config)

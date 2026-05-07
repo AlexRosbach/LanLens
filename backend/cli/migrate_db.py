@@ -352,6 +352,9 @@ def migrate():
             print("Migration: services.service_group_id already exists — skipped")
 
         # ── v1.5.0 ── i-doit one-way sync state/logs ───────────────────────
+        # SQLite installations need explicit table/index creation here. Other
+        # database engines rely on SQLAlchemy create_all from the app startup,
+        # which keeps this migration runner safe for existing non-SQLite setups.
         if IS_SQLITE and not _table_exists(conn, "idoit_device_sync"):
             conn.execute(text(
                 "CREATE TABLE idoit_device_sync ("
@@ -394,6 +397,8 @@ def migrate():
         else:
             print("Migration: idoit_sync_logs already exists — skipped")
 
+        # Track webhook delivery separately from Telegram so disabled/unconfigured
+        # channels do not make old notification rows look permanently pending.
         if not _column_exists(conn, "notifications", "webhook_sent"):
             conn.execute(text("ALTER TABLE notifications ADD COLUMN webhook_sent BOOLEAN DEFAULT 0"))
             conn.commit()
