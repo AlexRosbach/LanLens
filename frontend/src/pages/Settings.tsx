@@ -5,6 +5,7 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
+import { idoitApi, type IdoitConfig } from '../api/idoit'
 import { adminApi } from '../api/admin'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
@@ -26,7 +27,10 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
-  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications'>('system')
+  const [idoitConfig, setIdoitConfig] = useState<IdoitConfig | null>(null)
+  const [idoitApiKey, setIdoitApiKey] = useState('')
+  const [idoitTesting, setIdoitTesting] = useState(false)
+  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
 
   useEffect(() => {
@@ -36,6 +40,12 @@ export default function Settings() {
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
+    })
+    idoitApi.getConfig().then((data) => {
+      setIdoitConfig(data)
+      setIdoitApiKey('')
+    }).catch(() => {
+      toast.error(t('idoit_settings_load_failed'))
     })
   }, [lang])
 
@@ -261,6 +271,60 @@ export default function Settings() {
     }
   }
 
+  async function saveIdoit() {
+    if (!idoitConfig) return
+    setSaving(true)
+    try {
+      const payload = {
+        idoit_enabled: idoitConfig.idoit_enabled,
+        idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
+        idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
+        idoit_default_object_type: idoitConfig.idoit_default_object_type,
+        idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
+        idoit_mapping_json: idoitConfig.idoit_mapping_raw,
+        ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
+      }
+      const updated = await idoitApi.updateConfig(payload)
+      setIdoitConfig(updated)
+      setIdoitApiKey('')
+      toast.success(t('idoit_settings_saved'))
+    } catch {
+      toast.error(t('idoit_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function testIdoitConnection() {
+    setIdoitTesting(true)
+    try {
+      await idoitApi.testConnection()
+      toast.success(t('idoit_connection_success'))
+    } catch {
+      toast.error(t('idoit_connection_failed'))
+    } finally {
+      setIdoitTesting(false)
+    }
+  }
+
+  async function testIdoitMapping() {
+    setIdoitTesting(true)
+    try {
+      const result = await idoitApi.testMapping()
+      if (result.ok === false) {
+        toast.error(t('idoit_mapping_has_errors'))
+      } else {
+        toast.success(t('idoit_mapping_valid'))
+      }
+    } catch {
+      toast.error(t('idoit_mapping_test_failed'))
+    } finally {
+      setIdoitTesting(false)
+    }
+  }
+
   async function saveUi() {
     setSaving(true)
     try {
@@ -279,6 +343,7 @@ export default function Settings() {
     { key: 'database' as const, label: t('database') },
     { key: 'network' as const, label: t('network_discovery') },
     { key: 'notifications' as const, label: t('notifications') },
+    { key: 'cmdb' as const, label: 'CMDB' },
   ]
 
   return (
@@ -346,38 +411,6 @@ export default function Settings() {
             </div>
           </Card>
 
-          <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-4">
-              {t('notifications_webhook')}
-            </h2>
-            <div className="grid gap-4">
-              <div>
-                <label className="block text-sm text-text-subtle mb-1">
-                  {t('webhook_url_label')}
-                </label>
-                <Input
-                  value={current.webhook_url}
-                  onChange={(e) => setSettings({ ...current, webhook_url: e.target.value })}
-                  placeholder="https://gotify.example.com/message?token=..."
-                />
-                <p className="mt-1 text-xs text-text-subtle">{t('webhook_url_hint')}</p>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.webhook_enabled}
-                  onChange={(e) => setSettings({ ...current, webhook_enabled: e.target.checked })}
-                />
-                {t('enable_webhook_notifications')}
-              </label>
-            </div>
-            <div className="mt-4 flex gap-3">
-              <Button onClick={saveWebhook} loading={saving}>{t('save_changes')}</Button>
-              <Button onClick={testWebhook} variant="outline">
-                {t('test_webhook')}
-              </Button>
-            </div>
-          </Card>
 
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('ui_settings')}</h2>
@@ -431,46 +464,6 @@ export default function Settings() {
             </div>
           </Card>
 
-          <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-1">{t('cmdb_ids_title')}</h2>
-            <p className="text-sm text-text-subtle mb-4">
-              {t('cmdb_ids_description')}
-            </p>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-sm text-text-subtle mb-1">
-                  {t('prefix')}
-                </label>
-                <Input
-                  value={current.cmdb_id_prefix}
-                  onChange={(e) => setSettings({ ...current, cmdb_id_prefix: e.target.value.toUpperCase() })}
-                  placeholder="DEV"
-                  maxLength={20}
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-text-subtle mb-1">
-                  {t('digits')}
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={String(current.cmdb_id_digits)}
-                  onChange={(e) => setSettings({ ...current, cmdb_id_digits: Math.min(10, Math.max(1, Number(e.target.value) || 4)) })}
-                />
-              </div>
-            </div>
-            <div className="mt-2 text-xs text-text-subtle">
-              {t('preview')}{' '}
-              <span className="font-mono text-primary">
-                {current.cmdb_id_prefix || 'DEV'}-{'1'.padStart(current.cmdb_id_digits || 4, '0')}
-              </span>
-            </div>
-            <div className="mt-4">
-              <Button onClick={saveCmdb} loading={saving}>{t('save_changes')}</Button>
-            </div>
-          </Card>
         </div>
       </div>
       )}
@@ -651,6 +644,40 @@ export default function Settings() {
             </div>
           </Card>
 
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-4">
+              {t('notifications_webhook')}
+            </h2>
+            <div className="grid gap-4">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {t('webhook_url_label')}
+                </label>
+                <Input
+                  value={current.webhook_url}
+                  onChange={(e) => setSettings({ ...current, webhook_url: e.target.value })}
+                  placeholder="https://gotify.example.com/message?token=..."
+                />
+                <p className="mt-1 text-xs text-text-subtle">{t('webhook_url_hint')}</p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.webhook_enabled}
+                  onChange={(e) => setSettings({ ...current, webhook_enabled: e.target.checked })}
+                />
+                {t('enable_webhook_notifications')}
+              </label>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <Button onClick={saveWebhook} loading={saving}>{t('save_changes')}</Button>
+              <Button onClick={testWebhook} variant="outline">
+                {t('test_webhook')}
+              </Button>
+            </div>
+          </Card>
+
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">
               {t('notifications_email')}
@@ -748,6 +775,168 @@ export default function Settings() {
         </div>
       </div>
       )}
+
+      {/* ── CMDB / I-DOIT ─────────────────────────────────────────────────── */}
+      {activeSection === 'cmdb' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          CMDB
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('cmdb_ids_title')}</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {t('cmdb_ids_description')}
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {t('prefix')}
+                </label>
+                <Input
+                  value={current.cmdb_id_prefix}
+                  onChange={(e) => setSettings({ ...current, cmdb_id_prefix: e.target.value.toUpperCase() })}
+                  placeholder="DEV"
+                  maxLength={20}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {t('digits')}
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={String(current.cmdb_id_digits)}
+                  onChange={(e) => setSettings({ ...current, cmdb_id_digits: Math.min(10, Math.max(1, Number(e.target.value) || 4)) })}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-xs text-text-subtle">
+              {t('preview')}{' '}
+              <span className="font-mono text-primary">
+                {current.cmdb_id_prefix || 'DEV'}-{'1'.padStart(current.cmdb_id_digits || 4, '0')}
+              </span>
+            </div>
+            <div className="mt-4">
+              <Button onClick={saveCmdb} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('idoit_integration')}</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {t('idoit_integration_description')}
+            </p>
+            {!idoitConfig ? (
+              <div className="py-6"><Spinner /></div>
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_base_url')}</label>
+                    <Input
+                      value={idoitConfig.idoit_base_url}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_base_url: e.target.value })}
+                      placeholder="https://idoit.example.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_jsonrpc_path')}</label>
+                    <Input
+                      value={idoitConfig.idoit_jsonrpc_path}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_jsonrpc_path: e.target.value })}
+                      placeholder="/src/jsonrpc.php"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_api_key')}</label>
+                    <Input
+                      type="password"
+                      value={idoitApiKey}
+                      onChange={(e) => setIdoitApiKey(e.target.value)}
+                      placeholder={idoitConfig.idoit_api_key_configured ? t('idoit_api_key_keep_placeholder') : t('idoit_api_key_new_placeholder')}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_timeout_seconds')}</label>
+                    <Input
+                      type="number"
+                      min={3}
+                      max={120}
+                      value={String(idoitConfig.idoit_timeout_seconds)}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_timeout_seconds: Math.min(120, Math.max(3, Number(e.target.value) || 15)) })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_default_object_type')}</label>
+                    <Input
+                      value={idoitConfig.idoit_default_object_type}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_default_object_type: e.target.value })}
+                      placeholder="C__OBJTYPE__SERVER"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_status_field')}</label>
+                    <Input
+                      value={idoitConfig.idoit_sync_status_field}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_status_field: e.target.value })}
+                      placeholder="C__CATG__GLOBAL.comment"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  <label className="flex items-center gap-2 text-sm text-text-base">
+                    <input
+                      type="checkbox"
+                      checked={idoitConfig.idoit_enabled}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_enabled: e.target.checked })}
+                    />
+                    {t('enable_idoit_integration')}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-text-base">
+                    <input
+                      type="checkbox"
+                      checked={idoitConfig.idoit_auto_sync_enabled}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_auto_sync_enabled: e.target.checked })}
+                    />
+                    {t('enable_idoit_auto_sync')}
+                  </label>
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm text-text-subtle mb-1">{t('idoit_mapping_json')}</label>
+                  <textarea
+                    className="w-full min-h-72 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-text-base focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    value={idoitConfig.idoit_mapping_raw || ''}
+                    onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_mapping_raw: e.target.value })}
+                    spellCheck={false}
+                  />
+                </div>
+
+                {idoitConfig.mapping_errors?.length > 0 && (
+                  <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                    <p className="font-medium mb-1">{t('idoit_mapping_validation')}</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {idoitConfig.mapping_errors.map((error) => <li key={error}>{error}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Button onClick={saveIdoit} loading={saving}>{t('save_changes')}</Button>
+                  <Button onClick={testIdoitConnection} loading={idoitTesting} variant="outline">{t('test_connection')}</Button>
+                  <Button onClick={testIdoitMapping} loading={idoitTesting} variant="outline">{t('test_mapping')}</Button>
+                </div>
+              </>
+            )}
+          </Card>
+        </div>
+      </div>
+      )}
+
     </div>
   )
 }
