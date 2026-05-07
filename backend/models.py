@@ -197,7 +197,7 @@ class Notification(Base):
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
     telegram_sent = Column(Boolean, default=False)
-    webhook_sent = Column(Boolean, default=False)
+    webhook_sent = Column(Boolean, nullable=False, default=False, server_default="0")
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="notifications")
@@ -212,6 +212,7 @@ class IdoitDeviceSync(Base):
     idoit_object_id = Column(String(64), nullable=True)
     last_sync_at = Column(DateTime, nullable=True)
     last_success_at = Column(DateTime, nullable=True)
+    last_validation_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
     last_mode = Column(String(16), nullable=True)
     payload_hash = Column(String(64), nullable=True)

@@ -199,7 +199,7 @@ def _device_to_response(
         # "last sync" reserved for future real upstream writes and expose local
         # attempts separately as validation timestamps.
         idoit_last_sync_at=device.idoit_sync.last_success_at if device.idoit_sync else None,
-        idoit_last_validation_at=device.idoit_sync.last_sync_at if device.idoit_sync else None,
+        idoit_last_validation_at=device.idoit_sync.last_validation_at if device.idoit_sync else None,
         idoit_last_error=device.idoit_sync.last_error if device.idoit_sync else None,
         latest_scan=_latest_scan_response(device),
         services=[ServiceResponse.model_validate(s) for s in device.services],

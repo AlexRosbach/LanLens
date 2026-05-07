@@ -448,8 +448,10 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         scan_run.status = "done"
         db.commit()
 
-        if devices_new > 0:
-            await _send_notification_deliveries(db)
+        # Retry pending deliveries after every completed scan. This lets
+        # transient webhook/Telegram failures recover even when no new device is
+        # discovered in the next run.
+        await _send_notification_deliveries(db)
 
         logger.info(
             f"Scan complete: {len(found_macs)} found, "

@@ -26,8 +26,8 @@ def list_notifications(
             event_type=n.event_type,
             message=n.message,
             is_read=n.is_read,
-            telegram_sent=n.telegram_sent,
-            webhook_sent=n.webhook_sent,
+            telegram_sent=bool(n.telegram_sent),
+            webhook_sent=bool(n.webhook_sent),
             created_at=n.created_at,
         )
         for n in notifications

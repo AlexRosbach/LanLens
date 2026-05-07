@@ -796,7 +796,7 @@ export default function Settings() {
       {activeSection === 'cmdb' && (
       <div>
         <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
-          CMDB
+          {t('cmdb_tab')}
         </h2>
         <div className="space-y-4">
           <Card>

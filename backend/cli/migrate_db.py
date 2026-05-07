@@ -363,6 +363,7 @@ def migrate():
                 "idoit_object_id VARCHAR(64), "
                 "last_sync_at DATETIME, "
                 "last_success_at DATETIME, "
+                "last_validation_at DATETIME, "
                 "last_error TEXT, "
                 "last_mode VARCHAR(16), "
                 "payload_hash VARCHAR(64), "
@@ -375,6 +376,12 @@ def migrate():
             print("Migration: idoit_device_sync — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: idoit_device_sync already exists — skipped")
+
+        if _table_exists(conn, "idoit_device_sync") and not _column_exists(conn, "idoit_device_sync", "last_validation_at"):
+            conn.execute(text("ALTER TABLE idoit_device_sync ADD COLUMN last_validation_at DATETIME"))
+            conn.execute(text("UPDATE idoit_device_sync SET last_validation_at = last_sync_at WHERE last_validation_at IS NULL AND last_success_at IS NULL AND last_sync_at IS NOT NULL"))
+            conn.commit()
+            print("Migration: added idoit_device_sync.last_validation_at")
 
         if IS_SQLITE and not _table_exists(conn, "idoit_sync_logs"):
             conn.execute(text(
@@ -400,11 +407,13 @@ def migrate():
         # Track webhook delivery separately from Telegram so disabled/unconfigured
         # channels do not make old notification rows look permanently pending.
         if not _column_exists(conn, "notifications", "webhook_sent"):
-            conn.execute(text("ALTER TABLE notifications ADD COLUMN webhook_sent BOOLEAN DEFAULT 0"))
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN webhook_sent BOOLEAN NOT NULL DEFAULT 0"))
             conn.commit()
             print("Migration: added notifications.webhook_sent")
         else:
             print("Migration: notifications.webhook_sent already exists — skipped")
+        conn.execute(text("UPDATE notifications SET webhook_sent = 0 WHERE webhook_sent IS NULL"))
+        conn.commit()
 
         conn.commit()
 
