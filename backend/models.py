@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -222,6 +223,7 @@ class IdoitDeviceSync(Base):
 class IdoitSyncLog(Base):
     """Audit log for i-doit dry-runs and sync attempts."""
     __tablename__ = "idoit_sync_logs"
+    __table_args__ = (Index("ix_idoit_sync_logs_device_id", "device_id"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)

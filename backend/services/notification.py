@@ -3,8 +3,11 @@ Telegram notification service.
 Sends messages to a configured Telegram bot chat.
 """
 import asyncio
+import ipaddress
 import logging
+import socket
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -15,6 +18,48 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 IP_ONLY_HOST_LABEL = "IP-only host"
+
+
+def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
+    """Validate webhook URL and block common SSRF targets."""
+    parsed = urlparse((webhook_url or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        return False, "Webhook URL must start with http:// or https://"
+    if not parsed.hostname:
+        return False, "Webhook URL must include a host"
+
+    hostname = parsed.hostname.strip().lower().rstrip(".")
+    if hostname in {"localhost", "localhost.localdomain"}:
+        return False, "Webhook URL must not target localhost"
+
+    try:
+        addresses = {
+            info[4][0]
+            for info in socket.getaddrinfo(
+                hostname,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
+        }
+    except socket.gaierror:
+        return False, "Webhook URL host could not be resolved"
+
+    for address in addresses:
+        try:
+            ip = ipaddress.ip_address(address)
+        except ValueError:
+            return False, "Webhook URL resolved to an invalid address"
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            return False, "Webhook URL must not resolve to a private, local, link-local, multicast or reserved address"
+
+    return True, ""
 
 
 def _get_telegram_config(db: Session):
@@ -136,8 +181,12 @@ async def send_webhook_test_message(webhook_url: str) -> bool:
 
 
 async def _send_webhook(webhook_url: str, payload: dict) -> bool:
+    valid, reason = validate_webhook_url(webhook_url)
+    if not valid:
+        logger.warning(f"Rejected webhook URL: {reason}")
+        return False
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             response = await client.post(webhook_url, json=payload)
             if 200 <= response.status_code < 300:
                 return True

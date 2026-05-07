@@ -334,13 +334,13 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     state = get_or_create_state(db, device)
     state.last_mode = "manual"
+    state.last_sync_at = datetime.utcnow()
     state.payload_hash = payload_hash(payload)
     if errors:
         state.status = "mapping_error"
         state.last_error = "; ".join(errors)
         result = "failure"
     else:
-        state.last_sync_at = datetime.utcnow()
         state.status = "validated_pending_sync"
         state.last_error = None
         result = "skipped"

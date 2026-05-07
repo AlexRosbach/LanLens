@@ -12,6 +12,7 @@ from .routers import admin, auth, auto_scan_rules, connect, credentials, deep_sc
 from .routers import settings as settings_router
 from .services import deep_scan_scheduler, scheduler
 from .services.settings_helpers import get_scan_interval_minutes
+from .version import APP_VERSION
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,8 +77,6 @@ async def lifespan(app: FastAPI):
     deep_scan_scheduler.stop_deep_scan_scheduler()
     logger.info("LanLens stopped")
 
-
-APP_VERSION = "1.5.0"
 
 app = FastAPI(
     title="LanLens",

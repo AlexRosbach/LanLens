@@ -343,7 +343,7 @@ export default function Settings() {
     { key: 'database' as const, label: t('database') },
     { key: 'network' as const, label: t('network_discovery') },
     { key: 'notifications' as const, label: t('notifications') },
-    { key: 'cmdb' as const, label: 'CMDB' },
+    { key: 'cmdb' as const, label: t('cmdb_tab') },
   ]
 
   return (
@@ -388,11 +388,12 @@ export default function Settings() {
                 <select
                   className="input-field"
                   value={lang}
-                  onChange={(e) => setLang(e.target.value as 'en' | 'de' | 'it')}
+                  onChange={(e) => setLang(e.target.value as typeof lang)}
                 >
                   <option value="en">English</option>
                   <option value="de">Deutsch</option>
                   <option value="it">Italiano</option>
+                  <option value="zh">中文</option>
                 </select>
               </div>
 

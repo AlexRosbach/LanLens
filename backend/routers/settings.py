@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Setting, User
+from ..version import APP_VERSION
 from ..schemas import (
     AllSettings,
     DhcpSettings,
@@ -22,7 +23,7 @@ from ..schemas import (
     UiSettings,
     WebhookSettings,
 )
-from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message
+from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message, validate_webhook_url
 from ..services.scheduler import update_interval
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
@@ -365,8 +366,10 @@ def update_webhook(
     _: User = Depends(get_current_user),
 ):
     url = data.webhook_url.strip()
-    if url and not (url.startswith("http://") or url.startswith("https://")):
-        raise HTTPException(status_code=400, detail="Webhook URL must start with http:// or https://")
+    if url:
+        valid, reason = validate_webhook_url(url)
+        if not valid:
+            raise HTTPException(status_code=400, detail=reason)
     _set(db, "webhook_url", url)
     _set(db, "webhook_enabled", "true" if data.webhook_enabled else "false")
     db.commit()
@@ -431,7 +434,6 @@ async def check_update(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    from ..main import APP_VERSION
 
     latest, release_url = await _fetch_latest_release_info()
     update_available = _is_newer_version(latest, APP_VERSION)
@@ -449,7 +451,6 @@ async def notify_update_available(
     _: User = Depends(get_current_user),
 ):
     """Called when a new GitHub release is detected — sends a Telegram message if enabled."""
-    from ..main import APP_VERSION
 
     latest, release_url = await _fetch_latest_release_info()
 

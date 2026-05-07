@@ -20,6 +20,7 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db, IS_SQLITE, DB_PATH
 from ..models import Setting, User
 from ..schemas import MessageResponse
+from ..version import APP_VERSION
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -41,8 +42,6 @@ def export_settings(
 ):
     """Export all application settings as a JSON file."""
     rows = db.query(Setting).all()
-    from ..main import APP_VERSION
-
     data = {
         "version": APP_VERSION,
         "exported_at": datetime.utcnow().isoformat() + "Z",
