@@ -156,35 +156,57 @@ def _store_packet(db: Session, packet: Any) -> bool:
     return True
 
 
-def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
-    """Send a DHCP Discover probe and store DHCP Offer/ACK style replies.
+def _default_iface() -> Optional[str]:
+    try:
+        from scapy.all import conf
 
-    A renew on another workstation is commonly answered via unicast to that
-    workstation and will not be visible to LanLens on a normal switch. Sending
-    our own broadcast Discover gives LanLens a reliable, non-binding way to see
-    which DHCP server responds and which options it announces.
+        route = conf.route.route("255.255.255.255")
+        if route and route[0]:
+            return str(route[0])
+        return str(conf.iface or "") or None
+    except Exception as exc:
+        logger.warning("DHCP active probe could not determine default interface: %s", exc)
+        return None
+
+
+def _random_probe_mac() -> tuple[str, bytes]:
+    # Locally administered, unicast MAC. Using a synthetic client identity keeps
+    # the probe separate from the LanLens host's own DHCP lease.
+    octets = [0x02, random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)]
+    return ":".join(f"{octet:02x}" for octet in octets), bytes(octets)
+
+
+def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
+    """Send a DHCP Discover probe and store matching DHCP server replies.
+
+    Scapy's srp() answer matching is unreliable for DHCP Offers because the
+    response is a broadcast/server packet rather than a normal L2 answer to the
+    Discover. Start a sniffer first, send the probe, then keep replies with the
+    same BOOTP transaction id.
     """
     try:
-        from scapy.all import conf, get_if_hwaddr
+        from scapy.all import get_if_hwaddr
         from scapy.layers.dhcp import BOOTP, DHCP
         from scapy.layers.inet import IP, UDP
         from scapy.layers.l2 import Ether
-        from scapy.sendrecv import srp
+        from scapy.sendrecv import AsyncSniffer, sendp
     except Exception as exc:
         logger.warning("DHCP active probe unavailable: scapy layers could not be loaded: %s", exc)
         return 0
 
-    iface = str(conf.iface or "") or None
-    try:
-        mac = get_if_hwaddr(iface) if iface else get_if_hwaddr(conf.iface)
-        mac_bytes = bytes.fromhex(mac.replace(":", ""))
-    except Exception as exc:
-        logger.warning("DHCP active probe could not determine interface MAC: %s", exc)
+    iface = _default_iface()
+    if not iface:
+        logger.warning("DHCP active probe unavailable: no capture interface found")
         return 0
 
+    probe_mac, mac_bytes = _random_probe_mac()
+    try:
+        frame_src_mac = get_if_hwaddr(iface)
+    except Exception:
+        frame_src_mac = probe_mac
     xid = random.randint(1, 0xFFFFFFFF)
     packet = (
-        Ether(dst="ff:ff:ff:ff:ff:ff", src=mac)
+        Ether(dst="ff:ff:ff:ff:ff:ff", src=frame_src_mac)
         / IP(src="0.0.0.0", dst="255.255.255.255")
         / UDP(sport=68, dport=67)
         / BOOTP(chaddr=mac_bytes, xid=xid, flags=0x8000)
@@ -195,25 +217,48 @@ def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
         ])
     )
 
-    stored = 0
+    replies: list[Any] = []
+
+    def capture_reply(reply: Any) -> None:
+        try:
+            if reply.haslayer(BOOTP) and int(reply[BOOTP].xid) == xid:
+                replies.append(reply)
+        except Exception:
+            return
+
+    timeout = max(3, min(30, timeout_seconds))
     try:
-        answered, _ = srp(
-            packet,
+        sniffer = AsyncSniffer(
             iface=iface,
-            timeout=max(3, min(30, timeout_seconds)),
-            multi=True,
-            verbose=False,
+            filter="udp and src port 67 and dst port 68",
+            prn=capture_reply,
+            store=False,
         )
+        sniffer.start()
+        sendp(packet, iface=iface, verbose=False)
+        sniffer.join(timeout=timeout)
+        if getattr(sniffer, "running", False):
+            sniffer.stop()
     except PermissionError as exc:
         logger.warning("DHCP active probe needs raw packet permissions: %s", exc)
         return 0
     except Exception as exc:
-        logger.warning("DHCP active probe failed: %s", exc)
+        logger.warning("DHCP active probe failed on interface %s: %s", iface, exc)
         return 0
 
-    for _, reply in answered:
-        if _store_packet(db, reply):
-            stored += 1
+    stored = 0
+    seen: set[tuple[str | None, str | None, str | None]] = set()
+    for reply in replies:
+        row = _packet_to_observation(reply)
+        if not row:
+            continue
+        key = (row.server_ip, row.server_mac, row.message_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        db.add(row)
+        stored += 1
+    logger.info("DHCP active probe on %s stored %d server replies", iface, stored)
     return stored
 
 
