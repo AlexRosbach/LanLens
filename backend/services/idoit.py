@@ -141,6 +141,10 @@ def update_config(db: Session, payload: dict[str, Any]) -> IdoitConfig:
     return get_config(db)
 
 
+def _allowed_device_mapping_fields() -> set[str]:
+    return {column.name for column in Device.__table__.columns}
+
+
 def validate_mapping(
     mapping: dict[str, Any],
     sync_status_field: Optional[str] = None,
@@ -160,8 +164,12 @@ def validate_mapping(
     fields = mapping.get("fields")
     if not isinstance(fields, dict) or not fields:
         errors.append("Mapping requires at least one field mapping")
-    elif invalid_targets := [name for name, target in fields.items() if not isinstance(target, str) or not target.strip()]:
-        errors.append(f"Mapping field targets must be non-empty strings: {', '.join(invalid_targets)}")
+    else:
+        if invalid_targets := [name for name, target in fields.items() if not isinstance(target, str) or not target.strip()]:
+            errors.append(f"Mapping field targets must be non-empty strings: {', '.join(invalid_targets)}")
+        allowed_sources = _allowed_device_mapping_fields()
+        if unknown_sources := [name for name in fields if name not in allowed_sources]:
+            errors.append(f"Mapping source fields are not supported Device columns: {', '.join(unknown_sources)}")
     identity_raw = mapping.get("identity") or {}
     if not isinstance(identity_raw, dict):
         errors.append("Mapping identity must be a JSON object when provided")
@@ -200,6 +208,17 @@ def _sync_status_field(config: IdoitConfig) -> str:
     return "C__CATG__GLOBAL.comment"
 
 
+def _json_safe_device_value(device: Device, field_name: str) -> Any:
+    if field_name not in _allowed_device_mapping_fields():
+        return None
+    value = getattr(device, field_name, None)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return None
+
+
 def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     # Build the future i-doit write payload without contacting i-doit. Dry-run
     # and placeholder sync both use this so operators can inspect exactly what
@@ -225,9 +244,7 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
         if lanlens_field in source:
             value = source[lanlens_field]
         else:
-            value = getattr(device, lanlens_field, None)
-            if callable(value):
-                value = None
+            value = _json_safe_device_value(device, lanlens_field)
         if value is not None:
             fields[idoit_field] = value
     external_id_field = _mapping_identity(config).get("externalIdField")

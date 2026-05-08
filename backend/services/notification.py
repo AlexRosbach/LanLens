@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 IP_ONLY_HOST_LABEL = "IP-only host"
+MAX_WEBHOOK_ERROR_BODY_LOG_CHARS = 300
 
 
 async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
@@ -198,7 +199,9 @@ async def _send_webhook(webhook_url: str, payload: dict) -> bool:
             response = await client.post(webhook_url, json=payload)
             if 200 <= response.status_code < 300:
                 return True
-            logger.warning(f"Webhook returned {response.status_code}: {response.text}")
+            error_body = (response.text or "")[:MAX_WEBHOOK_ERROR_BODY_LOG_CHARS]
+            suffix = "…" if len(response.text or "") > MAX_WEBHOOK_ERROR_BODY_LOG_CHARS else ""
+            logger.warning(f"Webhook returned {response.status_code}: {error_body}{suffix}")
             return False
     except Exception as e:
         logger.error(f"Failed to send webhook notification: {e}")

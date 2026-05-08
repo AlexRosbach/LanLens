@@ -42,6 +42,8 @@ DEFAULT_SCAN_START = "192.168.1.1"
 DEFAULT_SCAN_END = "192.168.1.254"
 MIN_OFFLINE_GRACE_MINUTES = 15
 MISSED_SCAN_MULTIPLIER = 3
+NOTIFICATION_RETRY_BACKOFF_MINUTES = 5
+NOTIFICATION_RETRY_SETTING = "notification_delivery_last_attempt_at"
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -495,6 +497,21 @@ async def _send_notification_deliveries(db: Session) -> None:
 
     if not telegram_configured and not webhook_configured:
         return
+
+    retry_row = db.query(Setting).filter(Setting.key == NOTIFICATION_RETRY_SETTING).first()
+    if retry_row and retry_row.value:
+        try:
+            last_attempt = datetime.fromisoformat(retry_row.value)
+            if datetime.utcnow() - last_attempt < timedelta(minutes=NOTIFICATION_RETRY_BACKOFF_MINUTES):
+                return
+        except ValueError:
+            pass
+
+    if retry_row:
+        retry_row.value = datetime.utcnow().isoformat()
+    else:
+        db.add(Setting(key=NOTIFICATION_RETRY_SETTING, value=datetime.utcnow().isoformat()))
+    db.flush()
 
     pending_filters = []
     if telegram_configured:
