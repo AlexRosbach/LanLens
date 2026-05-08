@@ -18,14 +18,20 @@ export interface DhcpMonitorStatus {
   is_capturing: boolean
 }
 
+export interface MessageResponse {
+  message: string
+  success: boolean
+}
+
 export const dhcpMonitorApi = {
   async list(limit = 100): Promise<DhcpObservation[]> {
     const res = await apiClient.get<DhcpObservation[]>('/dhcp-monitor/observations', { params: { limit } })
     return res.data
   },
 
-  async capture(seconds = 20): Promise<void> {
-    await apiClient.post('/dhcp-monitor/capture', null, { params: { seconds } })
+  async capture(seconds = 20): Promise<MessageResponse> {
+    const res = await apiClient.post<MessageResponse>('/dhcp-monitor/capture', null, { params: { seconds } })
+    return res.data
   },
 
   async status(): Promise<DhcpMonitorStatus> {

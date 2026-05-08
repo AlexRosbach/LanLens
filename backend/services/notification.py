@@ -26,32 +26,32 @@ IP_ONLY_HOST_LABEL = "IP-only host"
 MAX_WEBHOOK_ERROR_BODY_LOG_CHARS = 300
 
 
-def _blocked_webhook_address(address: str) -> tuple[bool, str]:
+def _blocked_webhook_address(address: str, label: str) -> tuple[bool, str]:
     try:
         ip = ipaddress.ip_address(address)
     except ValueError:
-        return True, "Webhook URL resolved to an invalid address"
+        return True, f"{label} resolved to an invalid address"
 
     # Normalize IPv4-mapped IPv6 first, otherwise ::ffff:127.0.0.1 can
     # evade IPv4 loopback/link-local checks on some Python versions.
     check_ip = ip.ipv4_mapped if getattr(ip, "ipv4_mapped", None) else ip
     if check_ip.is_loopback or check_ip.is_link_local or check_ip.is_multicast or check_ip.is_reserved or check_ip.is_unspecified:
-        return True, "Webhook URL must not resolve to a loopback, link-local, multicast, reserved or unspecified address"
+        return True, f"{label} must not resolve to a loopback, link-local, multicast, reserved or unspecified address"
     if check_ip.version == 4 and check_ip == ipaddress.ip_address("169.254.169.254"):
-        return True, "Webhook URL must not target cloud metadata endpoints"
+        return True, f"{label} must not target cloud metadata endpoints"
     return False, ""
 
 
-async def _resolve_webhook_addresses(webhook_url: str) -> tuple[Optional[object], set[str], Optional[str]]:
+async def _resolve_webhook_addresses(webhook_url: str, label: str = "Webhook URL") -> tuple[Optional[object], set[str], Optional[str]]:
     parsed = urlparse((webhook_url or "").strip())
     if parsed.scheme not in {"http", "https"}:
-        return None, set(), "Webhook URL must start with http:// or https://"
+        return None, set(), f"{label} must start with http:// or https://"
     if not parsed.hostname:
-        return None, set(), "Webhook URL must include a host"
+        return None, set(), f"{label} must include a host"
 
     hostname = parsed.hostname.strip().lower().rstrip(".")
     if hostname in {"localhost", "localhost.localdomain"}:
-        return None, set(), "Webhook URL must not target localhost"
+        return None, set(), f"{label} must not target localhost"
 
     try:
         loop = asyncio.get_running_loop()
@@ -63,20 +63,20 @@ async def _resolve_webhook_addresses(webhook_url: str) -> tuple[Optional[object]
         )
         addresses = {info[4][0] for info in resolved}
     except OSError:
-        return None, set(), "Webhook URL host could not be resolved"
+        return None, set(), f"{label} host could not be resolved"
 
     if not addresses:
-        return None, set(), "Webhook URL host could not be resolved"
+        return None, set(), f"{label} host could not be resolved"
     for address in addresses:
-        blocked, reason = _blocked_webhook_address(address)
+        blocked, reason = _blocked_webhook_address(address, label)
         if blocked:
             return None, set(), reason
     return parsed, addresses, None
 
 
-async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
-    """Validate webhook URL and block unsafe SSRF targets."""
-    _, _, error = await _resolve_webhook_addresses(webhook_url)
+async def validate_webhook_url(webhook_url: str, label: str = "Webhook URL") -> tuple[bool, str]:
+    """Validate webhook/i-doit target URL and block unsafe SSRF targets."""
+    _, _, error = await _resolve_webhook_addresses(webhook_url, label)
     return (False, error) if error else (True, "")
 
 

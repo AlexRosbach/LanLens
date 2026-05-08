@@ -36,15 +36,22 @@ export default function DhcpMonitor() {
   const [loading, setLoading] = useState(true)
   const [capturing, setCapturing] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
   async function load() {
     const [items, status] = await Promise.all([dhcpMonitorApi.list(), dhcpMonitorApi.status()])
     setObservations(items)
     setCapturing(status.is_capturing)
+    setLoadError(false)
   }
 
   useEffect(() => {
-    load().finally(() => setLoading(false))
+    load()
+      .catch(() => {
+        setLoadError(true)
+        toast.error(t('dhcp_load_failed'))
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -64,7 +71,12 @@ export default function DhcpMonitor() {
 
   async function startCapture() {
     try {
-      await dhcpMonitorApi.capture(20)
+      const result = await dhcpMonitorApi.capture(20)
+      if (!result.success) {
+        toast.error(result.message || t('dhcp_capture_already_running'))
+        await load().catch(() => {})
+        return
+      }
       setCapturing(true)
       toast.success(t('dhcp_capture_started'))
       setTimeout(() => load().catch(() => {}), 2_000)
@@ -90,6 +102,15 @@ export default function DhcpMonitor() {
           <Button onClick={startCapture} disabled={capturing}>{capturing ? t('dhcp_capture_running') : t('dhcp_capture_20s')}</Button>
         </div>
       </div>
+
+      {loadError && (
+        <Card>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm text-danger">{t('dhcp_load_failed')}</p>
+            <Button variant="outline" onClick={() => load().catch(() => toast.error(t('dhcp_refresh_failed')))}>{t('retry')}</Button>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <div className="grid gap-4 sm:grid-cols-3">
