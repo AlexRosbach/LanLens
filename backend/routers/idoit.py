@@ -16,6 +16,7 @@ from ..services.idoit import (
     update_config,
     validate_mapping,
 )
+from ..services.notification import validate_webhook_url
 
 router = APIRouter(prefix="/api/idoit", tags=["idoit"])
 
@@ -60,10 +61,14 @@ def read_config(db: Session = Depends(get_db), _: User = Depends(get_current_use
 
 
 @router.put("/config")
-def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     data = payload.model_dump(exclude_unset=True)
     if "idoit_api_key" in data and data["idoit_api_key"] == "••••••••":
         data.pop("idoit_api_key")
+    if base_url := (data.get("idoit_base_url") or "").strip():
+        valid, reason = await validate_webhook_url(base_url)
+        if not valid:
+            raise HTTPException(status_code=400, detail=f"Invalid i-doit base URL: {reason}")
     update_config(db, data)
     return _config_response(db)
 
@@ -73,6 +78,9 @@ async def test_connection(db: Session = Depends(get_db), _: User = Depends(get_c
     cfg = get_config(db)
     if not cfg.base_url or not cfg.api_key:
         raise HTTPException(status_code=400, detail="i-doit URL and API key are required")
+    valid, reason = await validate_webhook_url(cfg.base_url)
+    if not valid:
+        raise HTTPException(status_code=400, detail=f"Invalid i-doit base URL: {reason}")
     try:
         return await IdoitClient(cfg).test_connection()
     except Exception as exc:

@@ -17,6 +17,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from ..models import Notification, Setting
+from ..version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> t
         request = (
             f"POST {path} HTTP/1.1\r\n"
             f"Host: {_host_header(hostname, parsed.port, parsed.scheme)}\r\n"
-            "User-Agent: LanLens/1.0\r\n"
+            f"User-Agent: LanLens/{APP_VERSION}\r\n"
             "Content-Type: application/json\r\n"
             f"Content-Length: {len(body)}\r\n"
             "Connection: close\r\n\r\n"

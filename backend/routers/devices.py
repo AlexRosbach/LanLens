@@ -195,10 +195,7 @@ def _device_to_response(
         cmdb_id=device.cmdb_id,
         idoit_sync_status=device.idoit_sync.status if device.idoit_sync else "never_synced",
         idoit_object_id=device.idoit_sync.idoit_object_id if device.idoit_sync else None,
-        # v1.5.0 only performs local validation/placeholder state changes. Keep
-        # "last sync" reserved for future real upstream writes and expose local
-        # attempts separately as validation timestamps.
-        idoit_last_sync_at=device.idoit_sync.last_success_at if device.idoit_sync else None,
+        idoit_last_sync_at=device.idoit_sync.last_sync_at if device.idoit_sync else None,
         idoit_last_validation_at=device.idoit_sync.last_validation_at if device.idoit_sync else None,
         idoit_last_error=device.idoit_sync.last_error if device.idoit_sync else None,
         latest_scan=_latest_scan_response(device),

@@ -74,6 +74,8 @@ def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php"
     jsonrpc.php, keep it as-is; otherwise append the configured path.
     """
     base = (base_url or "").rstrip("/")
+    if not base:
+        return ""
     path = (jsonrpc_path or "/src/jsonrpc.php").strip()
     if base.endswith("jsonrpc.php"):
         return base

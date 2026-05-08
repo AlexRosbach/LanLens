@@ -5,6 +5,7 @@ import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Spinner from '../components/ui/Spinner'
+import { useI18n } from '../i18n'
 
 function formatDate(value: string) {
   return new Date(value).toLocaleString()
@@ -17,19 +18,20 @@ function formatValue(value: unknown): string {
 }
 
 const HIGHLIGHT_OPTIONS = [
-  ['router', 'Router / Gateway'],
-  ['name_server', 'DNS'],
-  ['domain', 'Domain'],
-  ['domain_search', 'Search Domain'],
-  ['vendor_class_id', 'Vendor Class'],
-  ['client_id', 'Client ID'],
-  ['server_id', 'Server ID'],
-  ['lease_time', 'Lease'],
-  ['renewal_time', 'Renewal'],
-  ['rebinding_time', 'Rebinding'],
-]
+  ['router', 'dhcp_option_router'],
+  ['name_server', 'dhcp_option_dns'],
+  ['domain', 'dhcp_option_domain'],
+  ['domain_search', 'dhcp_option_search_domain'],
+  ['vendor_class_id', 'dhcp_option_vendor_class'],
+  ['client_id', 'dhcp_option_client_id'],
+  ['server_id', 'dhcp_option_server_id'],
+  ['lease_time', 'dhcp_option_lease'],
+  ['renewal_time', 'dhcp_option_renewal'],
+  ['rebinding_time', 'dhcp_option_rebinding'],
+] as const
 
 export default function DhcpMonitor() {
+  const { t } = useI18n()
   const [observations, setObservations] = useState<DhcpObservation[]>([])
   const [loading, setLoading] = useState(true)
   const [capturing, setCapturing] = useState(false)
@@ -64,10 +66,10 @@ export default function DhcpMonitor() {
     try {
       await dhcpMonitorApi.capture(20)
       setCapturing(true)
-      toast.success('DHCP capture started')
+      toast.success(t('dhcp_capture_started'))
       setTimeout(() => load().catch(() => {}), 2_000)
     } catch {
-      toast.error('Failed to start DHCP capture')
+      toast.error(t('dhcp_capture_failed'))
     }
   }
 
@@ -77,38 +79,38 @@ export default function DhcpMonitor() {
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-text-base">DHCP Monitor</h1>
+          <h1 className="text-xl font-bold text-text-base">{t('nav_dhcp_monitor')}</h1>
           <p className="text-sm text-text-subtle">
-            Shows DHCP servers visible to LanLens and the options they announce. This is not a full DHCP process timeline.
+            {t('dhcp_monitor_description')}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {capturing && <Badge variant="warning">Capturing…</Badge>}
-          <Button variant="outline" onClick={() => load().catch(() => toast.error('Refresh failed'))}>Refresh</Button>
-          <Button onClick={startCapture} disabled={capturing}>{capturing ? 'Capture running' : 'Capture 20s'}</Button>
+          {capturing && <Badge variant="warning">{t('dhcp_capturing')}</Badge>}
+          <Button variant="outline" onClick={() => load().catch(() => toast.error(t('dhcp_refresh_failed')))}>{t('refresh')}</Button>
+          <Button onClick={startCapture} disabled={capturing}>{capturing ? t('dhcp_capture_running') : t('dhcp_capture_20s')}</Button>
         </div>
       </div>
 
       <Card>
         <div className="grid gap-4 sm:grid-cols-3">
           <div>
-            <p className="text-xs text-text-subtle uppercase tracking-wide">Observed DHCP servers</p>
+            <p className="text-xs text-text-subtle uppercase tracking-wide">{t('dhcp_observed_servers')}</p>
             <p className="text-2xl font-semibold text-text-base">{servers.length}</p>
           </div>
           <div>
-            <p className="text-xs text-text-subtle uppercase tracking-wide">Captured replies</p>
+            <p className="text-xs text-text-subtle uppercase tracking-wide">{t('dhcp_captured_replies')}</p>
             <p className="text-2xl font-semibold text-text-base">{observations.length}</p>
           </div>
           <div>
-            <p className="text-xs text-text-subtle uppercase tracking-wide">Visibility</p>
-            <p className="text-sm text-text-muted">Requires host/container packet-capture visibility for UDP 67→68.</p>
+            <p className="text-xs text-text-subtle uppercase tracking-wide">{t('dhcp_visibility')}</p>
+            <p className="text-sm text-text-muted">{t('dhcp_visibility_hint')}</p>
           </div>
         </div>
       </Card>
 
       {observations.length === 0 ? (
         <Card>
-          <p className="text-sm text-text-muted">No DHCP server replies captured yet. Start a short capture while a client renews/requests a lease.</p>
+          <p className="text-sm text-text-muted">{t('dhcp_empty')}</p>
         </Card>
       ) : (
         <Card className="overflow-hidden p-0">
@@ -116,13 +118,13 @@ export default function DhcpMonitor() {
             <table className="w-full text-sm">
               <thead className="bg-surface2 text-text-subtle text-xs uppercase tracking-wide">
                 <tr>
-                  <th className="text-left px-4 py-3">Observed</th>
-                  <th className="text-left px-4 py-3">DHCP Server</th>
-                  <th className="text-left px-4 py-3">Type</th>
-                  <th className="text-left px-4 py-3">Client</th>
-                  <th className="text-left px-4 py-3">Offered IP</th>
-                  <th className="text-left px-4 py-3">Key options</th>
-                  <th className="text-left px-4 py-3">Details</th>
+                  <th className="text-left px-4 py-3">{t('dhcp_observed')}</th>
+                  <th className="text-left px-4 py-3">{t('dhcp_server')}</th>
+                  <th className="text-left px-4 py-3">{t('type')}</th>
+                  <th className="text-left px-4 py-3">{t('dhcp_client')}</th>
+                  <th className="text-left px-4 py-3">{t('dhcp_offered_ip')}</th>
+                  <th className="text-left px-4 py-3">{t('dhcp_key_options')}</th>
+                  <th className="text-left px-4 py-3">{t('details')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -132,10 +134,10 @@ export default function DhcpMonitor() {
                     <tr key={obs.id} className="align-top hover:bg-surface2/40">
                       <td className="px-4 py-3 whitespace-nowrap text-text-muted">{formatDate(obs.observed_at)}</td>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-text-base">{obs.server_ip || 'Unknown server'}</div>
+                        <div className="font-medium text-text-base">{obs.server_ip || t('dhcp_unknown_server')}</div>
                         <div className="text-xs text-text-subtle font-mono">{obs.server_mac || '—'}</div>
                       </td>
-                      <td className="px-4 py-3"><Badge variant="primary">{obs.message_type || 'reply'}</Badge></td>
+                      <td className="px-4 py-3"><Badge variant="primary">{obs.message_type || t('dhcp_reply')}</Badge></td>
                       <td className="px-4 py-3">
                         <div className="text-text-muted">{obs.client_hostname || '—'}</div>
                         <div className="text-xs text-text-subtle font-mono">{obs.client_mac || '—'}</div>
@@ -143,10 +145,10 @@ export default function DhcpMonitor() {
                       <td className="px-4 py-3 text-text-muted font-mono">{obs.offered_ip || obs.requested_ip || '—'}</td>
                       <td className="px-4 py-3 min-w-72">
                         <div className="flex flex-wrap gap-1.5">
-                          {HIGHLIGHT_OPTIONS.map(([key, label]) => (
+                          {HIGHLIGHT_OPTIONS.map(([key, labelKey]) => (
                             obs.options[key] != null ? (
                               <span key={key} className="rounded-md bg-surface2 px-2 py-1 text-xs text-text-muted">
-                                <span className="text-text-subtle">{label}:</span> {formatValue(obs.options[key])}
+                                <span className="text-text-subtle">{t(labelKey)}:</span> {formatValue(obs.options[key])}
                               </span>
                             ) : null
                           ))}
@@ -154,7 +156,7 @@ export default function DhcpMonitor() {
                       </td>
                       <td className="px-4 py-3">
                         <button className="text-primary hover:text-primary/80 text-xs font-medium" onClick={() => setExpandedId(expanded ? null : obs.id)}>
-                          {expanded ? 'Hide options' : 'Show options'}
+                          {expanded ? t('dhcp_hide_options') : t('dhcp_show_options') }
                         </button>
                         {expanded && (
                           <pre className="mt-2 max-w-lg overflow-auto rounded-lg bg-background p-3 text-xs text-text-muted border border-border">
