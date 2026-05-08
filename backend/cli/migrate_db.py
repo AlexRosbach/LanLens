@@ -415,6 +415,32 @@ def migrate():
         conn.execute(text("UPDATE notifications SET webhook_sent = FALSE WHERE webhook_sent IS NULL"))
         conn.commit()
 
+        # ── v1.5.0 ── DHCP monitor observations ────────────────────────────
+        if IS_SQLITE and not _table_exists(conn, "dhcp_observations"):
+            conn.execute(text(
+                "CREATE TABLE dhcp_observations ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "message_type VARCHAR(32), "
+                "server_ip VARCHAR(45), "
+                "server_mac VARCHAR(17), "
+                "client_mac VARCHAR(17), "
+                "client_hostname VARCHAR(255), "
+                "offered_ip VARCHAR(45), "
+                "requested_ip VARCHAR(45), "
+                "lease_time INTEGER, "
+                "options_json TEXT NOT NULL DEFAULT '{}', "
+                "observed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_dhcp_observations_observed_at ON dhcp_observations(observed_at)"))
+            conn.execute(text("CREATE INDEX ix_dhcp_observations_server_ip ON dhcp_observations(server_ip)"))
+            conn.commit()
+            print("Migration: created dhcp_observations")
+        elif not IS_SQLITE:
+            print("Migration: dhcp_observations — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: dhcp_observations already exists — skipped")
+
         conn.commit()
 
 

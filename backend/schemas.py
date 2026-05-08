@@ -118,6 +118,26 @@ class ServiceGroupResponse(BaseModel):
         from_attributes = True
 
 
+# ── DHCP Monitor ──────────────────────────────────────────────────────────────
+
+class DhcpObservationResponse(BaseModel):
+    id: int
+    message_type: Optional[str]
+    server_ip: Optional[str]
+    server_mac: Optional[str]
+    client_mac: Optional[str]
+    client_hostname: Optional[str]
+    offered_ip: Optional[str]
+    requested_ip: Optional[str]
+    lease_time: Optional[int]
+    options: dict[str, Any]
+    observed_at: datetime
+
+
+class DhcpMonitorStatusResponse(BaseModel):
+    is_capturing: bool
+
+
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [

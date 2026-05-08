@@ -239,6 +239,27 @@ class IdoitSyncLog(Base):
     device = relationship("Device", back_populates="idoit_sync_logs")
 
 
+class DhcpObservation(Base):
+    """Observed DHCP server response and option snapshot."""
+    __tablename__ = "dhcp_observations"
+    __table_args__ = (
+        Index("ix_dhcp_observations_observed_at", "observed_at"),
+        Index("ix_dhcp_observations_server_ip", "server_ip"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_type = Column(String(32), nullable=True)
+    server_ip = Column(String(45), nullable=True)
+    server_mac = Column(String(17), nullable=True)
+    client_mac = Column(String(17), nullable=True)
+    client_hostname = Column(String(255), nullable=True)
+    offered_ip = Column(String(45), nullable=True)
+    requested_ip = Column(String(45), nullable=True)
+    lease_time = Column(Integer, nullable=True)
+    options_json = Column(Text, nullable=False, default="{}")
+    observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class TokenBlacklist(Base):
     __tablename__ = "token_blacklist"
 
