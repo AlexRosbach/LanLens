@@ -150,9 +150,9 @@ Notes:
 In **Settings → System → UI Settings**, optional sidebar entries can be enabled or hidden:
 
 - **Services**: shows the global Services directory.
-- **DHCP Monitor**: shows a DHCP server/options monitor. It is not a full DHCP process timeline; it captures DHCP server replies visible to the LanLens host/container and displays which DHCP server announced which options.
+- **DHCP Monitor**: shows a DHCP server/options monitor. It is not a full DHCP process timeline; it actively sends a DHCP Discover probe from the LanLens host/container and displays which DHCP server answers with which options.
 
-The DHCP Monitor requires packet-capture visibility for DHCP replies (`UDP 67 → 68`). In Docker this usually depends on host networking and the required capture capabilities.
+The DHCP Monitor requires host networking and raw packet permissions so LanLens can send a DHCP Discover and receive DHCP replies. Renewing a lease on another workstation may not be visible on a normal switched network because DHCP renewal ACKs are often unicast directly to that client.
 
 ### Telegram
 

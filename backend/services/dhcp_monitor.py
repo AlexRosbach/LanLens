@@ -1,13 +1,16 @@
-"""DHCP response monitor.
+"""DHCP server/options monitor.
 
-This is intentionally not a full DHCP process visualizer. It passively captures
-DHCP server replies visible to the LanLens host and stores which DHCP server
-announced which options.
+This is intentionally not a full DHCP process visualizer. It actively sends a
+DHCP Discover probe from the LanLens host/container and stores which DHCP
+servers answer with which options. Passive capture is kept as a fallback for
+visible server replies, but active probing is required for typical switched
+networks where another client's renewal ACK is unicast only to that client.
 """
 from __future__ import annotations
 
 import json
 import logging
+import random
 from datetime import datetime
 from typing import Any, Optional
 
@@ -153,8 +156,93 @@ def _store_packet(db: Session, packet: Any) -> bool:
     return True
 
 
+def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
+    """Send a DHCP Discover probe and store DHCP Offer/ACK style replies.
+
+    A renew on another workstation is commonly answered via unicast to that
+    workstation and will not be visible to LanLens on a normal switch. Sending
+    our own broadcast Discover gives LanLens a reliable, non-binding way to see
+    which DHCP server responds and which options it announces.
+    """
+    try:
+        from scapy.all import conf, get_if_hwaddr
+        from scapy.layers.dhcp import BOOTP, DHCP
+        from scapy.layers.inet import IP, UDP
+        from scapy.layers.l2 import Ether
+        from scapy.sendrecv import srp
+    except Exception as exc:
+        logger.warning("DHCP active probe unavailable: scapy layers could not be loaded: %s", exc)
+        return 0
+
+    iface = str(conf.iface or "") or None
+    try:
+        mac = get_if_hwaddr(iface) if iface else get_if_hwaddr(conf.iface)
+        mac_bytes = bytes.fromhex(mac.replace(":", ""))
+    except Exception as exc:
+        logger.warning("DHCP active probe could not determine interface MAC: %s", exc)
+        return 0
+
+    xid = random.randint(1, 0xFFFFFFFF)
+    packet = (
+        Ether(dst="ff:ff:ff:ff:ff:ff", src=mac)
+        / IP(src="0.0.0.0", dst="255.255.255.255")
+        / UDP(sport=68, dport=67)
+        / BOOTP(chaddr=mac_bytes, xid=xid, flags=0x8000)
+        / DHCP(options=[
+            ("message-type", "discover"),
+            ("param_req_list", [1, 3, 6, 12, 15, 28, 50, 51, 54, 58, 59, 60, 61, 119]),
+            "end",
+        ])
+    )
+
+    stored = 0
+    try:
+        answered, _ = srp(
+            packet,
+            iface=iface,
+            timeout=max(3, min(30, timeout_seconds)),
+            multi=True,
+            verbose=False,
+        )
+    except PermissionError as exc:
+        logger.warning("DHCP active probe needs raw packet permissions: %s", exc)
+        return 0
+    except Exception as exc:
+        logger.warning("DHCP active probe failed: %s", exc)
+        return 0
+
+    for _, reply in answered:
+        if _store_packet(db, reply):
+            stored += 1
+    return stored
+
+
+def _passive_capture_dhcp_replies(db: Session, timeout_seconds: int, packet_limit: int) -> int:
+    try:
+        from scapy.sendrecv import sniff
+    except Exception as exc:
+        logger.warning("DHCP passive capture unavailable: scapy sniff could not be loaded: %s", exc)
+        return 0
+
+    stored = 0
+
+    def handle(packet: Any) -> None:
+        nonlocal stored
+        if _store_packet(db, packet):
+            stored += 1
+
+    sniff(
+        filter="udp and src port 67 and dst port 68",
+        prn=handle,
+        timeout=max(3, min(120, timeout_seconds)),
+        count=max(1, min(500, packet_limit)),
+        store=False,
+    )
+    return stored
+
+
 def capture_dhcp_observations(timeout_seconds: int = 20, packet_limit: int = 50) -> int:
-    """Capture visible DHCP server replies for a short window."""
+    """Probe DHCP servers and capture visible DHCP server replies."""
     global _capture_running
     if _capture_running:
         return 0
@@ -162,24 +250,12 @@ def capture_dhcp_observations(timeout_seconds: int = 20, packet_limit: int = 50)
     stored = 0
     db = SessionLocal()
     try:
-        try:
-            from scapy.sendrecv import sniff
-        except Exception as exc:
-            logger.warning("DHCP monitor unavailable: scapy sniff could not be loaded: %s", exc)
-            return 0
-
-        def handle(packet: Any) -> None:
-            nonlocal stored
-            if _store_packet(db, packet):
-                stored += 1
-
-        sniff(
-            filter="udp and src port 67 and dst port 68",
-            prn=handle,
-            timeout=max(3, min(120, timeout_seconds)),
-            count=max(1, min(500, packet_limit)),
-            store=False,
-        )
+        stored += _probe_dhcp_servers(db, timeout_seconds)
+        # Keep a short passive window afterwards for environments where replies
+        # are visible but not matched by the active probe. This still only stores
+        # server replies, not the whole client-side DHCP process.
+        if stored == 0:
+            stored += _passive_capture_dhcp_replies(db, timeout_seconds, packet_limit)
         db.commit()
         return stored
     except PermissionError as exc:
