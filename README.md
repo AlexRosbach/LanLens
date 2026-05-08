@@ -33,7 +33,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - Segments with colour, range, and IP usage
 - Per-device documentation fields, IP history, and manual offline-device status re-checks
 - Service inventory per device, plus optional Services directory page with user-managed segments, drag-and-drop grouping, explicit segment dropdown assignment, and custom icon URLs
-- Optional DHCP Monitor page that captures visible DHCP server replies and shows announced DHCP options
+- Optional DHCP Monitor page that probes visible DHCP servers and shows announced DHCP options
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap
 - **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory
