@@ -1,15 +1,17 @@
 """Notification delivery helpers for Telegram, webhook/Gotify and SMTP.
 
-The webhook path deliberately validates targets server-side before sending so a
-misconfigured or malicious URL cannot make the LanLens container call local
-services. Private LAN addresses are allowed because Gotify/self-hosted webhooks
-are a common deployment pattern.
+The webhook path deliberately validates targets server-side before sending.
+Private LAN addresses are allowed because Gotify/self-hosted webhooks are a
+common deployment pattern; loopback, link-local, multicast, reserved,
+unspecified and cloud metadata endpoints are blocked.
 """
 import asyncio
 import ipaddress
+import json
 import logging
+import ssl
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -23,22 +25,32 @@ IP_ONLY_HOST_LABEL = "IP-only host"
 MAX_WEBHOOK_ERROR_BODY_LOG_CHARS = 300
 
 
-async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
-    """Validate webhook URL and block unsafe SSRF targets.
+def _blocked_webhook_address(address: str) -> tuple[bool, str]:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return True, "Webhook URL resolved to an invalid address"
 
-    We allow RFC1918/private LAN ranges for self-hosted Gotify instances, but
-    reject loopback/link-local/reserved endpoints that commonly expose metadata
-    services or host-local admin APIs from inside containers.
-    """
+    # Normalize IPv4-mapped IPv6 first, otherwise ::ffff:127.0.0.1 can
+    # evade IPv4 loopback/link-local checks on some Python versions.
+    check_ip = ip.ipv4_mapped if getattr(ip, "ipv4_mapped", None) else ip
+    if check_ip.is_loopback or check_ip.is_link_local or check_ip.is_multicast or check_ip.is_reserved or check_ip.is_unspecified:
+        return True, "Webhook URL must not resolve to a loopback, link-local, multicast, reserved or unspecified address"
+    if check_ip.version == 4 and check_ip == ipaddress.ip_address("169.254.169.254"):
+        return True, "Webhook URL must not target cloud metadata endpoints"
+    return False, ""
+
+
+async def _resolve_webhook_addresses(webhook_url: str) -> tuple[Optional[object], set[str], Optional[str]]:
     parsed = urlparse((webhook_url or "").strip())
     if parsed.scheme not in {"http", "https"}:
-        return False, "Webhook URL must start with http:// or https://"
+        return None, set(), "Webhook URL must start with http:// or https://"
     if not parsed.hostname:
-        return False, "Webhook URL must include a host"
+        return None, set(), "Webhook URL must include a host"
 
     hostname = parsed.hostname.strip().lower().rstrip(".")
     if hostname in {"localhost", "localhost.localdomain"}:
-        return False, "Webhook URL must not target localhost"
+        return None, set(), "Webhook URL must not target localhost"
 
     try:
         loop = asyncio.get_running_loop()
@@ -50,23 +62,21 @@ async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
         )
         addresses = {info[4][0] for info in resolved}
     except OSError:
-        return False, "Webhook URL host could not be resolved"
+        return None, set(), "Webhook URL host could not be resolved"
 
+    if not addresses:
+        return None, set(), "Webhook URL host could not be resolved"
     for address in addresses:
-        try:
-            ip = ipaddress.ip_address(address)
-        except ValueError:
-            return False, "Webhook URL resolved to an invalid address"
+        blocked, reason = _blocked_webhook_address(address)
+        if blocked:
+            return None, set(), reason
+    return parsed, addresses, None
 
-        # Normalize IPv4-mapped IPv6 first, otherwise ::ffff:127.0.0.1 can
-        # evade IPv4 loopback/link-local checks on some Python versions.
-        check_ip = ip.ipv4_mapped if getattr(ip, "ipv4_mapped", None) else ip
-        if check_ip.is_loopback or check_ip.is_link_local or check_ip.is_multicast or check_ip.is_reserved or check_ip.is_unspecified:
-            return False, "Webhook URL must not resolve to a local, link-local, multicast or reserved address"
-        if check_ip.version == 4 and check_ip == ipaddress.ip_address("169.254.169.254"):
-            return False, "Webhook URL must not target cloud metadata endpoints"
 
-    return True, ""
+async def validate_webhook_url(webhook_url: str) -> tuple[bool, str]:
+    """Validate webhook URL and block unsafe SSRF targets."""
+    _, _, error = await _resolve_webhook_addresses(webhook_url)
+    return (False, error) if error else (True, "")
 
 
 def _get_telegram_config(db: Session):
@@ -187,22 +197,70 @@ async def send_webhook_test_message(webhook_url: str) -> bool:
     return await _send_webhook(webhook_url, payload)
 
 
-async def _send_webhook(webhook_url: str, payload: dict) -> bool:
-    # Re-validate at send time as a safety net: settings may have been imported
-    # directly or DNS may have changed since the URL was saved.
-    valid, reason = await validate_webhook_url(webhook_url)
-    if not valid:
-        logger.warning(f"Rejected webhook URL: {reason}")
-        return False
+def _host_header(hostname: str, port: Optional[int], scheme: str) -> str:
+    default_port = 443 if scheme == "https" else 80
+    needs_brackets = ":" in hostname and not hostname.startswith("[")
+    host = f"[{hostname}]" if needs_brackets else hostname
+    return f"{host}:{port}" if port and port != default_port else host
+
+
+async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> tuple[int, str]:
+    """POST JSON to a pre-validated IP while preserving Host/SNI.
+
+    This avoids a second DNS lookup between validation and connect, closing the
+    DNS-rebinding gap that would exist if httpx received the original hostname.
+    """
+    hostname = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    ssl_context = ssl.create_default_context() if parsed.scheme == "https" else None
+    reader, writer = await asyncio.wait_for(
+        asyncio.open_connection(
+            host=address,
+            port=port,
+            ssl=ssl_context,
+            server_hostname=hostname if ssl_context else None,
+        ),
+        timeout=10.0,
+    )
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-            response = await client.post(webhook_url, json=payload)
-            if 200 <= response.status_code < 300:
-                return True
-            error_body = (response.text or "")[:MAX_WEBHOOK_ERROR_BODY_LOG_CHARS]
-            suffix = "…" if len(response.text or "") > MAX_WEBHOOK_ERROR_BODY_LOG_CHARS else ""
-            logger.warning(f"Webhook returned {response.status_code}: {error_body}{suffix}")
-            return False
+        body = json.dumps(payload).encode("utf-8")
+        path = urlunparse(("", "", parsed.path or "/", "", parsed.query, ""))
+        request = (
+            f"POST {path} HTTP/1.1\r\n"
+            f"Host: {_host_header(hostname, parsed.port, parsed.scheme)}\r\n"
+            "User-Agent: LanLens/1.0\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            "Connection: close\r\n\r\n"
+        ).encode("ascii") + body
+        writer.write(request)
+        await asyncio.wait_for(writer.drain(), timeout=10.0)
+        response = await asyncio.wait_for(reader.read(65536), timeout=10.0)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+    head, _, response_body = response.partition(b"\r\n\r\n")
+    status_line = head.splitlines()[0].decode("iso-8859-1", errors="replace") if head else ""
+    parts = status_line.split(" ", 2)
+    status_code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    return status_code, response_body.decode("utf-8", errors="replace")
+
+
+async def _send_webhook(webhook_url: str, payload: dict) -> bool:
+    parsed, addresses, error = await _resolve_webhook_addresses(webhook_url)
+    if error or not parsed:
+        logger.warning(f"Rejected webhook URL: {error}")
+        return False
+
+    try:
+        status_code, response_text = await _post_json_to_pinned_address(parsed, sorted(addresses)[0], payload)
+        if 200 <= status_code < 300:
+            return True
+        error_body = (response_text or "")[:MAX_WEBHOOK_ERROR_BODY_LOG_CHARS]
+        suffix = "…" if len(response_text or "") > MAX_WEBHOOK_ERROR_BODY_LOG_CHARS else ""
+        logger.warning(f"Webhook returned {status_code}: {error_body}{suffix}")
+        return False
     except Exception as e:
         logger.error(f"Failed to send webhook notification: {e}")
         return False

@@ -43,7 +43,7 @@ DEFAULT_SCAN_END = "192.168.1.254"
 MIN_OFFLINE_GRACE_MINUTES = 15
 MISSED_SCAN_MULTIPLIER = 3
 NOTIFICATION_RETRY_BACKOFF_MINUTES = 5
-NOTIFICATION_RETRY_SETTING = "notification_delivery_last_attempt_at"
+NOTIFICATION_RETRY_SETTING = "notification_delivery_last_failure_at"
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -498,21 +498,6 @@ async def _send_notification_deliveries(db: Session) -> None:
     if not telegram_configured and not webhook_configured:
         return
 
-    retry_row = db.query(Setting).filter(Setting.key == NOTIFICATION_RETRY_SETTING).first()
-    if retry_row and retry_row.value:
-        try:
-            last_attempt = datetime.fromisoformat(retry_row.value)
-            if datetime.utcnow() - last_attempt < timedelta(minutes=NOTIFICATION_RETRY_BACKOFF_MINUTES):
-                return
-        except ValueError:
-            pass
-
-    if retry_row:
-        retry_row.value = datetime.utcnow().isoformat()
-    else:
-        db.add(Setting(key=NOTIFICATION_RETRY_SETTING, value=datetime.utcnow().isoformat()))
-    db.flush()
-
     pending_filters = []
     if telegram_configured:
         pending_filters.append(Notification.telegram_sent == False)
@@ -525,11 +510,38 @@ async def _send_notification_deliveries(db: Session) -> None:
         .filter(Notification.event_type == "new_device", or_(*pending_filters))
         .all()
     )
+    if not unsent:
+        return
 
+    retry_row = db.query(Setting).filter(Setting.key == NOTIFICATION_RETRY_SETTING).first()
+    if retry_row and retry_row.value:
+        try:
+            last_failure = datetime.fromisoformat(retry_row.value)
+            if datetime.utcnow() - last_failure < timedelta(minutes=NOTIFICATION_RETRY_BACKOFF_MINUTES):
+                return
+        except ValueError:
+            pass
+
+    had_failure = False
     for notif in unsent:
-        if telegram_configured and not notif.telegram_sent and await send_telegram_for_notification(db, notif):
-            notif.telegram_sent = True
-        if webhook_configured and not notif.webhook_sent and await send_webhook_for_notification(db, notif):
-            notif.webhook_sent = True
+        if telegram_configured and not notif.telegram_sent:
+            if await send_telegram_for_notification(db, notif):
+                notif.telegram_sent = True
+            else:
+                had_failure = True
+        if webhook_configured and not notif.webhook_sent:
+            if await send_webhook_for_notification(db, notif):
+                notif.webhook_sent = True
+            else:
+                had_failure = True
+
+    if had_failure:
+        failure_at = datetime.utcnow().isoformat()
+        if retry_row:
+            retry_row.value = failure_at
+        else:
+            db.add(Setting(key=NOTIFICATION_RETRY_SETTING, value=failure_at))
+    elif retry_row:
+        retry_row.value = ""
 
     db.commit()
