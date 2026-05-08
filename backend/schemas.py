@@ -320,6 +320,7 @@ class ServerUrlSettings(BaseModel):
 
 class UiSettings(BaseModel):
     show_services_nav: bool = False
+    show_dhcp_monitor_nav: bool = False
 
 
 class PortScanSettings(BaseModel):
@@ -363,6 +364,7 @@ class AllSettings(BaseModel):
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
     show_services_nav: bool = False
+    show_dhcp_monitor_nav: bool = False
 
 
 class SmtpSettings(BaseModel):

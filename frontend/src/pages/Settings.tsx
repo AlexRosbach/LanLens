@@ -33,6 +33,7 @@ export default function Settings() {
   const [idoitTesting, setIdoitTesting] = useState(false)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
+  const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
 
   useEffect(() => {
     // Load settings once on mount. Language switches should only re-render labels,
@@ -40,6 +41,7 @@ export default function Settings() {
     settingsApi.get().then((data) => {
       setSettings(data)
       setShowServicesNav(data.show_services_nav)
+      setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
@@ -265,6 +267,7 @@ export default function Settings() {
       settingsApi.get().then((data) => {
         setSettings(data)
         setShowServicesNav(data.show_services_nav)
+        setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
       })
     } catch {
       toast.error(t('import_failed'))
@@ -343,8 +346,9 @@ export default function Settings() {
   async function saveUi() {
     setSaving(true)
     try {
-      await settingsApi.updateUi(current.show_services_nav)
+      await settingsApi.updateUi(current.show_services_nav, current.show_dhcp_monitor_nav)
       setShowServicesNav(current.show_services_nav)
+      setShowDhcpMonitorNav(current.show_dhcp_monitor_nav)
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))
@@ -431,14 +435,24 @@ export default function Settings() {
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('ui_settings')}</h2>
             <p className="text-sm text-text-subtle mb-4">{t('ui_settings_description')}</p>
-            <label className="flex items-center gap-2 text-sm text-text-base">
-              <input
-                type="checkbox"
-                checked={current.show_services_nav}
-                onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
-              />
-              {t('show_services_nav')}
-            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.show_services_nav}
+                  onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
+                />
+                {t('show_services_nav')}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.show_dhcp_monitor_nav}
+                  onChange={(e) => setSettings({ ...current, show_dhcp_monitor_nav: e.target.checked })}
+                />
+                {t('show_dhcp_monitor_nav')}
+              </label>
+            </div>
             <div className="mt-4">
               <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
             </div>

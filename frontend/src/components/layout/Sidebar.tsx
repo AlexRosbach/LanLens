@@ -19,6 +19,7 @@ export default function Sidebar({ onClose }: Props) {
   const update = useUpdateCheck()
   const navigate = useNavigate()
   const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
+  const showDhcpMonitorNav = useUiSettingsStore((state) => state.showDhcpMonitorNav)
   const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
 
   useEffect(() => {
@@ -61,7 +62,7 @@ export default function Sidebar({ onClose }: Props) {
         </svg>
       ),
     }] : []),
-    {
+    ...(showDhcpMonitorNav ? [{
       to: '/dhcp-monitor',
       label: t('nav_dhcp_monitor'),
       icon: (
@@ -70,7 +71,7 @@ export default function Sidebar({ onClose }: Props) {
             d="M8 9h8M8 13h5m-8 7h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zm4-4h.01M15 16h.01" />
         </svg>
       ),
-    },
+    }] : []),
     {
       to: '/segments',
       label: t('nav_segments'),

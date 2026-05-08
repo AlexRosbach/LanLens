@@ -33,6 +33,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - Segments with colour, range, and IP usage
 - Per-device documentation fields, IP history, and manual offline-device status re-checks
 - Service inventory per device, plus optional Services directory page with user-managed segments, drag-and-drop grouping, explicit segment dropdown assignment, and custom icon URLs
+- Optional DHCP Monitor page that captures visible DHCP server replies and shows announced DHCP options
 - One-click connect actions (SSH, RDP, HTTP, HTTPS)
 - Port scanning via nmap
 - **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory
@@ -143,6 +144,15 @@ Notes:
 - The configured `scan start` and `scan end` define the actual IPv4 scan range, so larger ranges inside the directly reachable local network are supported.
 - ARP scanning works directly only on the locally reachable Layer-2 network. Use **Additional routed scan targets** for other subnets, for example `192.168.10.0/24`.
 - Routed subnet discovery uses nmap ping scan. Across routed networks, MAC addresses and vendor information are often unavailable; LanLens tracks those hosts as IP-only discoveries.
+
+### Optional navigation pages
+
+In **Settings → System → UI Settings**, optional sidebar entries can be enabled or hidden:
+
+- **Services**: shows the global Services directory.
+- **DHCP Monitor**: shows a DHCP server/options monitor. It is not a full DHCP process timeline; it captures DHCP server replies visible to the LanLens host/container and displays which DHCP server announced which options.
+
+The DHCP Monitor requires packet-capture visibility for DHCP replies (`UDP 67 → 68`). In Docker this usually depends on host networking and the required capture capabilities.
 
 ### Telegram
 

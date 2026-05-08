@@ -41,7 +41,7 @@ SETTING_KEYS = [
     "webhook_url", "webhook_enabled",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
-    "show_services_nav",
+    "show_services_nav", "show_dhcp_monitor_nav",
 ]
 
 
@@ -155,6 +155,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
         cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
+        show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
     )
 
 
@@ -309,6 +310,7 @@ def update_ui_settings(
     _: User = Depends(get_current_user),
 ):
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
+    _set(db, "show_dhcp_monitor_nav", "true" if data.show_dhcp_monitor_nav else "false")
     db.commit()
     return MessageResponse(message="UI settings updated")
 
