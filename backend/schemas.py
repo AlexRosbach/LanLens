@@ -241,8 +241,10 @@ class DeviceResponse(BaseModel):
     host_label: Optional[str] = None
     # CMDB
     cmdb_id: Optional[str] = None
+    idoit_enabled: bool = False
     idoit_sync_status: Optional[str] = None
     idoit_object_id: Optional[str] = None
+    idoit_object_url: Optional[str] = None
     idoit_last_sync_at: Optional[datetime] = None
     idoit_last_validation_at: Optional[datetime] = None
     idoit_last_error: Optional[str] = None

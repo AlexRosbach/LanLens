@@ -48,6 +48,13 @@ export interface Device {
   notes: string | null
   // CMDB
   cmdb_id?: string | null
+  idoit_enabled?: boolean
+  idoit_sync_status?: string | null
+  idoit_object_id?: string | null
+  idoit_object_url?: string | null
+  idoit_last_sync_at?: string | null
+  idoit_last_validation_at?: string | null
+  idoit_last_error?: string | null
   // State
   is_registered: boolean
   is_new: boolean

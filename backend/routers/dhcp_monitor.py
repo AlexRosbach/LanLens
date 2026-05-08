@@ -5,7 +5,7 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import DhcpObservation, User
 from ..schemas import DhcpMonitorStatusResponse, DhcpObservationResponse, MessageResponse
-from ..services.dhcp_monitor import capture_dhcp_observations, is_capture_running, observation_to_response
+from ..services.dhcp_monitor import capture_dhcp_observations, is_capture_running, observation_to_response, try_begin_capture
 
 router = APIRouter(prefix="/api/dhcp-monitor", tags=["dhcp-monitor"])
 
@@ -26,10 +26,10 @@ def start_capture(
     seconds: int = Query(20, ge=3, le=120),
     _: User = Depends(get_current_user),
 ):
-    if is_capture_running():
-        return MessageResponse(message="DHCP capture already running", success=False)
-    background_tasks.add_task(capture_dhcp_observations, seconds)
-    return MessageResponse(message=f"DHCP capture started for {seconds} seconds")
+    if not try_begin_capture():
+        return MessageResponse(message="DHCP probe already running", success=False)
+    background_tasks.add_task(capture_dhcp_observations, seconds, 50, True)
+    return MessageResponse(message=f"DHCP probe started for {seconds} seconds")
 
 
 @router.get("/status", response_model=DhcpMonitorStatusResponse)

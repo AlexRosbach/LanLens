@@ -351,17 +351,27 @@ Database migrations run automatically on container start.
 
 LanLens 1.5.0 starts the one-way i-doit integration foundation. LanLens is intended to be the source of truth and i-doit the target, but this first slice is deliberately limited to configuration, connection checks, local mapping validation, payload preview, sync-state tracking and audit logs. It does **not** perform live i-doit object/category writes yet.
 
-1. Configure the i-doit base URL, JSON-RPC path and API key in the `/api/idoit/config` API.
+1. Configure the i-doit base URL, JSON-RPC path, portal URL and API key in the `/api/idoit/config` API.
 2. Choose the writable i-doit field used for LanLens sync/reference/status metadata (`idoit_sync_status_field`).
-3. Import or edit the mapping JSON.
+3. Import or edit the mapping JSON. `objectType` is only the fallback; `objectTypeByDeviceClass` can route routers, switches, printers, firewalls, etc. into non-server i-doit object types.
 4. Run `POST /api/idoit/test-connection`.
 5. Run `POST /api/idoit/test-mapping` for local JSON structure validation. This does not verify remote i-doit object types/categories/fields yet.
 6. Run `POST /api/idoit/devices/{device_id}/dry-run` to inspect the generated payload before any future live sync implementation.
 7. Use `POST /api/idoit/devices/{device_id}/sync` only as a LanLens-side validation/state marker in this release; it records no upstream i-doit write.
 
-The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL, JSON-RPC path and API key. On-prem deployments can keep the default `/src/jsonrpc.php` path or set a custom reverse-proxy path; Cloud installations may differ in URL, enabled modules, token creation flow, and user permissions.
+The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL, JSON-RPC path and API key. On-prem deployments can keep the default `/src/jsonrpc.php` path or set a custom reverse-proxy path; Cloud installations may differ in URL, enabled modules, token creation flow, and user permissions. The portal URL is stored separately so device detail pages can link directly to matched i-doit objects (`?objID=...`) without assuming that the JSON-RPC endpoint is also the browser entry point.
 
 Recommended i-doit permissions: create/update only the object types and categories you want LanLens to manage. Avoid administrator-wide tokens for routine sync.
+
+Matching strategy for environments where i-doit already contains objects:
+
+1. Use an existing i-doit object ID when a LanLens device is already linked.
+2. Prefer a stable LanLens/CMDB external reference field (`cmdb_id` / configured `externalIdField`).
+3. Fall back to exact MAC address matches.
+4. Fall back to hostname/IP only as warning-level candidates, not automatic writes.
+5. Create a new object only when no confident match exists.
+
+This keeps the scan enrichment one-way and predictable: LanLens colors/enriches discovered devices locally, prepares the mapped i-doit payload, links to existing objects when confidently matched, and only creates new i-doit objects once the live write path is enabled and the match result is unambiguous.
 
 Troubleshooting checklist:
 

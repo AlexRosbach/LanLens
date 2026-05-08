@@ -25,6 +25,7 @@ class IdoitConfigPayload(BaseModel):
     idoit_enabled: Optional[bool] = None
     idoit_base_url: Optional[str] = None
     idoit_jsonrpc_path: Optional[str] = None
+    idoit_portal_url: Optional[str] = None
     idoit_api_key: Optional[str] = None
     idoit_timeout_seconds: Optional[int] = None
     idoit_default_object_type: Optional[str] = None
@@ -39,6 +40,7 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_enabled": cfg.enabled,
         "idoit_base_url": cfg.base_url,
         "idoit_jsonrpc_path": cfg.jsonrpc_path,
+        "idoit_portal_url": cfg.portal_url,
         "idoit_api_key_configured": bool(cfg.api_key),
         "idoit_timeout_seconds": cfg.timeout_seconds,
         "idoit_default_object_type": cfg.default_object_type,
@@ -67,6 +69,10 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
         data.pop("idoit_api_key")
     if base_url := (data.get("idoit_base_url") or "").strip():
         valid, reason = await validate_webhook_url(base_url, "i-doit base URL")
+        if not valid:
+            raise HTTPException(status_code=400, detail=reason)
+    if portal_url := (data.get("idoit_portal_url") or "").strip():
+        valid, reason = await validate_webhook_url(portal_url, "i-doit portal URL")
         if not valid:
             raise HTTPException(status_code=400, detail=reason)
     update_config(db, data)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import threading
 from datetime import datetime
 from typing import Any, Optional
 
@@ -23,6 +24,7 @@ from .mac_vendor import normalize_mac
 logger = logging.getLogger(__name__)
 
 _capture_running = False
+_capture_lock = threading.Lock()
 DHCP_OPTION_NAMES = {
     1: "subnet_mask",
     3: "router",
@@ -44,7 +46,23 @@ DHCP_OPTION_NAMES = {
 
 
 def is_capture_running() -> bool:
-    return _capture_running
+    with _capture_lock:
+        return _capture_running
+
+
+def try_begin_capture() -> bool:
+    global _capture_running
+    with _capture_lock:
+        if _capture_running:
+            return False
+        _capture_running = True
+        return True
+
+
+def _end_capture() -> None:
+    global _capture_running
+    with _capture_lock:
+        _capture_running = False
 
 
 def _json_safe(value: Any) -> Any:
@@ -286,12 +304,10 @@ def _passive_capture_dhcp_replies(db: Session, timeout_seconds: int, packet_limi
     return stored
 
 
-def capture_dhcp_observations(timeout_seconds: int = 20, packet_limit: int = 50) -> int:
+def capture_dhcp_observations(timeout_seconds: int = 20, packet_limit: int = 50, reserved: bool = False) -> int:
     """Probe DHCP servers and capture visible DHCP server replies."""
-    global _capture_running
-    if _capture_running:
+    if not reserved and not try_begin_capture():
         return 0
-    _capture_running = True
     stored = 0
     db = SessionLocal()
     try:
@@ -313,7 +329,7 @@ def capture_dhcp_observations(timeout_seconds: int = 20, packet_limit: int = 50)
         return 0
     finally:
         db.close()
-        _capture_running = False
+        _end_capture()
 
 
 def observation_to_response(row: DhcpObservation) -> dict[str, Any]:

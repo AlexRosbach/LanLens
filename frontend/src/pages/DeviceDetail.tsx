@@ -29,6 +29,14 @@ interface EditState {
   cmdbId: string
 }
 
+function idoitStatusVariant(status?: string | null): 'success' | 'danger' | 'warning' | 'primary' | 'muted' {
+  if (status === 'synced' || status === 'validated') return 'success'
+  if (status === 'error' || status === 'mapping_error') return 'danger'
+  if (status === 'preview_ready' || status === 'pending_changes') return 'warning'
+  if (status === 'linked') return 'primary'
+  return 'muted'
+}
+
 function toEditState(d: Device): EditState {
   return {
     label: d.label ?? '',
@@ -374,6 +382,34 @@ export default function DeviceDetail() {
                 <p className="text-text-muted text-xs">{formatRelativeTime(device.last_seen, lang)}</p>
               </div>
             </div>
+
+            {device.idoit_enabled && (
+              <div className="border-t border-border pt-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h2 className="text-sm font-semibold text-text-muted">{t('idoit_sync')}</h2>
+                  <Badge variant={idoitStatusVariant(device.idoit_sync_status)} dot>{device.idoit_sync_status || 'never_synced'}</Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                  <InfoRow label={t('idoit_object_id')} value={device.idoit_object_id} mono />
+                  <div>
+                    <p className="text-text-subtle text-xs mb-0.5">{t('idoit_object')}</p>
+                    {device.idoit_object_url ? (
+                      <a className="text-xs text-primary hover:underline" href={device.idoit_object_url} target="_blank" rel="noreferrer">{t('open_in_idoit')}</a>
+                    ) : (
+                      <p className="text-text-muted text-xs">—</p>
+                    )}
+                  </div>
+                  <InfoRow label={t('idoit_last_sync')} value={device.idoit_last_sync_at ? formatDateTime(device.idoit_last_sync_at) : null} />
+                  <InfoRow label={t('idoit_last_validation')} value={device.idoit_last_validation_at ? formatDateTime(device.idoit_last_validation_at) : null} />
+                  {device.idoit_last_error && (
+                    <div className="col-span-2">
+                      <p className="text-text-subtle text-xs mb-0.5">{t('idoit_last_error')}</p>
+                      <p className="text-danger text-xs whitespace-pre-wrap">{device.idoit_last_error}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Documentation fields */}
             {hasDocumentation && (

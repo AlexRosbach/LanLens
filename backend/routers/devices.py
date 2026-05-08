@@ -26,6 +26,7 @@ from ..schemas import (
     PortScanResponse,
     SinglePortScanRequest,
 )
+from ..services.idoit import build_object_url, get_config as get_idoit_config
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, record_device_ip_history
@@ -146,6 +147,8 @@ def _device_to_response(
     segment_ranges: Optional[List[SegmentRange]] = None,
     include_ip_history: bool = False,
     db: Optional[Session] = None,
+    idoit_portal_url: Optional[str] = None,
+    idoit_enabled: bool = False,
 ) -> DeviceResponse:
     from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
@@ -164,6 +167,12 @@ def _device_to_response(
             .all()
         )
         ip_history = [DeviceIpHistoryResponse.model_validate(entry) for entry in latest_ip_history]
+
+    if db is not None and idoit_portal_url is None:
+        cfg = get_idoit_config(db)
+        idoit_portal_url = cfg.portal_url
+        idoit_enabled = cfg.enabled
+    idoit_object_id = device.idoit_sync.idoit_object_id if device.idoit_sync else None
 
     return DeviceResponse(
         id=device.id,
@@ -193,8 +202,10 @@ def _device_to_response(
         hardware_summary=(hardware_summaries or {}).get(device.id),
         host_label=(host_labels or {}).get(device.id),
         cmdb_id=device.cmdb_id,
+        idoit_enabled=idoit_enabled,
         idoit_sync_status=device.idoit_sync.status if device.idoit_sync else "never_synced",
-        idoit_object_id=device.idoit_sync.idoit_object_id if device.idoit_sync else None,
+        idoit_object_id=idoit_object_id,
+        idoit_object_url=build_object_url(idoit_portal_url or "", idoit_object_id),
         idoit_last_sync_at=device.idoit_sync.last_sync_at if device.idoit_sync else None,
         idoit_last_validation_at=device.idoit_sync.last_validation_at if device.idoit_sync else None,
         idoit_last_error=device.idoit_sync.last_error if device.idoit_sync else None,
@@ -455,7 +466,8 @@ def get_device(
             else:
                 host_labels[device_id] = f"Host #{host_rel.host_device_id}"
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
-    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segment_ranges, include_ip_history=True, db=db)
+    idoit_config = get_idoit_config(db)
+    return _device_to_response(device, dhcp_range, viewed_device_ids, hw_summary, host_labels, segment_ranges, include_ip_history=True, db=db, idoit_portal_url=idoit_config.portal_url, idoit_enabled=idoit_config.enabled)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)

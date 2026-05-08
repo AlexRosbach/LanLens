@@ -295,6 +295,7 @@ export default function Settings() {
         idoit_enabled: idoitConfig.idoit_enabled,
         idoit_base_url: idoitConfig.idoit_base_url,
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
+        idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
@@ -886,6 +887,15 @@ export default function Settings() {
                       onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_jsonrpc_path: e.target.value })}
                       placeholder="/src/jsonrpc.php"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_portal_url')}</label>
+                    <Input
+                      value={idoitConfig.idoit_portal_url}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_portal_url: e.target.value })}
+                      placeholder="https://idoit.example.com"
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_portal_url_hint')}</p>
                   </div>
                   <div>
                     <label className="block text-sm text-text-subtle mb-1">{t('idoit_api_key')}</label>

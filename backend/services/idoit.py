@@ -23,6 +23,13 @@ DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
     "version": 1,
     "objectType": "C__OBJTYPE__SERVER",
+    "objectTypeByDeviceClass": {
+        "Router": "C__OBJTYPE__ROUTER",
+        "Switch": "C__OBJTYPE__SWITCH",
+        "AP": "C__OBJTYPE__ACCESS_POINT",
+        "Firewall": "C__OBJTYPE__FIREWALL",
+        "Printer": "C__OBJTYPE__PRINTER"
+    },
     "identity": {
         "externalIdField": "C__CATG__GLOBAL.description",
         "syncStatusField": "C__CATG__GLOBAL.comment",
@@ -41,6 +48,7 @@ DEFAULT_MAPPING = {
 SETTING_DEFAULTS = {
     "idoit_enabled": "false",
     "idoit_base_url": "",
+    "idoit_portal_url": "",
     "idoit_jsonrpc_path": "/src/jsonrpc.php",
     "idoit_api_key": "",
     "idoit_timeout_seconds": "15",
@@ -56,6 +64,7 @@ class IdoitConfig:
     enabled: bool
     base_url: str
     jsonrpc_path: str
+    portal_url: str
     api_key: str
     timeout_seconds: int
     default_object_type: str
@@ -116,6 +125,7 @@ def get_config(db: Session) -> IdoitConfig:
         enabled=_get_setting(db, "idoit_enabled") == "true",
         base_url=(_get_setting(db, "idoit_base_url") or "").rstrip("/"),
         jsonrpc_path=_get_setting(db, "idoit_jsonrpc_path") or "/src/jsonrpc.php",
+        portal_url=(_get_setting(db, "idoit_portal_url") or _get_setting(db, "idoit_base_url") or "").rstrip("/"),
         api_key=_get_setting(db, "idoit_api_key"),
         timeout_seconds=timeout,
         default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__SERVER",
@@ -221,6 +231,31 @@ def _json_safe_device_value(device: Device, field_name: str) -> Any:
     return None
 
 
+def object_type_for_device(device: Device, config: IdoitConfig) -> str:
+    mapping = _mapping_dict(config)
+    by_class = mapping.get("objectTypeByDeviceClass")
+    if isinstance(by_class, dict):
+        device_class = device.device_class or ""
+        mapped = by_class.get(device_class)
+        if isinstance(mapped, str) and mapped.strip():
+            return mapped.strip()
+        for key, value in by_class.items():
+            if isinstance(key, str) and key.lower() in device_class.lower() and isinstance(value, str) and value.strip():
+                return value.strip()
+    object_type = mapping.get("objectType")
+    if isinstance(object_type, str) and object_type.strip():
+        return object_type.strip()
+    return config.default_object_type
+
+
+def build_object_url(portal_url: str, object_id: Optional[str]) -> Optional[str]:
+    if not portal_url or not object_id:
+        return None
+    base = portal_url.rstrip("/")
+    separator = "&" if "?" in base else "?"
+    return f"{base}{separator}objID={object_id}"
+
+
 def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     # Build the future i-doit write payload without contacting i-doit. Dry-run
     # and placeholder sync both use this so operators can inspect exactly what
@@ -264,7 +299,7 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     else:
         fields[sync_status_field] = sync_reference
     return {
-        "objectType": _mapping_dict(config).get("objectType") or config.default_object_type,
+        "objectType": object_type_for_device(device, config),
         "title": label,
         "identity": {
             "cmdb_id": device.cmdb_id,

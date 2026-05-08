@@ -4,6 +4,7 @@ export interface IdoitConfig {
   idoit_enabled: boolean
   idoit_base_url: string
   idoit_jsonrpc_path: string
+  idoit_portal_url: string
   idoit_api_key_configured: boolean
   idoit_timeout_seconds: number
   idoit_default_object_type: string
@@ -20,6 +21,7 @@ export interface IdoitConfigUpdate {
   idoit_enabled: boolean
   idoit_base_url: string
   idoit_jsonrpc_path: string
+  idoit_portal_url: string
   idoit_api_key?: string
   idoit_timeout_seconds: number
   idoit_default_object_type: string

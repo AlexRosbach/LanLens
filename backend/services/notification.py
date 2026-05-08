@@ -254,17 +254,22 @@ async def _send_webhook(webhook_url: str, payload: dict) -> bool:
         logger.warning(f"Rejected webhook URL: {error}")
         return False
 
-    try:
-        status_code, response_text = await _post_json_to_pinned_address(parsed, sorted(addresses)[0], payload)
-        if 200 <= status_code < 300:
-            return True
-        error_body = (response_text or "")[:MAX_WEBHOOK_ERROR_BODY_LOG_CHARS]
-        suffix = "…" if len(response_text or "") > MAX_WEBHOOK_ERROR_BODY_LOG_CHARS else ""
-        logger.warning(f"Webhook returned {status_code}: {error_body}{suffix}")
-        return False
-    except Exception as e:
-        logger.error(f"Failed to send webhook notification: {e}")
-        return False
+    last_error = ""
+    for address in sorted(addresses, key=lambda item: (":" in item, item)):
+        try:
+            status_code, response_text = await _post_json_to_pinned_address(parsed, address, payload)
+            if 200 <= status_code < 300:
+                return True
+            error_body = (response_text or "")[:MAX_WEBHOOK_ERROR_BODY_LOG_CHARS]
+            suffix = "…" if len(response_text or "") > MAX_WEBHOOK_ERROR_BODY_LOG_CHARS else ""
+            last_error = f"Webhook target {address} returned {status_code}: {error_body}{suffix}"
+            logger.warning(last_error)
+        except Exception as e:
+            last_error = f"Failed to send webhook notification via {address}: {e}"
+            logger.error(last_error)
+    if last_error:
+        logger.warning("Webhook delivery failed for all resolved addresses: %s", last_error)
+    return False
 
 
 async def send_test_message(bot_token: str, chat_id: str) -> bool:
