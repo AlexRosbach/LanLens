@@ -182,6 +182,7 @@ Security notes:
 - the stored webhook URL is treated as a secret in the settings API because Gotify-style URLs often contain tokens
 - outbound webhook, i-doit and generic CMDB REST URLs are validated server-side before use
 - private LAN targets are allowed for self-hosted deployments, while loopback, link-local, multicast, reserved, unspecified and cloud metadata addresses are rejected
+- outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI to reduce DNS-rebinding risk
 - redirects are not followed for generic CMDB REST calls
 
 ---

@@ -721,6 +721,7 @@ Security and operational boundaries:
 
 - i-doit, webhook and generic CMDB REST URLs are validated before outbound requests.
 - Self-hosted private LAN targets are allowed; loopback, link-local, multicast, reserved, unspecified and cloud metadata addresses are blocked.
+- Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit `/sync` currently records LanLens-side validation state only (`validated_pending_sync` / `mapping_error`) and does not prove an upstream i-doit write happened.
 

@@ -16,10 +16,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-import httpx
 from sqlalchemy.orm import Session
 
 from ..models import CmdbSyncLog, Device, Setting
+from .notification import request_json_via_validated_url
 
 logger = logging.getLogger(__name__)
 
@@ -299,8 +299,14 @@ async def push_device(db: Session, device: Device, config: CmdbConfig) -> dict[s
 
     payload = build_payload(device, config)
     try:
-        async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=False) as client:
-            response = await client.request(config.method, config.target_url, json=payload, headers=_auth_headers(config))
+        response = await request_json_via_validated_url(
+            config.target_url,
+            method=config.method,
+            payload=payload,
+            headers=_auth_headers(config),
+            timeout_seconds=config.timeout_seconds,
+            label="CMDB REST target URL",
+        )
         success = 200 <= response.status_code < 300
         message = f"CMDB REST push returned HTTP {response.status_code}"
         log_attempt(db, device.id, "push", "success" if success else "failure", message, {"status_code": response.status_code})
@@ -315,8 +321,13 @@ async def test_connection(config: CmdbConfig) -> dict[str, Any]:
     if not url:
         return {"success": False, "message": "CMDB REST target/import URL is not configured"}
     try:
-        async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=False) as client:
-            response = await client.request("GET", url, headers=_auth_headers(config))
+        response = await request_json_via_validated_url(
+            url,
+            method="GET",
+            headers=_auth_headers(config),
+            timeout_seconds=config.timeout_seconds,
+            label="CMDB REST URL",
+        )
         return {"success": 200 <= response.status_code < 500, "status_code": response.status_code, "message": f"CMDB REST endpoint returned HTTP {response.status_code}"}
     except Exception as exc:
         return {"success": False, "message": f"CMDB REST connection failed: {exc}"}
@@ -326,10 +337,16 @@ async def import_preview(config: CmdbConfig, limit: int = 20) -> dict[str, Any]:
     url = config.import_url or config.target_url
     if not url:
         return {"success": False, "message": "CMDB REST import URL is not configured"}
-    async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=False) as client:
-        response = await client.get(url, headers=_auth_headers(config))
-    response.raise_for_status()
-    data = response.json()
+    response = await request_json_via_validated_url(
+        url,
+        method="GET",
+        headers=_auth_headers(config),
+        timeout_seconds=config.timeout_seconds,
+        label="CMDB REST import URL",
+    )
+    if not 200 <= response.status_code < 300:
+        raise RuntimeError(f"CMDB REST import returned HTTP {response.status_code}")
+    data = json.loads(response.text)
     items = data if isinstance(data, list) else data.get("items") if isinstance(data, dict) else []
     items = items if isinstance(items, list) else []
     return {

@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-import httpx
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Device, IdoitDeviceSync, IdoitSyncLog, Setting
+from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
@@ -357,10 +357,17 @@ class IdoitClient:
         if self._session_id:
             headers["X-RPC-Auth-Session"] = self._session_id
         body = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
-        async with httpx.AsyncClient(timeout=self.config.timeout_seconds) as client:
-            res = await client.post(self.endpoint, headers=headers, json=body)
-            res.raise_for_status()
-            data = res.json()
+        res = await request_json_via_validated_url(
+            self.endpoint,
+            method="POST",
+            payload=body,
+            headers=headers,
+            timeout_seconds=self.config.timeout_seconds,
+            label="i-doit JSON-RPC URL",
+        )
+        if not 200 <= res.status_code < 300:
+            raise RuntimeError(f"i-doit JSON-RPC returned HTTP {res.status_code}")
+        data = json.loads(res.text)
         if data.get("error"):
             raise RuntimeError(data["error"].get("message") or str(data["error"]))
         return data.get("result")

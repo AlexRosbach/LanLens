@@ -10,6 +10,7 @@ import ipaddress
 import json
 import logging
 import ssl
+from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import quote, urlparse
 
@@ -24,6 +25,12 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 IP_ONLY_HOST_LABEL = "IP-only host"
 MAX_WEBHOOK_ERROR_BODY_LOG_CHARS = 300
+
+
+@dataclass
+class PinnedHttpResponse:
+    status_code: int
+    text: str
 
 
 def _blocked_webhook_address(address: str, label: str) -> tuple[bool, str]:
@@ -226,11 +233,38 @@ def _request_target(path: str, query: str) -> str:
     return f"{safe_path}?{safe_query}"
 
 
-async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> tuple[int, str]:
-    """POST JSON to a pre-validated IP while preserving Host/SNI.
+def _decode_chunked_body(body: bytes) -> bytes:
+    decoded = bytearray()
+    remaining = body
+    while remaining:
+        line, sep, rest = remaining.partition(b"\r\n")
+        if not sep:
+            return body
+        try:
+            size = int(line.split(b";", 1)[0].strip(), 16)
+        except ValueError:
+            return body
+        if size == 0:
+            return bytes(decoded)
+        chunk = rest[:size]
+        decoded.extend(chunk)
+        remaining = rest[size + 2:]
+    return bytes(decoded)
+
+
+async def _request_to_pinned_address(
+    parsed,
+    address: str,
+    method: str = "GET",
+    payload: Optional[dict] = None,
+    headers: Optional[dict[str, str]] = None,
+    timeout_seconds: float = 10.0,
+) -> PinnedHttpResponse:
+    """Send an HTTP request to a pre-validated IP while preserving Host/SNI.
 
     This avoids a second DNS lookup between validation and connect, closing the
-    DNS-rebinding gap that would exist if httpx received the original hostname.
+    DNS-rebinding gap that would exist if a normal HTTP client received the
+    original hostname.
     """
     hostname = parsed.hostname or ""
     ascii_hostname = _idna_hostname(hostname)
@@ -243,22 +277,28 @@ async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> t
             ssl=ssl_context,
             server_hostname=ascii_hostname if ssl_context else None,
         ),
-        timeout=10.0,
+        timeout=timeout_seconds,
     )
     try:
-        body = json.dumps(payload).encode("utf-8")
+        body = json.dumps(payload).encode("utf-8") if payload is not None else b""
         target = _request_target(parsed.path or "/", parsed.query or "")
-        request = (
-            f"POST {target} HTTP/1.1\r\n"
-            f"Host: {_host_header(hostname, parsed.port, parsed.scheme)}\r\n"
-            f"User-Agent: LanLens/{APP_VERSION}\r\n"
-            "Content-Type: application/json\r\n"
-            f"Content-Length: {len(body)}\r\n"
-            "Connection: close\r\n\r\n"
-        ).encode("ascii") + body
+        header_lines = {
+            "Host": _host_header(hostname, parsed.port, parsed.scheme),
+            "User-Agent": f"LanLens/{APP_VERSION}",
+            "Accept": "application/json, */*",
+            "Connection": "close",
+            **(headers or {}),
+        }
+        if payload is not None:
+            header_lines.setdefault("Content-Type", "application/json")
+            header_lines["Content-Length"] = str(len(body))
+        request_head = f"{method.upper()} {target} HTTP/1.1\r\n" + "".join(
+            f"{name}: {value}\r\n" for name, value in header_lines.items()
+        ) + "\r\n"
+        request = request_head.encode("iso-8859-1") + body
         writer.write(request)
-        await asyncio.wait_for(writer.drain(), timeout=10.0)
-        response = await asyncio.wait_for(reader.read(65536), timeout=10.0)
+        await asyncio.wait_for(writer.drain(), timeout=timeout_seconds)
+        response = await asyncio.wait_for(reader.read(1048576), timeout=timeout_seconds)
     finally:
         writer.close()
         await writer.wait_closed()
@@ -267,7 +307,32 @@ async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> t
     status_line = head.splitlines()[0].decode("iso-8859-1", errors="replace") if head else ""
     parts = status_line.split(" ", 2)
     status_code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-    return status_code, response_body.decode("utf-8", errors="replace")
+    if b"transfer-encoding: chunked" in head.lower():
+        response_body = _decode_chunked_body(response_body)
+    return PinnedHttpResponse(status_code, response_body.decode("utf-8", errors="replace"))
+
+
+async def request_json_via_validated_url(
+    url: str,
+    method: str = "GET",
+    payload: Optional[dict] = None,
+    headers: Optional[dict[str, str]] = None,
+    timeout_seconds: float = 10.0,
+    label: str = "URL",
+) -> PinnedHttpResponse:
+    """Validate a URL with the SSRF guard, then request via a pinned IP."""
+    parsed, addresses, error = await _resolve_webhook_addresses(url, label)
+    if error or not parsed:
+        raise ValueError(error or f"{label} is invalid")
+
+    last_error = ""
+    for address in sorted(addresses, key=lambda item: (":" in item, item)):
+        try:
+            return await _request_to_pinned_address(parsed, address, method, payload, headers, timeout_seconds)
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning("Pinned request to %s via %s failed: %s", label, address, exc)
+    raise RuntimeError(last_error or f"{label} request failed")
 
 
 async def _send_webhook(webhook_url: str, payload: dict) -> bool:
@@ -279,12 +344,12 @@ async def _send_webhook(webhook_url: str, payload: dict) -> bool:
     last_error = ""
     for address in sorted(addresses, key=lambda item: (":" in item, item)):
         try:
-            status_code, response_text = await _post_json_to_pinned_address(parsed, address, payload)
-            if 200 <= status_code < 300:
+            response = await _request_to_pinned_address(parsed, address, "POST", payload)
+            if 200 <= response.status_code < 300:
                 return True
-            error_body = (response_text or "")[:MAX_WEBHOOK_ERROR_BODY_LOG_CHARS]
-            suffix = "…" if len(response_text or "") > MAX_WEBHOOK_ERROR_BODY_LOG_CHARS else ""
-            last_error = f"Webhook target {address} returned {status_code}: {error_body}{suffix}"
+            error_body = (response.text or "")[:MAX_WEBHOOK_ERROR_BODY_LOG_CHARS]
+            suffix = "…" if len(response.text or "") > MAX_WEBHOOK_ERROR_BODY_LOG_CHARS else ""
+            last_error = f"Webhook target {address} returned {response.status_code}: {error_body}{suffix}"
             logger.warning(last_error)
         except Exception as e:
             last_error = f"Failed to send webhook notification via {address}: {e}"

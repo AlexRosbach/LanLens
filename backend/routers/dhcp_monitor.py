@@ -1,4 +1,6 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+import threading
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -22,13 +24,17 @@ def list_observations(
 
 @router.post("/capture", response_model=MessageResponse)
 def start_capture(
-    background_tasks: BackgroundTasks,
     seconds: int = Query(20, ge=3, le=120),
     _: User = Depends(get_current_user),
 ):
     if not try_begin_capture():
         return MessageResponse(message="DHCP probe already running", success=False)
-    background_tasks.add_task(capture_dhcp_observations, seconds, 50, True)
+    threading.Thread(
+        target=capture_dhcp_observations,
+        args=(seconds, 50, True),
+        name="lanlens-dhcp-probe",
+        daemon=True,
+    ).start()
     return MessageResponse(message=f"DHCP probe started for {seconds} seconds")
 
 
