@@ -160,6 +160,8 @@ def update_config(db: Session, payload: dict[str, Any]) -> CmdbConfig:
             value = "true" if value else "false"
         elif value is None:
             value = ""
+        if key in {"cmdb_rest_target_url", "cmdb_rest_import_url"}:
+            value = str(value).strip()
         if key == "cmdb_rest_method":
             value = str(value).upper()
         if key == "cmdb_rest_auth_type" or key == "cmdb_rest_import_conflict_strategy":

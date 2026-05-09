@@ -54,10 +54,15 @@ async def _resolve_webhook_addresses(webhook_url: str, label: str = "Webhook URL
         return None, set(), f"{label} must not target localhost"
 
     try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except (ValueError, TypeError):
+        return None, set(), f"{label} has an invalid port"
+
+    try:
         loop = asyncio.get_running_loop()
         resolved = await loop.getaddrinfo(
             hostname,
-            parsed.port or (443 if parsed.scheme == "https" else 80),
+            port,
             type=0,
             proto=0,
         )

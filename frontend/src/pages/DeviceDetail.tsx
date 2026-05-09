@@ -272,8 +272,8 @@ export default function DeviceDetail() {
           <div className="flex flex-col gap-4">
             {/* Identity */}
             <div className="grid grid-cols-2 gap-3">
-              <Input label={t('label')} placeholder="e.g. Proxmox Host" {...field('label')} />
-              <Input label={t('asset_tag')} placeholder="e.g. SRV-001" {...field('assetTag')} />
+              <Input label={t('label')} placeholder={t('device_label_placeholder')} {...field('label')} />
+              <Input label={t('asset_tag')} placeholder={t('asset_tag_placeholder')} {...field('assetTag')} />
               <div className="col-span-2 flex items-end gap-2">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-text-muted mb-1">{t('cmdb_id')}</label>
@@ -328,12 +328,12 @@ export default function DeviceDetail() {
 
             {/* Documentation fields */}
             <div className="border-t border-border pt-4 grid grid-cols-2 gap-3">
-              <Input label={t('purpose')} placeholder="e.g. Virtualisation host" {...field('purpose')} />
-              <Input label={t('location')} placeholder="e.g. Server rack, Shelf 2" {...field('location')} />
-              <Input label={t('responsible')} placeholder="e.g. IT Admin" {...field('responsible')} />
-              <Input label={t('os_info')} placeholder="e.g. Proxmox VE 8.2" {...field('osInfo')} />
+              <Input label={t('purpose')} placeholder={t('purpose_placeholder')} {...field('purpose')} />
+              <Input label={t('location')} placeholder={t('location_placeholder')} {...field('location')} />
+              <Input label={t('responsible')} placeholder={t('responsible_placeholder')} {...field('responsible')} />
+              <Input label={t('os_info')} placeholder={t('os_info_placeholder')} {...field('osInfo')} />
               <div className="col-span-2">
-                <Input label={t('password_location')} placeholder="e.g. Vaultwarden → Servers" {...field('passwordLocation')} />
+                <Input label={t('password_location')} placeholder={t('password_location_placeholder')} {...field('passwordLocation')} />
               </div>
             </div>
 
@@ -342,7 +342,7 @@ export default function DeviceDetail() {
               <textarea
                 rows={2}
                 className="input-field resize-none"
-                placeholder="What does this device do?"
+                placeholder={t('description_placeholder')}
                 {...field('description')}
               />
             </div>
@@ -352,7 +352,7 @@ export default function DeviceDetail() {
               <textarea
                 rows={2}
                 className="input-field resize-none"
-                placeholder="Additional notes…"
+                placeholder={t('notes_placeholder')}
                 {...field('notes')}
               />
             </div>
@@ -435,7 +435,7 @@ export default function DeviceDetail() {
 
             {!hasDocumentation && (
               <p className="text-xs text-text-subtle border-t border-border pt-3">
-                No documentation yet — click <strong>{t('edit')}</strong> to add purpose, location, responsible, and more.
+                {t('no_device_documentation', { edit: t('edit') })}
               </p>
             )}
           </div>
@@ -593,9 +593,9 @@ export default function DeviceDetail() {
 
       {/* Danger zone */}
       <Card>
-        <h2 className="text-sm font-semibold text-danger mb-2">Danger Zone</h2>
+        <h2 className="text-sm font-semibold text-danger mb-2">{t('danger_zone')}</h2>
         <p className="text-xs text-text-subtle mb-3">
-          Removing this device will delete all port scan history and services documentation. The device will reappear automatically on the next network scan.
+          {t('delete_device_warning')}
         </p>
         <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
           {t('delete_device')}

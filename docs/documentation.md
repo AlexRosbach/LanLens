@@ -710,6 +710,22 @@ Each registered device can receive an automatically generated CMDB identifier. T
 
 ---
 
+## CMDB / i-doit Integrations (v1.5.0)
+
+LanLens 1.5.0 adds two CMDB integration foundations:
+
+- **i-doit foundation**: configuration, JSON-RPC connection test, local mapping validation, per-device dry-run payload preview, validation/state marker and audit logs. Live upstream i-doit object/category writes are intentionally not performed in this slice.
+- **Generic CMDB REST**: authenticated inventory export, connector-neutral mapping/config endpoints, per-device dry-run/push, import preview and audit logs for REST-capable CMDB tools.
+
+Security and operational boundaries:
+
+- i-doit, webhook and generic CMDB REST URLs are validated before outbound requests.
+- Self-hosted private LAN targets are allowed; loopback, link-local, multicast, reserved, unspecified and cloud metadata addresses are blocked.
+- Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
+- i-doit `/sync` currently records LanLens-side validation state only (`validated_pending_sync` / `mapping_error`) and does not prove an upstream i-doit write happened.
+
+---
+
 ## External Database (MariaDB / PostgreSQL)
 
 Set the `DATABASE_URL` environment variable to use an external database instead of the built-in SQLite file:
@@ -743,13 +759,14 @@ Select the auth method in the Credential Modal. The private key is stored encryp
 
 ## UI Languages
 
-The frontend supports three languages, switchable via the TopBar toggle (EN → DE → IT → EN) or the Settings page:
+The frontend supports four languages, switchable via the TopBar toggle or the Settings page:
 
 | Code | Language |
 |------|----------|
 | `en` | English |
 | `de` | Deutsch |
 | `it` | Italiano |
+| `zh` | 简体中文 |
 
 ---
 

@@ -15,6 +15,8 @@ All notable changes to this project should be documented in this file.
 
 ### Documentation
 - Added first setup notes for i-doit Cloud/on-prem JSON-RPC access, generic CMDB REST exchange, safe first-run workflow, mapping, status field selection, and troubleshooting.
+- Hardened outbound integration URL handling: webhook/i-doit/CMDB URL validation now reports invalid ports cleanly, CMDB URLs are trimmed before storage, and docs clarify the SSRF guard boundaries.
+- Improved translation coverage for Device Detail documentation and danger-zone copy across English, German, Italian, and Simplified Chinese.
 
 ## v1.4.5 — Multi-subnet discovery
 
