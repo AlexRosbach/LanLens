@@ -441,6 +441,27 @@ def migrate():
         else:
             print("Migration: dhcp_observations already exists — skipped")
 
+        # ── v1.5.0 ── Generic CMDB REST sync audit logs ────────────────────
+        if IS_SQLITE and not _table_exists(conn, "cmdb_sync_logs"):
+            conn.execute(text(
+                "CREATE TABLE cmdb_sync_logs ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL, "
+                "mode VARCHAR(16) NOT NULL, "
+                "result VARCHAR(16) NOT NULL, "
+                "message TEXT, "
+                "details_json TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_cmdb_sync_logs_device_id ON cmdb_sync_logs(device_id)"))
+            conn.commit()
+            print("Migration: created cmdb_sync_logs")
+        elif not IS_SQLITE:
+            print("Migration: cmdb_sync_logs — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: cmdb_sync_logs already exists — skipped")
+
         conn.commit()
 
 

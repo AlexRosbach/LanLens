@@ -380,6 +380,30 @@ Troubleshooting checklist:
 - Selected sync status field is not writable: choose another writable custom/status/reference field.
 - Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
 
+### Generic CMDB REST API (v1.5.0 dev)
+
+LanLens also exposes a connector-neutral CMDB REST foundation for tools that are not i-doit. This is meant for bidirectional CMDB workflows where LanLens can be queried as a discovery/inventory source and can explicitly push mapped device payloads to another REST-capable CMDB.
+
+Available endpoints:
+
+- `GET /api/cmdb/devices` — authenticated, paginated device inventory export with filters for `changed_since`, `segment_id`, `online`, `registered`, and `device_class`.
+- `GET /api/cmdb/config` / `PUT /api/cmdb/config` — generic REST connector configuration. Secrets are stored in settings but only reported as configured/not configured.
+- `POST /api/cmdb/test-connection` — validates the configured REST endpoint reachability.
+- `POST /api/cmdb/test-mapping` — validates the local LanLens-field to CMDB-field mapping JSON.
+- `POST /api/cmdb/devices/{device_id}/dry-run` — previews the outbound payload without writing externally.
+- `POST /api/cmdb/devices/{device_id}/push` — explicitly sends one mapped device payload to the configured CMDB REST target.
+- `POST /api/cmdb/import/preview` — fetches external CMDB data and returns a sample only; no LanLens write is performed in this foundation slice.
+- `GET /api/cmdb/logs` — audit log for generic CMDB REST actions.
+
+Supported outbound auth modes are `none`, bearer token, basic auth, and a custom header token. Supported write methods are `POST`, `PUT`, and `PATCH`. Import conflict strategies are stored as configuration (`fill_empty`, `cmdb_wins`, `lanlens_wins`, `manual_review`) so later live import/write behavior can use the same settings safely.
+
+Security notes:
+
+- CMDB REST URLs are server-side validated with the same SSRF guard used for webhook/i-doit URLs.
+- Secrets are never returned by config endpoints, logs, dry-runs, or exports.
+- Pull/export endpoints require the normal LanLens API authentication.
+- Import currently has preview-only behavior; it does not mutate LanLens devices.
+
 ---
 
 ## Password Reset

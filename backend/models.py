@@ -75,6 +75,7 @@ class Device(Base):
     idoit_sync = relationship("IdoitDeviceSync", back_populates="device", uselist=False,
                               cascade="all, delete-orphan")
     idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", passive_deletes=True)
+    cmdb_sync_logs = relationship("CmdbSyncLog", back_populates="device", passive_deletes=True)
     host_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.host_device_id",
@@ -237,6 +238,22 @@ class IdoitSyncLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="idoit_sync_logs")
+
+
+class CmdbSyncLog(Base):
+    """Audit log for generic CMDB REST dry-runs, pushes and import previews."""
+    __tablename__ = "cmdb_sync_logs"
+    __table_args__ = (Index("ix_cmdb_sync_logs_device_id", "device_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    mode = Column(String(16), nullable=False)  # dry_run/push/import/test
+    result = Column(String(16), nullable=False)  # success/failure/skipped
+    message = Column(Text, nullable=True)
+    details_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    device = relationship("Device", back_populates="cmdb_sync_logs")
 
 
 class DhcpObservation(Base):
