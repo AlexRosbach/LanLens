@@ -255,6 +255,7 @@ def list_devices(
     unregistered = _count_new_devices(db, current_user)
     dhcp_range = _get_dhcp_range(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    idoit_config = get_idoit_config(db)
 
     # Batch-fetch hardware findings for device list display (cpu, memory, model)
     hardware_summaries: dict = {}
@@ -338,7 +339,19 @@ def list_devices(
                 host_labels[rel.child_device_id] = host_devices_map.get(rel.host_device_id, f"Host #{rel.host_device_id}")
 
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range, viewed_device_ids, hardware_summaries, host_labels, segment_ranges) for d in all_devices],
+        items=[
+            _device_to_response(
+                d,
+                dhcp_range,
+                viewed_device_ids,
+                hardware_summaries,
+                host_labels,
+                segment_ranges,
+                idoit_portal_url=idoit_config.portal_url,
+                idoit_enabled=idoit_config.enabled,
+            )
+            for d in all_devices
+        ],
         total=total,
         online=online,
         offline=total - online,
@@ -366,8 +379,19 @@ def get_new_devices(
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    idoit_config = get_idoit_config(db)
     return DeviceListResponse(
-        items=[_device_to_response(d, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges) for d in devices],
+        items=[
+            _device_to_response(
+                d,
+                dhcp_range,
+                viewed_device_ids,
+                segment_ranges=segment_ranges,
+                idoit_portal_url=idoit_config.portal_url,
+                idoit_enabled=idoit_config.enabled,
+            )
+            for d in devices
+        ],
         total=total,
         online=online,
         offline=total - online,

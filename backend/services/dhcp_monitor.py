@@ -23,6 +23,7 @@ from .mac_vendor import normalize_mac
 
 logger = logging.getLogger(__name__)
 
+DHCP_PROBE_HOSTNAME = "lanlens-dhcp-probe"
 _capture_running = False
 _capture_lock = threading.Lock()
 DHCP_OPTION_NAMES = {
@@ -230,6 +231,7 @@ def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
         / BOOTP(chaddr=mac_bytes, xid=xid, flags=0x8000)
         / DHCP(options=[
             ("message-type", "discover"),
+            ("hostname", DHCP_PROBE_HOSTNAME),
             ("param_req_list", [1, 3, 6, 12, 15, 28, 50, 51, 54, 58, 59, 60, 61, 119]),
             "end",
         ])

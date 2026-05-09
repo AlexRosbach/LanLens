@@ -11,7 +11,7 @@ import json
 import logging
 import ssl
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -198,11 +198,27 @@ async def send_webhook_test_message(webhook_url: str) -> bool:
     return await _send_webhook(webhook_url, payload)
 
 
+def _idna_hostname(hostname: str) -> str:
+    try:
+        return hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        return hostname
+
+
 def _host_header(hostname: str, port: Optional[int], scheme: str) -> str:
     default_port = 443 if scheme == "https" else 80
-    needs_brackets = ":" in hostname and not hostname.startswith("[")
-    host = f"[{hostname}]" if needs_brackets else hostname
+    ascii_hostname = _idna_hostname(hostname)
+    needs_brackets = ":" in ascii_hostname and not ascii_hostname.startswith("[")
+    host = f"[{ascii_hostname}]" if needs_brackets else ascii_hostname
     return f"{host}:{port}" if port and port != default_port else host
+
+
+def _request_target(path: str, query: str) -> str:
+    safe_path = quote(path or "/", safe="/%:@!$&'()*+,;=")
+    if not query:
+        return safe_path
+    safe_query = quote(query, safe="=&%:@!$'()*+,;/?")
+    return f"{safe_path}?{safe_query}"
 
 
 async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> tuple[int, str]:
@@ -212,6 +228,7 @@ async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> t
     DNS-rebinding gap that would exist if httpx received the original hostname.
     """
     hostname = parsed.hostname or ""
+    ascii_hostname = _idna_hostname(hostname)
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     ssl_context = ssl.create_default_context() if parsed.scheme == "https" else None
     reader, writer = await asyncio.wait_for(
@@ -219,15 +236,15 @@ async def _post_json_to_pinned_address(parsed, address: str, payload: dict) -> t
             host=address,
             port=port,
             ssl=ssl_context,
-            server_hostname=hostname if ssl_context else None,
+            server_hostname=ascii_hostname if ssl_context else None,
         ),
         timeout=10.0,
     )
     try:
         body = json.dumps(payload).encode("utf-8")
-        path = urlunparse(("", "", parsed.path or "/", "", parsed.query, ""))
+        target = _request_target(parsed.path or "/", parsed.query or "")
         request = (
-            f"POST {path} HTTP/1.1\r\n"
+            f"POST {target} HTTP/1.1\r\n"
             f"Host: {_host_header(hostname, parsed.port, parsed.scheme)}\r\n"
             f"User-Agent: LanLens/{APP_VERSION}\r\n"
             "Content-Type: application/json\r\n"
