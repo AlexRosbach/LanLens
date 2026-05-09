@@ -150,7 +150,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         smtp_to_email=_get(db, "smtp_to_email", ""),
         smtp_enabled=_get(db, "smtp_enabled", "false") == "true",
         smtp_use_tls=_get(db, "smtp_use_tls", "true") != "false",
-        webhook_url=_get(db, "webhook_url", ""),
+        webhook_url=_mask_secret(_get(db, "webhook_url", "")),
+        webhook_url_configured=bool(_get(db, "webhook_url", "")),
         webhook_enabled=_get(db, "webhook_enabled", "false") == "true",
         cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
         cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
@@ -367,7 +368,10 @@ async def update_webhook(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    current_url = _get(db, "webhook_url", "") or ""
     url = data.webhook_url.strip()
+    if url == TOKEN_MASK:
+        url = current_url
     if data.webhook_enabled and not url:
         raise HTTPException(status_code=400, detail="Webhook URL is required when webhook notifications are enabled")
     if url:

@@ -25,6 +25,7 @@ export interface AllSettings {
   smtp_enabled: boolean
   smtp_use_tls: boolean
   webhook_url: string
+  webhook_url_configured: boolean
   webhook_enabled: boolean
   cmdb_id_prefix: string
   cmdb_id_digits: number

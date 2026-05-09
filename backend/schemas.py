@@ -362,6 +362,7 @@ class AllSettings(BaseModel):
     smtp_enabled: bool = False
     smtp_use_tls: bool = True
     webhook_url: str = ""
+    webhook_url_configured: bool = False
     webhook_enabled: bool = False
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4

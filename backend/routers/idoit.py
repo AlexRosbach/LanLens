@@ -67,11 +67,17 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
     data = payload.model_dump(exclude_unset=True)
     if "idoit_api_key" in data and data["idoit_api_key"] == "••••••••":
         data.pop("idoit_api_key")
-    if base_url := (data.get("idoit_base_url") or "").strip():
+    if "idoit_base_url" in data:
+        data["idoit_base_url"] = (data.get("idoit_base_url") or "").strip()
+    if "idoit_portal_url" in data:
+        data["idoit_portal_url"] = (data.get("idoit_portal_url") or "").strip()
+    if "idoit_jsonrpc_path" in data:
+        data["idoit_jsonrpc_path"] = (data.get("idoit_jsonrpc_path") or "").strip() or "/src/jsonrpc.php"
+    if base_url := data.get("idoit_base_url"):
         valid, reason = await validate_webhook_url(base_url, "i-doit base URL")
         if not valid:
             raise HTTPException(status_code=400, detail=reason)
-    if portal_url := (data.get("idoit_portal_url") or "").strip():
+    if portal_url := data.get("idoit_portal_url"):
         valid, reason = await validate_webhook_url(portal_url, "i-doit portal URL")
         if not valid:
             raise HTTPException(status_code=400, detail=reason)

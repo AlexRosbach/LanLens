@@ -538,7 +538,7 @@ def update_device(
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
-    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges)
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, db=db)
 
 
 @router.post("/{device_id}/refresh-status", response_model=DeviceResponse)
@@ -655,7 +655,7 @@ def regenerate_cmdb_id(
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
-    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges)
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, db=db)
 
 
 @router.post("/{device_id}/scan-ports", response_model=MessageResponse)

@@ -41,7 +41,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
 - Telegram notifications for new devices and updates
-- English, German, and Italian UI
+- English, German, Italian, and Simplified Chinese UI
 - Responsive dashboard for desktop and mobile
 
 ---

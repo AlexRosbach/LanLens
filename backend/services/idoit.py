@@ -82,7 +82,7 @@ def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php"
     behind a reverse proxy or custom sub-path. If base_url already points to
     jsonrpc.php, keep it as-is; otherwise append the configured path.
     """
-    base = (base_url or "").rstrip("/")
+    base = (base_url or "").strip().rstrip("/")
     if not base:
         return ""
     path = (jsonrpc_path or "/src/jsonrpc.php").strip()
@@ -123,9 +123,9 @@ def get_config(db: Session) -> IdoitConfig:
         timeout = 15
     return IdoitConfig(
         enabled=_get_setting(db, "idoit_enabled") == "true",
-        base_url=(_get_setting(db, "idoit_base_url") or "").rstrip("/"),
-        jsonrpc_path=_get_setting(db, "idoit_jsonrpc_path") or "/src/jsonrpc.php",
-        portal_url=(_get_setting(db, "idoit_portal_url") or _get_setting(db, "idoit_base_url") or "").rstrip("/"),
+        base_url=(_get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
+        jsonrpc_path=(_get_setting(db, "idoit_jsonrpc_path") or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
+        portal_url=(_get_setting(db, "idoit_portal_url") or _get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
         api_key=_get_setting(db, "idoit_api_key"),
         timeout_seconds=timeout,
         default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__SERVER",
