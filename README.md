@@ -391,6 +391,8 @@ Troubleshooting checklist:
 
 LanLens also exposes a connector-neutral CMDB REST foundation for tools that are not i-doit. This is meant for bidirectional CMDB workflows where LanLens can be queried as a discovery/inventory source and can explicitly push mapped device payloads to another REST-capable CMDB.
 
+Jira Service Management Assets and ServiceNow CMDB are planned connector targets for this generic foundation, but they are **not tested or supported as native integrations yet**. Existing market tools such as Atlassian Assets Discovery, ServiceNow Discovery, Lansweeper, Device42 and similar ITAM/CMDB discovery products already cover broad enterprise discovery scenarios. LanLens' intended niche is smaller self-hosted and homelab-style environments where lightweight network discovery, local documentation, and explicit CMDB export/sync are more useful than a full enterprise discovery suite.
+
 Available endpoints:
 
 - `GET /api/cmdb/devices` — authenticated, paginated device inventory export with filters for `changed_since`, `segment_id`, `online`, `registered`, and `device_class`.
