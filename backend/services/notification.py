@@ -146,7 +146,7 @@ def _notification_suppressed(notification: Notification) -> bool:
 async def send_telegram_for_notification(db: Session, notification: Notification) -> bool:
     """Send a Telegram message for a specific Notification object."""
     if _notification_suppressed(notification):
-        return False
+        return True
     config = _get_telegram_config(db)
     if not config["enabled"] or not config["bot_token"] or not config["chat_id"]:
         return False
@@ -196,7 +196,7 @@ async def send_update_notification(db: Session, current_version: str, latest_ver
 async def send_webhook_for_notification(db: Session, notification: Notification) -> bool:
     """Send a generic JSON webhook, compatible with services like Gotify."""
     if _notification_suppressed(notification):
-        return False
+        return True
     config = _get_webhook_config(db)
     if not config["enabled"] or not config["url"]:
         return False

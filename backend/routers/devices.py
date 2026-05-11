@@ -574,7 +574,39 @@ def merge_devices(
             setattr(target, field, source_value)
         elif strategy == "fill_empty" and not target_value and source_value:
             setattr(target, field, source_value)
-    for model in (Service, DeviceIpHistory, PortScan, Notification, DeepScanRun, DeepScanFinding, DeviceView, DeviceChangeEvent):
+
+    for source_ip in db.query(DeviceIpHistory).filter(DeviceIpHistory.device_id == source.id).all():
+        target_ip = (
+            db.query(DeviceIpHistory)
+            .filter(DeviceIpHistory.device_id == target.id, DeviceIpHistory.ip_address == source_ip.ip_address)
+            .first()
+        )
+        if target_ip:
+            if source_ip.first_seen and (not target_ip.first_seen or source_ip.first_seen < target_ip.first_seen):
+                target_ip.first_seen = source_ip.first_seen
+            if source_ip.last_seen and (not target_ip.last_seen or source_ip.last_seen > target_ip.last_seen):
+                target_ip.last_seen = source_ip.last_seen
+            target_ip.seen_count = (target_ip.seen_count or 0) + (source_ip.seen_count or 0)
+            db.delete(source_ip)
+        else:
+            source_ip.device_id = target.id
+
+    for source_view in db.query(DeviceView).filter(DeviceView.device_id == source.id).all():
+        target_view = (
+            db.query(DeviceView)
+            .filter(DeviceView.user_id == source_view.user_id, DeviceView.device_id == target.id)
+            .first()
+        )
+        if target_view:
+            if source_view.viewed_at and (not target_view.viewed_at or source_view.viewed_at > target_view.viewed_at):
+                target_view.viewed_at = source_view.viewed_at
+            db.delete(source_view)
+        else:
+            source_view.device_id = target.id
+
+    db.flush()
+
+    for model in (Service, PortScan, Notification, DeepScanRun, DeepScanFinding, DeviceChangeEvent):
         db.query(model).filter(model.device_id == source.id).update({"device_id": target.id})
     db.query(DeviceHostRelationship).filter(DeviceHostRelationship.host_device_id == source.id).update({"host_device_id": target.id})
     db.query(DeviceHostRelationship).filter(DeviceHostRelationship.child_device_id == source.id).update({"child_device_id": target.id})

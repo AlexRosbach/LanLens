@@ -18,7 +18,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import SessionLocal
-from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, Notification, ScanRun, Setting
+from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, Notification, ScanRun, Segment, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification, send_webhook_for_notification
@@ -286,7 +286,41 @@ def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Opti
         db.add(DeviceIpHistory(**values))
 
 
-def _matches_ignore_rule(rule: DeviceIgnoreRule, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str]) -> bool:
+def _matches_segment_pattern(pattern: str, *, ip: str, segment: Optional[Segment]) -> bool:
+    if segment and pattern in {str(segment.id).lower(), (segment.name or "").lower()}:
+        return True
+    try:
+        ip_addr = ipaddress.IPv4Address(ip)
+        if "/" in pattern:
+            return ip_addr in ipaddress.IPv4Network(pattern, strict=False)
+        if "-" in pattern:
+            start, end = [part.strip() for part in pattern.split("-", 1)]
+            return ipaddress.IPv4Address(start) <= ip_addr <= ipaddress.IPv4Address(end)
+    except Exception:
+        return False
+    return False
+
+
+def _matching_segment(db: Session, ip: str) -> Optional[Segment]:
+    try:
+        ip_int = int(ipaddress.IPv4Address(ip))
+    except Exception:
+        return None
+    best: tuple[int, Segment] | None = None
+    for segment in db.query(Segment).all():
+        try:
+            start = int(ipaddress.IPv4Address(segment.ip_start))
+            end = int(ipaddress.IPv4Address(segment.ip_end))
+        except Exception:
+            continue
+        if start <= ip_int <= end:
+            span = end - start
+            if best is None or span < best[0]:
+                best = (span, segment)
+    return best[1] if best else None
+
+
+def _matches_ignore_rule(rule: DeviceIgnoreRule, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str], segment: Optional[Segment]) -> bool:
     pattern = (rule.pattern or "").strip().lower()
     if not pattern:
         return False
@@ -298,12 +332,15 @@ def _matches_ignore_rule(rule: DeviceIgnoreRule, *, ip: str, mac: str, hostname:
         return pattern in (hostname or "").lower()
     if rule.rule_type == "device_class":
         return pattern in (device_class or "").lower()
+    if rule.rule_type == "segment":
+        return _matches_segment_pattern(pattern, ip=ip, segment=segment)
     return False
 
 
 def _matching_ignore_rules(db: Session, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str]) -> list[DeviceIgnoreRule]:
+    segment = _matching_segment(db, ip)
     rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
-    return [rule for rule in rules if _matches_ignore_rule(rule, ip=ip, mac=mac, hostname=hostname, device_class=device_class)]
+    return [rule for rule in rules if _matches_ignore_rule(rule, ip=ip, mac=mac, hostname=hostname, device_class=device_class, segment=segment)]
 
 
 def _record_change(db: Session, device_id: int, event_type: str, field_name: Optional[str], old_value, new_value, source: str) -> None:
@@ -438,7 +475,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                     hostname=hostname,
                     vendor=vendor,
                     device_class=device_class,
-                    ignored=bool(ignore_matches),
+                    ignored=False,
                     notifications_muted=any(rule.mute_notifications for rule in ignore_matches),
                     is_online=True,
                     first_seen=seen_at,

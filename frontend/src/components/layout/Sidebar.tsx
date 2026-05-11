@@ -74,7 +74,7 @@ export default function Sidebar({ onClose }: Props) {
     }] : []),
     {
       to: '/network-map',
-      label: 'Network map',
+      label: t('nav_network_map'),
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -84,7 +84,7 @@ export default function Sidebar({ onClose }: Props) {
     },
     {
       to: '/inventory-tools',
-      label: 'Inventory tools',
+      label: t('nav_inventory_tools'),
       icon: (
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}

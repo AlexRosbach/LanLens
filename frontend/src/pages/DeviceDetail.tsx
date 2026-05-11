@@ -214,6 +214,11 @@ export default function DeviceDetail() {
   const hasDocumentation = device.purpose || device.description || device.location ||
     device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
   const maintenanceActive = device.maintenance_until && new Date(device.maintenance_until).getTime() > Date.now()
+  const maintenanceFlags = [
+    device.ignored ? t('maintenance_ignored') : null,
+    device.notifications_muted ? t('maintenance_notifications_muted') : null,
+    maintenanceActive ? t('maintenance_until', { time: formatDateTime(device.maintenance_until!) }) : null,
+  ].filter(Boolean).join(' · ')
 
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-5">
@@ -266,9 +271,9 @@ export default function DeviceDetail() {
 
       {(device.ignored || device.notifications_muted || maintenanceActive) && (
         <Card className="border-warning/40 bg-warning/10">
-          <p className="text-sm font-medium text-warning">Maintenance / mute active</p>
+          <p className="text-sm font-medium text-warning">{t('maintenance_mute_active')}</p>
           <p className="text-xs text-text-muted mt-1">
-            {device.ignored ? 'Ignored · ' : ''}{device.notifications_muted ? 'Notifications muted · ' : ''}{maintenanceActive ? `Maintenance until ${formatDateTime(device.maintenance_until!)}` : ''}
+            {maintenanceFlags}
           </p>
           {device.maintenance_note && <p className="text-xs text-text-subtle mt-1">{device.maintenance_note}</p>}
         </Card>
@@ -618,35 +623,35 @@ export default function DeviceDetail() {
       </Card>
 
       <Card>
-        <h2 className="text-sm font-semibold text-text-muted mb-3">Maintenance & noise control</h2>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('maintenance_noise_control')}</h2>
         <div className="grid sm:grid-cols-2 gap-3 text-sm">
           <label className="flex items-center gap-2 text-text-muted">
             <input type="checkbox" checked={!!device.notifications_muted} onChange={(e) => handleMaintenanceChange({ notifications_muted: e.target.checked })} />
-            Mute notifications
+            {t('maintenance_mute_notifications')}
           </label>
           <label className="flex items-center gap-2 text-text-muted">
             <input type="checkbox" checked={!!device.ignored} onChange={(e) => handleMaintenanceChange({ ignored: e.target.checked })} />
-            Ignore device
+            {t('maintenance_ignore_device')}
           </label>
         </div>
         <div className="mt-3 grid sm:grid-cols-2 gap-3">
           <Input
             type="datetime-local"
             value={device.maintenance_until ? device.maintenance_until.slice(0, 16) : ''}
-            onChange={(e) => handleMaintenanceChange({ maintenance_until: e.target.value ? new Date(e.target.value).toISOString() : null })}
+            onChange={(e) => handleMaintenanceChange({ maintenance_until: e.target.value ? `${e.target.value}:00` : null })}
           />
           <Input
             value={device.maintenance_note ?? ''}
             onChange={(e) => handleMaintenanceChange({ maintenance_note: e.target.value || null })}
-            placeholder="Maintenance note"
+            placeholder={t('maintenance_note')}
           />
         </div>
       </Card>
 
       <Card>
-        <h2 className="text-sm font-semibold text-text-muted mb-3">Change timeline</h2>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('change_timeline')}</h2>
         {timeline.length === 0 ? (
-          <p className="text-sm text-text-subtle">No changes recorded yet.</p>
+          <p className="text-sm text-text-subtle">{t('no_changes_recorded')}</p>
         ) : (
           <div className="space-y-2">
             {timeline.slice(0, 12).map((event) => (
