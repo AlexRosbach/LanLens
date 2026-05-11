@@ -171,6 +171,48 @@ class DeviceUpdate(BaseModel):
     os_info: Optional[str] = None
     asset_tag: Optional[str] = None
     notes: Optional[str] = None
+    ignored: Optional[bool] = None
+    notifications_muted: Optional[bool] = None
+    maintenance_until: Optional[datetime] = None
+    maintenance_note: Optional[str] = None
+
+
+class DeviceMaintenanceUpdate(BaseModel):
+    ignored: Optional[bool] = None
+    notifications_muted: Optional[bool] = None
+    maintenance_until: Optional[datetime] = None
+    maintenance_note: Optional[str] = None
+
+
+class DeviceChangeEventResponse(BaseModel):
+    id: int
+    device_id: int
+    event_type: str
+    field_name: Optional[str]
+    old_value: Optional[str]
+    new_value: Optional[str]
+    source: str
+    message: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceMergeRequest(BaseModel):
+    source_device_id: int
+    target_device_id: int
+    field_strategy: str = "keep_target"  # keep_target/source_wins/fill_empty
+
+
+class DeviceMergePreview(BaseModel):
+    source_device_id: int
+    target_device_id: int
+    source_label: str
+    target_label: str
+    conflicts: dict[str, dict[str, Optional[str]]]
+    move_counts: dict[str, int]
+    write_performed: bool = False
 
 
 class PortInfo(BaseModel):
@@ -241,6 +283,10 @@ class DeviceResponse(BaseModel):
     host_label: Optional[str] = None
     # CMDB
     cmdb_id: Optional[str] = None
+    ignored: bool = False
+    notifications_muted: bool = False
+    maintenance_until: Optional[datetime] = None
+    maintenance_note: Optional[str] = None
     idoit_enabled: bool = False
     idoit_sync_status: Optional[str] = None
     idoit_object_id: Optional[str] = None
@@ -263,6 +309,62 @@ class DeviceListResponse(BaseModel):
     online: int
     offline: int
     unregistered: int
+
+
+class DeviceIgnoreRuleBase(BaseModel):
+    name: str
+    rule_type: str
+    pattern: str
+    enabled: bool = True
+    mute_notifications: bool = True
+    ignore_discovery: bool = False
+    note: Optional[str] = None
+
+
+class DeviceIgnoreRuleCreate(DeviceIgnoreRuleBase):
+    pass
+
+
+class DeviceIgnoreRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    rule_type: Optional[str] = None
+    pattern: Optional[str] = None
+    enabled: Optional[bool] = None
+    mute_notifications: Optional[bool] = None
+    ignore_discovery: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class DeviceIgnoreRuleResponse(DeviceIgnoreRuleBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class TopologyNode(BaseModel):
+    id: int
+    label: str
+    ip_address: Optional[str]
+    device_class: str
+    is_online: bool
+    segment_id: Optional[int]
+    segment_name: Optional[str]
+    service_count: int
+
+
+class TopologyEdge(BaseModel):
+    source: int
+    target: int
+    relationship_type: str
+    label: Optional[str] = None
+
+
+class TopologyResponse(BaseModel):
+    nodes: List[TopologyNode]
+    edges: List[TopologyEdge]
 
 
 # ── Scan ──────────────────────────────────────────────────────────────────────

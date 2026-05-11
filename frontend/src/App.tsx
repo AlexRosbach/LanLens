@@ -8,6 +8,8 @@ import ForcePasswordChange from './pages/ForcePasswordChange'
 import Login from './pages/Login'
 import Notifications from './pages/Notifications'
 import DeepScanSettings from './pages/DeepScanSettings'
+import InventoryTools from './pages/InventoryTools'
+import NetworkMap from './pages/NetworkMap'
 import Segments from './pages/Segments'
 import Settings from './pages/Settings'
 import Services from './pages/Services'
@@ -97,6 +99,8 @@ export default function App() {
               <Route path="devices/:id" element={<DeviceDetail />} />
               <Route path="segments" element={<Segments />} />
               <Route path="services" element={<Services />} />
+              <Route path="network-map" element={<NetworkMap />} />
+              <Route path="inventory-tools" element={<InventoryTools />} />
               <Route path="dhcp-monitor" element={<DhcpMonitor />} />
               <Route path="settings" element={<Settings />} />
               <Route path="deep-scan-settings" element={<DeepScanSettings />} />

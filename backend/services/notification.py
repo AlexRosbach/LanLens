@@ -10,6 +10,7 @@ import ipaddress
 import json
 import logging
 import ssl
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import quote, urlparse
@@ -132,8 +133,20 @@ def _notification_title_and_message(notification: Notification) -> tuple[str, st
     return "LanLens Notification", notification.message
 
 
+def _notification_suppressed(notification: Notification) -> bool:
+    device = notification.device
+    if not device:
+        return False
+    if getattr(device, "ignored", False) or getattr(device, "notifications_muted", False):
+        return True
+    maintenance_until = getattr(device, "maintenance_until", None)
+    return bool(maintenance_until and maintenance_until > datetime.utcnow())
+
+
 async def send_telegram_for_notification(db: Session, notification: Notification) -> bool:
     """Send a Telegram message for a specific Notification object."""
+    if _notification_suppressed(notification):
+        return False
     config = _get_telegram_config(db)
     if not config["enabled"] or not config["bot_token"] or not config["chat_id"]:
         return False
@@ -182,6 +195,8 @@ async def send_update_notification(db: Session, current_version: str, latest_ver
 
 async def send_webhook_for_notification(db: Session, notification: Notification) -> bool:
     """Send a generic JSON webhook, compatible with services like Gotify."""
+    if _notification_suppressed(notification):
+        return False
     config = _get_webhook_config(db)
     if not config["enabled"] or not config["url"]:
         return False

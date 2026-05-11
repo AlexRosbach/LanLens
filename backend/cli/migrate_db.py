@@ -462,6 +462,64 @@ def migrate():
         else:
             print("Migration: cmdb_sync_logs already exists — skipped")
 
+        # ── v1.5.0 ── Device timeline, maintenance and ignore rules ───────
+        for column, ddl in {
+            "ignored": "ALTER TABLE devices ADD COLUMN ignored BOOLEAN NOT NULL DEFAULT FALSE",
+            "notifications_muted": "ALTER TABLE devices ADD COLUMN notifications_muted BOOLEAN NOT NULL DEFAULT FALSE",
+            "maintenance_until": "ALTER TABLE devices ADD COLUMN maintenance_until DATETIME",
+            "maintenance_note": "ALTER TABLE devices ADD COLUMN maintenance_note TEXT",
+        }.items():
+            if not _column_exists(conn, "devices", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added devices.{column}")
+            else:
+                print(f"Migration: devices.{column} already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "device_change_events"):
+            conn.execute(text(
+                "CREATE TABLE device_change_events ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "event_type VARCHAR(64) NOT NULL, "
+                "field_name VARCHAR(128), "
+                "old_value TEXT, "
+                "new_value TEXT, "
+                "source VARCHAR(64) NOT NULL DEFAULT 'system', "
+                "message TEXT, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_device_change_events_device_time ON device_change_events(device_id, created_at)"))
+            conn.commit()
+            print("Migration: created device_change_events")
+        elif not IS_SQLITE:
+            print("Migration: device_change_events — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: device_change_events already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "device_ignore_rules"):
+            conn.execute(text(
+                "CREATE TABLE device_ignore_rules ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL, "
+                "rule_type VARCHAR(32) NOT NULL, "
+                "pattern VARCHAR(255) NOT NULL, "
+                "enabled BOOLEAN NOT NULL DEFAULT TRUE, "
+                "mute_notifications BOOLEAN NOT NULL DEFAULT TRUE, "
+                "ignore_discovery BOOLEAN NOT NULL DEFAULT FALSE, "
+                "note TEXT, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created device_ignore_rules")
+        elif not IS_SQLITE:
+            print("Migration: device_ignore_rules — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: device_ignore_rules already exists — skipped")
+
         conn.commit()
 
 

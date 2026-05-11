@@ -14,10 +14,14 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceIpHistory, DeviceView, Notification, PortScan, Segment, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DeviceView, Notification, PortScan, Segment, Setting, User
 from ..schemas import (
     DeviceIpHistoryResponse,
     DeviceListResponse,
+    DeviceChangeEventResponse,
+    DeviceMaintenanceUpdate,
+    DeviceMergePreview,
+    DeviceMergeRequest,
     DeviceResponse,
     DeviceUpdate,
     MessageResponse,
@@ -120,6 +124,37 @@ def _latest_scan_response(device: Device) -> Optional[PortScanResponse]:
     )
 
 
+def _stringify_event_value(value) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    return json.dumps(value, default=str)
+
+
+def _record_change(
+    db: Session,
+    device_id: int,
+    event_type: str,
+    field_name: Optional[str] = None,
+    old_value=None,
+    new_value=None,
+    source: str = "user",
+    message: Optional[str] = None,
+) -> None:
+    db.add(DeviceChangeEvent(
+        device_id=device_id,
+        event_type=event_type,
+        field_name=field_name,
+        old_value=_stringify_event_value(old_value),
+        new_value=_stringify_event_value(new_value),
+        source=source,
+        message=message,
+    ))
+
+
 def _get_viewed_device_ids(db: Session, current_user: User) -> Set[int]:
     return {
         device_id for (device_id,) in db.query(DeviceView.device_id)
@@ -202,6 +237,10 @@ def _device_to_response(
         hardware_summary=(hardware_summaries or {}).get(device.id),
         host_label=(host_labels or {}).get(device.id),
         cmdb_id=device.cmdb_id,
+        ignored=bool(device.ignored),
+        notifications_muted=bool(device.notifications_muted),
+        maintenance_until=device.maintenance_until,
+        maintenance_note=device.maintenance_note,
         idoit_enabled=idoit_enabled,
         idoit_sync_status=device.idoit_sync.status if device.idoit_sync else "never_synced",
         idoit_object_id=idoit_object_id,
@@ -417,6 +456,145 @@ def get_device_ip_history(
     )
 
 
+@router.get("/{device_id}/timeline", response_model=List[DeviceChangeEventResponse])
+def get_device_timeline(
+    device_id: int,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return (
+        db.query(DeviceChangeEvent)
+        .filter(DeviceChangeEvent.device_id == device_id)
+        .order_by(DeviceChangeEvent.created_at.desc(), DeviceChangeEvent.id.desc())
+        .limit(min(max(limit, 1), 500))
+        .all()
+    )
+
+
+@router.put("/{device_id}/maintenance", response_model=DeviceResponse)
+def update_device_maintenance(
+    device_id: int,
+    update: DeviceMaintenanceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    for field, value in update.model_dump(exclude_unset=True).items():
+        old_value = getattr(device, field, None)
+        setattr(device, field, value)
+        if old_value != value:
+            _record_change(db, device.id, "maintenance_updated", field, old_value, value, source="user")
+    db.commit()
+    db.refresh(device)
+    dhcp_range = _get_dhcp_range(db)
+    viewed_device_ids = _get_viewed_device_ids(db, current_user)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
+
+
+MERGE_FIELDS = [
+    "label", "device_class", "vendor", "purpose", "description", "location", "responsible",
+    "password_location", "os_info", "asset_tag", "notes", "cmdb_id", "hostname", "ip_address",
+]
+
+
+def _device_label(device: Device) -> str:
+    return device.label or device.hostname or device.ip_address or device.mac_address or f"Device #{device.id}"
+
+
+def _merge_preview(db: Session, source: Device, target: Device) -> DeviceMergePreview:
+    from ..models import DeepScanRun, DeviceHostRelationship, Service
+    conflicts = {}
+    for field in MERGE_FIELDS:
+        source_value = getattr(source, field, None)
+        target_value = getattr(target, field, None)
+        if source_value and target_value and source_value != target_value:
+            conflicts[field] = {"source": _stringify_event_value(source_value), "target": _stringify_event_value(target_value)}
+    move_counts = {
+        "services": db.query(Service).filter(Service.device_id == source.id).count(),
+        "ip_history": db.query(DeviceIpHistory).filter(DeviceIpHistory.device_id == source.id).count(),
+        "port_scans": db.query(PortScan).filter(PortScan.device_id == source.id).count(),
+        "notifications": db.query(Notification).filter(Notification.device_id == source.id).count(),
+        "deep_scan_runs": db.query(DeepScanRun).filter(DeepScanRun.device_id == source.id).count(),
+        "host_relationships": db.query(DeviceHostRelationship).filter(
+            (DeviceHostRelationship.host_device_id == source.id) | (DeviceHostRelationship.child_device_id == source.id)
+        ).count(),
+    }
+    return DeviceMergePreview(
+        source_device_id=source.id,
+        target_device_id=target.id,
+        source_label=_device_label(source),
+        target_label=_device_label(target),
+        conflicts=conflicts,
+        move_counts=move_counts,
+        write_performed=False,
+    )
+
+
+@router.post("/merge/preview", response_model=DeviceMergePreview)
+def preview_device_merge(
+    payload: DeviceMergeRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if payload.source_device_id == payload.target_device_id:
+        raise HTTPException(status_code=400, detail="Source and target device must be different")
+    source = db.query(Device).filter(Device.id == payload.source_device_id).first()
+    target = db.query(Device).filter(Device.id == payload.target_device_id).first()
+    if not source or not target:
+        raise HTTPException(status_code=404, detail="Source or target device not found")
+    return _merge_preview(db, source, target)
+
+
+@router.post("/merge", response_model=DeviceMergePreview)
+def merge_devices(
+    payload: DeviceMergeRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    from ..models import DeepScanFinding, DeepScanRun, DeviceHostRelationship, IdoitDeviceSync, Service
+    if payload.source_device_id == payload.target_device_id:
+        raise HTTPException(status_code=400, detail="Source and target device must be different")
+    source = db.query(Device).filter(Device.id == payload.source_device_id).first()
+    target = db.query(Device).filter(Device.id == payload.target_device_id).first()
+    if not source or not target:
+        raise HTTPException(status_code=404, detail="Source or target device not found")
+    preview = _merge_preview(db, source, target)
+    strategy = payload.field_strategy if payload.field_strategy in {"keep_target", "source_wins", "fill_empty"} else "keep_target"
+    for field in MERGE_FIELDS:
+        source_value = getattr(source, field, None)
+        target_value = getattr(target, field, None)
+        if strategy == "source_wins" and source_value:
+            setattr(target, field, source_value)
+        elif strategy == "fill_empty" and not target_value and source_value:
+            setattr(target, field, source_value)
+    for model in (Service, DeviceIpHistory, PortScan, Notification, DeepScanRun, DeepScanFinding, DeviceView, DeviceChangeEvent):
+        db.query(model).filter(model.device_id == source.id).update({"device_id": target.id})
+    db.query(DeviceHostRelationship).filter(DeviceHostRelationship.host_device_id == source.id).update({"host_device_id": target.id})
+    db.query(DeviceHostRelationship).filter(DeviceHostRelationship.child_device_id == source.id).update({"child_device_id": target.id})
+    source_sync = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == source.id).first()
+    target_sync = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == target.id).first()
+    if source_sync and not target_sync:
+        source_sync.device_id = target.id
+    elif source_sync and target_sync:
+        db.delete(source_sync)
+    _record_change(db, target.id, "device_merged", source="user", message=f"Merged device #{source.id} into #{target.id}")
+    db.delete(source)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"Device merge failed because related data would conflict: {exc}")
+    preview.write_performed = True
+    return preview
+
+
 @router.get("/{device_id}", response_model=DeviceResponse)
 def get_device(
     device_id: int,
@@ -508,7 +686,12 @@ def update_device(
     registering_now = update.is_registered is True and not device.is_registered
 
     for field, value in update.model_dump(exclude_unset=True).items():
+        old_value = getattr(device, field, None)
         setattr(device, field, value)
+        if old_value != value and field not in {"password_location"}:
+            _record_change(db, device.id, "device_updated", field, old_value, value, source="user")
+        elif old_value != value:
+            _record_change(db, device.id, "device_updated", field, "[redacted]", "[redacted]", source="user")
 
     if registering_now:
         db.query(Notification).filter(
@@ -527,6 +710,7 @@ def update_device(
                     with db.begin_nested():
                         device.cmdb_id = generate_cmdb_id(db, prefix, digits)
                         db.flush()  # catch IntegrityError within savepoint only
+                        _record_change(db, device.id, "cmdb_id_generated", "cmdb_id", None, device.cmdb_id, source="system")
                     break
                 except IntegrityError:
                     device.cmdb_id = None
@@ -568,13 +752,22 @@ async def refresh_device_status(
 
     if matched:
         seen_at = datetime.utcnow()
+        previous_ip = device.ip_address
+        previous_online = device.is_online
+        previous_hostname = device.hostname
         device.ip_address = matched.ip
         device.is_online = True
         device.last_seen = seen_at
+        if previous_ip != matched.ip:
+            _record_change(db, device.id, "ip_changed", "ip_address", previous_ip, matched.ip, source="refresh_status")
+        if previous_online is not True:
+            _record_change(db, device.id, "online_state_changed", "is_online", previous_online, True, source="refresh_status")
         record_device_ip_history(db, device, matched.ip, seen_at)
         hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, matched.ip)
         if hostname:
             device.hostname = hostname
+            if previous_hostname != hostname:
+                _record_change(db, device.id, "hostname_changed", "hostname", previous_hostname, hostname, source="refresh_status")
         vendor = lookup_vendor(normalize_mac(matched.mac))
         if vendor:
             device.vendor = vendor
@@ -582,7 +775,10 @@ async def refresh_device_status(
                 from ..services.device_classifier import classify_device
                 device.device_class = classify_device(vendor, device.hostname or "")
     else:
+        previous_online = device.is_online
         device.is_online = False
+        if previous_online is not False:
+            _record_change(db, device.id, "online_state_changed", "is_online", previous_online, False, source="refresh_status")
 
     db.commit()
     db.refresh(device)

@@ -40,6 +40,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
+- **Network map and inventory tools** — read-only topology, per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, and selective non-secret backups
 - Telegram notifications for new devices and updates
 - English, German, Italian, and Simplified Chinese UI
 - Responsive dashboard for desktop and mobile
@@ -412,6 +413,20 @@ Security notes:
 - Secrets are never returned by config endpoints, logs, dry-runs, or exports.
 - Pull/export endpoints require the normal LanLens API authentication.
 - Import currently has preview-only behavior; it does not mutate LanLens devices.
+
+### Inventory operations (v1.5.0 dev)
+
+LanLens 1.5.0 also starts the inventory-operations foundation requested in issues #60–#65:
+
+- **Network map**: `/network-map` and `GET /api/inventory/topology` expose a read-only segment-grouped topology with host/guest relationships where known.
+- **Change timeline**: device edits, status refreshes, IP/hostname/online-state changes and merge actions are written to `device_change_events` and shown on the device detail page.
+- **Maintenance/noise control**: devices can be ignored, muted, or placed in maintenance until a timestamp; Telegram/webhook notifications skip muted/ignored/active-maintenance devices.
+- **Ignore rules**: `/inventory-tools` and `/api/ignore-rules` provide the first rule-management surface for noisy devices/patterns. Discovery-side enforcement is intentionally conservative in this first slice.
+- **Duplicate handling**: `/inventory-tools` can preview and run a manual device merge using a safe fill-empty strategy while moving related child records where possible.
+- **Reports**: `GET /api/inventory/report?format=markdown|csv|json` exports sanitized network documentation without secrets.
+- **Selective backup**: `GET /api/backups/selective` exports settings/documentation/segments/services/ignore rules without secrets. Import is preview-only via `POST /api/backups/selective/import-preview` in this slice.
+
+These features are included in the 1.5.0 PR as practical MVP foundations. Some advanced behavior, such as graphical drag-layout persistence, full discovery-side ignore enforcement, encrypted secret export, and automatic merge suggestions, is intentionally left for later hardening.
 
 ---
 

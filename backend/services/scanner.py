@@ -18,7 +18,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import SessionLocal
-from ..models import Device, DeviceIpHistory, Notification, ScanRun, Setting
+from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, Notification, ScanRun, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification, send_webhook_for_notification
@@ -286,6 +286,39 @@ def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Opti
         db.add(DeviceIpHistory(**values))
 
 
+def _matches_ignore_rule(rule: DeviceIgnoreRule, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str]) -> bool:
+    pattern = (rule.pattern or "").strip().lower()
+    if not pattern:
+        return False
+    if rule.rule_type == "mac":
+        return pattern == (mac or "").lower()
+    if rule.rule_type == "ip":
+        return pattern == (ip or "").lower()
+    if rule.rule_type == "hostname":
+        return pattern in (hostname or "").lower()
+    if rule.rule_type == "device_class":
+        return pattern in (device_class or "").lower()
+    return False
+
+
+def _matching_ignore_rules(db: Session, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str]) -> list[DeviceIgnoreRule]:
+    rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
+    return [rule for rule in rules if _matches_ignore_rule(rule, ip=ip, mac=mac, hostname=hostname, device_class=device_class)]
+
+
+def _record_change(db: Session, device_id: int, event_type: str, field_name: Optional[str], old_value, new_value, source: str) -> None:
+    if old_value == new_value:
+        return
+    db.add(DeviceChangeEvent(
+        device_id=device_id,
+        event_type=event_type,
+        field_name=field_name,
+        old_value=str(old_value) if old_value is not None else None,
+        new_value=str(new_value) if new_value is not None else None,
+        source=source,
+    ))
+
+
 def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
     # Primary scan range is ARP/L2. Additional routed targets use nmap ping scan
     # because MAC addresses are usually unavailable beyond the local broadcast
@@ -395,40 +428,54 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             if existing is None:
                 # New device
                 device_class = classify_device(vendor, hostname or "")
+                ignore_matches = _matching_ignore_rules(db, ip=ip, mac=mac_normalized, hostname=hostname, device_class=device_class)
+                if any(rule.ignore_discovery for rule in ignore_matches):
+                    logger.info("Ignored discovery by rule: %s (%s)", mac_normalized, ip)
+                    continue
                 new_device = Device(
                     mac_address=mac_normalized,
                     ip_address=ip,
                     hostname=hostname,
                     vendor=vendor,
                     device_class=device_class,
+                    ignored=bool(ignore_matches),
+                    notifications_muted=any(rule.mute_notifications for rule in ignore_matches),
                     is_online=True,
                     first_seen=seen_at,
                     last_seen=seen_at,
                 )
                 db.add(new_device)
                 db.flush()
+                db.add(DeviceChangeEvent(device_id=new_device.id, event_type="device_discovered", source="scan", message=f"Discovered at {ip}"))
                 record_device_ip_history(db, new_device, ip, seen_at)
                 existing_devices[mac_normalized] = new_device
                 existing_devices_by_ip[ip] = new_device
                 devices_new += 1
 
-                notification = Notification(
-                    device_id=new_device.id,
-                    event_type="new_device",
-                    message=(
-                        f"New device detected: {vendor or 'Unknown vendor'} "
-                        f"at {ip} ({mac_normalized})"
-                    ),
-                )
-                db.add(notification)
+                if not new_device.notifications_muted and not new_device.ignored:
+                    notification = Notification(
+                        device_id=new_device.id,
+                        event_type="new_device",
+                        message=(
+                            f"New device detected: {vendor or 'Unknown vendor'} "
+                            f"at {ip} ({mac_normalized})"
+                        ),
+                    )
+                    db.add(notification)
                 logger.info(f"New device: {mac_normalized} ({ip}) - {vendor}")
             else:
+                previous_ip = existing.ip_address
+                previous_online = existing.is_online
+                previous_hostname = existing.hostname
                 existing.ip_address = ip
                 existing.is_online = True
                 existing.last_seen = seen_at
+                _record_change(db, existing.id, "ip_changed", "ip_address", previous_ip, ip, "scan")
+                _record_change(db, existing.id, "online_state_changed", "is_online", previous_online, True, "scan")
                 record_device_ip_history(db, existing, ip, seen_at)
                 if hostname:
                     existing.hostname = hostname
+                    _record_change(db, existing.id, "hostname_changed", "hostname", previous_hostname, hostname, "scan")
 
         # Mark absent devices as offline only after a grace period.
         # A single missed ARP reply should not immediately flip stable devices offline.
@@ -440,7 +487,9 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 continue
             if device.last_seen and device.last_seen > offline_cutoff:
                 continue
+            previous_online = device.is_online
             device.is_online = False
+            _record_change(db, device.id, "online_state_changed", "is_online", previous_online, False, "scan")
             devices_offline += 1
 
         scan_run.devices_found = len(found_macs)

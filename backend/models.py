@@ -54,6 +54,10 @@ class Device(Base):
     # ── Discovery state ────────────────────────────────────────────────────────
     is_registered = Column(Boolean, default=False)
     cmdb_id = Column(String(64), nullable=True, unique=True, index=True)
+    ignored = Column(Boolean, default=False, nullable=False, server_default=false())
+    notifications_muted = Column(Boolean, default=False, nullable=False, server_default=false())
+    maintenance_until = Column(DateTime, nullable=True)
+    maintenance_note = Column(Text, nullable=True)
     is_online = Column(Boolean, default=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)
@@ -76,6 +80,7 @@ class Device(Base):
                               cascade="all, delete-orphan")
     idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", passive_deletes=True)
     cmdb_sync_logs = relationship("CmdbSyncLog", back_populates="device", passive_deletes=True)
+    change_events = relationship("DeviceChangeEvent", back_populates="device", cascade="all, delete-orphan")
     host_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.host_device_id",
@@ -254,6 +259,40 @@ class CmdbSyncLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="cmdb_sync_logs")
+
+
+class DeviceChangeEvent(Base):
+    """Structured per-device change timeline entries."""
+    __tablename__ = "device_change_events"
+    __table_args__ = (Index("ix_device_change_events_device_time", "device_id", "created_at"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(String(64), nullable=False)
+    field_name = Column(String(128), nullable=True)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    source = Column(String(64), nullable=False, default="system")
+    message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    device = relationship("Device", back_populates="change_events")
+
+
+class DeviceIgnoreRule(Base):
+    """Discovery/notification ignore rule for noisy lab devices or ranges."""
+    __tablename__ = "device_ignore_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    rule_type = Column(String(32), nullable=False)  # mac/ip/hostname/segment/device_class
+    pattern = Column(String(255), nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    mute_notifications = Column(Boolean, default=True, nullable=False, server_default=false())
+    ignore_discovery = Column(Boolean, default=False, nullable=False, server_default=false())
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class DhcpObservation(Base):

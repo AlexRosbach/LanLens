@@ -48,6 +48,10 @@ export interface Device {
   notes: string | null
   // CMDB
   cmdb_id?: string | null
+  ignored?: boolean
+  notifications_muted?: boolean
+  maintenance_until?: string | null
+  maintenance_note?: string | null
   idoit_enabled?: boolean
   idoit_sync_status?: string | null
   idoit_object_id?: string | null
@@ -92,6 +96,10 @@ export interface DeviceUpdate {
   asset_tag?: string
   notes?: string
   cmdb_id?: string
+  ignored?: boolean
+  notifications_muted?: boolean
+  maintenance_until?: string | null
+  maintenance_note?: string | null
 }
 
 export const devicesApi = {
@@ -107,10 +115,16 @@ export const devicesApi = {
   getIpHistory: (id: number) =>
     apiClient.get<DeviceIpHistoryEntry[]>(`/devices/${id}/ip-history`).then((r) => r.data),
 
+  getTimeline: (id: number) =>
+    apiClient.get(`/devices/${id}/timeline`).then((r) => r.data),
+
   markViewed: (id: number) => apiClient.post(`/devices/${id}/mark-viewed`).then((r) => r.data),
 
   update: (id: number, data: DeviceUpdate) =>
     apiClient.put<Device>(`/devices/${id}`, data).then((r) => r.data),
+
+  updateMaintenance: (id: number, data: Pick<DeviceUpdate, 'ignored' | 'notifications_muted' | 'maintenance_until' | 'maintenance_note'>) =>
+    apiClient.put<Device>(`/devices/${id}/maintenance`, data).then((r) => r.data),
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
 

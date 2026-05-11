@@ -79,6 +79,7 @@ export default function DeviceDetail() {
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
+  const [timeline, setTimeline] = useState<Array<{ id: number; event_type: string; field_name?: string; old_value?: string; new_value?: string; source: string; message?: string; created_at: string }>>([])
 
   useEffect(() => {
     if (!id) return
@@ -96,6 +97,7 @@ export default function DeviceDetail() {
       setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
       devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
+      devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
   }, [id])
 
@@ -185,6 +187,7 @@ export default function DeviceDetail() {
       setForm(toEditState(updated))
       setIpHistory(updated.ip_history ?? ipHistory)
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
+      devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
     } catch {
       toast.error(t('device_status_refresh_failed'))
@@ -193,11 +196,24 @@ export default function DeviceDetail() {
     }
   }
 
+  async function handleMaintenanceChange(changes: { ignored?: boolean; notifications_muted?: boolean; maintenance_until?: string | null; maintenance_note?: string | null }) {
+    if (!device) return
+    try {
+      const updated = await devicesApi.updateMaintenance(device.id, changes)
+      setDevice(updated)
+      devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
+      toast.success(t('device_updated'))
+    } catch {
+      toast.error(t('save_failed'))
+    }
+  }
+
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
   const hasDocumentation = device.purpose || device.description || device.location ||
     device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
+  const maintenanceActive = device.maintenance_until && new Date(device.maintenance_until).getTime() > Date.now()
 
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-5">
@@ -247,6 +263,16 @@ export default function DeviceDetail() {
           )}
         </div>
       </div>
+
+      {(device.ignored || device.notifications_muted || maintenanceActive) && (
+        <Card className="border-warning/40 bg-warning/10">
+          <p className="text-sm font-medium text-warning">Maintenance / mute active</p>
+          <p className="text-xs text-text-muted mt-1">
+            {device.ignored ? 'Ignored · ' : ''}{device.notifications_muted ? 'Notifications muted · ' : ''}{maintenanceActive ? `Maintenance until ${formatDateTime(device.maintenance_until!)}` : ''}
+          </p>
+          {device.maintenance_note && <p className="text-xs text-text-subtle mt-1">{device.maintenance_note}</p>}
+        </Card>
+      )}
 
       {/* Connect */}
       <Card>
@@ -588,6 +614,53 @@ export default function DeviceDetail() {
           )
         ) : (
           <p className="text-sm text-text-subtle">{t('port_scan_not_scanned_yet')}</p>
+        )}
+      </Card>
+
+      <Card>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">Maintenance & noise control</h2>
+        <div className="grid sm:grid-cols-2 gap-3 text-sm">
+          <label className="flex items-center gap-2 text-text-muted">
+            <input type="checkbox" checked={!!device.notifications_muted} onChange={(e) => handleMaintenanceChange({ notifications_muted: e.target.checked })} />
+            Mute notifications
+          </label>
+          <label className="flex items-center gap-2 text-text-muted">
+            <input type="checkbox" checked={!!device.ignored} onChange={(e) => handleMaintenanceChange({ ignored: e.target.checked })} />
+            Ignore device
+          </label>
+        </div>
+        <div className="mt-3 grid sm:grid-cols-2 gap-3">
+          <Input
+            type="datetime-local"
+            value={device.maintenance_until ? device.maintenance_until.slice(0, 16) : ''}
+            onChange={(e) => handleMaintenanceChange({ maintenance_until: e.target.value ? new Date(e.target.value).toISOString() : null })}
+          />
+          <Input
+            value={device.maintenance_note ?? ''}
+            onChange={(e) => handleMaintenanceChange({ maintenance_note: e.target.value || null })}
+            placeholder="Maintenance note"
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">Change timeline</h2>
+        {timeline.length === 0 ? (
+          <p className="text-sm text-text-subtle">No changes recorded yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {timeline.slice(0, 12).map((event) => (
+              <div key={event.id} className="border border-border rounded-lg p-3 bg-surface2/40">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-text-base">{event.event_type.replace(/_/g, ' ')}</p>
+                  <span className="text-xs text-text-subtle">{formatRelativeTime(event.created_at, lang)}</span>
+                </div>
+                <p className="text-xs text-text-subtle mt-1">
+                  {event.field_name ? `${event.field_name}: ${event.old_value ?? '—'} → ${event.new_value ?? '—'}` : event.message ?? event.source}
+                </p>
+              </div>
+            ))}
+          </div>
         )}
       </Card>
 
