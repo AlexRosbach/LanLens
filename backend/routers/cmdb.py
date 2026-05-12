@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import json
 from typing import Any, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -23,6 +24,9 @@ from ..services.cmdb import (
 from ..services.notification import validate_webhook_url
 
 router = APIRouter(prefix="/api/cmdb", tags=["cmdb"])
+
+TOKEN_MASK = "••••••••"
+URL_SECRET_QUERY_PARTS = ("token", "password", "secret", "api_key", "apikey", "key", "credential")
 
 
 def _to_naive_utc(value: datetime) -> datetime:
@@ -48,12 +52,47 @@ class CmdbConfigPayload(BaseModel):
     cmdb_rest_mapping_json: Optional[Any] = None
 
 
+def _has_secret_query_params(url: str) -> bool:
+    query_keys = [key.lower() for key, _ in parse_qsl(urlsplit(url).query, keep_blank_values=True)]
+    return any(any(part in key for part in URL_SECRET_QUERY_PARTS) for key in query_keys)
+
+
+def _redact_url(url: str) -> str:
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    netloc = parsed.netloc
+    if parsed.username or parsed.password:
+        host = parsed.hostname or ""
+        try:
+            port_value = parsed.port
+        except ValueError:
+            port_value = None
+        port = f":{port_value}" if port_value else ""
+        netloc = f"{TOKEN_MASK}@{host}{port}"
+    query = urlencode([
+        (key, TOKEN_MASK if any(part in key.lower() for part in URL_SECRET_QUERY_PARTS) else value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+    ])
+    return urlunsplit((parsed.scheme, netloc, parsed.path, query, parsed.fragment))
+
+
+def _validate_cmdb_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.username or parsed.password:
+        raise HTTPException(status_code=400, detail="CMDB REST URL must not contain embedded credentials")
+    if _has_secret_query_params(url):
+        raise HTTPException(status_code=400, detail="CMDB REST URL must not contain secret query parameters")
+
+
 def _config_response(db: Session) -> dict[str, Any]:
     cfg = get_config(db)
     return {
         "cmdb_rest_enabled": cfg.enabled,
-        "cmdb_rest_target_url": cfg.target_url,
-        "cmdb_rest_import_url": cfg.import_url,
+        "cmdb_rest_target_url": _redact_url(cfg.target_url),
+        "cmdb_rest_target_url_configured": bool(cfg.target_url),
+        "cmdb_rest_import_url": _redact_url(cfg.import_url),
+        "cmdb_rest_import_url_configured": bool(cfg.import_url),
         "cmdb_rest_method": cfg.method,
         "cmdb_rest_auth_type": cfg.auth_type,
         "cmdb_rest_bearer_token_configured": bool(cfg.bearer_token),
@@ -82,6 +121,7 @@ async def save_config(payload: CmdbConfigPayload, db: Session = Depends(get_db),
     for key in ("cmdb_rest_target_url", "cmdb_rest_import_url"):
         url = (data.get(key) or "").strip()
         if url:
+            _validate_cmdb_url(url)
             valid, reason = await validate_webhook_url(url, "CMDB REST URL")
             if not valid:
                 raise HTTPException(status_code=400, detail=reason)

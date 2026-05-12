@@ -28,11 +28,26 @@ backup_router = APIRouter(prefix="/api/backups", tags=["backups"])
 SAFE_SETTING_PREFIXES = (
     "scan_",
     "dhcp_",
-    "cmdb_id_",
+    "cmdb_",
     "show_",
     "auto_scan_",
+    "server_",
+    "notify_",
+    "smtp_",
+    "telegram_",
+    "webhook_",
+    "port_scan_",
 )
-SECRET_SETTING_KEY_PARTS = ("token", "password", "secret", "api_key", "credential", "webhook_url")
+SAFE_SETTING_KEYS = {"network_interface"}
+SECRET_SETTING_KEY_PARTS = (
+    "token",
+    "password",
+    "secret",
+    "api_key",
+    "credential",
+    "webhook_url",
+    "header_value",
+)
 
 
 def _device_label(device: Device) -> str:
@@ -233,7 +248,7 @@ def export_selective_backup(db: Session = Depends(get_db), _: User = Depends(get
     settings = {
         row.key: row.value
         for row in db.query(Setting).all()
-        if row.key.startswith(SAFE_SETTING_PREFIXES) and not _is_secret_setting(row.key)
+        if (row.key.startswith(SAFE_SETTING_PREFIXES) or row.key in SAFE_SETTING_KEYS) and not _is_secret_setting(row.key)
     }
     payload = {
         "format": "lanlens-selective-backup-v1",
