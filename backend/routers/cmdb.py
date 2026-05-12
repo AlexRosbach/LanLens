@@ -4,11 +4,12 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import exists, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import CmdbSyncLog, Device, User
+from ..models import CmdbSyncLog, Device, DeviceChangeEvent, User
 from ..services.cmdb import (
     build_payload,
     device_export,
@@ -121,7 +122,15 @@ def export_devices(
 ):
     query = db.query(Device).options(joinedload(Device.segment))
     if changed_since:
-        query = query.filter(Device.last_seen >= changed_since)
+        # Incremental CMDB exports must include manual documentation,
+        # maintenance, and merge changes as well as scan/refresh sightings.
+        query = query.filter(or_(
+            Device.last_seen >= changed_since,
+            exists().where(
+                DeviceChangeEvent.device_id == Device.id,
+                DeviceChangeEvent.created_at >= changed_since,
+            ),
+        ))
     if segment_id is not None:
         query = query.filter(Device.segment_id == segment_id)
     if online is not None:

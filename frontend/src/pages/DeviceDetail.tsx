@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, DeviceIpHistoryEntry, devicesApi } from '../api/devices'
+import type { ChangeEvent } from '../api/inventory'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -79,7 +80,7 @@ export default function DeviceDetail() {
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
-  const [timeline, setTimeline] = useState<Array<{ id: number; event_type: string; field_name?: string; old_value?: string; new_value?: string; source: string; message?: string; created_at: string }>>([])
+  const [timeline, setTimeline] = useState<ChangeEvent[]>([])
   const [maintenanceDraft, setMaintenanceDraft] = useState({ until: '', note: '' })
   const [maintenanceSaving, setMaintenanceSaving] = useState(false)
 

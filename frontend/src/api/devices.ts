@@ -1,4 +1,5 @@
 import apiClient from './client'
+import type { ChangeEvent } from './inventory'
 import type { Service } from './services'
 import { withBasePath } from '../utils/basePath'
 
@@ -116,7 +117,7 @@ export const devicesApi = {
     apiClient.get<DeviceIpHistoryEntry[]>(`/devices/${id}/ip-history`).then((r) => r.data),
 
   getTimeline: (id: number) =>
-    apiClient.get(`/devices/${id}/timeline`).then((r) => r.data),
+    apiClient.get<ChangeEvent[]>(`/devices/${id}/timeline`).then((r) => r.data),
 
   markViewed: (id: number) => apiClient.post(`/devices/${id}/mark-viewed`).then((r) => r.data),
 
