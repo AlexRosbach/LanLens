@@ -10,7 +10,7 @@ from .database import SessionLocal
 from .models import TokenBlacklist
 from .routers import admin, auth, auto_scan_rules, cmdb, connect, credentials, deep_scan, devices, dhcp_monitor, idoit, inventory, notifications, scan, segments, services
 from .routers import settings as settings_router
-from .services import deep_scan_scheduler, scheduler
+from .services import deep_scan_scheduler, idoit_scheduler, scheduler
 from .services.settings_helpers import get_scan_interval_minutes
 from .version import APP_VERSION
 
@@ -65,16 +65,20 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         interval = get_scan_interval_minutes(db)
+        from .services.idoit import get_config as get_idoit_config
+        idoit_interval = get_idoit_config(db).sync_interval_minutes
         _cleanup_expired_tokens(db)
     finally:
         db.close()
 
     scheduler.start_scheduler(interval)
     deep_scan_scheduler.start_deep_scan_scheduler()
+    idoit_scheduler.start_idoit_scheduler(idoit_interval)
     logger.info(f"LanLens started — scan interval: {interval} min")
     yield
     scheduler.stop_scheduler()
     deep_scan_scheduler.stop_deep_scan_scheduler()
+    idoit_scheduler.stop_idoit_scheduler()
     logger.info("LanLens stopped")
 
 

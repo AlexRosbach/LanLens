@@ -11,12 +11,17 @@ export interface IdoitConfig {
   idoit_timeout_seconds: number
   idoit_default_object_type: string
   idoit_auto_sync_enabled: boolean
+  idoit_sync_interval_minutes: number
   idoit_sync_status_field: string
   idoit_mapping_json: string
   idoit_mapping_raw: string
   idoit_mapping_parsed?: Record<string, unknown>
   idoit_mapping_parse_error?: string | null
   mapping_errors: string[]
+  scheduler?: {
+    running: boolean
+    next_run_at?: string | null
+  }
 }
 
 export interface IdoitConfigUpdate {
@@ -30,6 +35,7 @@ export interface IdoitConfigUpdate {
   idoit_timeout_seconds: number
   idoit_default_object_type: string
   idoit_auto_sync_enabled: boolean
+  idoit_sync_interval_minutes: number
   idoit_sync_status_field: string
   idoit_mapping_json: string
 }
@@ -50,4 +56,6 @@ export const idoitApi = {
   testConnection: (data?: Partial<IdoitConfigUpdate>) => apiClient.post<IdoitTestResult>('/idoit/test-connection', data ?? {}).then((r) => r.data),
 
   testMapping: () => apiClient.post<IdoitTestResult>('/idoit/test-mapping').then((r) => r.data),
+
+  syncDevice: (id: number) => apiClient.post<IdoitTestResult>(`/idoit/devices/${id}/sync`).then((r) => r.data),
 }

@@ -10,6 +10,7 @@ import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
+import { formatDateTime } from '../utils/formatters'
 
 interface IdoitErrorDetails {
   message: string
@@ -331,6 +332,7 @@ export default function Settings() {
         idoit_basic_username: idoitConfig.idoit_basic_username,
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
         idoit_mapping_json: idoitConfig.idoit_mapping_raw,
         // Do not send an empty API key: the backend interprets omitted as
@@ -366,6 +368,7 @@ export default function Settings() {
         idoit_basic_username: idoitConfig.idoit_basic_username,
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
         idoit_mapping_json: idoitConfig.idoit_mapping_raw,
         ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
@@ -1055,6 +1058,20 @@ export default function Settings() {
                     />
                     {t('enable_idoit_auto_sync')}
                   </label>
+                  <div className="max-w-xs">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_interval_minutes')}</label>
+                    <Input
+                      type="number"
+                      min={5}
+                      max={1440}
+                      value={String(idoitConfig.idoit_sync_interval_minutes || 60)}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_interval_minutes: Math.min(1440, Math.max(5, Number(e.target.value) || 60)) })}
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_sync_interval_hint')}</p>
+                    {idoitConfig.scheduler?.next_run_at && (
+                      <p className="mt-1 text-xs text-text-subtle">{t('idoit_next_sync')}: {formatDateTime(idoitConfig.scheduler.next_run_at)}</p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-4">

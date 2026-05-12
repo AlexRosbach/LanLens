@@ -57,6 +57,7 @@ SETTING_DEFAULTS = {
     "idoit_timeout_seconds": "15",
     "idoit_default_object_type": "C__OBJTYPE__SERVER",
     "idoit_auto_sync_enabled": "false",
+    "idoit_sync_interval_minutes": "60",
     "idoit_sync_status_field": "C__CATG__GLOBAL.comment",
     "idoit_mapping_json": json.dumps(DEFAULT_MAPPING, indent=2),
 }
@@ -104,6 +105,7 @@ class IdoitConfig:
     timeout_seconds: int
     default_object_type: str
     auto_sync_enabled: bool
+    sync_interval_minutes: int
     sync_status_field: str
     mapping: dict[str, Any]
     mapping_error: Optional[str] = None
@@ -156,6 +158,10 @@ def get_config(db: Session) -> IdoitConfig:
         timeout = max(3, min(120, int(_get_setting(db, "idoit_timeout_seconds") or "15")))
     except ValueError:
         timeout = 15
+    try:
+        sync_interval = max(5, min(1440, int(_get_setting(db, "idoit_sync_interval_minutes") or "60")))
+    except ValueError:
+        sync_interval = 60
     return IdoitConfig(
         enabled=_get_setting(db, "idoit_enabled") == "true",
         base_url=(_get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
@@ -167,6 +173,7 @@ def get_config(db: Session) -> IdoitConfig:
         timeout_seconds=timeout,
         default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__SERVER",
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
+        sync_interval_minutes=sync_interval,
         sync_status_field=_get_setting(db, "idoit_sync_status_field") or "C__CATG__GLOBAL.comment",
         mapping=mapping,
         mapping_error=mapping_error,
@@ -486,6 +493,22 @@ class IdoitClient:
             self._session_id = result.get("session-id") or result.get("session_id")
         return result
 
+    async def create_object(self, title: str, object_type: str) -> str:
+        result = await self.call("cmdb.object.create", {"type": object_type, "title": title})
+        if isinstance(result, dict):
+            object_id = result.get("id") or result.get("object_id") or result.get("objID")
+            if object_id:
+                return str(object_id)
+        if isinstance(result, (str, int)):
+            return str(result)
+        raise IdoitConnectionError("i-doit did not return an object id after create", stage="jsonrpc_error", endpoint=self.endpoint, jsonrpc_error=result)
+
+    async def update_object_title(self, object_id: str, title: str) -> Any:
+        return await self.call("cmdb.object.update", {"id": object_id, "title": title})
+
+    async def save_category(self, object_id: str, category: str, data: dict[str, Any]) -> Any:
+        return await self.call("cmdb.category.save", {"object": object_id, "category": category, "data": data})
+
     async def test_connection(self) -> dict[str, Any]:
         login_result = await self.login()
         return {
@@ -495,6 +518,84 @@ class IdoitClient:
             "session_received": bool(login_result),
             "message": "i-doit JSON-RPC login succeeded",
         }
+
+
+def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    categories: dict[str, dict[str, Any]] = {}
+    direct: dict[str, Any] = {}
+    for target, value in fields.items():
+        if not isinstance(target, str) or value is None:
+            continue
+        if "." not in target:
+            direct[target] = value
+            continue
+        category, prop = target.split(".", 1)
+        if category and prop:
+            categories.setdefault(category, {})[prop] = value
+    return categories, direct
+
+
+async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:
+    config = get_config(db)
+    errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
+    payload = device_payload(device, config)
+    state = get_or_create_state(db, device)
+    state.last_mode = mode
+    state.last_validation_at = datetime.utcnow()
+    digest = payload_hash(payload)
+    previous_hash = state.payload_hash
+    if skip_unchanged and state.status == "synced" and state.idoit_object_id and previous_hash == digest:
+        log_sync(db, device.id, mode, "skipped", "i-doit sync skipped; payload unchanged", {"payload_hash": digest, "upstream_write_performed": False}, state.idoit_object_id)
+        db.commit()
+        return {"device_id": device.id, "status": state.status, "idoit_object_id": state.idoit_object_id, "payload_hash": digest, "upstream_write_performed": False, "skipped": True}
+    state.payload_hash = digest
+    if errors:
+        state.status = "mapping_error"
+        state.last_error = "; ".join(errors)
+        log_sync(db, device.id, mode, "failure", "i-doit mapping validation failed", {"payload": payload, "errors": errors, "upstream_write_performed": False}, state.idoit_object_id)
+        db.commit()
+        return {"device_id": device.id, "status": state.status, "errors": errors, "payload_hash": digest, "upstream_write_performed": False}
+
+    client = IdoitClient(config)
+    details: dict[str, Any] = {"payload": payload, "upstream_write_performed": False, "category_results": {}}
+    try:
+        await client.login()
+        object_id = state.idoit_object_id
+        action = "update" if object_id else "create"
+        if object_id:
+            await client.update_object_title(object_id, payload["title"])
+        else:
+            object_id = await client.create_object(payload["title"], payload["objectType"])
+            state.idoit_object_id = object_id
+
+        categories, direct_fields = _category_payloads(payload.get("fields") if isinstance(payload.get("fields"), dict) else {})
+        if direct_fields:
+            details["direct_fields_skipped"] = direct_fields
+        for category, data in categories.items():
+            details["category_results"][category] = await client.save_category(object_id, category, data)
+
+        now = datetime.utcnow()
+        state.status = "synced"
+        state.last_sync_at = now
+        state.last_success_at = now
+        state.last_error = None
+        details["upstream_write_performed"] = True
+        details["action"] = action
+        log_sync(db, device.id, mode, "success", f"i-doit {action} completed", details, object_id)
+        db.commit()
+        return {"device_id": device.id, "status": state.status, "action": action, "idoit_object_id": object_id, "payload_hash": digest, "upstream_write_performed": True}
+    except IdoitConnectionError as exc:
+        state.status = "error"
+        state.last_error = exc.message
+        log_sync(db, device.id, mode, "failure", exc.message, {**details, "error": exc.to_detail()}, state.idoit_object_id)
+        db.commit()
+        raise
+    except Exception as exc:
+        state.status = "error"
+        state.last_error = str(exc)
+        log_sync(db, device.id, mode, "failure", str(exc), details, state.idoit_object_id)
+        db.commit()
+        raise
 
 
 def dry_run(db: Session, device: Device) -> dict[str, Any]:

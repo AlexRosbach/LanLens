@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, DeviceIpHistoryEntry, devicesApi } from '../api/devices'
+import { idoitApi } from '../api/idoit'
 import type { ChangeEvent } from '../api/inventory'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
@@ -83,6 +84,7 @@ export default function DeviceDetail() {
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
   const [maintenanceDraft, setMaintenanceDraft] = useState({ until: '', note: '' })
   const [maintenanceSaving, setMaintenanceSaving] = useState(false)
+  const [idoitSyncing, setIdoitSyncing] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -246,6 +248,25 @@ export default function DeviceDetail() {
       toast.error(t('save_failed'))
     } finally {
       setMaintenanceSaving(false)
+    }
+  }
+
+  async function handleIdoitSyncNow() {
+    if (!device) return
+    setIdoitSyncing(true)
+    try {
+      await idoitApi.syncDevice(device.id)
+      const refreshed = await devicesApi.get(device.id)
+      setDevice(refreshed)
+      toast.success(t('idoit_sync_started'))
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      const message = typeof detail === 'object' && detail && 'message' in detail
+        ? String((detail as { message?: unknown }).message)
+        : t('idoit_sync_failed')
+      toast.error(message)
+    } finally {
+      setIdoitSyncing(false)
     }
   }
 
@@ -459,7 +480,10 @@ export default function DeviceDetail() {
               <div className="border-t border-border pt-4">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <h2 className="text-sm font-semibold text-text-muted">{t('idoit_sync')}</h2>
-                  <Badge variant={idoitStatusVariant(device.idoit_sync_status)} dot>{device.idoit_sync_status || 'never_synced'}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={idoitStatusVariant(device.idoit_sync_status)} dot>{device.idoit_sync_status || 'never_synced'}</Badge>
+                    <Button size="sm" variant="outline" onClick={handleIdoitSyncNow} loading={idoitSyncing}>{t('idoit_sync_now')}</Button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
                   <InfoRow label={t('idoit_object_id')} value={device.idoit_object_id} mono />

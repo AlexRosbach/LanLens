@@ -14,11 +14,12 @@ from ..services.idoit import (
     IdoitConnectionError,
     dry_run,
     get_config,
-    mark_manual_sync_placeholder,
+    sync_device_to_idoit,
     update_config,
     validate_mapping,
 )
 from ..services.notification import validate_webhook_url
+from ..services.idoit_scheduler import get_idoit_scheduler_status, update_idoit_interval
 
 router = APIRouter(prefix="/api/idoit", tags=["idoit"])
 
@@ -34,6 +35,7 @@ class IdoitConfigPayload(BaseModel):
     idoit_timeout_seconds: Optional[int] = None
     idoit_default_object_type: Optional[str] = None
     idoit_auto_sync_enabled: Optional[bool] = None
+    idoit_sync_interval_minutes: Optional[int] = None
     idoit_sync_status_field: Optional[str] = None
     idoit_mapping_json: Optional[Any] = None
 
@@ -51,6 +53,7 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_timeout_seconds": cfg.timeout_seconds,
         "idoit_default_object_type": cfg.default_object_type,
         "idoit_auto_sync_enabled": cfg.auto_sync_enabled,
+        "idoit_sync_interval_minutes": cfg.sync_interval_minutes,
         "idoit_sync_status_field": cfg.sync_status_field,
         # Keep the editable setting as a string and expose the parsed object
         # separately. That avoids clients guessing whether idoit_mapping_json is
@@ -60,6 +63,7 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_mapping_parsed": cfg.mapping,
         "idoit_mapping_parse_error": cfg.mapping_error,
         "mapping_errors": validate_mapping(cfg.mapping, cfg.sync_status_field, cfg.default_object_type, cfg.mapping_error),
+        "scheduler": get_idoit_scheduler_status(),
     }
 
 
@@ -74,6 +78,10 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         timeout = max(3, min(120, int(data.get("idoit_timeout_seconds", cfg.timeout_seconds) or 15)))
     except ValueError:
         timeout = cfg.timeout_seconds
+    try:
+        sync_interval = max(5, min(1440, int(data.get("idoit_sync_interval_minutes", cfg.sync_interval_minutes) or 60)))
+    except ValueError:
+        sync_interval = cfg.sync_interval_minutes
     return IdoitConfig(
         enabled=bool(data.get("idoit_enabled", cfg.enabled)),
         base_url=(data.get("idoit_base_url", cfg.base_url) or "").strip().rstrip("/"),
@@ -85,6 +93,7 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         timeout_seconds=timeout,
         default_object_type=data.get("idoit_default_object_type", cfg.default_object_type) or "C__OBJTYPE__SERVER",
         auto_sync_enabled=bool(data.get("idoit_auto_sync_enabled", cfg.auto_sync_enabled)),
+        sync_interval_minutes=sync_interval,
         sync_status_field=data.get("idoit_sync_status_field", cfg.sync_status_field) or "C__CATG__GLOBAL.comment",
         mapping=cfg.mapping,
         mapping_error=cfg.mapping_error,
@@ -121,6 +130,8 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
         if not valid:
             raise HTTPException(status_code=400, detail=reason)
     update_config(db, data)
+    if "idoit_sync_interval_minutes" in data:
+        update_idoit_interval(int(data.get("idoit_sync_interval_minutes") or 60))
     return _config_response(db)
 
 
@@ -174,11 +185,16 @@ def dry_run_device(device_id: int, db: Session = Depends(get_db), _: User = Depe
 
 
 @router.post("/devices/{device_id}/sync")
-def sync_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+async def sync_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    return mark_manual_sync_placeholder(db, device)
+    try:
+        return await sync_device_to_idoit(db, device, mode="manual")
+    except IdoitConnectionError as exc:
+        raise HTTPException(status_code=502, detail=exc.to_detail())
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "sync", "endpoint": ""})
 
 
 @router.get("/logs")
