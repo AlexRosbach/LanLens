@@ -333,6 +333,43 @@ def get_or_create_state(db: Session, device: Device) -> IdoitDeviceSync:
     return state
 
 
+MAX_SYNC_LOG_DETAILS_CHARS = 8000
+
+
+def _payload_log_summary(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {"type": type(payload).__name__}
+    fields = payload.get("fields") if isinstance(payload.get("fields"), dict) else {}
+    encoded = json.dumps(payload, default=str, sort_keys=True)
+    return {
+        "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+        "objectType": payload.get("objectType"),
+        "title": payload.get("title"),
+        "identity": payload.get("identity") if isinstance(payload.get("identity"), dict) else None,
+        "field_count": len(fields),
+        "field_names": sorted(str(name) for name in fields.keys()),
+    }
+
+
+def _safe_log_details(details: dict[str, Any]) -> str:
+    encoded = json.dumps(details or {}, default=str, sort_keys=True)
+    if len(encoded) <= MAX_SYNC_LOG_DETAILS_CHARS:
+        return encoded
+
+    summary: dict[str, Any] = {
+        "truncated": True,
+        "original_size": len(encoded),
+        "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }
+    if isinstance(details, dict):
+        for key in ("errors", "warnings", "upstream_write_performed"):
+            if key in details:
+                summary[key] = details[key]
+        if "payload" in details:
+            summary["payload"] = _payload_log_summary(details["payload"])
+    return json.dumps(summary, default=str, sort_keys=True)[:MAX_SYNC_LOG_DETAILS_CHARS]
+
+
 def log_sync(db: Session, device_id: Optional[int], mode: str, result: str, message: str, details: Optional[dict[str, Any]] = None, object_id: Optional[str] = None) -> IdoitSyncLog:
     row = IdoitSyncLog(
         device_id=device_id,
@@ -340,7 +377,7 @@ def log_sync(db: Session, device_id: Optional[int], mode: str, result: str, mess
         result=result,
         idoit_object_id=object_id,
         message=message,
-        details_json=json.dumps(details or {}, default=str),
+        details_json=_safe_log_details(details or {}),
     )
     db.add(row)
     return row
