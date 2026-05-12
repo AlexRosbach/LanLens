@@ -61,6 +61,7 @@ export default function Settings() {
   const [idoitApiKey, setIdoitApiKey] = useState('')
   const [idoitBasicPassword, setIdoitBasicPassword] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
+  const [idoitSyncingAll, setIdoitSyncingAll] = useState(false)
   const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
@@ -402,6 +403,22 @@ export default function Settings() {
       toast.error(t('idoit_mapping_test_failed'))
     } finally {
       setIdoitTesting(false)
+    }
+  }
+
+  async function syncAllIdoitDevices() {
+    setIdoitSyncingAll(true)
+    try {
+      const result = await idoitApi.syncAll()
+      setIdoitTestError(null)
+      toast.success(t('idoit_bulk_sync_success', { success: String(result.success), failure: String(result.failure), skipped: String(result.skipped) }))
+      loadIdoitConfig().catch(() => {})
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError(details)
+      toast.error(details.message || t('idoit_sync_failed'))
+    } finally {
+      setIdoitSyncingAll(false)
     }
   }
 
@@ -1117,6 +1134,7 @@ export default function Settings() {
                   <Button onClick={saveIdoit} loading={saving}>{t('save_changes')}</Button>
                   <Button onClick={testIdoitConnection} loading={idoitTesting} variant="outline">{t('test_connection')}</Button>
                   <Button onClick={testIdoitMapping} loading={idoitTesting} variant="outline">{t('test_mapping')}</Button>
+                  <Button onClick={syncAllIdoitDevices} loading={idoitSyncingAll} variant="outline">{t('idoit_sync_all_now')}</Button>
                 </div>
               </>
             )}

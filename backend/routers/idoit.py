@@ -14,6 +14,7 @@ from ..services.idoit import (
     IdoitConnectionError,
     dry_run,
     get_config,
+    sync_all_registered_devices_to_idoit,
     sync_device_to_idoit,
     update_config,
     validate_mapping,
@@ -195,6 +196,15 @@ async def sync_device(device_id: int, db: Session = Depends(get_db), _: User = D
         raise HTTPException(status_code=502, detail=exc.to_detail())
     except Exception as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "sync", "endpoint": ""})
+
+
+@router.post("/sync-all")
+async def sync_all_devices(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    result = await sync_all_registered_devices_to_idoit(db, mode="manual", skip_unchanged=False)
+    if result["total"] > 0 and result["success"] == 0 and result["failure"] > 0:
+        first_error = next((entry.get("error") for entry in result["results"] if isinstance(entry, dict) and entry.get("error")), None)
+        raise HTTPException(status_code=502, detail=first_error or {"message": "i-doit sync failed", "stage": "sync", "summary": result})
+    return result
 
 
 @router.get("/logs")

@@ -47,6 +47,14 @@ export interface IdoitTestResult {
   [key: string]: unknown
 }
 
+export interface IdoitBulkSyncResult {
+  total: number
+  success: number
+  failure: number
+  skipped: number
+  results: unknown[]
+}
+
 export const idoitApi = {
   getConfig: () => apiClient.get<IdoitConfig>('/idoit/config').then((r) => r.data),
 
@@ -58,4 +66,6 @@ export const idoitApi = {
   testMapping: () => apiClient.post<IdoitTestResult>('/idoit/test-mapping').then((r) => r.data),
 
   syncDevice: (id: number) => apiClient.post<IdoitTestResult>(`/idoit/devices/${id}/sync`).then((r) => r.data),
+
+  syncAll: () => apiClient.post<IdoitBulkSyncResult>('/idoit/sync-all').then((r) => r.data),
 }

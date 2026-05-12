@@ -5,11 +5,8 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy.orm import joinedload
-
 from ..database import SessionLocal
-from ..models import Device
-from .idoit import get_config, sync_device_to_idoit
+from .idoit import get_config, sync_all_registered_devices_to_idoit
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +20,9 @@ async def _sync_job() -> None:
         cfg = get_config(db)
         if not cfg.enabled or not cfg.auto_sync_enabled:
             return
-        devices = (
-            db.query(Device)
-            .options(joinedload(Device.idoit_sync))
-            .filter(Device.is_registered == True)  # noqa: E712
-            .all()
-        )
-        for device in devices:
-            try:
-                await sync_device_to_idoit(db, device, mode="auto", skip_unchanged=True)
-            except Exception as exc:
-                logger.warning("Automatic i-doit sync failed for device %s: %s", device.id, exc)
+        result = await sync_all_registered_devices_to_idoit(db, mode="auto", skip_unchanged=True)
+        if result.get("failure"):
+            logger.warning("Automatic i-doit sync completed with %s failures", result["failure"])
     finally:
         db.close()
 

@@ -440,7 +440,15 @@ class IdoitClient:
             headers["Authorization"] = "Basic " + base64.b64encode(credentials).decode("ascii")
         if self._session_id:
             headers["X-RPC-Auth-Session"] = self._session_id
-        body = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
+        request_params = dict(params or {})
+        # i-doit requires the tenant API key not only for idoit.login but also
+        # for regular JSON-RPC calls like cmdb.object.create/category.save. Keep
+        # the login session header as a performance/auth context, but include
+        # the apikey on every call so Test Connection and real sync use the same
+        # authentication shape.
+        if self.config.api_key and "apikey" not in request_params:
+            request_params["apikey"] = self.config.api_key
+        body = {"jsonrpc": "2.0", "method": method, "params": request_params, "id": 1}
         try:
             res = await request_json_via_validated_url(
                 self.endpoint,
@@ -537,6 +545,8 @@ def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, dict[str, Any]
 
 async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:
     config = get_config(db)
+    if not config.enabled:
+        raise IdoitConnectionError("i-doit integration is disabled", stage="configuration", endpoint=build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path))
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     payload = device_payload(device, config)
     state = get_or_create_state(db, device)
@@ -596,6 +606,34 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         log_sync(db, device.id, mode, "failure", str(exc), details, state.idoit_object_id)
         db.commit()
         raise
+
+
+async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:
+    devices = db.query(Device).filter(Device.is_registered == True).all()  # noqa: E712
+    summary: dict[str, Any] = {
+        "total": len(devices),
+        "success": 0,
+        "failure": 0,
+        "skipped": 0,
+        "results": [],
+    }
+    for device in devices:
+        try:
+            result = await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=skip_unchanged)
+            if result.get("skipped"):
+                summary["skipped"] += 1
+            elif result.get("upstream_write_performed"):
+                summary["success"] += 1
+            else:
+                summary["failure"] += 1
+            summary["results"].append(result)
+        except IdoitConnectionError as exc:
+            summary["failure"] += 1
+            summary["results"].append({"device_id": device.id, "status": "error", "error": exc.to_detail()})
+        except Exception as exc:
+            summary["failure"] += 1
+            summary["results"].append({"device_id": device.id, "status": "error", "error": {"message": str(exc), "stage": "sync"}})
+    return summary
 
 
 def dry_run(db: Session, device: Device) -> dict[str, Any]:
