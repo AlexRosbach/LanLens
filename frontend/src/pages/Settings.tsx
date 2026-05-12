@@ -7,6 +7,7 @@ import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig } from '../api/idoit'
 import { adminApi } from '../api/admin'
+import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 
@@ -31,7 +32,7 @@ export default function Settings() {
   const [idoitLoadError, setIdoitLoadError] = useState(false)
   const [idoitApiKey, setIdoitApiKey] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
-  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'cmdb'>('system')
+  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
 
@@ -363,6 +364,8 @@ export default function Settings() {
     { key: 'database' as const, label: t('database') },
     { key: 'network' as const, label: t('network_discovery') },
     { key: 'notifications' as const, label: t('notifications') },
+    { key: 'inventory' as const, label: t('inventory_tools_title') },
+    { key: 'backup' as const, label: t('backup_restore') },
     { key: 'cmdb' as const, label: t('cmdb_tab') },
   ]
 
@@ -456,42 +459,6 @@ export default function Settings() {
             </div>
             <div className="mt-4">
               <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
-            </div>
-          </Card>
-
-          <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-1">
-              {t('export_import')}
-            </h2>
-            <p className="text-sm text-text-subtle mb-4">
-              {t('back_up_settings_description')}
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button variant="outline" onClick={handleExportSettings}>
-                {t('export_settings')}
-              </Button>
-              <Button variant="outline" onClick={handleExportDatabase}>
-                {t('export_database')}
-              </Button>
-            </div>
-            <div className="mt-4 pt-4 border-t border-border space-y-3">
-              <p className="text-xs text-text-subtle font-medium uppercase tracking-wide">
-                {t('import_label')}
-              </p>
-              <label className="flex items-center gap-3 cursor-pointer group">
-                <span className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface2 text-text-muted group-hover:text-primary group-hover:border-primary/50 transition-colors">
-                  {t('import_settings')}
-                </span>
-                <input
-                  type="file"
-                  accept=".json"
-                  className="hidden"
-                  onChange={handleImportSettings}
-                />
-              </label>
-              <p className="text-xs text-text-subtle">
-                {t('database_import_hint')}
-              </p>
             </div>
           </Card>
 
@@ -803,6 +770,68 @@ export default function Settings() {
               </Button>
             </div>
           </Card>
+
+          <IgnoreRulesCard />
+        </div>
+      </div>
+      )}
+
+      {/* ── INVENTORY TOOLS ───────────────────────────────────────────────── */}
+      {activeSection === 'inventory' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('inventory_tools_title')}
+        </h2>
+        <div className="space-y-4">
+          <DocumentationExportCard />
+          <DeviceMergeCard />
+        </div>
+      </div>
+      )}
+
+      {/* ── BACKUP / RESTORE ──────────────────────────────────────────────── */}
+      {activeSection === 'backup' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('backup_restore')}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">
+              {t('export_import')}
+            </h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {t('back_up_settings_description')}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={handleExportSettings}>
+                {t('export_settings')}
+              </Button>
+              <Button variant="outline" onClick={handleExportDatabase}>
+                {t('export_database')}
+              </Button>
+            </div>
+            <div className="mt-4 pt-4 border-t border-border space-y-3">
+              <p className="text-xs text-text-subtle font-medium uppercase tracking-wide">
+                {t('restore')}
+              </p>
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <span className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface2 text-text-muted group-hover:text-primary group-hover:border-primary/50 transition-colors">
+                  {t('import_settings')}
+                </span>
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportSettings}
+                />
+              </label>
+              <p className="text-xs text-text-subtle">
+                {t('database_import_hint')}
+              </p>
+            </div>
+          </Card>
+          <SelectiveBackupCard />
         </div>
       </div>
       )}

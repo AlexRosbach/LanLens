@@ -34,6 +34,11 @@ export const dhcpMonitorApi = {
     return res.data
   },
 
+  async sniffRequests(seconds = 30): Promise<MessageResponse> {
+    const res = await apiClient.post<MessageResponse>('/dhcp-monitor/sniff-requests', null, { params: { seconds } })
+    return res.data
+  },
+
   async status(): Promise<DhcpMonitorStatus> {
     const res = await apiClient.get<DhcpMonitorStatus>('/dhcp-monitor/status')
     return res.data

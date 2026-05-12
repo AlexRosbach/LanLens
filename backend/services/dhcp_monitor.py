@@ -127,7 +127,7 @@ def _lease_seconds(value: Any) -> Optional[int]:
         return None
 
 
-def _packet_to_observation(packet: Any) -> Optional[DhcpObservation]:
+def _packet_to_observation(packet: Any, include_client_requests: bool = False) -> Optional[DhcpObservation]:
     try:
         from scapy.layers.dhcp import BOOTP, DHCP
         from scapy.layers.inet import IP, UDP
@@ -140,26 +140,29 @@ def _packet_to_observation(packet: Any) -> Optional[DhcpObservation]:
         return None
 
     udp = packet[UDP]
-    # We only persist DHCP server replies. Client broadcasts are intentionally
-    # ignored because this monitor answers "which DHCP server announced which options".
-    if int(udp.sport) != 67:
+    sport = int(udp.sport)
+    dport = int(udp.dport)
+    is_server_reply = sport == 67 and dport == 68
+    is_client_request = include_client_requests and sport == 68 and dport == 67
+    if not is_server_reply and not is_client_request:
         return None
 
     options = _options_to_dict(packet[DHCP].options)
     msg_type = _message_type(options)
-    server_ip = options.get("server_id") or (packet[IP].src if packet.haslayer(IP) else None)
+    server_ip = options.get("server_id") or (packet[IP].src if is_server_reply and packet.haslayer(IP) else None)
     bootp = packet[BOOTP]
     server_mac = normalize_mac(packet[Ether].src) if packet.haslayer(Ether) else None
     client_mac = normalize_mac(getattr(bootp, "chaddr", b"")[:6].hex(":")) if getattr(bootp, "chaddr", None) else None
     client_hostname = options.get("hostname")
 
+    offered_ip = str(getattr(bootp, "yiaddr", "") or "") or None
     return DhcpObservation(
         message_type=msg_type,
         server_ip=str(server_ip) if server_ip else None,
-        server_mac=server_mac,
+        server_mac=server_mac if is_server_reply else None,
         client_mac=client_mac,
         client_hostname=str(client_hostname) if client_hostname else None,
-        offered_ip=str(getattr(bootp, "yiaddr", "") or "") or None,
+        offered_ip=offered_ip if is_server_reply else None,
         requested_ip=str(options.get("requested_addr")) if options.get("requested_addr") else None,
         lease_time=_lease_seconds(options.get("lease_time")),
         options_json=json.dumps(options, default=str, sort_keys=True),
@@ -167,8 +170,8 @@ def _packet_to_observation(packet: Any) -> Optional[DhcpObservation]:
     )
 
 
-def _store_packet(db: Session, packet: Any) -> bool:
-    row = _packet_to_observation(packet)
+def _store_packet(db: Session, packet: Any, include_client_requests: bool = False) -> bool:
+    row = _packet_to_observation(packet, include_client_requests=include_client_requests)
     if not row:
         return False
     db.add(row)
@@ -306,6 +309,30 @@ def _passive_capture_dhcp_replies(db: Session, timeout_seconds: int, packet_limi
     return stored
 
 
+def _passive_capture_dhcp_requests(db: Session, timeout_seconds: int, packet_limit: int) -> int:
+    try:
+        from scapy.sendrecv import sniff
+    except Exception as exc:
+        logger.warning("DHCP request sniffing unavailable: scapy sniff could not be loaded: %s", exc)
+        return 0
+
+    stored = 0
+
+    def handle(packet: Any) -> None:
+        nonlocal stored
+        if _store_packet(db, packet, include_client_requests=True):
+            stored += 1
+
+    sniff(
+        filter="udp and src port 68 and dst port 67",
+        prn=handle,
+        timeout=max(3, min(120, timeout_seconds)),
+        count=max(1, min(500, packet_limit)),
+        store=False,
+    )
+    return stored
+
+
 def capture_dhcp_observations(timeout_seconds: int = 20, packet_limit: int = 50, reserved: bool = False) -> int:
     """Probe DHCP servers and capture visible DHCP server replies."""
     if not reserved and not try_begin_capture():
@@ -327,6 +354,28 @@ def capture_dhcp_observations(timeout_seconds: int = 20, packet_limit: int = 50,
         return 0
     except Exception as exc:
         logger.warning("DHCP capture failed: %s", exc)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+        _end_capture()
+
+
+def sniff_dhcp_requests(timeout_seconds: int = 30, packet_limit: int = 100, reserved: bool = False) -> int:
+    """Passively capture visible client DHCP Discover/Request/Inform traffic."""
+    if not reserved and not try_begin_capture():
+        return 0
+    db = SessionLocal()
+    try:
+        stored = _passive_capture_dhcp_requests(db, timeout_seconds, packet_limit)
+        db.commit()
+        return stored
+    except PermissionError as exc:
+        logger.warning("DHCP request sniffing needs packet capture permissions: %s", exc)
+        db.rollback()
+        return 0
+    except Exception as exc:
+        logger.warning("DHCP request sniffing failed: %s", exc)
         db.rollback()
         return 0
     finally:

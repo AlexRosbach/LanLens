@@ -73,26 +73,6 @@ export default function Sidebar({ onClose }: Props) {
       ),
     }] : []),
     {
-      to: '/network-map',
-      label: t('nav_network_map'),
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-            d="M8 7a3 3 0 106 0 3 3 0 00-6 0zM4 19a3 3 0 106 0 3 3 0 00-6 0zm10 0a3 3 0 106 0 3 3 0 00-6 0zM10.5 9.5l-3 7m6-7l3 7" />
-        </svg>
-      ),
-    },
-    {
-      to: '/inventory-tools',
-      label: t('nav_inventory_tools'),
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
-            d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z" />
-        </svg>
-      ),
-    },
-    {
       to: '/segments',
       label: t('nav_segments'),
       icon: (

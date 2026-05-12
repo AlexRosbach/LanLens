@@ -7,7 +7,7 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import DhcpObservation, User
 from ..schemas import DhcpMonitorStatusResponse, DhcpObservationResponse, MessageResponse
-from ..services.dhcp_monitor import capture_dhcp_observations, is_capture_running, observation_to_response, try_begin_capture
+from ..services.dhcp_monitor import capture_dhcp_observations, is_capture_running, observation_to_response, sniff_dhcp_requests, try_begin_capture
 
 router = APIRouter(prefix="/api/dhcp-monitor", tags=["dhcp-monitor"])
 
@@ -28,7 +28,7 @@ def start_capture(
     _: User = Depends(get_current_user),
 ):
     if not try_begin_capture():
-        return MessageResponse(message="DHCP probe already running", success=False)
+        return MessageResponse(message="DHCP capture already running", success=False)
     threading.Thread(
         target=capture_dhcp_observations,
         args=(seconds, 50, True),
@@ -36,6 +36,22 @@ def start_capture(
         daemon=True,
     ).start()
     return MessageResponse(message=f"DHCP probe started for {seconds} seconds")
+
+
+@router.post("/sniff-requests", response_model=MessageResponse)
+def start_request_sniffing(
+    seconds: int = Query(30, ge=3, le=120),
+    _: User = Depends(get_current_user),
+):
+    if not try_begin_capture():
+        return MessageResponse(message="DHCP capture already running", success=False)
+    threading.Thread(
+        target=sniff_dhcp_requests,
+        args=(seconds, 100, True),
+        name="lanlens-dhcp-request-sniff",
+        daemon=True,
+    ).start()
+    return MessageResponse(message=f"DHCP request sniffing started for {seconds} seconds")
 
 
 @router.get("/status", response_model=DhcpMonitorStatusResponse)

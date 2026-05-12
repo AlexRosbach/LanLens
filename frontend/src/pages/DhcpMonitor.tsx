@@ -74,7 +74,7 @@ export default function DhcpMonitor() {
     return [...map.entries()]
   }, [observations])
 
-  async function startCapture() {
+  async function startProbe() {
     try {
       const result = await dhcpMonitorApi.capture(20)
       if (!result.success) {
@@ -83,10 +83,26 @@ export default function DhcpMonitor() {
         return
       }
       setCapturing(true)
-      toast.success(t('dhcp_capture_started'))
+      toast.success(t('dhcp_probe_started'))
       setTimeout(() => load().catch(() => {}), 2_000)
     } catch {
-      toast.error(t('dhcp_capture_failed'))
+      toast.error(t('dhcp_probe_failed'))
+    }
+  }
+
+  async function startRequestSniffing() {
+    try {
+      const result = await dhcpMonitorApi.sniffRequests(30)
+      if (!result.success) {
+        toast.error(result.message || t('dhcp_capture_already_running'))
+        await load().catch(() => {})
+        return
+      }
+      setCapturing(true)
+      toast.success(t('dhcp_sniff_started'))
+      setTimeout(() => load().catch(() => {}), 2_000)
+    } catch {
+      toast.error(t('dhcp_sniff_failed'))
     }
   }
 
@@ -104,7 +120,8 @@ export default function DhcpMonitor() {
         <div className="flex items-center gap-2">
           {capturing && <Badge variant="warning">{t('dhcp_capturing')}</Badge>}
           <Button variant="outline" onClick={() => load().catch(() => toast.error(t('dhcp_refresh_failed')))}>{t('refresh')}</Button>
-          <Button onClick={startCapture} disabled={capturing}>{capturing ? t('dhcp_capture_running') : t('dhcp_capture_20s')}</Button>
+          <Button variant="outline" onClick={startRequestSniffing} disabled={capturing}>{capturing ? t('dhcp_capture_running') : t('dhcp_sniff_30s')}</Button>
+          <Button onClick={startProbe} disabled={capturing}>{capturing ? t('dhcp_capture_running') : t('dhcp_probe_20s')}</Button>
         </div>
       </div>
 
