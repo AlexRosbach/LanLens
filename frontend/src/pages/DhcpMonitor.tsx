@@ -6,9 +6,14 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
+import { parseDateStr } from '../utils/formatters'
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString()
+  try {
+    return parseDateStr(value).toLocaleString()
+  } catch {
+    return value
+  }
 }
 
 function formatValue(value: unknown): string {
