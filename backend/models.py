@@ -84,12 +84,14 @@ class Device(Base):
     host_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.host_device_id",
+        back_populates="host_device",
         cascade="all, delete",
         passive_deletes=True,
     )
     child_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.child_device_id",
+        back_populates="child_device",
         cascade="all, delete",
         passive_deletes=True,
     )
@@ -457,5 +459,5 @@ class DeviceHostRelationship(Base):
     observed_at = Column(DateTime, default=datetime.utcnow)
     last_confirmed_at = Column(DateTime, default=datetime.utcnow)
 
-    child_device = relationship("Device", foreign_keys=[child_device_id])
-    host_device = relationship("Device", foreign_keys=[host_device_id])
+    child_device = relationship("Device", foreign_keys=[child_device_id], back_populates="child_relationships")
+    host_device = relationship("Device", foreign_keys=[host_device_id], back_populates="host_relationships")
