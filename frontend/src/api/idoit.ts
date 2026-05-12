@@ -43,7 +43,7 @@ export const idoitApi = {
   updateConfig: (data: IdoitConfigUpdate) =>
     apiClient.put<IdoitConfig>('/idoit/config', data).then((r) => r.data),
 
-  testConnection: () => apiClient.post<IdoitTestResult>('/idoit/test-connection').then((r) => r.data),
+  testConnection: (data?: Partial<IdoitConfigUpdate>) => apiClient.post<IdoitTestResult>('/idoit/test-connection', data ?? {}).then((r) => r.data),
 
   testMapping: () => apiClient.post<IdoitTestResult>('/idoit/test-mapping').then((r) => r.data),
 }

@@ -59,6 +59,36 @@ SETTING_DEFAULTS = {
 }
 
 
+class IdoitConnectionError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str,
+        endpoint: str = "",
+        status_code: Optional[int] = None,
+        response_body: str = "",
+        jsonrpc_error: Any = None,
+    ):
+        super().__init__(message)
+        self.message = message
+        self.stage = stage
+        self.endpoint = endpoint
+        self.status_code = status_code
+        self.response_body = response_body
+        self.jsonrpc_error = jsonrpc_error
+
+    def to_detail(self) -> dict[str, Any]:
+        return {
+            "message": self.message,
+            "stage": self.stage,
+            "endpoint": self.endpoint,
+            "status_code": self.status_code,
+            "response_body": self.response_body,
+            "jsonrpc_error": self.jsonrpc_error,
+        }
+
+
 @dataclass
 class IdoitConfig:
     enabled: bool
@@ -394,19 +424,50 @@ class IdoitClient:
         if self._session_id:
             headers["X-RPC-Auth-Session"] = self._session_id
         body = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
-        res = await request_json_via_validated_url(
-            self.endpoint,
-            method="POST",
-            payload=body,
-            headers=headers,
-            timeout_seconds=self.config.timeout_seconds,
-            label="i-doit JSON-RPC URL",
-        )
+        try:
+            res = await request_json_via_validated_url(
+                self.endpoint,
+                method="POST",
+                payload=body,
+                headers=headers,
+                timeout_seconds=self.config.timeout_seconds,
+                label="i-doit JSON-RPC URL",
+            )
+        except ValueError as exc:
+            raise IdoitConnectionError(str(exc), stage="url_validation", endpoint=self.endpoint) from exc
+        except TimeoutError as exc:
+            raise IdoitConnectionError("Connection timed out while calling i-doit", stage="network", endpoint=self.endpoint) from exc
+        except Exception as exc:
+            raise IdoitConnectionError(str(exc) or "Network request to i-doit failed", stage="network", endpoint=self.endpoint) from exc
         if not 200 <= res.status_code < 300:
-            raise RuntimeError(f"i-doit JSON-RPC returned HTTP {res.status_code}")
-        data = json.loads(res.text)
+            body_snippet = (res.text or "")[:500]
+            raise IdoitConnectionError(
+                f"i-doit JSON-RPC returned HTTP {res.status_code}",
+                stage="http_status",
+                endpoint=self.endpoint,
+                status_code=res.status_code,
+                response_body=body_snippet,
+            )
+        try:
+            data = json.loads(res.text)
+        except json.JSONDecodeError as exc:
+            raise IdoitConnectionError(
+                "i-doit did not return valid JSON-RPC JSON",
+                stage="json_parse",
+                endpoint=self.endpoint,
+                status_code=res.status_code,
+                response_body=(res.text or "")[:500],
+            ) from exc
         if data.get("error"):
-            raise RuntimeError(data["error"].get("message") or str(data["error"]))
+            error = data["error"]
+            message = error.get("message") if isinstance(error, dict) else str(error)
+            raise IdoitConnectionError(
+                message or "i-doit JSON-RPC returned an error",
+                stage="jsonrpc_error",
+                endpoint=self.endpoint,
+                status_code=res.status_code,
+                jsonrpc_error=error,
+            )
         return data.get("result")
 
     async def login(self) -> Any:
@@ -416,8 +477,14 @@ class IdoitClient:
         return result
 
     async def test_connection(self) -> dict[str, Any]:
-        await self.login()
-        return {"ok": True, "endpoint": self.endpoint, "authenticated": bool(self._session_id)}
+        login_result = await self.login()
+        return {
+            "ok": True,
+            "endpoint": self.endpoint,
+            "authenticated": bool(self._session_id),
+            "session_received": bool(login_result),
+            "message": "i-doit JSON-RPC login succeeded",
+        }
 
 
 def dry_run(db: Session, device: Device) -> dict[str, Any]:

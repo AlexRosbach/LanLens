@@ -11,6 +11,15 @@ import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBac
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 
+interface IdoitErrorDetails {
+  message: string
+  stage?: string
+  endpoint?: string
+  status_code?: number | null
+  response_body?: string
+  jsonrpc_error?: unknown
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -20,6 +29,24 @@ function downloadBlob(blob: Blob, filename: string) {
   a.click()
   // Revoke after a tick so the browser has time to start the download
   setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
+}
+
+function extractIdoitErrorDetails(error: unknown): IdoitErrorDetails {
+  const response = (error as { response?: { data?: { detail?: unknown } } })?.response
+  const detail = response?.data?.detail
+  if (detail && typeof detail === 'object') {
+    const data = detail as Record<string, unknown>
+    return {
+      message: String(data.message || 'i-doit connection failed'),
+      stage: typeof data.stage === 'string' ? data.stage : undefined,
+      endpoint: typeof data.endpoint === 'string' ? data.endpoint : undefined,
+      status_code: typeof data.status_code === 'number' ? data.status_code : null,
+      response_body: typeof data.response_body === 'string' ? data.response_body : undefined,
+      jsonrpc_error: data.jsonrpc_error,
+    }
+  }
+  if (typeof detail === 'string') return { message: detail }
+  return { message: (error as Error)?.message || 'i-doit connection failed' }
 }
 
 export default function Settings() {
@@ -32,6 +59,7 @@ export default function Settings() {
   const [idoitLoadError, setIdoitLoadError] = useState(false)
   const [idoitApiKey, setIdoitApiKey] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
+  const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
@@ -309,21 +337,43 @@ export default function Settings() {
       const updated = await idoitApi.updateConfig(payload)
       setIdoitConfig(updated)
       setIdoitApiKey('')
+      setIdoitTestError(null)
       toast.success(t('idoit_settings_saved'))
-    } catch {
-      toast.error(t('idoit_settings_save_failed'))
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError({ ...details, message: details.message || t('idoit_settings_save_failed') })
+      toast.error(details.message || t('idoit_settings_save_failed'))
     } finally {
       setSaving(false)
     }
   }
 
   async function testIdoitConnection() {
+    if (!idoitConfig) return
     setIdoitTesting(true)
     try {
-      await idoitApi.testConnection()
-      toast.success(t('idoit_connection_success'))
-    } catch {
-      toast.error(t('idoit_connection_failed'))
+      const result = await idoitApi.testConnection({
+        idoit_enabled: idoitConfig.idoit_enabled,
+        idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
+        idoit_portal_url: idoitConfig.idoit_portal_url,
+        idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
+        idoit_default_object_type: idoitConfig.idoit_default_object_type,
+        idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
+        idoit_mapping_json: idoitConfig.idoit_mapping_raw,
+        ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
+      })
+      setIdoitTestError(null)
+      if (result.message) {
+        toast.success(String(result.message))
+      } else {
+        toast.success(t('idoit_connection_success'))
+      }
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError(details)
+      toast.error(details.message || t('idoit_connection_failed'))
     } finally {
       setIdoitTesting(false)
     }
@@ -1000,6 +1050,24 @@ export default function Settings() {
                     <ul className="list-disc pl-5 space-y-1">
                       {idoitConfig.mapping_errors.map((error) => <li key={error}>{error}</li>)}
                     </ul>
+                  </div>
+                )}
+
+                {idoitTestError && (
+                  <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                    <p className="font-semibold mb-2">{t('idoit_connection_failed')}</p>
+                    <div className="space-y-1">
+                      <p>{idoitTestError.message}</p>
+                      {idoitTestError.stage && <p><span className="font-medium">Stage:</span> {idoitTestError.stage}</p>}
+                      {idoitTestError.status_code && <p><span className="font-medium">HTTP:</span> {idoitTestError.status_code}</p>}
+                      {idoitTestError.endpoint && <p className="break-all"><span className="font-medium">Endpoint:</span> {idoitTestError.endpoint}</p>}
+                      {idoitTestError.response_body && (
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-xs text-text-muted border border-border">{idoitTestError.response_body}</pre>
+                      )}
+                      {idoitTestError.jsonrpc_error != null && (
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-xs text-text-muted border border-border">{JSON.stringify(idoitTestError.jsonrpc_error, null, 2)}</pre>
+                      )}
+                    </div>
                   </div>
                 )}
 

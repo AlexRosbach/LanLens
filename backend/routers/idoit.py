@@ -9,7 +9,9 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Device, IdoitSyncLog, User
 from ..services.idoit import (
+    IdoitConfig,
     IdoitClient,
+    IdoitConnectionError,
     dry_run,
     get_config,
     mark_manual_sync_placeholder,
@@ -57,6 +59,30 @@ def _config_response(db: Session) -> dict[str, Any]:
     }
 
 
+def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfig:
+    api_key = data.get("idoit_api_key", cfg.api_key)
+    if api_key == "••••••••":
+        api_key = cfg.api_key
+    try:
+        timeout = max(3, min(120, int(data.get("idoit_timeout_seconds", cfg.timeout_seconds) or 15)))
+    except ValueError:
+        timeout = cfg.timeout_seconds
+    return IdoitConfig(
+        enabled=bool(data.get("idoit_enabled", cfg.enabled)),
+        base_url=(data.get("idoit_base_url", cfg.base_url) or "").strip().rstrip("/"),
+        jsonrpc_path=(data.get("idoit_jsonrpc_path", cfg.jsonrpc_path) or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
+        portal_url=(data.get("idoit_portal_url", cfg.portal_url) or "").strip().rstrip("/"),
+        api_key=api_key or "",
+        timeout_seconds=timeout,
+        default_object_type=data.get("idoit_default_object_type", cfg.default_object_type) or "C__OBJTYPE__SERVER",
+        auto_sync_enabled=bool(data.get("idoit_auto_sync_enabled", cfg.auto_sync_enabled)),
+        sync_status_field=data.get("idoit_sync_status_field", cfg.sync_status_field) or "C__CATG__GLOBAL.comment",
+        mapping=cfg.mapping,
+        mapping_error=cfg.mapping_error,
+        mapping_raw=cfg.mapping_raw,
+    )
+
+
 @router.get("/config")
 def read_config(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return _config_response(db)
@@ -86,17 +112,27 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
 
 
 @router.post("/test-connection")
-async def test_connection(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+async def test_connection(payload: Optional[IdoitConfigPayload] = None, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     cfg = get_config(db)
+    if payload:
+        data = payload.model_dump(exclude_unset=True)
+        cfg = _config_with_overrides(cfg, data)
     if not cfg.base_url or not cfg.api_key:
-        raise HTTPException(status_code=400, detail="i-doit URL and API key are required")
+        missing = []
+        if not cfg.base_url:
+            missing.append("Base URL")
+        if not cfg.api_key:
+            missing.append("API key")
+        raise HTTPException(status_code=400, detail={"message": f"Missing required i-doit setting(s): {', '.join(missing)}", "stage": "configuration", "endpoint": ""})
     valid, reason = await validate_webhook_url(cfg.base_url, "i-doit base URL")
     if not valid:
         raise HTTPException(status_code=400, detail=reason)
     try:
         return await IdoitClient(cfg).test_connection()
+    except IdoitConnectionError as exc:
+        raise HTTPException(status_code=502, detail=exc.to_detail())
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"i-doit connection failed: {exc}")
+        raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "unexpected", "endpoint": ""})
 
 
 @router.post("/test-mapping")
