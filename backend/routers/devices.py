@@ -3,7 +3,7 @@ import ipaddress
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -36,6 +36,12 @@ from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_
 from ..services.scanner import _arp_scan, _get_hostname, record_device_ip_history
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
+
+
+def _to_naive_utc(value):
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 def _parse_ports(raw: str) -> List[PortInfo]:
@@ -486,6 +492,7 @@ def update_device_maintenance(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     for field, value in update.model_dump(exclude_unset=True).items():
+        value = _to_naive_utc(value)
         old_value = getattr(device, field, None)
         setattr(device, field, value)
         if old_value != value:
@@ -718,6 +725,7 @@ def update_device(
     registering_now = update.is_registered is True and not device.is_registered
 
     for field, value in update.model_dump(exclude_unset=True).items():
+        value = _to_naive_utc(value)
         old_value = getattr(device, field, None)
         setattr(device, field, value)
         if old_value != value and field not in {"password_location"}:

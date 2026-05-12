@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 IP_ONLY_HOST_LABEL = "IP-only host"
 MAX_WEBHOOK_ERROR_BODY_LOG_CHARS = 300
+MAX_PINNED_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
 @dataclass
@@ -248,6 +249,20 @@ def _request_target(path: str, query: str) -> str:
     return f"{safe_path}?{safe_query}"
 
 
+
+async def _read_pinned_response(reader: asyncio.StreamReader, timeout_seconds: float) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await asyncio.wait_for(reader.read(65536), timeout=timeout_seconds)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > MAX_PINNED_RESPONSE_BYTES:
+            raise ValueError(f"Pinned HTTP response exceeds {MAX_PINNED_RESPONSE_BYTES} bytes")
+
+
 def _decode_chunked_body(body: bytes) -> bytes:
     decoded = bytearray()
     remaining = body
@@ -313,7 +328,7 @@ async def _request_to_pinned_address(
         request = request_head.encode("iso-8859-1") + body
         writer.write(request)
         await asyncio.wait_for(writer.drain(), timeout=timeout_seconds)
-        response = await asyncio.wait_for(reader.read(1048576), timeout=timeout_seconds)
+        response = await _read_pinned_response(reader, timeout_seconds)
     finally:
         writer.close()
         await writer.wait_closed()

@@ -301,13 +301,13 @@ def _matches_segment_pattern(pattern: str, *, ip: str, segment: Optional[Segment
     return False
 
 
-def _matching_segment(db: Session, ip: str) -> Optional[Segment]:
+def _find_matching_segment(segments: list[Segment], ip: str) -> Optional[Segment]:
     try:
         ip_int = int(ipaddress.IPv4Address(ip))
     except Exception:
         return None
     best: tuple[int, Segment] | None = None
-    for segment in db.query(Segment).all():
+    for segment in segments:
         try:
             start = int(ipaddress.IPv4Address(segment.ip_start))
             end = int(ipaddress.IPv4Address(segment.ip_end))
@@ -318,6 +318,10 @@ def _matching_segment(db: Session, ip: str) -> Optional[Segment]:
             if best is None or span < best[0]:
                 best = (span, segment)
     return best[1] if best else None
+
+
+def _matching_segment(db: Session, ip: str) -> Optional[Segment]:
+    return _find_matching_segment(db.query(Segment).all(), ip)
 
 
 def _matches_ignore_rule(rule: DeviceIgnoreRule, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str], segment: Optional[Segment]) -> bool:
@@ -337,10 +341,20 @@ def _matches_ignore_rule(rule: DeviceIgnoreRule, *, ip: str, mac: str, hostname:
     return False
 
 
-def _matching_ignore_rules(db: Session, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str]) -> list[DeviceIgnoreRule]:
-    segment = _matching_segment(db, ip)
-    rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
-    return [rule for rule in rules if _matches_ignore_rule(rule, ip=ip, mac=mac, hostname=hostname, device_class=device_class, segment=segment)]
+def _matching_ignore_rules(
+    db: Session,
+    *,
+    ip: str,
+    mac: str,
+    hostname: Optional[str],
+    device_class: Optional[str],
+    segments: Optional[list[Segment]] = None,
+    rules: Optional[list[DeviceIgnoreRule]] = None,
+) -> list[DeviceIgnoreRule]:
+    segment_rows = segments if segments is not None else db.query(Segment).all()
+    rule_rows = rules if rules is not None else db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
+    segment = _find_matching_segment(segment_rows, ip)
+    return [rule for rule in rule_rows if _matches_ignore_rule(rule, ip=ip, mac=mac, hostname=hostname, device_class=device_class, segment=segment)]
 
 
 def _record_change(db: Session, device_id: int, event_type: str, field_name: Optional[str], old_value, new_value, source: str) -> None:
@@ -436,6 +450,9 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             d.ip_address: d for d in all_devices if d.ip_address
         }
 
+        enabled_ignore_rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
+        segment_rows = db.query(Segment).all()
+
         found_macs = set()
         devices_new = 0
 
@@ -465,7 +482,15 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             if existing is None:
                 # New device
                 device_class = classify_device(vendor, hostname or "")
-                ignore_matches = _matching_ignore_rules(db, ip=ip, mac=mac_normalized, hostname=hostname, device_class=device_class)
+                ignore_matches = _matching_ignore_rules(
+                    db,
+                    ip=ip,
+                    mac=mac_normalized,
+                    hostname=hostname,
+                    device_class=device_class,
+                    segments=segment_rows,
+                    rules=enabled_ignore_rules,
+                )
                 if any(rule.ignore_discovery for rule in ignore_matches):
                     logger.info("Ignored discovery by rule: %s (%s)", mac_normalized, ip)
                     continue

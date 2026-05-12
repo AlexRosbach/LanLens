@@ -13,7 +13,7 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
-import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
+import { backendUtcToLocalDateTimeInput, formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime, localDateTimeInputToUtcIso, parseDateStr } from '../utils/formatters'
 
 interface EditState {
   label: string
@@ -80,6 +80,8 @@ export default function DeviceDetail() {
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
   const [timeline, setTimeline] = useState<Array<{ id: number; event_type: string; field_name?: string; old_value?: string; new_value?: string; source: string; message?: string; created_at: string }>>([])
+  const [maintenanceDraft, setMaintenanceDraft] = useState({ until: '', note: '' })
+  const [maintenanceSaving, setMaintenanceSaving] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -94,6 +96,10 @@ export default function DeviceDetail() {
         // best effort
       }
       setDevice(currentDevice)
+      setMaintenanceDraft({
+        until: backendUtcToLocalDateTimeInput(currentDevice.maintenance_until),
+        note: currentDevice.maintenance_note ?? '',
+      })
       setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
       devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
@@ -150,6 +156,10 @@ export default function DeviceDetail() {
         is_registered: true,
       })
       setDevice(updated)
+      setMaintenanceDraft({
+        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
+        note: updated.maintenance_note ?? '',
+      })
       setForm(toEditState(updated))
       setEditing(false)
       toast.success(t('device_updated'))
@@ -184,6 +194,10 @@ export default function DeviceDetail() {
     try {
       const updated = await devicesApi.refreshStatus(device.id)
       setDevice(updated)
+      setMaintenanceDraft({
+        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
+        note: updated.maintenance_note ?? '',
+      })
       setForm(toEditState(updated))
       setIpHistory(updated.ip_history ?? ipHistory)
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
@@ -201,10 +215,36 @@ export default function DeviceDetail() {
     try {
       const updated = await devicesApi.updateMaintenance(device.id, changes)
       setDevice(updated)
+      setMaintenanceDraft({
+        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
+        note: updated.maintenance_note ?? '',
+      })
       devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(t('device_updated'))
     } catch {
       toast.error(t('save_failed'))
+    }
+  }
+
+  async function saveMaintenanceDraft() {
+    if (!device) return
+    setMaintenanceSaving(true)
+    try {
+      const updated = await devicesApi.updateMaintenance(device.id, {
+        maintenance_until: localDateTimeInputToUtcIso(maintenanceDraft.until),
+        maintenance_note: maintenanceDraft.note.trim() || null,
+      })
+      setDevice(updated)
+      setMaintenanceDraft({
+        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
+        note: updated.maintenance_note ?? '',
+      })
+      devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
+      toast.success(t('device_updated'))
+    } catch {
+      toast.error(t('save_failed'))
+    } finally {
+      setMaintenanceSaving(false)
     }
   }
 
@@ -213,7 +253,7 @@ export default function DeviceDetail() {
 
   const hasDocumentation = device.purpose || device.description || device.location ||
     device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
-  const maintenanceActive = device.maintenance_until && new Date(device.maintenance_until).getTime() > Date.now()
+  const maintenanceActive = device.maintenance_until && parseDateStr(device.maintenance_until).getTime() > Date.now()
   const maintenanceFlags = [
     device.ignored ? t('maintenance_ignored') : null,
     device.notifications_muted ? t('maintenance_notifications_muted') : null,
@@ -637,14 +677,17 @@ export default function DeviceDetail() {
         <div className="mt-3 grid sm:grid-cols-2 gap-3">
           <Input
             type="datetime-local"
-            value={device.maintenance_until ? device.maintenance_until.slice(0, 16) : ''}
-            onChange={(e) => handleMaintenanceChange({ maintenance_until: e.target.value ? `${e.target.value}:00` : null })}
+            value={maintenanceDraft.until}
+            onChange={(e) => setMaintenanceDraft((draft) => ({ ...draft, until: e.target.value }))}
           />
           <Input
-            value={device.maintenance_note ?? ''}
-            onChange={(e) => handleMaintenanceChange({ maintenance_note: e.target.value || null })}
+            value={maintenanceDraft.note}
+            onChange={(e) => setMaintenanceDraft((draft) => ({ ...draft, note: e.target.value }))}
             placeholder={t('maintenance_note')}
           />
+        </div>
+        <div className="mt-3 flex justify-end">
+          <Button size="sm" onClick={saveMaintenanceDraft} loading={maintenanceSaving}>{t('save')}</Button>
         </div>
       </Card>
 
