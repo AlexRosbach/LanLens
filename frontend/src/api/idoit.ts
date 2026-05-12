@@ -6,6 +6,8 @@ export interface IdoitConfig {
   idoit_jsonrpc_path: string
   idoit_portal_url: string
   idoit_api_key_configured: boolean
+  idoit_basic_username: string
+  idoit_basic_password_configured: boolean
   idoit_timeout_seconds: number
   idoit_default_object_type: string
   idoit_auto_sync_enabled: boolean
@@ -23,6 +25,8 @@ export interface IdoitConfigUpdate {
   idoit_jsonrpc_path: string
   idoit_portal_url: string
   idoit_api_key?: string
+  idoit_basic_username?: string
+  idoit_basic_password?: string
   idoit_timeout_seconds: number
   idoit_default_object_type: string
   idoit_auto_sync_enabled: boolean

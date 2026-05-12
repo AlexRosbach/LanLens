@@ -7,6 +7,7 @@ returned session token. Cloud-specific differences should stay in configuration
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from dataclasses import dataclass
@@ -51,6 +52,8 @@ SETTING_DEFAULTS = {
     "idoit_portal_url": "",
     "idoit_jsonrpc_path": "/src/jsonrpc.php",
     "idoit_api_key": "",
+    "idoit_basic_username": "",
+    "idoit_basic_password": "",
     "idoit_timeout_seconds": "15",
     "idoit_default_object_type": "C__OBJTYPE__SERVER",
     "idoit_auto_sync_enabled": "false",
@@ -96,6 +99,8 @@ class IdoitConfig:
     jsonrpc_path: str
     portal_url: str
     api_key: str
+    basic_username: str
+    basic_password: str
     timeout_seconds: int
     default_object_type: str
     auto_sync_enabled: bool
@@ -157,6 +162,8 @@ def get_config(db: Session) -> IdoitConfig:
         jsonrpc_path=(_get_setting(db, "idoit_jsonrpc_path") or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
         portal_url=(_get_setting(db, "idoit_portal_url") or _get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
         api_key=_get_setting(db, "idoit_api_key"),
+        basic_username=_get_setting(db, "idoit_basic_username"),
+        basic_password=_get_setting(db, "idoit_basic_password"),
         timeout_seconds=timeout,
         default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__SERVER",
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
@@ -421,6 +428,9 @@ class IdoitClient:
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         headers = {"Content-Type": "application/json"}
+        if self.config.basic_username or self.config.basic_password:
+            credentials = f"{self.config.basic_username}:{self.config.basic_password}".encode("utf-8")
+            headers["Authorization"] = "Basic " + base64.b64encode(credentials).decode("ascii")
         if self._session_id:
             headers["X-RPC-Auth-Session"] = self._session_id
         body = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}

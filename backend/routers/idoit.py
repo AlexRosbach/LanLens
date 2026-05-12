@@ -29,6 +29,8 @@ class IdoitConfigPayload(BaseModel):
     idoit_jsonrpc_path: Optional[str] = None
     idoit_portal_url: Optional[str] = None
     idoit_api_key: Optional[str] = None
+    idoit_basic_username: Optional[str] = None
+    idoit_basic_password: Optional[str] = None
     idoit_timeout_seconds: Optional[int] = None
     idoit_default_object_type: Optional[str] = None
     idoit_auto_sync_enabled: Optional[bool] = None
@@ -44,6 +46,8 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_jsonrpc_path": cfg.jsonrpc_path,
         "idoit_portal_url": cfg.portal_url,
         "idoit_api_key_configured": bool(cfg.api_key),
+        "idoit_basic_username": cfg.basic_username,
+        "idoit_basic_password_configured": bool(cfg.basic_password),
         "idoit_timeout_seconds": cfg.timeout_seconds,
         "idoit_default_object_type": cfg.default_object_type,
         "idoit_auto_sync_enabled": cfg.auto_sync_enabled,
@@ -63,6 +67,9 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
     api_key = data.get("idoit_api_key", cfg.api_key)
     if api_key == "••••••••":
         api_key = cfg.api_key
+    basic_password = data.get("idoit_basic_password", cfg.basic_password)
+    if basic_password == "••••••••":
+        basic_password = cfg.basic_password
     try:
         timeout = max(3, min(120, int(data.get("idoit_timeout_seconds", cfg.timeout_seconds) or 15)))
     except ValueError:
@@ -73,6 +80,8 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         jsonrpc_path=(data.get("idoit_jsonrpc_path", cfg.jsonrpc_path) or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
         portal_url=(data.get("idoit_portal_url", cfg.portal_url) or "").strip().rstrip("/"),
         api_key=api_key or "",
+        basic_username=(data.get("idoit_basic_username", cfg.basic_username) or "").strip(),
+        basic_password=basic_password or "",
         timeout_seconds=timeout,
         default_object_type=data.get("idoit_default_object_type", cfg.default_object_type) or "C__OBJTYPE__SERVER",
         auto_sync_enabled=bool(data.get("idoit_auto_sync_enabled", cfg.auto_sync_enabled)),
@@ -93,6 +102,10 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
     data = payload.model_dump(exclude_unset=True)
     if "idoit_api_key" in data and data["idoit_api_key"] == "••••••••":
         data.pop("idoit_api_key")
+    if "idoit_basic_password" in data and data["idoit_basic_password"] == "••••••••":
+        data.pop("idoit_basic_password")
+    if "idoit_basic_username" in data:
+        data["idoit_basic_username"] = (data.get("idoit_basic_username") or "").strip()
     if "idoit_base_url" in data:
         data["idoit_base_url"] = (data.get("idoit_base_url") or "").strip()
     if "idoit_portal_url" in data:

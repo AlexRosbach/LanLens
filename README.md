@@ -40,7 +40,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
-- **Network map and inventory tools** — read-only topology, per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, and selective non-secret backups
+- **Inventory tools in Settings** — per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, backup and restore helpers
 - Telegram notifications for new devices and updates
 - English, German, Italian, and Simplified Chinese UI
 - Responsive dashboard for desktop and mobile
@@ -58,6 +58,13 @@ Thanks to everyone helping shape LanLens, including community contributions that
 | Segments | Device documentation |
 |---|---|
 | ![Segments](docs/screenshots/lanlens_02_segments.png) | ![Device Detail 2](docs/screenshots/lanlens_01_homeassistant.png) |
+
+---
+
+## Documentation
+
+- [Knowledge Base / FAQ](docs/knowledgebase.md)
+- [Extended documentation](docs/documentation.md)
 
 ---
 

@@ -58,6 +58,7 @@ export default function Settings() {
   const [idoitConfig, setIdoitConfig] = useState<IdoitConfig | null>(null)
   const [idoitLoadError, setIdoitLoadError] = useState(false)
   const [idoitApiKey, setIdoitApiKey] = useState('')
+  const [idoitBasicPassword, setIdoitBasicPassword] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
   const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
@@ -96,6 +97,7 @@ export default function Settings() {
       const data = await idoitApi.getConfig()
       setIdoitConfig(data)
       setIdoitApiKey('')
+      setIdoitBasicPassword('')
     } catch {
       setIdoitConfig(null)
       setIdoitLoadError(true)
@@ -326,6 +328,7 @@ export default function Settings() {
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
+        idoit_basic_username: idoitConfig.idoit_basic_username,
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
@@ -333,10 +336,12 @@ export default function Settings() {
         // Do not send an empty API key: the backend interprets omitted as
         // "keep existing secret", while an explicit non-empty value rotates it.
         ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
+        ...(idoitBasicPassword ? { idoit_basic_password: idoitBasicPassword } : {}),
       }
       const updated = await idoitApi.updateConfig(payload)
       setIdoitConfig(updated)
       setIdoitApiKey('')
+      setIdoitBasicPassword('')
       setIdoitTestError(null)
       toast.success(t('idoit_settings_saved'))
     } catch (error) {
@@ -358,11 +363,13 @@ export default function Settings() {
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
+        idoit_basic_username: idoitConfig.idoit_basic_username,
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
         idoit_mapping_json: idoitConfig.idoit_mapping_raw,
         ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
+        ...(idoitBasicPassword ? { idoit_basic_password: idoitBasicPassword } : {}),
       })
       setIdoitTestError(null)
       if (result.message) {
@@ -983,6 +990,24 @@ export default function Settings() {
                       value={idoitApiKey}
                       onChange={(e) => setIdoitApiKey(e.target.value)}
                       placeholder={idoitConfig.idoit_api_key_configured ? t('idoit_api_key_keep_placeholder') : t('idoit_api_key_new_placeholder')}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_basic_username')}</label>
+                    <Input
+                      value={idoitConfig.idoit_basic_username || ''}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_basic_username: e.target.value })}
+                      placeholder="api-user"
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_basic_auth_hint')}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_basic_password')}</label>
+                    <Input
+                      type="password"
+                      value={idoitBasicPassword}
+                      onChange={(e) => setIdoitBasicPassword(e.target.value)}
+                      placeholder={idoitConfig.idoit_basic_password_configured ? t('idoit_basic_password_keep_placeholder') : t('idoit_basic_password_new_placeholder')}
                     />
                   </div>
                   <div>
