@@ -29,7 +29,7 @@ export default function InventoryTools() {
 
   useEffect(() => {
     load().catch(() => toast.error(t('inventory_tools_load_failed'))).finally(() => setLoading(false))
-  }, [t])
+  }, [])
 
   async function createRule() {
     if (!ruleName.trim() || !rulePattern.trim()) return

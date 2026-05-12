@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -47,9 +48,11 @@ def _is_secret_setting(key: str) -> bool:
 def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     devices = db.query(Device).all()
     segments = {s.id: s for s in db.query(Segment).all()}
-    counts: dict[int, int] = {}
-    for device_id, in db.query(Service.device_id).all():
-        counts[device_id] = counts.get(device_id, 0) + 1
+    counts = dict(
+        db.query(Service.device_id, func.count(Service.id))
+        .group_by(Service.device_id)
+        .all()
+    )
     nodes = []
     for device in devices:
         segment = segments.get(device.segment_id) if device.segment_id else None

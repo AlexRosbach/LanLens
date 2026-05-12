@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import Any, Optional
 
@@ -23,6 +23,12 @@ from ..services.cmdb import (
 from ..services.notification import validate_webhook_url
 
 router = APIRouter(prefix="/api/cmdb", tags=["cmdb"])
+
+
+def _to_naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class CmdbConfigPayload(BaseModel):
@@ -122,13 +128,14 @@ def export_devices(
 ):
     query = db.query(Device).options(joinedload(Device.segment))
     if changed_since:
+        changed_since_utc = _to_naive_utc(changed_since)
         # Incremental CMDB exports must include manual documentation,
         # maintenance, and merge changes as well as scan/refresh sightings.
         query = query.filter(or_(
-            Device.last_seen >= changed_since,
+            Device.last_seen >= changed_since_utc,
             exists().where(
                 DeviceChangeEvent.device_id == Device.id,
-                DeviceChangeEvent.created_at >= changed_since,
+                DeviceChangeEvent.created_at >= changed_since_utc,
             ),
         ))
     if segment_id is not None:
