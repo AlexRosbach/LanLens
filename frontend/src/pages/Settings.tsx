@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
@@ -19,6 +19,45 @@ interface IdoitErrorDetails {
   status_code?: number | null
   response_body?: string
   jsonrpc_error?: unknown
+}
+
+interface IdoitMapping {
+  name?: string
+  version?: number
+  objectType?: string
+  objectTypeByDeviceClass?: Record<string, string>
+  identity?: Record<string, unknown>
+  fields?: Record<string, string>
+}
+
+const IDOIT_MAPPING_FIELDS = [
+  { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
+  { key: 'ip_address', labelKey: 'idoit_field_ip_address', placeholder: 'C__CATG__IP.ipv4_address' },
+  { key: 'mac_address', labelKey: 'idoit_field_mac_address', placeholder: 'C__CATG__NETWORK_PORT.mac' },
+  { key: 'vendor', labelKey: 'idoit_field_vendor', placeholder: 'C__CATG__MODEL.manufacturer' },
+  { key: 'asset_tag', labelKey: 'idoit_field_asset_tag', placeholder: 'C__CATG__ACCOUNTING.inventory_no' },
+  { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'purpose', labelKey: 'idoit_field_purpose', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'notes', labelKey: 'idoit_field_notes', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'cpu', labelKey: 'idoit_field_cpu', placeholder: 'C__CATG__CPU.title' },
+  { key: 'model', labelKey: 'idoit_field_model', placeholder: 'C__CATG__MODEL.title' },
+  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: 'C__CATG__GLOBAL.description' },
+] as const
+
+function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {
+  try {
+    const parsed = JSON.parse(raw || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? { mapping: parsed as IdoitMapping, error: null }
+      : { mapping: null, error: 'Mapping must be a JSON object' }
+  } catch (error) {
+    return { mapping: null, error: error instanceof Error ? error.message : 'Invalid JSON' }
+  }
+}
+
+function stringifyIdoitMapping(mapping: IdoitMapping): string {
+  return JSON.stringify(mapping, null, 2)
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -66,6 +105,10 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const idoitMappingState = useMemo(
+    () => parseIdoitMapping(idoitConfig?.idoit_mapping_raw || '{}'),
+    [idoitConfig?.idoit_mapping_raw]
+  )
 
   useEffect(() => {
     // Load settings once on mount. Language switches should only re-render labels,
@@ -405,6 +448,37 @@ export default function Settings() {
     } finally {
       setIdoitTesting(false)
     }
+  }
+
+  function updateIdoitMapping(updater: (mapping: IdoitMapping) => IdoitMapping) {
+    if (!idoitConfig || !idoitMappingState.mapping) return
+    setIdoitConfig({
+      ...idoitConfig,
+      idoit_mapping_raw: stringifyIdoitMapping(updater(idoitMappingState.mapping)),
+    })
+  }
+
+  function updateIdoitFieldMapping(sourceField: string, targetField: string) {
+    updateIdoitMapping((mapping) => {
+      const fields = { ...(mapping.fields || {}) }
+      const trimmed = targetField.trim()
+      if (trimmed) {
+        fields[sourceField] = trimmed
+      } else {
+        delete fields[sourceField]
+      }
+      return { ...mapping, fields }
+    })
+  }
+
+  function updateIdoitIdentityField(identityField: 'externalIdField' | 'syncStatusField', targetField: string) {
+    updateIdoitMapping((mapping) => ({
+      ...mapping,
+      identity: {
+        ...(mapping.identity || {}),
+        [identityField]: targetField.trim(),
+      },
+    }))
   }
 
   async function syncAllIdoitDevices() {
@@ -1101,18 +1175,106 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <label className="block text-sm text-text-subtle mb-1">{t('idoit_mapping_json')}</label>
+                <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
+                  <div className="flex flex-col gap-1 mb-4">
+                    <h3 className="text-sm font-semibold text-text-muted">{t('idoit_mapping_editor')}</h3>
+                    <p className="text-xs text-text-subtle">{t('idoit_mapping_editor_hint')}</p>
+                  </div>
+
+                  {idoitMappingState.error ? (
+                    <div className="rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                      {t('idoit_mapping_json_invalid')}: {idoitMappingState.error}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_mapping_name')}</label>
+                          <Input
+                            value={idoitMappingState.mapping?.name || ''}
+                            onChange={(e) => updateIdoitMapping((mapping) => ({ ...mapping, name: e.target.value }))}
+                            placeholder="Default i-doit mapping"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_mapping_object_type')}</label>
+                          <Input
+                            value={idoitMappingState.mapping?.objectType || ''}
+                            onChange={(e) => updateIdoitMapping((mapping) => ({ ...mapping, objectType: e.target.value.trim() }))}
+                            placeholder="C__OBJTYPE__APPLIANCE"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_external_id_field')}</label>
+                          <Input
+                            value={typeof idoitMappingState.mapping?.identity?.externalIdField === 'string' ? idoitMappingState.mapping.identity.externalIdField : ''}
+                            onChange={(e) => updateIdoitIdentityField('externalIdField', e.target.value)}
+                            placeholder="C__CATG__GLOBAL.description"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_status_field')}</label>
+                          <Input
+                            value={typeof idoitMappingState.mapping?.identity?.syncStatusField === 'string' ? idoitMappingState.mapping.identity.syncStatusField : idoitConfig.idoit_sync_status_field}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              setIdoitConfig((currentConfig) => {
+                                if (!currentConfig) return currentConfig
+                                const parsed = parseIdoitMapping(currentConfig.idoit_mapping_raw || '{}')
+                                if (!parsed.mapping) return { ...currentConfig, idoit_sync_status_field: value }
+                                return {
+                                  ...currentConfig,
+                                  idoit_sync_status_field: value,
+                                  idoit_mapping_raw: stringifyIdoitMapping({
+                                    ...parsed.mapping,
+                                    identity: { ...(parsed.mapping.identity || {}), syncStatusField: value.trim() },
+                                  }),
+                                }
+                              })
+                            }}
+                            placeholder="C__CATG__GLOBAL.description"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto rounded-lg border border-border">
+                        <table className="w-full text-sm">
+                          <thead className="bg-surface2 text-text-subtle">
+                            <tr>
+                              <th className="text-left font-medium px-3 py-2">{t('idoit_lanlens_field')}</th>
+                              <th className="text-left font-medium px-3 py-2">{t('idoit_target_field')}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {IDOIT_MAPPING_FIELDS.map((field) => (
+                              <tr key={field.key}>
+                                <td className="px-3 py-2 text-text-muted whitespace-nowrap">{t(field.labelKey)}</td>
+                                <td className="px-3 py-2 min-w-80">
+                                  <Input
+                                    value={idoitMappingState.mapping?.fields?.[field.key] || ''}
+                                    onChange={(e) => updateIdoitFieldMapping(field.key, e.target.value)}
+                                    placeholder={field.placeholder}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-sm text-text-subtle hover:text-text-base">{t('idoit_advanced_json')}</summary>
                   <textarea
-                    className="w-full min-h-72 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-text-base focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    className="mt-2 w-full min-h-72 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-text-base focus:outline-none focus:ring-2 focus:ring-primary/40"
                     value={idoitConfig.idoit_mapping_raw || ''}
                     onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_mapping_raw: e.target.value })}
                     spellCheck={false}
                   />
-                </div>
+                </details>
 
-                {/* The mapping editor intentionally stays plain text so invalid JSON
-                    can be fixed in-place instead of being hidden by a parser. */}
                 {idoitConfig.mapping_errors?.length > 0 && (
                   <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
                     <p className="font-medium mb-1">{t('idoit_mapping_validation')}</p>
