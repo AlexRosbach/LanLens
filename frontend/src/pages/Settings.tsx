@@ -37,23 +37,23 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'mac_address', labelKey: 'idoit_field_mac_address', placeholder: 'C__CATG__NETWORK_PORT.mac' },
   { key: 'vendor', labelKey: 'idoit_field_vendor', placeholder: 'C__CATG__MODEL.manufacturer' },
   { key: 'asset_tag', labelKey: 'idoit_field_asset_tag', placeholder: 'C__CATG__ACCOUNTING.inventory_no' },
-  { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id', placeholder: 'C__CATG__ACCOUNTING.inventory_no' },
   { key: 'purpose', labelKey: 'idoit_field_purpose', placeholder: '' },
   { key: 'notes', labelKey: 'idoit_field_notes', placeholder: '' },
-  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__OPERATING_SYSTEM.title' },
+  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__OPERATING_SYSTEM.assigned_version' },
   { key: 'cpu', labelKey: 'idoit_field_cpu', placeholder: 'C__CATG__CPU.title' },
   { key: 'model', labelKey: 'idoit_field_model', placeholder: 'C__CATG__MODEL.title' },
   { key: 'serial', labelKey: 'idoit_field_serial', placeholder: 'C__CATG__MODEL.serial' },
-  { key: 'memory', labelKey: 'idoit_field_memory', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'disks', labelKey: 'idoit_field_disks', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'open_ports', labelKey: 'idoit_field_open_ports', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'services', labelKey: 'idoit_field_services', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'containers', labelKey: 'idoit_field_containers', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'hypervisor', labelKey: 'idoit_field_hypervisor', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'licenses', labelKey: 'idoit_field_licenses', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'relationships', labelKey: 'idoit_field_relationships', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'lanlens_inventory', labelKey: 'idoit_field_lanlens_inventory', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'memory', labelKey: 'idoit_field_memory', placeholder: 'C__CATG__MEMORY.title' },
+  { key: 'disks', labelKey: 'idoit_field_disks', placeholder: 'C__CATG__DRIVE.title' },
+  { key: 'open_ports', labelKey: 'idoit_field_open_ports', placeholder: '' },
+  { key: 'services', labelKey: 'idoit_field_services', placeholder: '' },
+  { key: 'containers', labelKey: 'idoit_field_containers', placeholder: '' },
+  { key: 'hypervisor', labelKey: 'idoit_field_hypervisor', placeholder: '' },
+  { key: 'licenses', labelKey: 'idoit_field_licenses', placeholder: '' },
+  { key: 'relationships', labelKey: 'idoit_field_relationships', placeholder: '' },
+  { key: 'lanlens_inventory', labelKey: 'idoit_field_lanlens_inventory', placeholder: '' },
+  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
 ] as const
 
 function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {
@@ -1181,7 +1181,7 @@ export default function Settings() {
                     <Input
                       value={idoitConfig.idoit_sync_status_field}
                       onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_status_field: e.target.value })}
-                      placeholder="C__CATG__GLOBAL.description"
+                      placeholder=""
                     />
                   </div>
                 </div>
@@ -1264,7 +1264,7 @@ export default function Settings() {
                           <Input
                             value={typeof idoitMappingState.mapping?.identity?.externalIdField === 'string' ? idoitMappingState.mapping.identity.externalIdField : ''}
                             onChange={(e) => updateIdoitIdentityField('externalIdField', e.target.value)}
-                            placeholder="C__CATG__GLOBAL.description"
+                            placeholder=""
                           />
                         </div>
                         <div>
@@ -1287,7 +1287,7 @@ export default function Settings() {
                                 }
                               })
                             }}
-                            placeholder="C__CATG__GLOBAL.description"
+                            placeholder=""
                           />
                         </div>
                       </div>

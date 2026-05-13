@@ -23,7 +23,7 @@ from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 6,
+    "version": 7,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -48,8 +48,6 @@ DEFAULT_MAPPING = {
         "Unknown": "C__OBJTYPE__CLIENT",
     },
     "identity": {
-        "externalIdField": "C__CATG__GLOBAL.description",
-        "syncStatusField": "C__CATG__GLOBAL.description",
         "fallback": ["mac_address", "hostname", "ip_address"],
     },
     "fields": {
@@ -58,23 +56,23 @@ DEFAULT_MAPPING = {
         "mac_address": "C__CATG__NETWORK_PORT.mac",
         "vendor": "C__CATG__MODEL.manufacturer",
         "asset_tag": "C__CATG__ACCOUNTING.inventory_no",
-        "cmdb_id": "C__CATG__GLOBAL.description",
-        "purpose": "",
+        "cmdb_id": "C__CATG__ACCOUNTING.inventory_no",
+        "purpose": "C__CATG__GLOBAL.purpose",
         "notes": "",
-        "os_info": "C__CATG__OPERATING_SYSTEM.title",
+        "os_info": "C__CATG__OPERATING_SYSTEM.assigned_version",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
         "serial": "C__CATG__MODEL.serial",
-        "memory": "C__CATG__GLOBAL.description",
-        "disks": "C__CATG__GLOBAL.description",
-        "open_ports": "C__CATG__GLOBAL.description",
-        "services": "C__CATG__GLOBAL.description",
-        "containers": "C__CATG__GLOBAL.description",
-        "hypervisor": "C__CATG__GLOBAL.description",
-        "licenses": "C__CATG__GLOBAL.description",
-        "relationships": "C__CATG__GLOBAL.description",
-        "lanlens_inventory": "C__CATG__GLOBAL.description",
-        "hardware_summary": "C__CATG__GLOBAL.description"
+        "memory": "C__CATG__MEMORY.title",
+        "disks": "C__CATG__DRIVE.title",
+        "open_ports": "",
+        "services": "",
+        "containers": "",
+        "hypervisor": "",
+        "licenses": "",
+        "relationships": "",
+        "lanlens_inventory": "",
+        "hardware_summary": ""
     },
 }
 
@@ -91,7 +89,7 @@ SETTING_DEFAULTS = {
     "idoit_auto_sync_enabled": "false",
     "idoit_sync_interval_minutes": "60",
     "idoit_offline_retire_days": "7",
-    "idoit_sync_status_field": "C__CATG__GLOBAL.description",
+    "idoit_sync_status_field": "",
     "idoit_mapping_json": json.dumps(DEFAULT_MAPPING, indent=2),
 }
 
@@ -251,7 +249,8 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
         fields.get(field) == "C__CATG__GLOBAL.description"
         for field in description_dump_fields
     ) and version < 4
-    return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description
+    global_description_dump = any(value == "C__CATG__GLOBAL.description" for value in fields.values())
+    return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description or global_description_dump
 
 
 def _normalized_default_object_type(value: Optional[str]) -> str:
@@ -263,8 +262,8 @@ def _normalized_default_object_type(value: Optional[str]) -> str:
 
 def _normalized_sync_status_field(value: Optional[str]) -> str:
     field = (value or "").strip()
-    if not field or field == "C__CATG__GLOBAL.comment":
-        return "C__CATG__GLOBAL.description"
+    if not field or field in {"C__CATG__GLOBAL.comment", "C__CATG__GLOBAL.description"}:
+        return ""
     return field
 
 
@@ -336,8 +335,8 @@ def validate_mapping(
     else:
         identity = identity_raw
     configured_status = sync_status_field if isinstance(sync_status_field, str) and sync_status_field.strip() else identity.get("syncStatusField")
-    if not isinstance(configured_status, str) or not configured_status.strip():
-        errors.append("A writable i-doit sync/reference/status field must be configured")
+    if configured_status is not None and not isinstance(configured_status, str):
+        errors.append("Mapping identity.syncStatusField must be a string when provided")
     external_id_field = identity.get("externalIdField")
     if external_id_field is not None and (not isinstance(external_id_field, str) or not external_id_field.strip()):
         errors.append("Mapping identity.externalIdField must be a non-empty string when provided")
@@ -363,8 +362,8 @@ def _sync_status_field(config: IdoitConfig) -> str:
         return _normalized_sync_status_field(config.sync_status_field)
     identity_status = _mapping_identity(config).get("syncStatusField")
     if isinstance(identity_status, str) and identity_status.strip():
-        return identity_status.strip()
-    return "C__CATG__GLOBAL.description"
+        return _normalized_sync_status_field(identity_status)
+    return ""
 
 
 def _json_safe_device_value(device: Device, field_name: str) -> Any:
@@ -611,6 +610,121 @@ def _hardware_summary(findings: dict[str, str]) -> Optional[str]:
     return "\n".join(parts) or None
 
 
+def _to_list(value: Any) -> list[Any]:
+    decoded = _decode_finding_value(value)
+    if decoded in (None, ""):
+        return []
+    return decoded if isinstance(decoded, list) else [decoded]
+
+
+def _size_to_value_unit(value: Any) -> tuple[Optional[float], Optional[int]]:
+    if value in (None, ""):
+        return None, None
+    text = str(value).strip().replace(",", ".")
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?i?B?|[KMGTPE])?", text, re.IGNORECASE)
+    if not match:
+        return None, None
+    amount = float(match.group(1))
+    unit = (match.group(2) or "").lower().replace("ib", "b")
+    # i-doit dialog ids in default installations: 1=MB, 2=GB, 3=TB.
+    if unit in {"", "b"}:
+        amount = amount / (1024 ** 3)
+        return round(amount, 2), 2
+    if unit in {"k", "kb"}:
+        return round(amount / (1024 ** 2), 2), 2
+    if unit in {"m", "mb"}:
+        return round(amount, 2), 1
+    if unit in {"g", "gb"}:
+        return round(amount, 2), 2
+    if unit in {"t", "tb"}:
+        return round(amount, 2), 3
+    return amount, None
+
+
+def _memory_entries(raw: Any) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for item in _to_list(raw):
+        if isinstance(item, dict):
+            capacity, unit = _size_to_value_unit(item.get("Capacity") or item.get("capacity") or item.get("Size") or item.get("size"))
+            entry = {
+                "quantity": 1,
+                "title": str(item.get("PartNumber") or item.get("Name") or item.get("DeviceLocator") or "Memory module")[:255],
+                "manufacturer": item.get("Manufacturer") or item.get("manufacturer"),
+                "type": item.get("MemoryType") or item.get("SMBIOSMemoryType") or item.get("type"),
+                "capacity": capacity,
+                "unit": unit,
+            }
+            entries.append({k: v for k, v in entry.items() if v not in (None, "")})
+    if entries:
+        return entries[:32]
+    text = str(raw or "")
+    for line in text.splitlines():
+        if line.strip().lower().startswith("mem:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                capacity, unit = _size_to_value_unit(parts[1])
+                if capacity:
+                    return [{"quantity": 1, "title": "System memory", "capacity": capacity, "unit": unit}]
+    capacity, unit = _size_to_value_unit(text)
+    return [{"quantity": 1, "title": "System memory", "capacity": capacity, "unit": unit}] if capacity else []
+
+
+def _drive_entries(raw: Any) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for item in _to_list(raw):
+        if isinstance(item, dict):
+            size, unit = _size_to_value_unit(item.get("Size") or item.get("size"))
+            title = item.get("Model") or item.get("model") or item.get("Name") or item.get("name") or item.get("DeviceID") or "Disk"
+            entry = {
+                "title": str(title)[:255],
+                "capacity": size,
+                "unit": unit,
+                "serial": item.get("SerialNumber") or item.get("serial"),
+                "drive_type": item.get("MediaType") or item.get("media_type") or item.get("type"),
+                "firmware": item.get("FirmwareRevision") or item.get("firmware"),
+            }
+            entries.append({k: v for k, v in entry.items() if v not in (None, "")})
+    if entries:
+        return entries[:64]
+    for line in str(raw or "").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.lower().startswith("name "):
+            continue
+        parts = stripped.split(None, 3)
+        if len(parts) < 2:
+            continue
+        name = parts[0]
+        size = parts[1]
+        dtype = parts[2] if len(parts) > 2 else None
+        model = parts[3] if len(parts) > 3 else None
+        capacity, unit = _size_to_value_unit(size)
+        entry = {
+            "title": (model or name)[:255],
+            "mount_point": name[:255],
+            "capacity": capacity,
+            "unit": unit,
+            "drive_type": dtype,
+        }
+        entries.append({k: v for k, v in entry.items() if v not in (None, "")})
+    return entries[:64]
+
+
+def _os_assigned_version(raw: Any) -> Optional[str]:
+    decoded = _decode_finding_value(raw)
+    if isinstance(decoded, dict):
+        for key in ("Caption", "caption", "PRETTY_NAME", "pretty_name", "Name", "name"):
+            if decoded.get(key):
+                version = decoded.get("Version") or decoded.get("version")
+                return f"{decoded[key]} {version}"[:255] if version else str(decoded[key])[:255]
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    for line in text.splitlines():
+        if line.startswith("PRETTY_NAME="):
+            return line.split("=", 1)[1].strip().strip('"')[:255]
+    return text.splitlines()[0][:255]
+
+
 def _latest_open_ports(db: Optional[Session], device: Device) -> Optional[str]:
     if db is None or not device.id:
         return None
@@ -722,6 +836,14 @@ def _lanlens_inventory_summary(device: Device, findings: dict[str, dict[str, Any
 def _append_field(fields: dict[str, Any], target: str, value: Any) -> None:
     if value is None or value == "":
         return
+    if isinstance(value, list):
+        if not value:
+            return
+        if target in fields and isinstance(fields[target], list):
+            fields[target].extend(value)
+        else:
+            fields[target] = value
+        return
     if target in fields and fields[target]:
         fields[target] = f"{fields[target]}\n{value}"
     else:
@@ -778,12 +900,12 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "asset_tag": device.asset_tag,
         "location": device.location,
         "responsible": device.responsible,
-        "os_info": os_info,
+        "os_info": _os_assigned_version(os_info),
         "cpu": _cpu_title(cpu_raw),
-        "memory": memory,
+        "memory": _memory_entries(memory),
         "model": model,
         "serial": serial,
-        "disks": disks,
+        "disks": _drive_entries(disks),
         "open_ports": _latest_open_ports(db, device),
         "services": _services_summary(device),
         "containers": containers,
@@ -815,12 +937,12 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     if isinstance(external_id_field, str) and external_id_field.strip() and external_id_value and not fields.get(external_id_field):
         fields[external_id_field] = external_id_value
 
-    # Store a human-readable LanLens reference in a dedicated/comment-like field.
-    # If a user maps their CMDB ID to the same field, append instead of replacing
-    # so duplicate-prevention identifiers are not lost.
-    sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
     sync_status_field = _sync_status_field(config)
-    _append_field(fields, sync_status_field, sync_reference)
+    if sync_status_field:
+        # Optional, explicit operator-selected reference field. The default is
+        # empty so LanLens does not pollute generic i-doit descriptions.
+        sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
+        _append_field(fields, sync_status_field, sync_reference)
     return {
         "objectType": object_type_for_device(device, config),
         "title": label,
@@ -861,6 +983,8 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__NETWORK_PORT": ("mac", "title"),
     "C__CATG__IP": ("ipv4_address", "hostname"),
     "C__CATG__CPU": ("title", "type"),
+    "C__CATG__MEMORY": ("title", "manufacturer", "capacity"),
+    "C__CATG__DRIVE": ("serial", "mount_point", "title"),
 }
 
 
@@ -948,6 +1072,19 @@ def _category_entry_id(entry: dict[str, Any]) -> Optional[str]:
             except IdoitConnectionError:
                 continue
     return None
+
+
+def _clean_lanlens_global_description(value: Any) -> Optional[str]:
+    text = _plain_category_value(value)
+    if not isinstance(text, str):
+        return None
+    original = text
+    for marker in ("LanLens inventory snapshot", "LanLens deep-scan findings:"):
+        if marker in text:
+            text = text.split(marker, 1)[0]
+    lines = [line for line in text.splitlines() if not line.strip().startswith("LanLens sync reference:")]
+    cleaned = "\n".join(lines).strip()
+    return cleaned if cleaned != original.strip() else None
 
 
 class IdoitClient:
@@ -1130,6 +1267,21 @@ class IdoitClient:
         # instead of appending a fresh duplicate on every sync.
         return _category_entry_id(entries[0])
 
+    async def cleanup_lanlens_global_description(self, object_id: str) -> Optional[str]:
+        try:
+            result = await self.read_category(object_id, "C__CATG__GLOBAL")
+        except IdoitConnectionError:
+            return None
+        entries = _category_entries(result)
+        if not entries:
+            return None
+        description = entries[0].get("description")
+        cleaned = _clean_lanlens_global_description(description)
+        if cleaned is None:
+            return None
+        await self.save_category(object_id, "C__CATG__GLOBAL", {"description": cleaned})
+        return cleaned
+
     async def object_sysid(self, object_id: str) -> Optional[str]:
         result = await self.read_object(object_id)
         if isinstance(result, dict):
@@ -1150,8 +1302,8 @@ class IdoitClient:
         }
 
 
-def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    categories: dict[str, dict[str, Any]] = {}
+def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    categories: dict[str, Any] = {}
     direct: dict[str, Any] = {}
     for target, value in fields.items():
         if not isinstance(target, str) or value is None:
@@ -1161,6 +1313,11 @@ def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, dict[str, Any]
             continue
         category, prop = target.split(".", 1)
         if category and prop:
+            if isinstance(value, list) and all(isinstance(item, dict) for item in value):
+                existing = categories.setdefault(category, [])
+                if isinstance(existing, list):
+                    existing.extend(value)
+                continue
             categories.setdefault(category, {})[prop] = value
     return categories, direct
 
@@ -1214,16 +1371,27 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         categories, direct_fields = _category_payloads(payload.get("fields") if isinstance(payload.get("fields"), dict) else {})
         if direct_fields:
             details["direct_fields_skipped"] = direct_fields
-        if categories.get("C__CATG__GLOBAL", {}).get("cmdb_status") == "C__CMDB_STATUS__OUT_OF_OPERATION":
-            categories["C__CATG__GLOBAL"]["cmdb_status"] = await client.out_of_operation_status_id()
+        global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
+        if global_category.get("description") is None:
+            cleaned_description = await client.cleanup_lanlens_global_description(object_id)
+            if cleaned_description is not None:
+                details["global_description_cleanup"] = "removed previous LanLens inventory/reference dump"
+        if global_category.get("cmdb_status") == "C__CMDB_STATUS__OUT_OF_OPERATION":
+            global_category["cmdb_status"] = await client.out_of_operation_status_id()
             details["offline_retirement_applied"] = True
         sync_warnings: list[str] = []
         for category, data in categories.items():
-            result = await client.save_category_best_effort(object_id, category, data)
-            details["category_results"][category] = result
-            if result.get("status") == "partial":
-                failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
-                sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
+            entries = data if isinstance(data, list) else [data]
+            category_results: list[dict[str, Any]] = []
+            for entry_data in entries:
+                if not isinstance(entry_data, dict) or not entry_data:
+                    continue
+                result = await client.save_category_best_effort(object_id, category, entry_data)
+                category_results.append(result)
+                if result.get("status") == "partial":
+                    failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
+                    sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
+            details["category_results"][category] = category_results if isinstance(data, list) else (category_results[0] if category_results else {"status": "skipped_empty"})
 
         sysid = await client.object_sysid(object_id)
         if sysid:
