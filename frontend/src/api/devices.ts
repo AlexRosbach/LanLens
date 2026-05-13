@@ -125,8 +125,6 @@ export const devicesApi = {
   update: (id: number, data: DeviceUpdate) =>
     apiClient.put<Device>(`/devices/${id}`, data).then((r) => r.data),
 
-  updateMaintenance: (id: number, data: Pick<DeviceUpdate, 'ignored' | 'notifications_muted' | 'maintenance_until' | 'maintenance_note'>) =>
-    apiClient.put<Device>(`/devices/${id}/maintenance`, data).then((r) => r.data),
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
 

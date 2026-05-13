@@ -15,7 +15,7 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
-import { backendUtcToLocalDateTimeInput, formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime, localDateTimeInputToUtcIso, parseDateStr } from '../utils/formatters'
+import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
 
 interface EditState {
   label: string
@@ -82,8 +82,6 @@ export default function DeviceDetail() {
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
-  const [maintenanceDraft, setMaintenanceDraft] = useState({ until: '', note: '' })
-  const [maintenanceSaving, setMaintenanceSaving] = useState(false)
   const [idoitSyncing, setIdoitSyncing] = useState(false)
 
   useEffect(() => {
@@ -99,10 +97,6 @@ export default function DeviceDetail() {
         // best effort
       }
       setDevice(currentDevice)
-      setMaintenanceDraft({
-        until: backendUtcToLocalDateTimeInput(currentDevice.maintenance_until),
-        note: currentDevice.maintenance_note ?? '',
-      })
       setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
       devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
@@ -159,10 +153,6 @@ export default function DeviceDetail() {
         is_registered: true,
       })
       setDevice(updated)
-      setMaintenanceDraft({
-        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
-        note: updated.maintenance_note ?? '',
-      })
       setForm(toEditState(updated))
       setEditing(false)
       toast.success(t('device_updated'))
@@ -197,10 +187,6 @@ export default function DeviceDetail() {
     try {
       const updated = await devicesApi.refreshStatus(device.id)
       setDevice(updated)
-      setMaintenanceDraft({
-        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
-        note: updated.maintenance_note ?? '',
-      })
       setForm(toEditState(updated))
       setIpHistory(updated.ip_history ?? ipHistory)
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
@@ -210,44 +196,6 @@ export default function DeviceDetail() {
       toast.error(t('device_status_refresh_failed'))
     } finally {
       setRefreshStatusLoading(false)
-    }
-  }
-
-  async function handleMaintenanceChange(changes: { ignored?: boolean; notifications_muted?: boolean; maintenance_until?: string | null; maintenance_note?: string | null }) {
-    if (!device) return
-    try {
-      const updated = await devicesApi.updateMaintenance(device.id, changes)
-      setDevice(updated)
-      setMaintenanceDraft({
-        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
-        note: updated.maintenance_note ?? '',
-      })
-      devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
-      toast.success(t('device_updated'))
-    } catch {
-      toast.error(t('save_failed'))
-    }
-  }
-
-  async function saveMaintenanceDraft() {
-    if (!device) return
-    setMaintenanceSaving(true)
-    try {
-      const updated = await devicesApi.updateMaintenance(device.id, {
-        maintenance_until: localDateTimeInputToUtcIso(maintenanceDraft.until),
-        maintenance_note: maintenanceDraft.note.trim() || null,
-      })
-      setDevice(updated)
-      setMaintenanceDraft({
-        until: backendUtcToLocalDateTimeInput(updated.maintenance_until),
-        note: updated.maintenance_note ?? '',
-      })
-      devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
-      toast.success(t('device_updated'))
-    } catch {
-      toast.error(t('save_failed'))
-    } finally {
-      setMaintenanceSaving(false)
     }
   }
 
@@ -275,13 +223,6 @@ export default function DeviceDetail() {
 
   const hasDocumentation = device.purpose || device.description || device.location ||
     device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
-  const maintenanceActive = device.maintenance_until && parseDateStr(device.maintenance_until).getTime() > Date.now()
-  const maintenanceFlags = [
-    device.ignored ? t('maintenance_ignored') : null,
-    device.notifications_muted ? t('maintenance_notifications_muted') : null,
-    maintenanceActive ? t('maintenance_until', { time: formatDateTime(device.maintenance_until!) }) : null,
-  ].filter(Boolean).join(' · ')
-
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-5">
       {/* Header */}
@@ -331,15 +272,7 @@ export default function DeviceDetail() {
         </div>
       </div>
 
-      {(device.ignored || device.notifications_muted || maintenanceActive) && (
-        <Card className="border-warning/40 bg-warning/10">
-          <p className="text-sm font-medium text-warning">{t('maintenance_mute_active')}</p>
-          <p className="text-xs text-text-muted mt-1">
-            {maintenanceFlags}
-          </p>
-          {device.maintenance_note && <p className="text-xs text-text-subtle mt-1">{device.maintenance_note}</p>}
-        </Card>
-      )}
+
 
       {/* Connect */}
       <Card>
@@ -688,39 +621,7 @@ export default function DeviceDetail() {
         )}
       </Card>
 
-      <Card>
-        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('maintenance_noise_control')}</h2>
-        <p className="text-xs text-text-subtle mb-3">{t('maintenance_noise_help')}</p>
-        <div className="grid sm:grid-cols-2 gap-3 text-sm">
-          <label className="flex items-center gap-2 text-text-muted">
-            <input type="checkbox" checked={!!device.notifications_muted} onChange={(e) => handleMaintenanceChange({ notifications_muted: e.target.checked })} />
-            {t('maintenance_mute_notifications')}
-          </label>
-          <label className="flex items-center gap-2 text-text-muted">
-            <input type="checkbox" checked={!!device.ignored} onChange={(e) => handleMaintenanceChange({ ignored: e.target.checked })} />
-            {t('maintenance_ignore_device')}
-          </label>
-        </div>
-        <div className="mt-3 grid sm:grid-cols-2 gap-3">
-          <label className="block">
-            <span className="block text-xs text-text-subtle mb-1">{t('maintenance_until_label')}</span>
-            <Input
-              type="datetime-local"
-              value={maintenanceDraft.until}
-              onChange={(e) => setMaintenanceDraft((draft) => ({ ...draft, until: e.target.value }))}
-            />
-          </label>
-          <Input
-            value={maintenanceDraft.note}
-            onChange={(e) => setMaintenanceDraft((draft) => ({ ...draft, note: e.target.value }))}
-            placeholder={t('maintenance_note')}
-          />
-        </div>
-        <div className="mt-3 flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={() => setMaintenanceDraft({ until: '', note: '' })}>{t('maintenance_clear')}</Button>
-          <Button size="sm" onClick={saveMaintenanceDraft} loading={maintenanceSaving}>{t('save')}</Button>
-        </div>
-      </Card>
+
 
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('change_timeline')}</h2>
