@@ -987,6 +987,16 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__DRIVE": ("serial", "mount_point", "title"),
 }
 
+# These fields are derived automatically from deep-scan hardware data and vary
+# heavily between i-doit versions/object types. They are useful when accepted,
+# but should not turn an otherwise successful sync into operator-visible noise.
+# Explicitly mapped/default identity fields still report warnings when rejected.
+OPTIONAL_IDOIT_CATEGORY_FIELDS = {
+    "C__CATG__CPU": {"manufacturer", "type", "frequency", "frequency_unit", "cores", "description"},
+    "C__CATG__MEMORY": {"quantity", "manufacturer", "type", "capacity", "unit"},
+    "C__CATG__DRIVE": {"serial", "mount_point", "capacity", "unit", "firmware", "drive_type"},
+}
+
 
 def _payload_log_summary(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
@@ -1306,8 +1316,20 @@ class IdoitClient:
                 except IdoitConnectionError as field_error:
                     failed[field] = field_error.to_detail()
             if not saved:
+                optional_fields = OPTIONAL_IDOIT_CATEGORY_FIELDS.get(category, set())
+                if failed and all(field in optional_fields for field in failed):
+                    response = {"status": "skipped_optional", "ignored_fields": sorted(failed.keys()), "ignored_field_errors": failed}
+                    if entry_id:
+                        response["entry_id"] = entry_id
+                    return response
                 raise full_error
-            response = {"status": "partial", "saved_fields": sorted(saved.keys()), "failed_fields": failed}
+            optional_fields = OPTIONAL_IDOIT_CATEGORY_FIELDS.get(category, set())
+            ignored = {field: error for field, error in failed.items() if field in optional_fields}
+            warning_failed = {field: error for field, error in failed.items() if field not in optional_fields}
+            response = {"status": "partial", "saved_fields": sorted(saved.keys()), "failed_fields": warning_failed}
+            if ignored:
+                response["ignored_fields"] = sorted(ignored.keys())
+                response["ignored_field_errors"] = ignored
             if entry_id:
                 response["entry_id"] = entry_id
             return response
@@ -1507,7 +1529,8 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 category_results.append(result)
                 if result.get("status") == "partial":
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
-                    sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
+                    if failed:
+                        sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
             details["category_results"][category] = category_results if isinstance(data, list) else (category_results[0] if category_results else {"status": "skipped_empty"})
 
         sysid = await client.object_sysid(object_id)
