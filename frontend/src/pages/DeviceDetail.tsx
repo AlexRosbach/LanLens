@@ -34,7 +34,7 @@ interface EditState {
 function idoitStatusVariant(status?: string | null): 'success' | 'danger' | 'warning' | 'primary' | 'muted' {
   if (status === 'synced' || status === 'validated') return 'success'
   if (status === 'error' || status === 'mapping_error') return 'danger'
-  if (status === 'preview_ready' || status === 'pending_changes' || status === 'validated_pending_sync') return 'warning'
+  if (status === 'preview_ready' || status === 'pending_changes' || status === 'validated_pending_sync' || status === 'synced_with_warnings') return 'warning'
   if (status === 'linked') return 'primary'
   return 'muted'
 }

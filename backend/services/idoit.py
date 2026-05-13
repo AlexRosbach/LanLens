@@ -178,6 +178,12 @@ def get_config(db: Session) -> IdoitConfig:
     except Exception as exc:
         mapping = {}
         mapping_error = f"Mapping JSON is invalid: {exc}"
+    if _looks_like_legacy_default_mapping(mapping):
+        # Existing installations may still have the v1 default mapping stored in
+        # the DB. That mapping used invalid/too-generic category fields and the
+        # old Server default, so simply changing SETTING_DEFAULTS would not help.
+        mapping = DEFAULT_MAPPING
+        raw_mapping = json.dumps(DEFAULT_MAPPING, indent=2)
     try:
         timeout = max(3, min(120, int(_get_setting(db, "idoit_timeout_seconds") or "15")))
     except ValueError:
@@ -202,6 +208,23 @@ def get_config(db: Session) -> IdoitConfig:
         mapping=mapping,
         mapping_error=mapping_error,
         mapping_raw=raw_mapping,
+    )
+
+
+def _looks_like_legacy_default_mapping(mapping: Any) -> bool:
+    if not isinstance(mapping, dict):
+        return False
+    try:
+        version = int(mapping.get("version") or 1)
+    except (TypeError, ValueError):
+        version = 1
+    fields = mapping.get("fields") if isinstance(mapping.get("fields"), dict) else {}
+    return (
+        mapping.get("name") == "Default i-doit mapping"
+        and version < 2
+        and mapping.get("objectType") == "C__OBJTYPE__SERVER"
+        and fields.get("ip_address") == "C__CATG__IP.ADDRESS"
+        and fields.get("mac_address") == "C__CATG__NETWORK_PORT.MAC"
     )
 
 
@@ -618,6 +641,28 @@ class IdoitClient:
     async def save_category(self, object_id: str, category: str, data: dict[str, Any]) -> Any:
         return await self.call("cmdb.category.save", {"object": _object_id_as_int(object_id), "category": category, "data": data})
 
+    async def save_category_best_effort(self, object_id: str, category: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Save a category without letting one invalid field abort the sync.
+
+        i-doit category validation is strict and differs by object type/version.
+        Try the full category first; if i-doit rejects it, retry individual
+        fields so valid information still lands in the CMDB and the operator can
+        see exactly which field was rejected.
+        """
+        try:
+            return {"status": "saved", "result": await self.save_category(object_id, category, data)}
+        except IdoitConnectionError as full_error:
+            saved: dict[str, Any] = {}
+            failed: dict[str, Any] = {}
+            for field, value in data.items():
+                try:
+                    saved[field] = await self.save_category(object_id, category, {field: value})
+                except IdoitConnectionError as field_error:
+                    failed[field] = field_error.to_detail()
+            if not saved:
+                raise full_error
+            return {"status": "partial", "saved_fields": sorted(saved.keys()), "failed_fields": failed}
+
     async def object_sysid(self, object_id: str) -> Optional[str]:
         result = await self.read_object(object_id)
         if isinstance(result, dict):
@@ -691,8 +736,13 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         categories, direct_fields = _category_payloads(payload.get("fields") if isinstance(payload.get("fields"), dict) else {})
         if direct_fields:
             details["direct_fields_skipped"] = direct_fields
+        sync_warnings: list[str] = []
         for category, data in categories.items():
-            details["category_results"][category] = await client.save_category(object_id, category, data)
+            result = await client.save_category_best_effort(object_id, category, data)
+            details["category_results"][category] = result
+            if result.get("status") == "partial":
+                failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
+                sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
 
         sysid = await client.object_sysid(object_id)
         if sysid:
@@ -700,15 +750,18 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             details["idoit_sysid"] = sysid
 
         now = datetime.utcnow()
-        state.status = "synced"
+        state.status = "synced_with_warnings" if sync_warnings else "synced"
         state.last_sync_at = now
         state.last_success_at = now
         state.last_error = None
         details["upstream_write_performed"] = True
         details["action"] = action
+        if sync_warnings:
+            details["warnings"] = sync_warnings
+            state.last_error = "; ".join(sync_warnings)
         log_sync(db, device.id, mode, "success", f"i-doit {action} completed", details, object_id)
         db.commit()
-        return {"device_id": device.id, "status": state.status, "action": action, "idoit_object_id": object_id, "idoit_sysid": state.idoit_sysid, "payload_hash": digest, "upstream_write_performed": True}
+        return {"device_id": device.id, "status": state.status, "action": action, "idoit_object_id": object_id, "idoit_sysid": state.idoit_sysid, "payload_hash": digest, "upstream_write_performed": True, "warnings": sync_warnings}
     except IdoitConnectionError as exc:
         state.status = "error"
         state.last_error = exc.message
