@@ -22,7 +22,7 @@ from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 2,
+    "version": 3,
     # Use a neutral appliance for unknown/unclassified devices. Real servers are
     # still mapped to C__OBJTYPE__SERVER below, but LanLens should not document a
     # random discovered host as a server just because no better signal exists.
@@ -49,7 +49,7 @@ DEFAULT_MAPPING = {
     },
     "identity": {
         "externalIdField": "C__CATG__GLOBAL.description",
-        "syncStatusField": "C__CATG__GLOBAL.comment",
+        "syncStatusField": "C__CATG__GLOBAL.description",
         "fallback": ["mac_address", "hostname", "ip_address"],
     },
     "fields": {
@@ -57,16 +57,14 @@ DEFAULT_MAPPING = {
         "ip_address": "C__CATG__IP.ipv4_address",
         "mac_address": "C__CATG__NETWORK_PORT.mac",
         "vendor": "C__CATG__MODEL.manufacturer",
-        "device_class": "C__CATG__MODEL.type",
         "asset_tag": "C__CATG__ACCOUNTING.inventory_no",
-        "location": "C__CATG__GLOBAL.location_path",
         "cmdb_id": "C__CATG__GLOBAL.description",
-        "purpose": "C__CATG__GLOBAL.purpose",
-        "notes": "C__CATG__GLOBAL.comment",
-        "os_info": "C__CATG__GLOBAL.comment",
+        "purpose": "C__CATG__GLOBAL.description",
+        "notes": "C__CATG__GLOBAL.description",
+        "os_info": "C__CATG__GLOBAL.description",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
-        "hardware_summary": "C__CATG__GLOBAL.comment"
+        "hardware_summary": "C__CATG__GLOBAL.description"
     },
 }
 
@@ -82,7 +80,7 @@ SETTING_DEFAULTS = {
     "idoit_default_object_type": "C__OBJTYPE__APPLIANCE",
     "idoit_auto_sync_enabled": "false",
     "idoit_sync_interval_minutes": "60",
-    "idoit_sync_status_field": "C__CATG__GLOBAL.comment",
+    "idoit_sync_status_field": "C__CATG__GLOBAL.description",
     "idoit_mapping_json": json.dumps(DEFAULT_MAPPING, indent=2),
 }
 
@@ -178,10 +176,12 @@ def get_config(db: Session) -> IdoitConfig:
     except Exception as exc:
         mapping = {}
         mapping_error = f"Mapping JSON is invalid: {exc}"
-    if _looks_like_legacy_default_mapping(mapping):
-        # Existing installations may still have the v1 default mapping stored in
-        # the DB. That mapping used invalid/too-generic category fields and the
-        # old Server default, so simply changing SETTING_DEFAULTS would not help.
+    if _needs_default_mapping_upgrade(mapping):
+        # Existing installations may still have an older default mapping stored
+        # in the DB. That mapping used invalid/too-generic category fields like
+        # C__CATG__GLOBAL.comment, C__CATG__GLOBAL.location_path and
+        # C__CATG__MODEL.type, so simply changing SETTING_DEFAULTS would not
+        # help those installations.
         mapping = DEFAULT_MAPPING
         raw_mapping = json.dumps(DEFAULT_MAPPING, indent=2)
     try:
@@ -204,14 +204,14 @@ def get_config(db: Session) -> IdoitConfig:
         default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__APPLIANCE",
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
         sync_interval_minutes=sync_interval,
-        sync_status_field=_get_setting(db, "idoit_sync_status_field") or "C__CATG__GLOBAL.comment",
+        sync_status_field=_normalized_sync_status_field(_get_setting(db, "idoit_sync_status_field")),
         mapping=mapping,
         mapping_error=mapping_error,
         mapping_raw=raw_mapping,
     )
 
 
-def _looks_like_legacy_default_mapping(mapping: Any) -> bool:
+def _needs_default_mapping_upgrade(mapping: Any) -> bool:
     if not isinstance(mapping, dict):
         return False
     try:
@@ -219,13 +219,24 @@ def _looks_like_legacy_default_mapping(mapping: Any) -> bool:
     except (TypeError, ValueError):
         version = 1
     fields = mapping.get("fields") if isinstance(mapping.get("fields"), dict) else {}
-    return (
-        mapping.get("name") == "Default i-doit mapping"
-        and version < 2
-        and mapping.get("objectType") == "C__OBJTYPE__SERVER"
-        and fields.get("ip_address") == "C__CATG__IP.ADDRESS"
-        and fields.get("mac_address") == "C__CATG__NETWORK_PORT.MAC"
-    )
+    if mapping.get("name") != "Default i-doit mapping":
+        return False
+    rejected_defaults = {
+        "C__CATG__IP.ADDRESS",
+        "C__CATG__NETWORK_PORT.MAC",
+        "C__CATG__MODEL.TYPE",
+        "C__CATG__MODEL.type",
+        "C__CATG__GLOBAL.comment",
+        "C__CATG__GLOBAL.location_path",
+    }
+    return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values())
+
+
+def _normalized_sync_status_field(value: Optional[str]) -> str:
+    field = (value or "").strip()
+    if not field or field == "C__CATG__GLOBAL.comment":
+        return "C__CATG__GLOBAL.description"
+    return field
 
 
 def update_config(db: Session, payload: dict[str, Any]) -> IdoitConfig:
@@ -311,11 +322,11 @@ def _mapping_identity(config: IdoitConfig) -> dict[str, Any]:
 
 def _sync_status_field(config: IdoitConfig) -> str:
     if isinstance(config.sync_status_field, str) and config.sync_status_field.strip():
-        return config.sync_status_field.strip()
+        return _normalized_sync_status_field(config.sync_status_field)
     identity_status = _mapping_identity(config).get("syncStatusField")
     if isinstance(identity_status, str) and identity_status.strip():
         return identity_status.strip()
-    return "C__CATG__GLOBAL.comment"
+    return "C__CATG__GLOBAL.description"
 
 
 def _json_safe_device_value(device: Device, field_name: str) -> Any:

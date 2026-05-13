@@ -1063,7 +1063,7 @@ export default function Settings() {
                     <Input
                       value={idoitConfig.idoit_sync_status_field}
                       onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_status_field: e.target.value })}
-                      placeholder="C__CATG__GLOBAL.comment"
+                      placeholder="C__CATG__GLOBAL.description"
                     />
                   </div>
                 </div>
