@@ -1394,7 +1394,7 @@ def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     return categories, direct
 
 
-async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:
+async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual", skip_unchanged: bool = False, _stale_retry: bool = False) -> dict[str, Any]:
     config = get_config(db)
     if not config.enabled:
         raise IdoitConnectionError("i-doit integration is disabled", stage="configuration", endpoint=build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path))
@@ -1532,6 +1532,23 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         db.commit()
         return {"device_id": device.id, "status": state.status, "action": action, "idoit_object_id": object_id, "idoit_sysid": state.idoit_sysid, "payload_hash": digest, "upstream_write_performed": True, "warnings": sync_warnings}
     except IdoitConnectionError as exc:
+        if _is_missing_object_error(exc) and not _stale_retry:
+            stale_object_id = state.idoit_object_id
+            state.idoit_object_id = None
+            state.idoit_sysid = None
+            state.status = "recreate_pending"
+            state.last_error = "Linked i-doit object vanished during sync; retrying with a fresh object link"
+            log_sync(
+                db,
+                device.id,
+                mode,
+                "skipped",
+                "i-doit object vanished during sync; cleared local link and retrying",
+                {**details, "stale_object_id": stale_object_id, "retry": "recreate_missing_object"},
+                stale_object_id,
+            )
+            db.commit()
+            return await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=False, _stale_retry=True)
         state.status = "error"
         state.last_error = exc.message
         log_sync(db, device.id, mode, "failure", exc.message, {**details, "error": exc.to_detail()}, state.idoit_object_id)
