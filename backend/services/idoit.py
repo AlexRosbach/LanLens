@@ -524,6 +524,10 @@ def get_or_create_state(db: Session, device: Device) -> IdoitDeviceSync:
 
 
 MAX_SYNC_LOG_DETAILS_CHARS = 8000
+MULTIVALUE_CATEGORY_MATCH_FIELDS = {
+    "C__CATG__NETWORK_PORT": ("mac", "title"),
+    "C__CATG__IP": ("ipv4_address", "hostname"),
+}
 
 
 def _payload_log_summary(payload: Any) -> dict[str, Any]:
@@ -571,6 +575,43 @@ def log_sync(db: Session, device_id: Optional[int], mode: str, result: str, mess
     )
     db.add(row)
     return row
+
+
+def _plain_category_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        for key in ("value", "title", "name", "const", "id"):
+            nested = value.get(key)
+            if nested not in (None, ""):
+                return nested
+        return None
+    return value
+
+
+def _category_entries(result: Any) -> list[dict[str, Any]]:
+    if isinstance(result, list):
+        return [entry for entry in result if isinstance(entry, dict)]
+    if not isinstance(result, dict):
+        return []
+    for key in ("data", "entries", "result"):
+        nested = result.get(key)
+        if isinstance(nested, list):
+            return [entry for entry in nested if isinstance(entry, dict)]
+        if isinstance(nested, dict):
+            return [nested]
+    # Some i-doit versions return one single-value category entry directly.
+    return [result] if result else []
+
+
+def _category_entry_id(entry: dict[str, Any]) -> Optional[str]:
+    for key in ("id", "entry", "entry_id", "category_id", "data_id"):
+        value = entry.get(key)
+        value = _plain_category_value(value)
+        if value not in (None, ""):
+            try:
+                return str(_object_id_as_int(value))
+            except IdoitConnectionError:
+                continue
+    return None
 
 
 class IdoitClient:
@@ -663,8 +704,14 @@ class IdoitClient:
     async def read_object(self, object_id: str) -> Any:
         return await self.call("cmdb.object.read", {"id": _object_id_as_int(object_id)})
 
-    async def save_category(self, object_id: str, category: str, data: dict[str, Any]) -> Any:
-        return await self.call("cmdb.category.save", {"object": _object_id_as_int(object_id), "category": category, "data": data})
+    async def read_category(self, object_id: str, category: str) -> Any:
+        return await self.call("cmdb.category.read", {"object": _object_id_as_int(object_id), "category": category})
+
+    async def save_category(self, object_id: str, category: str, data: dict[str, Any], entry_id: Optional[str] = None) -> Any:
+        params: dict[str, Any] = {"object": _object_id_as_int(object_id), "category": category, "data": data}
+        if entry_id:
+            params["entry"] = _object_id_as_int(entry_id)
+        return await self.call("cmdb.category.save", params)
 
     async def save_category_best_effort(self, object_id: str, category: str, data: dict[str, Any]) -> dict[str, Any]:
         """Save a category without letting one invalid field abort the sync.
@@ -674,19 +721,51 @@ class IdoitClient:
         fields so valid information still lands in the CMDB and the operator can
         see exactly which field was rejected.
         """
+        entry_id = await self.find_reusable_category_entry(object_id, category, data)
         try:
-            return {"status": "saved", "result": await self.save_category(object_id, category, data)}
+            result = await self.save_category(object_id, category, data, entry_id)
+            response: dict[str, Any] = {"status": "saved", "result": result}
+            if entry_id:
+                response["entry_id"] = entry_id
+            return response
         except IdoitConnectionError as full_error:
             saved: dict[str, Any] = {}
             failed: dict[str, Any] = {}
             for field, value in data.items():
                 try:
-                    saved[field] = await self.save_category(object_id, category, {field: value})
+                    saved[field] = await self.save_category(object_id, category, {field: value}, entry_id)
                 except IdoitConnectionError as field_error:
                     failed[field] = field_error.to_detail()
             if not saved:
                 raise full_error
-            return {"status": "partial", "saved_fields": sorted(saved.keys()), "failed_fields": failed}
+            response = {"status": "partial", "saved_fields": sorted(saved.keys()), "failed_fields": failed}
+            if entry_id:
+                response["entry_id"] = entry_id
+            return response
+
+    async def find_reusable_category_entry(self, object_id: str, category: str, data: dict[str, Any]) -> Optional[str]:
+        if category not in MULTIVALUE_CATEGORY_MATCH_FIELDS:
+            return None
+        try:
+            result = await self.read_category(object_id, category)
+        except IdoitConnectionError:
+            return None
+        entries = _category_entries(result)
+        if not entries:
+            return None
+        match_fields = MULTIVALUE_CATEGORY_MATCH_FIELDS[category]
+        for field in match_fields:
+            expected = _plain_category_value(data.get(field))
+            if expected in (None, ""):
+                continue
+            for entry in entries:
+                current = _plain_category_value(entry.get(field))
+                if current not in (None, "") and str(current).strip().lower() == str(expected).strip().lower():
+                    return _category_entry_id(entry)
+        # LanLens manages one discovered network identity per object. If i-doit
+        # already has an entry but the MAC/IP changed, update the first one
+        # instead of appending a fresh duplicate on every sync.
+        return _category_entry_id(entries[0])
 
     async def object_sysid(self, object_id: str) -> Optional[str]:
         result = await self.read_object(object_id)
