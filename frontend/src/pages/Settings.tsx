@@ -6,6 +6,7 @@ import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig } from '../api/idoit'
+import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
 import { useI18n } from '../i18n'
@@ -101,6 +102,7 @@ export default function Settings() {
   const [idoitBasicPassword, setIdoitBasicPassword] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
   const [idoitSyncingAll, setIdoitSyncingAll] = useState(false)
+  const [idoitSyncProgress, setIdoitSyncProgress] = useState<{ current: number; total: number; success: number; failure: number; skipped: number; label?: string } | null>(null)
   const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
@@ -483,10 +485,39 @@ export default function Settings() {
 
   async function syncAllIdoitDevices() {
     setIdoitSyncingAll(true)
+    setIdoitSyncProgress(null)
     try {
-      const result = await idoitApi.syncAll()
+      const deviceResult = await devicesApi.list()
+      const registeredDevices = deviceResult.items.filter((device) => device.is_registered)
+      const total = registeredDevices.length
+      let success = 0
+      let failure = 0
+      let skipped = 0
+
+      if (total === 0) {
+        toast.success(t('idoit_bulk_sync_success', { success: '0', failure: '0', skipped: '0' }))
+        return
+      }
+
+      for (let index = 0; index < registeredDevices.length; index += 1) {
+        const device = registeredDevices[index]
+        const label = device.label || device.hostname || device.ip_address || device.mac_address
+        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
+        try {
+          const result = await idoitApi.syncDevice(device.id)
+          if (result.skipped) {
+            skipped += 1
+          } else {
+            success += 1
+          }
+        } catch {
+          failure += 1
+        }
+        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
+      }
+
       setIdoitTestError(null)
-      toast.success(t('idoit_bulk_sync_success', { success: String(result.success), failure: String(result.failure), skipped: String(result.skipped) }))
+      toast.success(t('idoit_bulk_sync_success', { success: String(success), failure: String(failure), skipped: String(skipped) }))
       loadIdoitConfig().catch(() => {})
     } catch (error) {
       const details = extractIdoitErrorDetails(error)
@@ -494,6 +525,7 @@ export default function Settings() {
       toast.error(details.message || t('idoit_sync_failed'))
     } finally {
       setIdoitSyncingAll(false)
+      setIdoitSyncProgress(null)
     }
   }
 
@@ -1306,8 +1338,35 @@ export default function Settings() {
                   <Button onClick={saveIdoit} loading={saving}>{t('save_changes')}</Button>
                   <Button onClick={testIdoitConnection} loading={idoitTesting} variant="outline">{t('test_connection')}</Button>
                   <Button onClick={testIdoitMapping} loading={idoitTesting} variant="outline">{t('test_mapping')}</Button>
-                  <Button onClick={syncAllIdoitDevices} loading={idoitSyncingAll} variant="outline">{t('idoit_sync_all_now')}</Button>
+                  <Button onClick={syncAllIdoitDevices} loading={idoitSyncingAll} variant="outline">
+                    {idoitSyncProgress
+                      ? t('idoit_sync_progress', { current: String(idoitSyncProgress.current), total: String(idoitSyncProgress.total) })
+                      : t('idoit_sync_all_now')}
+                  </Button>
                 </div>
+                {idoitSyncProgress && (
+                  <div className="mt-3 rounded-lg border border-primary/30 bg-primary-dim/30 p-3 text-sm text-text-muted">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <span className="font-medium text-text-base">
+                        {t('idoit_sync_progress', { current: String(idoitSyncProgress.current), total: String(idoitSyncProgress.total) })}
+                      </span>
+                      <span className="text-xs text-text-subtle">
+                        {t('idoit_sync_progress_counts', {
+                          success: String(idoitSyncProgress.success),
+                          failure: String(idoitSyncProgress.failure),
+                          skipped: String(idoitSyncProgress.skipped),
+                        })}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-surface overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${Math.round((idoitSyncProgress.current / Math.max(idoitSyncProgress.total, 1)) * 100)}%` }}
+                      />
+                    </div>
+                    {idoitSyncProgress.label && <p className="mt-2 text-xs text-text-subtle truncate">{idoitSyncProgress.label}</p>}
+                  </div>
+                )}
               </>
             )}
           </Card>
