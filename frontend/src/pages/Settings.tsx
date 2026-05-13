@@ -1163,7 +1163,7 @@ export default function Settings() {
                     <Input
                       value={idoitConfig.idoit_default_object_type}
                       onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_default_object_type: e.target.value })}
-                      placeholder="C__OBJTYPE__APPLIANCE"
+                      placeholder="C__OBJTYPE__CLIENT"
                     />
                   </div>
                   <div>
@@ -1246,7 +1246,7 @@ export default function Settings() {
                           <Input
                             value={idoitMappingState.mapping?.objectType || ''}
                             onChange={(e) => updateIdoitMapping((mapping) => ({ ...mapping, objectType: e.target.value.trim() }))}
-                            placeholder="C__OBJTYPE__APPLIANCE"
+                            placeholder="C__OBJTYPE__CLIENT"
                           />
                         </div>
                         <div>

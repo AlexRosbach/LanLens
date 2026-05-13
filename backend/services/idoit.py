@@ -23,11 +23,10 @@ from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 4,
-    # Use a neutral appliance for unknown/unclassified devices. Real servers are
-    # still mapped to C__OBJTYPE__SERVER below, but LanLens should not document a
-    # random discovered host as a server just because no better signal exists.
-    "objectType": "C__OBJTYPE__APPLIANCE",
+    "version": 5,
+    # Use Client as neutral fallback: it is not Server, but still supports common
+    # hardware categories like CPU/model/OS in default i-doit installations.
+    "objectType": "C__OBJTYPE__CLIENT",
     "objectTypeByDeviceClass": {
         "Server": "C__OBJTYPE__SERVER",
         "VM": "C__OBJTYPE__VIRTUAL_SERVER",
@@ -40,13 +39,13 @@ DEFAULT_MAPPING = {
         "Router": "C__OBJTYPE__ROUTER",
         "Switch": "C__OBJTYPE__SWITCH",
         "AP": "C__OBJTYPE__ACCESS_POINT",
-        "Firewall": "C__OBJTYPE__APPLIANCE",
+        "Firewall": "C__OBJTYPE__CLIENT",
         "Printer": "C__OBJTYPE__PRINTER",
         "VoIP": "C__OBJTYPE__VOIP_PHONE",
-        "Camera": "C__OBJTYPE__APPLIANCE",
-        "TV": "C__OBJTYPE__APPLIANCE",
-        "IoT": "C__OBJTYPE__APPLIANCE",
-        "Unknown": "C__OBJTYPE__APPLIANCE",
+        "Camera": "C__OBJTYPE__CLIENT",
+        "TV": "C__OBJTYPE__CLIENT",
+        "IoT": "C__OBJTYPE__CLIENT",
+        "Unknown": "C__OBJTYPE__CLIENT",
     },
     "identity": {
         "externalIdField": "C__CATG__GLOBAL.description",
@@ -78,7 +77,7 @@ SETTING_DEFAULTS = {
     "idoit_basic_username": "",
     "idoit_basic_password": "",
     "idoit_timeout_seconds": "15",
-    "idoit_default_object_type": "C__OBJTYPE__APPLIANCE",
+    "idoit_default_object_type": "C__OBJTYPE__CLIENT",
     "idoit_auto_sync_enabled": "false",
     "idoit_sync_interval_minutes": "60",
     "idoit_offline_retire_days": "7",
@@ -247,8 +246,8 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
 
 def _normalized_default_object_type(value: Optional[str]) -> str:
     field = (value or "").strip()
-    if not field or field == "C__OBJTYPE__SERVER":
-        return "C__OBJTYPE__APPLIANCE"
+    if not field or field in {"C__OBJTYPE__SERVER", "C__OBJTYPE__APPLIANCE"}:
+        return "C__OBJTYPE__CLIENT"
     return field
 
 
@@ -373,18 +372,18 @@ def object_type_for_device(device: Device, config: IdoitConfig) -> str:
     mapping = _mapping_dict(config)
     device_class = (device.device_class or "").strip()
     if not device_class or device_class.lower() == "unknown":
-        return "C__OBJTYPE__APPLIANCE"
+        return "C__OBJTYPE__CLIENT"
     by_class = mapping.get("objectTypeByDeviceClass")
     if isinstance(by_class, dict):
         mapped = by_class.get(device_class)
         if isinstance(mapped, str) and mapped.strip():
             if mapped.strip() == "C__OBJTYPE__SERVER" and not _looks_like_server(device):
-                return "C__OBJTYPE__APPLIANCE"
+                return "C__OBJTYPE__CLIENT"
             return mapped.strip()
         for key, value in by_class.items():
             if isinstance(key, str) and key.lower() in device_class.lower() and isinstance(value, str) and value.strip():
                 if value.strip() == "C__OBJTYPE__SERVER" and not _looks_like_server(device):
-                    return "C__OBJTYPE__APPLIANCE"
+                    return "C__OBJTYPE__CLIENT"
                 return value.strip()
     object_type = mapping.get("objectType")
     if isinstance(object_type, str) and object_type.strip():
@@ -781,6 +780,12 @@ class IdoitClient:
     async def read_object(self, object_id: str) -> Any:
         return await self.call("cmdb.object.read", {"id": _object_id_as_int(object_id)})
 
+    async def object_type_title(self, object_id: str) -> str:
+        result = await self.read_object(object_id)
+        if isinstance(result, dict):
+            return str(result.get("type_title") or result.get("objecttype_title") or "")
+        return ""
+
     async def read_cmdb_statuses(self) -> Any:
         return await self.call("cmdb.status.read", {"language": "en"})
 
@@ -930,7 +935,18 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         object_id = state.idoit_object_id
         action = "update" if object_id else "create"
         if object_id:
-            await client.update_object_title(object_id, payload["title"])
+            current_type_title = await client.object_type_title(object_id)
+            desired_type = payload["objectType"]
+            if desired_type != "C__OBJTYPE__SERVER" and "server" in current_type_title.lower():
+                old_object_id = object_id
+                object_id = await client.create_object(payload["title"], desired_type)
+                state.idoit_object_id = object_id
+                action = "replace_type_mismatch"
+                details["replaced_object_id"] = old_object_id
+                details["replaced_object_type_title"] = current_type_title
+                details["replacement_reason"] = "Existing i-doit object was typed as Server; i-doit object type changes require a new object. Old object was left untouched."
+            else:
+                await client.update_object_title(object_id, payload["title"])
         else:
             object_id = await client.create_object(payload["title"], payload["objectType"])
             state.idoit_object_id = object_id
