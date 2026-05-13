@@ -470,6 +470,7 @@ def migrate():
 
         # ── v1.5.0 ── Device timeline, maintenance and ignore rules ───────
         for column, ddl in {
+            "idoit_sync_enabled": "ALTER TABLE devices ADD COLUMN idoit_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE",
             "ignored": "ALTER TABLE devices ADD COLUMN ignored BOOLEAN NOT NULL DEFAULT FALSE",
             "notifications_muted": "ALTER TABLE devices ADD COLUMN notifications_muted BOOLEAN NOT NULL DEFAULT FALSE",
             "maintenance_until": "ALTER TABLE devices ADD COLUMN maintenance_until DATETIME",

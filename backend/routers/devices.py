@@ -248,6 +248,7 @@ def _device_to_response(
         maintenance_until=device.maintenance_until,
         maintenance_note=device.maintenance_note,
         idoit_enabled=idoit_enabled,
+        idoit_sync_enabled=bool(device.idoit_sync_enabled),
         idoit_sync_status=device.idoit_sync.status if device.idoit_sync else "never_synced",
         idoit_object_id=idoit_object_id,
         idoit_sysid=device.idoit_sync.idoit_sysid if device.idoit_sync else None,

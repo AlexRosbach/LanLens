@@ -389,6 +389,7 @@ export default function Settings() {
         idoit_basic_username: idoitConfig.idoit_basic_username,
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_scope: idoitConfig.idoit_sync_scope,
         idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
         idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
@@ -426,6 +427,7 @@ export default function Settings() {
         idoit_basic_username: idoitConfig.idoit_basic_username,
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_scope: idoitConfig.idoit_sync_scope,
         idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
         idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
@@ -500,7 +502,7 @@ export default function Settings() {
     setIdoitSyncProgress(null)
     try {
       const deviceResult = await devicesApi.list()
-      const registeredDevices = deviceResult.items.filter((device) => device.is_registered)
+      const registeredDevices = deviceResult.items.filter((device) => device.is_registered && (idoitConfig?.idoit_sync_scope !== 'manual' || device.idoit_sync_enabled !== false))
       const total = registeredDevices.length
       let success = 0
       let failure = 0
@@ -1203,6 +1205,18 @@ export default function Settings() {
                     />
                     {t('enable_idoit_auto_sync')}
                   </label>
+                  <div className="max-w-md">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_scope')}</label>
+                    <select
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                      value={idoitConfig.idoit_sync_scope || 'all'}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_scope: e.target.value === 'manual' ? 'manual' : 'all' })}
+                    >
+                      <option value="all">{t('idoit_sync_scope_all')}</option>
+                      <option value="manual">{t('idoit_sync_scope_manual')}</option>
+                    </select>
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_sync_scope_hint')}</p>
+                  </div>
                   <div className="max-w-xs">
                     <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_interval_minutes')}</label>
                     <Input

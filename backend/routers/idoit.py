@@ -37,6 +37,7 @@ class IdoitConfigPayload(BaseModel):
     idoit_timeout_seconds: Optional[int] = None
     idoit_default_object_type: Optional[str] = None
     idoit_auto_sync_enabled: Optional[bool] = None
+    idoit_sync_scope: Optional[str] = None
     idoit_sync_interval_minutes: Optional[int] = None
     idoit_offline_retire_days: Optional[int] = None
     idoit_sync_status_field: Optional[str] = None
@@ -56,6 +57,7 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_timeout_seconds": cfg.timeout_seconds,
         "idoit_default_object_type": cfg.default_object_type,
         "idoit_auto_sync_enabled": cfg.auto_sync_enabled,
+        "idoit_sync_scope": cfg.sync_scope,
         "idoit_sync_interval_minutes": cfg.sync_interval_minutes,
         "idoit_offline_retire_days": cfg.offline_retire_days,
         "idoit_sync_status_field": cfg.sync_status_field,
@@ -101,6 +103,7 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         timeout_seconds=timeout,
         default_object_type=_normalized_default_object_type(data.get("idoit_default_object_type", cfg.default_object_type)),
         auto_sync_enabled=bool(data.get("idoit_auto_sync_enabled", cfg.auto_sync_enabled)),
+        sync_scope="manual" if data.get("idoit_sync_scope", cfg.sync_scope) == "manual" else "all",
         sync_interval_minutes=sync_interval,
         offline_retire_days=offline_retire_days,
         sync_status_field=data.get("idoit_sync_status_field", cfg.sync_status_field) or "",
@@ -130,6 +133,8 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
         data["idoit_portal_url"] = (data.get("idoit_portal_url") or "").strip()
     if "idoit_jsonrpc_path" in data:
         data["idoit_jsonrpc_path"] = (data.get("idoit_jsonrpc_path") or "").strip() or "/src/jsonrpc.php"
+    if "idoit_sync_scope" in data:
+        data["idoit_sync_scope"] = "manual" if data.get("idoit_sync_scope") == "manual" else "all"
     if base_url := data.get("idoit_base_url"):
         valid, reason = await validate_webhook_url(base_url, "i-doit base URL")
         if not valid:

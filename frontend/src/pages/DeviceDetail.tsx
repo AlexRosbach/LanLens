@@ -218,6 +218,18 @@ export default function DeviceDetail() {
     }
   }
 
+  async function handleIdoitSyncEnabledChange(enabled: boolean) {
+    if (!device) return
+    try {
+      const updated = await devicesApi.update(device.id, { idoit_sync_enabled: enabled })
+      setDevice(updated)
+      setForm(toEditState(updated))
+      toast.success(enabled ? t('idoit_device_sync_enabled') : t('idoit_device_sync_disabled'))
+    } catch {
+      toast.error(t('save_failed'))
+    }
+  }
+
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
@@ -418,6 +430,14 @@ export default function DeviceDetail() {
                     <Button size="sm" variant="outline" onClick={handleIdoitSyncNow} loading={idoitSyncing}>{t('idoit_sync_now')}</Button>
                   </div>
                 </div>
+                <label className="mb-3 flex items-center gap-2 text-xs text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={device.idoit_sync_enabled !== false}
+                    onChange={(e) => handleIdoitSyncEnabledChange(e.target.checked)}
+                  />
+                  {t('idoit_device_sync_enabled_label')}
+                </label>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
                   <InfoRow label={t('idoit_object_id')} value={device.idoit_object_id} mono />
                   <InfoRow label={t('idoit_sysid')} value={device.idoit_sysid} mono />

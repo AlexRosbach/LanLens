@@ -87,6 +87,7 @@ SETTING_DEFAULTS = {
     "idoit_timeout_seconds": "15",
     "idoit_default_object_type": "C__OBJTYPE__CLIENT",
     "idoit_auto_sync_enabled": "false",
+    "idoit_sync_scope": "all",
     "idoit_sync_interval_minutes": "60",
     "idoit_offline_retire_days": "7",
     "idoit_sync_status_field": "",
@@ -136,6 +137,7 @@ class IdoitConfig:
     timeout_seconds: int
     default_object_type: str
     auto_sync_enabled: bool
+    sync_scope: str
     sync_interval_minutes: int
     offline_retire_days: int
     sync_status_field: str
@@ -217,6 +219,7 @@ def get_config(db: Session) -> IdoitConfig:
         timeout_seconds=timeout,
         default_object_type=_normalized_default_object_type(_get_setting(db, "idoit_default_object_type")),
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
+        sync_scope="manual" if _get_setting(db, "idoit_sync_scope") == "manual" else "all",
         sync_interval_minutes=sync_interval,
         offline_retire_days=offline_retire_days,
         sync_status_field=_normalized_sync_status_field(_get_setting(db, "idoit_sync_status_field")),
@@ -1395,6 +1398,15 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
     config = get_config(db)
     if not config.enabled:
         raise IdoitConnectionError("i-doit integration is disabled", stage="configuration", endpoint=build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path))
+    if mode != "manual" and not device.idoit_sync_enabled:
+        state = get_or_create_state(db, device)
+        state.last_mode = mode
+        state.last_validation_at = datetime.utcnow()
+        state.status = "skipped"
+        state.last_error = "i-doit sync is disabled for this device"
+        log_sync(db, device.id, mode, "skipped", "i-doit sync skipped; disabled for this device", {"upstream_write_performed": False}, state.idoit_object_id)
+        db.commit()
+        return {"device_id": device.id, "status": state.status, "idoit_object_id": state.idoit_object_id, "upstream_write_performed": False, "skipped": True, "skip_reason": "device_disabled"}
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     payload = device_payload(device, config, db)
     state = get_or_create_state(db, device)
@@ -1534,7 +1546,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
 
 
 async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:
-    devices = db.query(Device).filter(Device.is_registered == True).all()  # noqa: E712
+    query = db.query(Device).filter(Device.is_registered == True)  # noqa: E712
+    config = get_config(db)
+    if config.sync_scope == "manual":
+        query = query.filter(Device.idoit_sync_enabled == True)  # noqa: E712
+    devices = query.all()
     summary: dict[str, Any] = {
         "total": len(devices),
         "success": 0,

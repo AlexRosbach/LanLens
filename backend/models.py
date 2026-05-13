@@ -54,6 +54,7 @@ class Device(Base):
     # ── Discovery state ────────────────────────────────────────────────────────
     is_registered = Column(Boolean, default=False)
     cmdb_id = Column(String(64), nullable=True, unique=True, index=True)
+    idoit_sync_enabled = Column(Boolean, default=False, nullable=False, server_default="0")
     ignored = Column(Boolean, default=False, nullable=False, server_default=false())
     notifications_muted = Column(Boolean, default=False, nullable=False, server_default=false())
     maintenance_until = Column(DateTime, nullable=True)

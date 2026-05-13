@@ -54,6 +54,7 @@ export interface Device {
   maintenance_until?: string | null
   maintenance_note?: string | null
   idoit_enabled?: boolean
+  idoit_sync_enabled?: boolean
   idoit_sync_status?: string | null
   idoit_object_id?: string | null
   idoit_sysid?: string | null
@@ -98,6 +99,7 @@ export interface DeviceUpdate {
   asset_tag?: string
   notes?: string
   cmdb_id?: string
+  idoit_sync_enabled?: boolean
   ignored?: boolean
   notifications_muted?: boolean
   maintenance_until?: string | null

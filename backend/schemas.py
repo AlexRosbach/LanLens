@@ -162,6 +162,7 @@ class DeviceUpdate(BaseModel):
     is_registered: Optional[bool] = None
     segment_id: Optional[int] = None
     cmdb_id: Optional[str] = None
+    idoit_sync_enabled: Optional[bool] = None
     # Documentation
     purpose: Optional[str] = None
     description: Optional[str] = None
@@ -288,6 +289,7 @@ class DeviceResponse(BaseModel):
     maintenance_until: Optional[datetime] = None
     maintenance_note: Optional[str] = None
     idoit_enabled: bool = False
+    idoit_sync_enabled: bool = False
     idoit_sync_status: Optional[str] = None
     idoit_object_id: Optional[str] = None
     idoit_sysid: Optional[str] = None
