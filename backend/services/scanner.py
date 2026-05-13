@@ -514,7 +514,9 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 existing_devices_by_ip[ip] = new_device
                 devices_new += 1
 
-                if not new_device.notifications_muted and not new_device.ignored:
+                notify_new_devices_row = db.query(Setting).filter(Setting.key == "notify_on_new_device").first()
+                notify_new_devices = not notify_new_devices_row or notify_new_devices_row.value != "false"
+                if notify_new_devices and not new_device.notifications_muted and not new_device.ignored:
                     notification = Notification(
                         device_id=new_device.id,
                         event_type="new_device",

@@ -17,19 +17,35 @@ from typing import Any, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Device, IdoitDeviceSync, IdoitSyncLog, Setting
+from ..models import Device, DeepScanFinding, IdoitDeviceSync, IdoitSyncLog, Setting
 from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 1,
-    "objectType": "C__OBJTYPE__SERVER",
+    "version": 2,
+    # Use a neutral appliance for unknown/unclassified devices. Real servers are
+    # still mapped to C__OBJTYPE__SERVER below, but LanLens should not document a
+    # random discovered host as a server just because no better signal exists.
+    "objectType": "C__OBJTYPE__APPLIANCE",
     "objectTypeByDeviceClass": {
+        "Server": "C__OBJTYPE__SERVER",
+        "VM": "C__OBJTYPE__VIRTUAL_SERVER",
+        "Virtual Server": "C__OBJTYPE__VIRTUAL_SERVER",
+        "Virtual Client": "C__OBJTYPE__VIRTUAL_CLIENT",
+        "Workstation": "C__OBJTYPE__CLIENT",
+        "Apple Workstation": "C__OBJTYPE__CLIENT",
+        "Mobile": "C__OBJTYPE__CELL_PHONE_CONTRACT",
+        "NAS": "C__OBJTYPE__SAN",
         "Router": "C__OBJTYPE__ROUTER",
         "Switch": "C__OBJTYPE__SWITCH",
         "AP": "C__OBJTYPE__ACCESS_POINT",
-        "Firewall": "C__OBJTYPE__FIREWALL",
-        "Printer": "C__OBJTYPE__PRINTER"
+        "Firewall": "C__OBJTYPE__APPLIANCE",
+        "Printer": "C__OBJTYPE__PRINTER",
+        "VoIP": "C__OBJTYPE__VOIP_PHONE",
+        "Camera": "C__OBJTYPE__APPLIANCE",
+        "TV": "C__OBJTYPE__APPLIANCE",
+        "IoT": "C__OBJTYPE__APPLIANCE",
+        "Unknown": "C__OBJTYPE__APPLIANCE",
     },
     "identity": {
         "externalIdField": "C__CATG__GLOBAL.description",
@@ -37,12 +53,20 @@ DEFAULT_MAPPING = {
         "fallback": ["mac_address", "hostname", "ip_address"],
     },
     "fields": {
-        "label": "title",
-        "ip_address": "C__CATG__IP.ADDRESS",
-        "mac_address": "C__CATG__NETWORK_PORT.MAC",
-        "device_class": "C__CATG__MODEL.TYPE",
-        "hostname": "C__CATG__GLOBAL.title",
+        "hostname": "C__CATG__IP.hostname",
+        "ip_address": "C__CATG__IP.ipv4_address",
+        "mac_address": "C__CATG__NETWORK_PORT.mac",
+        "vendor": "C__CATG__MODEL.manufacturer",
+        "device_class": "C__CATG__MODEL.type",
+        "asset_tag": "C__CATG__ACCOUNTING.inventory_no",
+        "location": "C__CATG__GLOBAL.location_path",
         "cmdb_id": "C__CATG__GLOBAL.description",
+        "purpose": "C__CATG__GLOBAL.purpose",
+        "notes": "C__CATG__GLOBAL.comment",
+        "os_info": "C__CATG__GLOBAL.comment",
+        "cpu": "C__CATG__CPU.title",
+        "model": "C__CATG__MODEL.title",
+        "hardware_summary": "C__CATG__GLOBAL.comment"
     },
 }
 
@@ -55,7 +79,7 @@ SETTING_DEFAULTS = {
     "idoit_basic_username": "",
     "idoit_basic_password": "",
     "idoit_timeout_seconds": "15",
-    "idoit_default_object_type": "C__OBJTYPE__SERVER",
+    "idoit_default_object_type": "C__OBJTYPE__APPLIANCE",
     "idoit_auto_sync_enabled": "false",
     "idoit_sync_interval_minutes": "60",
     "idoit_sync_status_field": "C__CATG__GLOBAL.comment",
@@ -171,7 +195,7 @@ def get_config(db: Session) -> IdoitConfig:
         basic_username=_get_setting(db, "idoit_basic_username"),
         basic_password=_get_setting(db, "idoit_basic_password"),
         timeout_seconds=timeout,
-        default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__SERVER",
+        default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__APPLIANCE",
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
         sync_interval_minutes=sync_interval,
         sync_status_field=_get_setting(db, "idoit_sync_status_field") or "C__CATG__GLOBAL.comment",
@@ -198,7 +222,14 @@ def update_config(db: Session, payload: dict[str, Any]) -> IdoitConfig:
 
 
 def _allowed_device_mapping_fields() -> set[str]:
-    return {column.name for column in Device.__table__.columns}
+    # Mapping sources can be regular Device columns or computed read-only values
+    # that LanLens derives from deep-scan findings before writing to i-doit.
+    return {column.name for column in Device.__table__.columns} | {
+        "hardware_summary",
+        "cpu",
+        "memory",
+        "model",
+    }
 
 
 def validate_mapping(
@@ -265,7 +296,7 @@ def _sync_status_field(config: IdoitConfig) -> str:
 
 
 def _json_safe_device_value(device: Device, field_name: str) -> Any:
-    if field_name not in _allowed_device_mapping_fields():
+    if field_name not in {column.name for column in Device.__table__.columns}:
         return None
     value = getattr(device, field_name, None)
     if isinstance(value, datetime):
@@ -300,11 +331,78 @@ def build_object_url(portal_url: str, object_id: Optional[str]) -> Optional[str]
     return f"{base}{separator}objID={object_id}"
 
 
-def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
+def _object_id_as_int(object_id: Any) -> int:
+    try:
+        parsed = int(str(object_id).strip())
+    except (TypeError, ValueError) as exc:
+        raise IdoitConnectionError(
+            f"Stored i-doit object id is not an integer: {object_id!r}",
+            stage="object_id_validation",
+        ) from exc
+    if parsed <= 0:
+        raise IdoitConnectionError(
+            f"Stored i-doit object id must be positive: {object_id!r}",
+            stage="object_id_validation",
+        )
+    return parsed
+
+
+def _latest_hardware_findings(db: Optional[Session], device: Device) -> dict[str, str]:
+    if db is None or not device.id:
+        return {}
+    rows = (
+        db.query(DeepScanFinding.key, DeepScanFinding.value_json)
+        .filter(
+            DeepScanFinding.device_id == device.id,
+            DeepScanFinding.finding_type == "hardware",
+            DeepScanFinding.key.in_(["cpu", "memory", "model"]),
+        )
+        .order_by(DeepScanFinding.key, DeepScanFinding.observed_at.desc())
+        .all()
+    )
+    findings: dict[str, str] = {}
+    for key, value in rows:
+        if key not in findings and value:
+            findings[key] = str(value)
+    return findings
+
+
+def _cpu_title(cpu_raw: Optional[str]) -> Optional[str]:
+    if not cpu_raw:
+        return None
+    for line in str(cpu_raw).splitlines():
+        if "model name" in line.lower():
+            value = line.split(":", 1)[-1].strip()
+            return value or None
+    return str(cpu_raw).strip()[:255] or None
+
+
+def _hardware_summary(findings: dict[str, str]) -> Optional[str]:
+    parts: list[str] = []
+    if cpu := _cpu_title(findings.get("cpu")):
+        parts.append(f"CPU: {cpu}")
+    if memory := findings.get("memory"):
+        parts.append(f"Memory: {str(memory).strip()[:255]}")
+    if model := findings.get("model"):
+        parts.append(f"Model: {str(model).strip()[:255]}")
+    return "\n".join(parts) or None
+
+
+def _append_field(fields: dict[str, Any], target: str, value: Any) -> None:
+    if value is None or value == "":
+        return
+    if target in fields and fields[target]:
+        fields[target] = f"{fields[target]}\n{value}"
+    else:
+        fields[target] = value
+
+
+def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = None) -> dict[str, Any]:
     # Build the future i-doit write payload without contacting i-doit. Dry-run
     # and placeholder sync both use this so operators can inspect exactly what
     # would be sent once live upstream writes are enabled.
     label = device.label or device.hostname or device.cmdb_id or device.ip_address or device.mac_address
+    hw = _latest_hardware_findings(db, device)
     source = {
         "label": label,
         "hostname": device.hostname,
@@ -317,6 +415,10 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
         "location": device.location,
         "responsible": device.responsible,
         "os_info": device.os_info,
+        "cpu": _cpu_title(hw.get("cpu")),
+        "memory": hw.get("memory"),
+        "model": hw.get("model"),
+        "hardware_summary": _hardware_summary(hw),
     }
     fields = {}
     for lanlens_field, idoit_field in _mapping_fields(config).items():
@@ -326,8 +428,7 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
             value = source[lanlens_field]
         else:
             value = _json_safe_device_value(device, lanlens_field)
-        if value is not None:
-            fields[idoit_field] = value
+        _append_field(fields, idoit_field.strip(), value)
     external_id_field = _mapping_identity(config).get("externalIdField")
     external_id_value = device.cmdb_id or device.mac_address
     if isinstance(external_id_field, str) and external_id_field.strip() and external_id_value and not fields.get(external_id_field):
@@ -338,10 +439,7 @@ def device_payload(device: Device, config: IdoitConfig) -> dict[str, Any]:
     # so duplicate-prevention identifiers are not lost.
     sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
     sync_status_field = _sync_status_field(config)
-    if fields.get(sync_status_field):
-        fields[sync_status_field] = f"{fields[sync_status_field]}\n{sync_reference}"
-    else:
-        fields[sync_status_field] = sync_reference
+    _append_field(fields, sync_status_field, sync_reference)
     return {
         "objectType": object_type_for_device(device, config),
         "title": label,
@@ -506,16 +604,28 @@ class IdoitClient:
         if isinstance(result, dict):
             object_id = result.get("id") or result.get("object_id") or result.get("objID")
             if object_id:
-                return str(object_id)
+                return str(_object_id_as_int(object_id))
         if isinstance(result, (str, int)):
-            return str(result)
+            return str(_object_id_as_int(result))
         raise IdoitConnectionError("i-doit did not return an object id after create", stage="jsonrpc_error", endpoint=self.endpoint, jsonrpc_error=result)
 
     async def update_object_title(self, object_id: str, title: str) -> Any:
-        return await self.call("cmdb.object.update", {"id": object_id, "title": title})
+        return await self.call("cmdb.object.update", {"id": _object_id_as_int(object_id), "title": title})
+
+    async def read_object(self, object_id: str) -> Any:
+        return await self.call("cmdb.object.read", {"id": _object_id_as_int(object_id)})
 
     async def save_category(self, object_id: str, category: str, data: dict[str, Any]) -> Any:
-        return await self.call("cmdb.category.save", {"object": object_id, "category": category, "data": data})
+        return await self.call("cmdb.category.save", {"object": _object_id_as_int(object_id), "category": category, "data": data})
+
+    async def object_sysid(self, object_id: str) -> Optional[str]:
+        result = await self.read_object(object_id)
+        if isinstance(result, dict):
+            for key in ("sysid", "sys_id", "SYSID", "SYS-ID"):
+                value = result.get(key)
+                if value:
+                    return str(value)
+        return None
 
     async def test_connection(self) -> dict[str, Any]:
         login_result = await self.login()
@@ -548,7 +658,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
     if not config.enabled:
         raise IdoitConnectionError("i-doit integration is disabled", stage="configuration", endpoint=build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path))
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
-    payload = device_payload(device, config)
+    payload = device_payload(device, config, db)
     state = get_or_create_state(db, device)
     state.last_mode = mode
     state.last_validation_at = datetime.utcnow()
@@ -584,6 +694,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         for category, data in categories.items():
             details["category_results"][category] = await client.save_category(object_id, category, data)
 
+        sysid = await client.object_sysid(object_id)
+        if sysid:
+            state.idoit_sysid = sysid
+            details["idoit_sysid"] = sysid
+
         now = datetime.utcnow()
         state.status = "synced"
         state.last_sync_at = now
@@ -593,7 +708,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         details["action"] = action
         log_sync(db, device.id, mode, "success", f"i-doit {action} completed", details, object_id)
         db.commit()
-        return {"device_id": device.id, "status": state.status, "action": action, "idoit_object_id": object_id, "payload_hash": digest, "upstream_write_performed": True}
+        return {"device_id": device.id, "status": state.status, "action": action, "idoit_object_id": object_id, "idoit_sysid": state.idoit_sysid, "payload_hash": digest, "upstream_write_performed": True}
     except IdoitConnectionError as exc:
         state.status = "error"
         state.last_error = exc.message
@@ -642,7 +757,7 @@ def dry_run(db: Session, device: Device) -> dict[str, Any]:
     # last placeholder validation.
     config = get_config(db)
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
-    payload = device_payload(device, config)
+    payload = device_payload(device, config, db)
     state = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == device.id).first()
     digest = payload_hash(payload)
     action = "update" if state and state.idoit_object_id else "unresolved"
@@ -664,7 +779,7 @@ def mark_manual_sync_placeholder(db: Session, device: Device) -> dict[str, Any]:
     that i-doit was updated.
     """
     config = get_config(db)
-    payload = device_payload(device, config)
+    payload = device_payload(device, config, db)
     errors = validate_mapping(config.mapping, config.sync_status_field, config.default_object_type, config.mapping_error)
     state = get_or_create_state(db, device)
     state.last_mode = "manual"

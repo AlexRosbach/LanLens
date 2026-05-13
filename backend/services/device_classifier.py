@@ -1,7 +1,11 @@
 """
 Heuristic device classification based on MAC vendor string, hostname, and open ports.
 Returns one of the standard device classes.
+
+Keep this conservative: an unknown device is safer as "Unknown" than being
+documented as a server just because a broad vendor or hostname fragment matched.
 """
+import re
 
 VENDOR_RULES = [
     # Networking gear
@@ -73,19 +77,22 @@ def classify_device(vendor: str, hostname: str = "", open_ports: list = None) ->
             if kw in vendor_lower:
                 return device_class
 
-    # Hostname hints
-    for kw, device_class in [
-        ("printer", "Printer"), ("nas", "NAS"), ("router", "Router"),
-        ("switch", "Switch"), ("srv", "Server"), ("server", "Server"),
-        ("vm", "VM"), ("pi", "IoT"),
-        ("firewall", "Firewall"), ("fw-", "Firewall"), ("pfsense", "Firewall"), ("fortigate", "Firewall"),
-        ("iphone", "Mobile"), ("android", "Mobile"), ("pixel", "Mobile"), ("galaxy", "Mobile"),
-        ("mobile", "Mobile"), ("phone", "VoIP"), ("voip", "VoIP"), ("sip-", "VoIP"),
-        ("camera", "Camera"), ("cam-", "Camera"), ("ipcam", "Camera"), ("nvr", "Camera"),
-        ("-tv", "TV"), ("smarttv", "TV"), ("appletv", "TV"), ("chromecast", "TV"),
-        ("-ap-", "AP"), ("accesspoint", "AP"), ("wap-", "AP"), ("uap", "AP"),
+    # Hostname hints. Server detection deliberately requires a token-like match;
+    # a loose "srv" substring caused false server documentation in i-doit.
+    for pattern, device_class in [
+        (r"printer", "Printer"), (r"nas", "NAS"), (r"router", "Router"),
+        (r"switch", "Switch"), (r"(^|[-_.])srv([0-9-_.]|$)", "Server"), (r"(^|[-_.])server([0-9-_.]|$)", "Server"),
+        (r"(^|[-_.])esx(i)?([0-9-_.]|$)", "Server"), (r"(^|[-_.])hyperv([0-9-_.]|$)", "Server"),
+        (r"(^|[-_.])proxmox([0-9-_.]|$)", "Server"),
+        (r"(^|[-_.])vm([0-9-_.]|$)", "VM"), (r"(^|[-_.])pi([0-9-_.]|$)", "IoT"),
+        (r"firewall", "Firewall"), (r"(^|[-_.])fw[-_.]", "Firewall"), (r"pfsense", "Firewall"), (r"fortigate", "Firewall"),
+        (r"iphone", "Mobile"), (r"android", "Mobile"), (r"pixel", "Mobile"), (r"galaxy", "Mobile"),
+        (r"mobile", "Mobile"), (r"phone", "VoIP"), (r"voip", "VoIP"), (r"(^|[-_.])sip[-_.]", "VoIP"),
+        (r"camera", "Camera"), (r"(^|[-_.])cam[-_.]", "Camera"), (r"ipcam", "Camera"), (r"(^|[-_.])nvr([0-9-_.]|$)", "Camera"),
+        (r"[-_.]tv($|[-_.])", "TV"), (r"smarttv", "TV"), (r"appletv", "TV"), (r"chromecast", "TV"),
+        (r"[-_.]ap[-_.]", "AP"), (r"accesspoint", "AP"), (r"(^|[-_.])wap[-_.]", "AP"), (r"(^|[-_.])uap([0-9-_.]|$)", "AP"),
     ]:
-        if kw in hostname_lower:
+        if re.search(pattern, hostname_lower):
             return device_class
 
     return "Unknown"

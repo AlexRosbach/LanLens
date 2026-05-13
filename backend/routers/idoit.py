@@ -92,7 +92,7 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         basic_username=(data.get("idoit_basic_username", cfg.basic_username) or "").strip(),
         basic_password=basic_password or "",
         timeout_seconds=timeout,
-        default_object_type=data.get("idoit_default_object_type", cfg.default_object_type) or "C__OBJTYPE__SERVER",
+        default_object_type=data.get("idoit_default_object_type", cfg.default_object_type) or "C__OBJTYPE__APPLIANCE",
         auto_sync_enabled=bool(data.get("idoit_auto_sync_enabled", cfg.auto_sync_enabled)),
         sync_interval_minutes=sync_interval,
         sync_status_field=data.get("idoit_sync_status_field", cfg.sync_status_field) or "C__CATG__GLOBAL.comment",

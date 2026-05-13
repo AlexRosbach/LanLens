@@ -115,6 +115,7 @@ export default function Settings() {
         telegram_chat_id: current.telegram_chat_id,
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
+        notify_on_new_device: current.notify_on_new_device,
       })
       setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
       setTelegramTokenDirty(false)
@@ -712,6 +713,15 @@ export default function Settings() {
                 />
                 {t('send_update_notifications')}
               </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.notify_on_new_device}
+                  onChange={(e) => setSettings({ ...current, notify_on_new_device: e.target.checked })}
+                />
+                {t('notify_on_new_device')}
+              </label>
+              <p className="text-xs text-text-subtle">{t('notify_on_new_device_hint')}</p>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
@@ -1045,7 +1055,7 @@ export default function Settings() {
                     <Input
                       value={idoitConfig.idoit_default_object_type}
                       onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_default_object_type: e.target.value })}
-                      placeholder="C__OBJTYPE__SERVER"
+                      placeholder="C__OBJTYPE__APPLIANCE"
                     />
                   </div>
                   <div>

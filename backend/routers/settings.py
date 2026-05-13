@@ -37,7 +37,7 @@ SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
     "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
-    "network_interface", "notify_on_device_online", "notify_on_device_offline",
+    "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
     "webhook_url", "webhook_enabled",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
@@ -141,6 +141,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         network_interface=_get(db, "network_interface", ""),
         notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
+        notify_on_new_device=_get(db, "notify_on_new_device", "true") != "false",
         server_url=_get(db, "server_url", ""),
         smtp_host=_get(db, "smtp_host", ""),
         smtp_port=int(_get(db, "smtp_port", "587") or "587"),
@@ -300,6 +301,7 @@ def update_telegram(
     _set(db, "telegram_chat_id", data.telegram_chat_id)
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
+    _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
     db.commit()
     return MessageResponse(message="Telegram settings updated")
 

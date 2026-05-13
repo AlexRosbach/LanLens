@@ -487,6 +487,7 @@ export default function DeviceDetail() {
                 </div>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
                   <InfoRow label={t('idoit_object_id')} value={device.idoit_object_id} mono />
+                  <InfoRow label={t('idoit_sysid')} value={device.idoit_sysid} mono />
                   <div>
                     <p className="text-text-subtle text-xs mb-0.5">{t('idoit_object')}</p>
                     {device.idoit_object_url ? (
@@ -689,6 +690,7 @@ export default function DeviceDetail() {
 
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('maintenance_noise_control')}</h2>
+        <p className="text-xs text-text-subtle mb-3">{t('maintenance_noise_help')}</p>
         <div className="grid sm:grid-cols-2 gap-3 text-sm">
           <label className="flex items-center gap-2 text-text-muted">
             <input type="checkbox" checked={!!device.notifications_muted} onChange={(e) => handleMaintenanceChange({ notifications_muted: e.target.checked })} />
@@ -700,18 +702,22 @@ export default function DeviceDetail() {
           </label>
         </div>
         <div className="mt-3 grid sm:grid-cols-2 gap-3">
-          <Input
-            type="datetime-local"
-            value={maintenanceDraft.until}
-            onChange={(e) => setMaintenanceDraft((draft) => ({ ...draft, until: e.target.value }))}
-          />
+          <label className="block">
+            <span className="block text-xs text-text-subtle mb-1">{t('maintenance_until_label')}</span>
+            <Input
+              type="datetime-local"
+              value={maintenanceDraft.until}
+              onChange={(e) => setMaintenanceDraft((draft) => ({ ...draft, until: e.target.value }))}
+            />
+          </label>
           <Input
             value={maintenanceDraft.note}
             onChange={(e) => setMaintenanceDraft((draft) => ({ ...draft, note: e.target.value }))}
             placeholder={t('maintenance_note')}
           />
         </div>
-        <div className="mt-3 flex justify-end">
+        <div className="mt-3 flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setMaintenanceDraft({ until: '', note: '' })}>{t('maintenance_clear')}</Button>
           <Button size="sm" onClick={saveMaintenanceDraft} loading={maintenanceSaving}>{t('save')}</Button>
         </div>
       </Card>

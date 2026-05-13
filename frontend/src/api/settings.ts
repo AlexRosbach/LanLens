@@ -15,6 +15,7 @@ export interface AllSettings {
   network_interface: string
   notify_on_device_online: boolean
   notify_on_device_offline: boolean
+  notify_on_new_device: boolean
   server_url: string
   smtp_host: string
   smtp_port: number
@@ -57,6 +58,7 @@ export const settingsApi = {
     telegram_chat_id: string
     telegram_enabled: boolean
     notify_telegram_update: boolean
+    notify_on_new_device: boolean
   }) => apiClient.put('/settings/telegram', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),

@@ -290,6 +290,7 @@ class DeviceResponse(BaseModel):
     idoit_enabled: bool = False
     idoit_sync_status: Optional[str] = None
     idoit_object_id: Optional[str] = None
+    idoit_sysid: Optional[str] = None
     idoit_object_url: Optional[str] = None
     idoit_last_sync_at: Optional[datetime] = None
     idoit_last_validation_at: Optional[datetime] = None
@@ -411,6 +412,7 @@ class TelegramSettings(BaseModel):
     telegram_chat_id: str
     telegram_enabled: bool
     notify_telegram_update: bool = False
+    notify_on_new_device: bool = True
 
 
 class WebhookSettings(BaseModel):
@@ -454,6 +456,7 @@ class AllSettings(BaseModel):
     network_interface: Optional[str] = ""
     notify_on_device_online: bool = False
     notify_on_device_offline: bool = False
+    notify_on_new_device: bool = True
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587

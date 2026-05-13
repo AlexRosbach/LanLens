@@ -250,6 +250,7 @@ def _device_to_response(
         idoit_enabled=idoit_enabled,
         idoit_sync_status=device.idoit_sync.status if device.idoit_sync else "never_synced",
         idoit_object_id=idoit_object_id,
+        idoit_sysid=device.idoit_sync.idoit_sysid if device.idoit_sync else None,
         idoit_object_url=build_object_url(idoit_portal_url or "", idoit_object_id),
         idoit_last_sync_at=device.idoit_sync.last_sync_at if device.idoit_sync else None,
         idoit_last_validation_at=device.idoit_sync.last_validation_at if device.idoit_sync else None,

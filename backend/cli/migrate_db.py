@@ -361,6 +361,7 @@ def migrate():
                 "device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE, "
                 "status VARCHAR(32) NOT NULL DEFAULT 'never_synced', "
                 "idoit_object_id VARCHAR(64), "
+                "idoit_sysid VARCHAR(128), "
                 "last_sync_at DATETIME, "
                 "last_success_at DATETIME, "
                 "last_validation_at DATETIME, "
@@ -382,6 +383,11 @@ def migrate():
             conn.execute(text("UPDATE idoit_device_sync SET last_validation_at = last_sync_at WHERE last_validation_at IS NULL AND last_success_at IS NULL AND last_sync_at IS NOT NULL"))
             conn.commit()
             print("Migration: added idoit_device_sync.last_validation_at")
+
+        if _table_exists(conn, "idoit_device_sync") and not _column_exists(conn, "idoit_device_sync", "idoit_sysid"):
+            conn.execute(text("ALTER TABLE idoit_device_sync ADD COLUMN idoit_sysid VARCHAR(128)"))
+            conn.commit()
+            print("Migration: added idoit_device_sync.idoit_sysid")
 
         if IS_SQLITE and not _table_exists(conn, "idoit_sync_logs"):
             conn.execute(text(

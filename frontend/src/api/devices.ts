@@ -56,6 +56,7 @@ export interface Device {
   idoit_enabled?: boolean
   idoit_sync_status?: string | null
   idoit_object_id?: string | null
+  idoit_sysid?: string | null
   idoit_object_url?: string | null
   idoit_last_sync_at?: string | null
   idoit_last_validation_at?: string | null

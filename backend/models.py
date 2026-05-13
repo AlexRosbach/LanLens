@@ -219,6 +219,7 @@ class IdoitDeviceSync(Base):
     device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
     status = Column(String(32), default="never_synced", nullable=False)
     idoit_object_id = Column(String(64), nullable=True)
+    idoit_sysid = Column(String(128), nullable=True)
     last_sync_at = Column(DateTime, nullable=True)
     last_success_at = Column(DateTime, nullable=True)
     last_validation_at = Column(DateTime, nullable=True)
