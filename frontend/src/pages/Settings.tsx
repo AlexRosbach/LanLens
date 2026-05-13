@@ -38,12 +38,12 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'vendor', labelKey: 'idoit_field_vendor', placeholder: 'C__CATG__MODEL.manufacturer' },
   { key: 'asset_tag', labelKey: 'idoit_field_asset_tag', placeholder: 'C__CATG__ACCOUNTING.inventory_no' },
   { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'purpose', labelKey: 'idoit_field_purpose', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'notes', labelKey: 'idoit_field_notes', placeholder: 'C__CATG__GLOBAL.description' },
-  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'purpose', labelKey: 'idoit_field_purpose', placeholder: '' },
+  { key: 'notes', labelKey: 'idoit_field_notes', placeholder: '' },
+  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__OPERATING_SYSTEM.title' },
   { key: 'cpu', labelKey: 'idoit_field_cpu', placeholder: 'C__CATG__CPU.title' },
   { key: 'model', labelKey: 'idoit_field_model', placeholder: 'C__CATG__MODEL.title' },
-  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
 ] as const
 
 function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {

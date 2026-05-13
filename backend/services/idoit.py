@@ -22,7 +22,7 @@ from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 3,
+    "version": 4,
     # Use a neutral appliance for unknown/unclassified devices. Real servers are
     # still mapped to C__OBJTYPE__SERVER below, but LanLens should not document a
     # random discovered host as a server just because no better signal exists.
@@ -59,12 +59,12 @@ DEFAULT_MAPPING = {
         "vendor": "C__CATG__MODEL.manufacturer",
         "asset_tag": "C__CATG__ACCOUNTING.inventory_no",
         "cmdb_id": "C__CATG__GLOBAL.description",
-        "purpose": "C__CATG__GLOBAL.description",
-        "notes": "C__CATG__GLOBAL.description",
-        "os_info": "C__CATG__GLOBAL.description",
+        "purpose": "",
+        "notes": "",
+        "os_info": "C__CATG__OPERATING_SYSTEM.title",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
-        "hardware_summary": "C__CATG__GLOBAL.description"
+        "hardware_summary": ""
     },
 }
 
@@ -201,7 +201,7 @@ def get_config(db: Session) -> IdoitConfig:
         basic_username=_get_setting(db, "idoit_basic_username"),
         basic_password=_get_setting(db, "idoit_basic_password"),
         timeout_seconds=timeout,
-        default_object_type=_get_setting(db, "idoit_default_object_type") or "C__OBJTYPE__APPLIANCE",
+        default_object_type=_normalized_default_object_type(_get_setting(db, "idoit_default_object_type")),
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
         sync_interval_minutes=sync_interval,
         sync_status_field=_normalized_sync_status_field(_get_setting(db, "idoit_sync_status_field")),
@@ -229,7 +229,19 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
         "C__CATG__GLOBAL.comment",
         "C__CATG__GLOBAL.location_path",
     }
-    return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values())
+    description_dump_fields = {"purpose", "notes", "os_info", "hardware_summary"}
+    dumps_into_description = any(
+        fields.get(field) == "C__CATG__GLOBAL.description"
+        for field in description_dump_fields
+    )
+    return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description
+
+
+def _normalized_default_object_type(value: Optional[str]) -> str:
+    field = (value or "").strip()
+    if not field or field == "C__OBJTYPE__SERVER":
+        return "C__OBJTYPE__APPLIANCE"
+    return field
 
 
 def _normalized_sync_status_field(value: Optional[str]) -> str:
@@ -342,9 +354,11 @@ def _json_safe_device_value(device: Device, field_name: str) -> Any:
 
 def object_type_for_device(device: Device, config: IdoitConfig) -> str:
     mapping = _mapping_dict(config)
+    device_class = (device.device_class or "").strip()
+    if not device_class or device_class.lower() == "unknown":
+        return "C__OBJTYPE__APPLIANCE"
     by_class = mapping.get("objectTypeByDeviceClass")
     if isinstance(by_class, dict):
-        device_class = device.device_class or ""
         mapped = by_class.get(device_class)
         if isinstance(mapped, str) and mapped.strip():
             return mapped.strip()
@@ -353,8 +367,8 @@ def object_type_for_device(device: Device, config: IdoitConfig) -> str:
                 return value.strip()
     object_type = mapping.get("objectType")
     if isinstance(object_type, str) and object_type.strip():
-        return object_type.strip()
-    return config.default_object_type
+        return _normalized_default_object_type(object_type)
+    return _normalized_default_object_type(config.default_object_type)
 
 
 def build_object_url(portal_url: str, object_id: Optional[str]) -> Optional[str]:
