@@ -5,7 +5,7 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
-import { idoitApi, type IdoitConfig } from '../api/idoit'
+import { idoitApi, type IdoitConfig, type IdoitSyncLogEntry } from '../api/idoit'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -114,6 +114,8 @@ export default function Settings() {
   const [idoitSyncingAll, setIdoitSyncingAll] = useState(false)
   const [idoitSyncProgress, setIdoitSyncProgress] = useState<{ current: number; total: number; success: number; failure: number; skipped: number; label?: string } | null>(null)
   const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
+  const [idoitLogs, setIdoitLogs] = useState<IdoitSyncLogEntry[]>([])
+  const [idoitLogsLoading, setIdoitLogsLoading] = useState(false)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
@@ -155,10 +157,22 @@ export default function Settings() {
       setIdoitConfig(data)
       setIdoitApiKey('')
       setIdoitBasicPassword('')
+      loadIdoitLogs().catch(() => {})
     } catch {
       setIdoitConfig(null)
       setIdoitLoadError(true)
       toast.error(t('idoit_settings_load_failed'))
+    }
+  }
+
+  async function loadIdoitLogs() {
+    setIdoitLogsLoading(true)
+    try {
+      setIdoitLogs(await idoitApi.getLogs(50))
+    } catch {
+      toast.error(t('idoit_logs_load_failed'))
+    } finally {
+      setIdoitLogsLoading(false)
     }
   }
 
@@ -533,6 +547,7 @@ export default function Settings() {
       setIdoitTestError(null)
       toast.success(t('idoit_bulk_sync_success', { success: String(success), failure: String(failure), skipped: String(skipped) }))
       loadIdoitConfig().catch(() => {})
+      loadIdoitLogs().catch(() => {})
     } catch (error) {
       const details = extractIdoitErrorDetails(error)
       setIdoitTestError(details)
@@ -1404,6 +1419,56 @@ export default function Settings() {
                     {idoitSyncProgress.label && <p className="mt-2 text-xs text-text-subtle truncate">{idoitSyncProgress.label}</p>}
                   </div>
                 )}
+
+                <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-text-muted">{t('idoit_sync_logs')}</h3>
+                      <p className="text-xs text-text-subtle">{t('idoit_sync_logs_hint')}</p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={loadIdoitLogs} loading={idoitLogsLoading}>{t('refresh')}</Button>
+                  </div>
+                  {idoitLogs.length === 0 ? (
+                    <p className="text-sm text-text-subtle">{t('idoit_sync_logs_empty')}</p>
+                  ) : (
+                    <div className="max-h-96 overflow-auto rounded-lg border border-border bg-background">
+                      <table className="min-w-full text-left text-xs">
+                        <thead className="sticky top-0 bg-surface text-text-subtle">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">{t('time')}</th>
+                            <th className="px-3 py-2 font-medium">{t('result')}</th>
+                            <th className="px-3 py-2 font-medium">{t('mode')}</th>
+                            <th className="px-3 py-2 font-medium">Device</th>
+                            <th className="px-3 py-2 font-medium">{t('message')}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {idoitLogs.map((entry) => (
+                            <tr key={entry.id} className="align-top">
+                              <td className="whitespace-nowrap px-3 py-2 text-text-subtle">{formatDateTime(entry.created_at)}</td>
+                              <td className="px-3 py-2">
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${entry.result === 'failure' ? 'bg-danger/15 text-danger' : entry.result === 'skipped' ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success'}`}>
+                                  {entry.result}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-text-subtle">{entry.mode}</td>
+                              <td className="px-3 py-2 font-mono text-text-subtle">{entry.device_id ?? '—'}</td>
+                              <td className="px-3 py-2 text-text-muted">
+                                <p>{entry.message || '—'}</p>
+                                {Boolean(entry.details?.warnings) && (
+                                  <pre className="mt-1 max-w-xl whitespace-pre-wrap break-words rounded bg-warning/10 p-2 text-[11px] text-warning">{JSON.stringify(entry.details?.warnings, null, 2)}</pre>
+                                )}
+                                {Boolean(entry.details?.error) && (
+                                  <pre className="mt-1 max-w-xl whitespace-pre-wrap break-words rounded bg-danger/10 p-2 text-[11px] text-danger">{JSON.stringify(entry.details?.error, null, 2)}</pre>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </Card>

@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -20,6 +21,8 @@ from sqlalchemy.orm import Session
 
 from ..models import Device, DeepScanFinding, DeviceHostRelationship, IdoitDeviceSync, IdoitSyncLog, PortScan, Setting
 from .notification import request_json_via_validated_url
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
@@ -1033,15 +1036,40 @@ def _safe_log_details(details: dict[str, Any]) -> str:
 
 
 def log_sync(db: Session, device_id: Optional[int], mode: str, result: str, message: str, details: Optional[dict[str, Any]] = None, object_id: Optional[str] = None) -> IdoitSyncLog:
+    log_details = details or {}
     row = IdoitSyncLog(
         device_id=device_id,
         mode=mode,
         result=result,
         idoit_object_id=object_id,
         message=message,
-        details_json=_safe_log_details(details or {}),
+        details_json=_safe_log_details(log_details),
     )
     db.add(row)
+    log_context: dict[str, Any] = {
+        "device_id": device_id,
+        "mode": mode,
+        "result": result,
+        "idoit_object_id": object_id,
+    }
+    if isinstance(log_details, dict):
+        if log_details.get("warnings"):
+            log_context["warnings"] = log_details.get("warnings")
+        if log_details.get("errors"):
+            log_context["errors"] = log_details.get("errors")
+        if log_details.get("error"):
+            log_context["error"] = log_details.get("error")
+        if log_details.get("retry"):
+            log_context["retry"] = log_details.get("retry")
+        if log_details.get("stale_object_id"):
+            log_context["stale_object_id"] = log_details.get("stale_object_id")
+    log_message = "i-doit sync log: %s | %s"
+    if result == "failure":
+        logger.error(log_message, message, json.dumps(log_context, default=str, sort_keys=True))
+    elif result == "skipped" or log_context.get("warnings") or log_context.get("retry"):
+        logger.warning(log_message, message, json.dumps(log_context, default=str, sort_keys=True))
+    else:
+        logger.info(log_message, message, json.dumps(log_context, default=str, sort_keys=True))
     return row
 
 

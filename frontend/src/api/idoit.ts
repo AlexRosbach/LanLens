@@ -59,6 +59,17 @@ export interface IdoitBulkSyncResult {
   results: unknown[]
 }
 
+export interface IdoitSyncLogEntry {
+  id: number
+  device_id?: number | null
+  mode: string
+  result: string
+  idoit_object_id?: string | null
+  message?: string | null
+  details?: Record<string, unknown>
+  created_at: string
+}
+
 export const idoitApi = {
   getConfig: () => apiClient.get<IdoitConfig>('/idoit/config').then((r) => r.data),
 
@@ -72,4 +83,6 @@ export const idoitApi = {
   syncDevice: (id: number) => apiClient.post<IdoitTestResult>(`/idoit/devices/${id}/sync`).then((r) => r.data),
 
   syncAll: () => apiClient.post<IdoitBulkSyncResult>('/idoit/sync-all').then((r) => r.data),
+
+  getLogs: (limit = 50) => apiClient.get<IdoitSyncLogEntry[]>('/idoit/logs', { params: { limit } }).then((r) => r.data),
 }
