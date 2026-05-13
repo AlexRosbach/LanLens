@@ -23,7 +23,7 @@ from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 7,
+    "version": 8,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -62,7 +62,7 @@ DEFAULT_MAPPING = {
         "os_info": "C__CATG__OPERATING_SYSTEM.assigned_version",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
-        "serial": "C__CATG__MODEL.serial",
+        "serial": "",
         "memory": "C__CATG__MEMORY.title",
         "disks": "C__CATG__DRIVE.title",
         "open_ports": "",
@@ -683,7 +683,6 @@ def _drive_entries(raw: Any) -> list[dict[str, Any]]:
                 "capacity": size,
                 "unit": unit,
                 "serial": item.get("SerialNumber") or item.get("serial"),
-                "drive_type": item.get("MediaType") or item.get("media_type") or item.get("type"),
                 "firmware": item.get("FirmwareRevision") or item.get("firmware"),
             }
             entries.append({k: v for k, v in entry.items() if v not in (None, "")})
@@ -698,7 +697,6 @@ def _drive_entries(raw: Any) -> list[dict[str, Any]]:
             continue
         name = parts[0]
         size = parts[1]
-        dtype = parts[2] if len(parts) > 2 else None
         model = parts[3] if len(parts) > 3 else None
         capacity, unit = _size_to_value_unit(size)
         entry = {
@@ -706,7 +704,6 @@ def _drive_entries(raw: Any) -> list[dict[str, Any]]:
             "mount_point": name[:255],
             "capacity": capacity,
             "unit": unit,
-            "drive_type": dtype,
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries[:64]
