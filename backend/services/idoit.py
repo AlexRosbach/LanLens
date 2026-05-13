@@ -1074,6 +1074,26 @@ def _category_entry_id(entry: dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _object_entry_id(entry: dict[str, Any]) -> Optional[str]:
+    for key in ("id", "objID", "object_id", "object", "isys_obj__id"):
+        value = entry.get(key)
+        value = _plain_category_value(value)
+        if value not in (None, ""):
+            try:
+                return str(_object_id_as_int(value))
+            except IdoitConnectionError:
+                continue
+    return None
+
+
+def _object_entry_title(entry: dict[str, Any]) -> str:
+    for key in ("title", "name", "object_title", "isys_obj__title"):
+        value = _plain_category_value(entry.get(key))
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
 def _clean_lanlens_global_description(value: Any) -> Optional[str]:
     text = _plain_category_value(value)
     if not isinstance(text, str):
@@ -1176,6 +1196,38 @@ class IdoitClient:
 
     async def read_object(self, object_id: str) -> Any:
         return await self.call("cmdb.object.read", {"id": _object_id_as_int(object_id)})
+
+    async def read_objects(self, params: dict[str, Any]) -> Any:
+        return await self.call("cmdb.objects.read", params)
+
+    async def find_object_by_title(self, title: str, object_type: Optional[str] = None) -> Optional[str]:
+        """Best-effort lookup to avoid duplicate creates when local state is empty.
+
+        i-doit installations/API versions differ slightly in list-filter shape.
+        Try the common variants and only accept exact title matches. This is a
+        safety net; the persisted `idoit_device_sync.idoit_object_id` remains
+        the primary identity once a device has been linked.
+        """
+        wanted = (title or "").strip().lower()
+        if not wanted:
+            return None
+        filters = [
+            {"filter": {"title": title, "type": object_type}} if object_type else None,
+            {"filter": {"title": title}},
+            {"title": title},
+            {"q": title},
+        ]
+        for params in [item for item in filters if item]:
+            try:
+                result = await self.read_objects(params)
+            except IdoitConnectionError:
+                continue
+            for entry in _category_entries(result):
+                if _object_entry_title(entry).strip().lower() == wanted:
+                    object_id = _object_entry_id(entry)
+                    if object_id:
+                        return object_id
+        return None
 
     async def object_type_title(self, object_id: str) -> str:
         result = await self.read_object(object_id)
@@ -1355,18 +1407,32 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             current_type_title = await client.object_type_title(object_id)
             desired_type = payload["objectType"]
             if desired_type != "C__OBJTYPE__SERVER" and "server" in current_type_title.lower():
-                old_object_id = object_id
-                object_id = await client.create_object(payload["title"], desired_type)
-                state.idoit_object_id = object_id
-                action = "replace_type_mismatch"
-                details["replaced_object_id"] = old_object_id
-                details["replaced_object_type_title"] = current_type_title
-                details["replacement_reason"] = "Existing i-doit object was typed as Server; i-doit object type changes require a new object. Old object was left untouched."
+                # Never create another i-doit object just because the current
+                # linked object has the wrong type. That produced duplicates in
+                # real sync runs. Keep the stable link and surface the mismatch;
+                # object type cleanup must be an explicit operator action.
+                action = "update_type_mismatch"
+                details["object_type_mismatch"] = {
+                    "current_type_title": current_type_title,
+                    "desired_type": desired_type,
+                    "resolution": "Kept existing linked i-doit object to avoid duplicates; change/relink the object type manually if required.",
+                }
+                await client.update_object_title(object_id, payload["title"])
             else:
                 await client.update_object_title(object_id, payload["title"])
         else:
-            object_id = await client.create_object(payload["title"], payload["objectType"])
+            object_id = await client.find_object_by_title(payload["title"], payload["objectType"])
+            if object_id:
+                action = "link_existing"
+                details["link_reason"] = "Local sync state had no i-doit object id; reused an existing exact-title i-doit object instead of creating a duplicate."
+            else:
+                object_id = await client.create_object(payload["title"], payload["objectType"])
+                action = "create"
             state.idoit_object_id = object_id
+            # Persist the upstream object link immediately. If a later category
+            # save fails or the request is interrupted, the next sync must update
+            # this object instead of creating another duplicate.
+            db.commit()
 
         categories, direct_fields = _category_payloads(payload.get("fields") if isinstance(payload.get("fields"), dict) else {})
         if direct_fields:
