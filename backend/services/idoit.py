@@ -1104,6 +1104,9 @@ def _is_missing_object_error(exc: IdoitConnectionError) -> bool:
         "unknown object",
         "no object",
         "invalid object",
+        "references an existing object",
+        "needs to be a integer value",
+        "needs to be an integer value",
     )
     return any(marker in detail for marker in missing_markers)
 
@@ -1452,9 +1455,19 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         else:
             object_id = await client.find_object_by_title(payload["title"], payload["objectType"])
             if object_id:
-                action = "link_existing"
-                details["link_reason"] = "Local sync state had no i-doit object id; reused an existing exact-title i-doit object instead of creating a duplicate."
-            else:
+                try:
+                    await client.read_object(object_id)
+                    action = "link_existing"
+                    details["link_reason"] = "Local sync state had no i-doit object id; reused an existing exact-title i-doit object instead of creating a duplicate."
+                except IdoitConnectionError as exc:
+                    if not _is_missing_object_error(exc):
+                        raise
+                    details["ignored_stale_title_match"] = {
+                        "idoit_object_id": object_id,
+                        "reason": "Exact-title lookup returned an object id that i-doit no longer accepts as existing; creating a fresh object instead.",
+                    }
+                    object_id = None
+            if not object_id:
                 object_id = await client.create_object(payload["title"], payload["objectType"])
                 action = "create"
             state.idoit_object_id = object_id
