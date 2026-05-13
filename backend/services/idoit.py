@@ -18,12 +18,12 @@ from typing import Any, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Device, DeepScanFinding, IdoitDeviceSync, IdoitSyncLog, Setting
+from ..models import Device, DeepScanFinding, DeviceHostRelationship, IdoitDeviceSync, IdoitSyncLog, PortScan, Setting
 from .notification import request_json_via_validated_url
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 5,
+    "version": 6,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -64,7 +64,17 @@ DEFAULT_MAPPING = {
         "os_info": "C__CATG__OPERATING_SYSTEM.title",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
-        "hardware_summary": ""
+        "serial": "C__CATG__MODEL.serial",
+        "memory": "C__CATG__GLOBAL.description",
+        "disks": "C__CATG__GLOBAL.description",
+        "open_ports": "C__CATG__GLOBAL.description",
+        "services": "C__CATG__GLOBAL.description",
+        "containers": "C__CATG__GLOBAL.description",
+        "hypervisor": "C__CATG__GLOBAL.description",
+        "licenses": "C__CATG__GLOBAL.description",
+        "relationships": "C__CATG__GLOBAL.description",
+        "lanlens_inventory": "C__CATG__GLOBAL.description",
+        "hardware_summary": "C__CATG__GLOBAL.description"
     },
 }
 
@@ -236,11 +246,11 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
         "C__CATG__GLOBAL.comment",
         "C__CATG__GLOBAL.location_path",
     }
-    description_dump_fields = {"purpose", "notes", "os_info", "hardware_summary"}
+    description_dump_fields = {"purpose", "notes", "os_info"}
     dumps_into_description = any(
         fields.get(field) == "C__CATG__GLOBAL.description"
         for field in description_dump_fields
-    )
+    ) and version < 4
     return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description
 
 
@@ -282,6 +292,15 @@ def _allowed_device_mapping_fields() -> set[str]:
         "cpu",
         "memory",
         "model",
+        "serial",
+        "disks",
+        "open_ports",
+        "services",
+        "containers",
+        "hypervisor",
+        "licenses",
+        "relationships",
+        "lanlens_inventory",
     }
 
 
@@ -423,7 +442,7 @@ def _latest_hardware_findings(db: Optional[Session], device: Device) -> dict[str
         .filter(
             DeepScanFinding.device_id == device.id,
             DeepScanFinding.finding_type == "hardware",
-            DeepScanFinding.key.in_(["cpu", "memory", "model"]),
+            DeepScanFinding.key.in_(["cpu", "processor", "memory", "physical_memory", "model", "computer_system", "vendor", "serial", "bios", "disks", "disk_drives"]),
         )
         .order_by(DeepScanFinding.key, DeepScanFinding.observed_at.desc())
         .all()
@@ -439,9 +458,79 @@ def _latest_hardware_findings(db: Optional[Session], device: Device) -> dict[str
     return findings
 
 
+def _decode_finding_value(value: Any) -> Any:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return value
+
+
+def _compact_text(value: Any, limit: int = 1200) -> str:
+    decoded = _decode_finding_value(value)
+    if decoded is None:
+        return ""
+    if isinstance(decoded, str):
+        text = decoded.strip()
+    else:
+        text = json.dumps(decoded, ensure_ascii=False, default=str, sort_keys=True)
+    text = "\n".join(line.rstrip() for line in text.splitlines() if line.strip())
+    if len(text) > limit:
+        return text[: limit - 1].rstrip() + "…"
+    return text
+
+
+def _latest_findings(db: Optional[Session], device: Device) -> dict[str, dict[str, Any]]:
+    if db is None or not device.id:
+        return {}
+    rows = (
+        db.query(DeepScanFinding.finding_type, DeepScanFinding.key, DeepScanFinding.value_json, DeepScanFinding.source, DeepScanFinding.observed_at)
+        .filter(DeepScanFinding.device_id == device.id)
+        .order_by(DeepScanFinding.finding_type, DeepScanFinding.key, DeepScanFinding.observed_at.desc())
+        .all()
+    )
+    findings: dict[str, dict[str, Any]] = {}
+    for finding_type, key, value_json, source, observed_at in rows:
+        group = findings.setdefault(finding_type, {})
+        if key not in group:
+            group[key] = {
+                "value": _decode_finding_value(value_json),
+                "source": source,
+                "observed_at": observed_at.isoformat() if isinstance(observed_at, datetime) else None,
+            }
+    return findings
+
+
+def _finding_text(findings: dict[str, dict[str, Any]], finding_type: str, key: str, limit: int = 1200) -> Optional[str]:
+    entry = findings.get(finding_type, {}).get(key)
+    if not isinstance(entry, dict):
+        return None
+    text = _compact_text(entry.get("value"), limit)
+    return text or None
+
+
+def _first_finding_text(findings: dict[str, dict[str, Any]], candidates: list[tuple[str, str]], limit: int = 1200) -> Optional[str]:
+    for finding_type, key in candidates:
+        text = _finding_text(findings, finding_type, key, limit)
+        if text:
+            return text
+    return None
+
+
 def _cpu_title(cpu_raw: Optional[str]) -> Optional[str]:
     if not cpu_raw:
         return None
+    decoded = _decode_finding_value(cpu_raw)
+    if isinstance(decoded, list) and decoded:
+        decoded = decoded[0]
+    if isinstance(decoded, dict):
+        for key in ("Name", "name", "ModelName", "model_name"):
+            value = decoded.get(key)
+            if value:
+                return str(value).strip()[:255] or None
     for line in str(cpu_raw).splitlines():
         if "model name" in line.lower():
             value = line.split(":", 1)[-1].strip()
@@ -454,6 +543,9 @@ def _cpu_details(cpu_raw: Optional[str]) -> dict[str, Any]:
     if not cpu_raw:
         return {}
     raw = str(cpu_raw)
+    decoded = _decode_finding_value(cpu_raw)
+    if isinstance(decoded, list) and decoded:
+        decoded = decoded[0]
     details: dict[str, Any] = {}
     if title:
         details["title"] = title[:255]
@@ -463,6 +555,17 @@ def _cpu_details(cpu_raw: Optional[str]) -> dict[str, Any]:
             details["manufacturer"] = "Intel"
         elif "amd" in lowered:
             details["manufacturer"] = "AMD"
+    if isinstance(decoded, dict):
+        cores = decoded.get("NumberOfCores") or decoded.get("cores")
+        if isinstance(cores, int) or (isinstance(cores, str) and cores.isdigit()):
+            details["cores"] = int(cores)
+        mhz = decoded.get("MaxClockSpeed") or decoded.get("max_clock_speed")
+        try:
+            if mhz:
+                details["frequency"] = round(float(str(mhz).replace(",", ".")) / 1000, 2)
+                details["frequency_unit"] = 4
+        except ValueError:
+            pass
     for line in raw.splitlines():
         if ":" not in line:
             continue
@@ -484,6 +587,19 @@ def _cpu_details(cpu_raw: Optional[str]) -> dict[str, Any]:
     return details
 
 
+def _hardware_field_text(raw: Any, preferred_keys: tuple[str, ...], limit: int = 500) -> Optional[str]:
+    decoded = _decode_finding_value(raw)
+    if isinstance(decoded, list) and decoded:
+        decoded = decoded[0]
+    if isinstance(decoded, dict):
+        for key in preferred_keys:
+            value = decoded.get(key)
+            if value not in (None, ""):
+                return str(value).strip()[:limit] or None
+    text = _compact_text(decoded, limit)
+    return text or None
+
+
 def _hardware_summary(findings: dict[str, str]) -> Optional[str]:
     parts: list[str] = []
     if cpu := _cpu_title(findings.get("cpu")):
@@ -493,6 +609,114 @@ def _hardware_summary(findings: dict[str, str]) -> Optional[str]:
     if model := findings.get("model"):
         parts.append(f"Model: {str(model).strip()[:255]}")
     return "\n".join(parts) or None
+
+
+def _latest_open_ports(db: Optional[Session], device: Device) -> Optional[str]:
+    if db is None or not device.id:
+        return None
+    scan = (
+        db.query(PortScan)
+        .filter(PortScan.device_id == device.id)
+        .order_by(PortScan.scanned_at.desc())
+        .first()
+    )
+    if not scan:
+        return None
+    try:
+        ports = json.loads(scan.open_ports or "[]")
+    except Exception:
+        ports = scan.open_ports
+    lines = [f"Port scan: {scan.scanned_at.isoformat() if scan.scanned_at else 'unknown'}"]
+    if isinstance(ports, list):
+        for item in ports[:80]:
+            if isinstance(item, dict):
+                port = item.get("port") or item.get("number") or item.get("id")
+                proto = item.get("protocol") or item.get("proto") or "tcp"
+                service = item.get("service") or item.get("name") or item.get("product") or ""
+                lines.append(f"- {port}/{proto} {service}".rstrip())
+            else:
+                lines.append(f"- {item}")
+    else:
+        lines.append(_compact_text(ports, 2000))
+    return "\n".join(lines)[:3000]
+
+
+def _services_summary(device: Device) -> Optional[str]:
+    services = list(device.services or [])
+    if not services:
+        return None
+    lines = ["LanLens services:"]
+    for service in sorted(services, key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
+        endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
+        parts = [service.name, service.service_type]
+        if endpoint:
+            parts.append(endpoint)
+        if service.version:
+            parts.append(f"version={service.version}")
+        if service.description:
+            parts.append(service.description[:180])
+        lines.append("- " + " | ".join(str(part) for part in parts if part))
+    return "\n".join(lines)[:4000]
+
+
+def _relationships_summary(db: Optional[Session], device: Device) -> Optional[str]:
+    if db is None or not device.id:
+        return None
+    rows = (
+        db.query(DeviceHostRelationship)
+        .filter((DeviceHostRelationship.host_device_id == device.id) | (DeviceHostRelationship.child_device_id == device.id))
+        .order_by(DeviceHostRelationship.last_confirmed_at.desc())
+        .limit(80)
+        .all()
+    )
+    if not rows:
+        return None
+    lines = ["LanLens host relationships:"]
+    for rel in rows:
+        if rel.host_device_id == device.id:
+            other = rel.child_device
+            direction = "hosts"
+        else:
+            other = rel.host_device
+            direction = "runs on"
+        other_label = other.label or other.hostname or other.ip_address or other.mac_address if other else "unknown"
+        lines.append(f"- {direction}: {other_label} ({rel.relationship_type}, source={rel.match_source or 'unknown'}, id={rel.vm_identifier or '-'})")
+    return "\n".join(lines)[:4000]
+
+
+def _deep_scan_summary(findings: dict[str, dict[str, Any]]) -> Optional[str]:
+    if not findings:
+        return None
+    lines = ["LanLens deep-scan findings:"]
+    for finding_type in sorted(findings.keys()):
+        lines.append(f"[{finding_type}]")
+        for key, entry in sorted(findings[finding_type].items()):
+            value = entry.get("value") if isinstance(entry, dict) else entry
+            lines.append(f"- {key}: {_compact_text(value, 700)}")
+    return "\n".join(lines)[:10000]
+
+
+def _lanlens_inventory_summary(device: Device, findings: dict[str, dict[str, Any]], db: Optional[Session]) -> str:
+    lines = ["LanLens inventory snapshot"]
+    lines.append(f"CMDB ID: {device.cmdb_id or '-'}")
+    lines.append(f"Class: {device.device_class or 'Unknown'}")
+    lines.append(f"MAC: {device.mac_address or '-'}")
+    lines.append(f"IP: {device.ip_address or '-'}")
+    lines.append(f"Hostname: {device.hostname or '-'}")
+    lines.append(f"Vendor: {device.vendor or '-'}")
+    lines.append(f"Online: {'yes' if device.is_online else 'no'}")
+    lines.append(f"First seen: {device.first_seen.isoformat() if device.first_seen else '-'}")
+    lines.append(f"Last seen: {device.last_seen.isoformat() if device.last_seen else '-'}")
+    for title, text in (
+        ("Documentation", "\n".join(part for part in [device.purpose, device.description, device.notes] if part)),
+        ("Open ports", _latest_open_ports(db, device) or ""),
+        ("Services", _services_summary(device) or ""),
+        ("Relationships", _relationships_summary(db, device) or ""),
+        ("Deep scan", _deep_scan_summary(findings) or ""),
+    ):
+        if text:
+            lines.append(f"\n## {title}\n{text}")
+    return "\n".join(lines)[:15000]
 
 
 def _append_field(fields: dict[str, Any], target: str, value: Any) -> None:
@@ -516,21 +740,57 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     # would be sent once live upstream writes are enabled.
     label = device.label or device.hostname or device.cmdb_id or device.ip_address or device.mac_address
     hw = _latest_hardware_findings(db, device)
+    findings = _latest_findings(db, device)
+    model = _hardware_field_text(hw.get("computer_system"), ("Model", "model")) or hw.get("model") or _first_finding_text(findings, [("hardware", "model")], 500)
+    serial = _hardware_field_text(hw.get("bios"), ("SerialNumber", "serial", "Serial")) or hw.get("serial") or _first_finding_text(findings, [("hardware", "serial")], 500)
+    vendor = device.vendor or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255)
+    os_info = device.os_info or _first_finding_text(findings, [("os", "release"), ("os", "operating_system"), ("os", "kernel")], 1000)
+    cpu_raw = hw.get("cpu") or hw.get("processor") or _first_finding_text(findings, [("hardware", "cpu"), ("hardware", "processor")], 1500)
+    memory = hw.get("memory") or hw.get("physical_memory") or _first_finding_text(findings, [("hardware", "memory"), ("hardware", "physical_memory")], 1500)
+    disks = hw.get("disks") or _first_finding_text(findings, [("hardware", "disks"), ("hardware", "disk_drives")], 2500)
+    containers = "\n".join(
+        text for text in [
+            _finding_text(findings, "container", "docker_containers", 2500),
+            _finding_text(findings, "container", "podman_containers", 2500),
+            _finding_text(findings, "container", "k3s_pods", 2500),
+            _finding_text(findings, "container", "docker_info", 1200),
+        ] if text
+    ) or None
+    hypervisor = "\n".join(
+        text for text in [
+            _finding_text(findings, "hypervisor", "kvm_vms", 2500),
+            _finding_text(findings, "hypervisor", "proxmox_qemu", 2500),
+            _finding_text(findings, "hypervisor", "proxmox_ct", 2500),
+            _finding_text(findings, "hypervisor", "proxmox_qemu_configs", 3500),
+            _finding_text(findings, "hypervisor", "proxmox_ct_configs", 3500),
+            _finding_text(findings, "audit", "hyper_v_vms", 2500),
+        ] if text
+    ) or None
+    licenses = _finding_text(findings, "audit", "licensing", 2500)
     source = {
         "label": label,
         "hostname": device.hostname,
         "ip_address": device.ip_address,
         "mac_address": device.mac_address,
         "device_class": device.device_class,
-        "vendor": device.vendor,
+        "vendor": vendor,
         "cmdb_id": device.cmdb_id,
         "asset_tag": device.asset_tag,
         "location": device.location,
         "responsible": device.responsible,
-        "os_info": device.os_info,
-        "cpu": _cpu_title(hw.get("cpu")),
-        "memory": hw.get("memory"),
-        "model": hw.get("model"),
+        "os_info": os_info,
+        "cpu": _cpu_title(cpu_raw),
+        "memory": memory,
+        "model": model,
+        "serial": serial,
+        "disks": disks,
+        "open_ports": _latest_open_ports(db, device),
+        "services": _services_summary(device),
+        "containers": containers,
+        "hypervisor": hypervisor,
+        "licenses": licenses,
+        "relationships": _relationships_summary(db, device),
+        "lanlens_inventory": _lanlens_inventory_summary(device, findings, db),
         "hardware_summary": _hardware_summary(hw),
     }
     fields = {}
@@ -542,7 +802,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         else:
             value = _json_safe_device_value(device, lanlens_field)
         _append_field(fields, idoit_field.strip(), value)
-    cpu_details = _cpu_details(hw.get("cpu"))
+    cpu_details = _cpu_details(cpu_raw)
     if fields.get("C__CATG__CPU.title") and cpu_details:
         for cpu_field in ("manufacturer", "type", "frequency", "frequency_unit", "cores", "description"):
             target = f"C__CATG__CPU.{cpu_field}"

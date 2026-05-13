@@ -43,7 +43,17 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__OPERATING_SYSTEM.title' },
   { key: 'cpu', labelKey: 'idoit_field_cpu', placeholder: 'C__CATG__CPU.title' },
   { key: 'model', labelKey: 'idoit_field_model', placeholder: 'C__CATG__MODEL.title' },
-  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
+  { key: 'serial', labelKey: 'idoit_field_serial', placeholder: 'C__CATG__MODEL.serial' },
+  { key: 'memory', labelKey: 'idoit_field_memory', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'disks', labelKey: 'idoit_field_disks', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'open_ports', labelKey: 'idoit_field_open_ports', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'services', labelKey: 'idoit_field_services', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'containers', labelKey: 'idoit_field_containers', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'hypervisor', labelKey: 'idoit_field_hypervisor', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'licenses', labelKey: 'idoit_field_licenses', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'relationships', labelKey: 'idoit_field_relationships', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'lanlens_inventory', labelKey: 'idoit_field_lanlens_inventory', placeholder: 'C__CATG__GLOBAL.description' },
+  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: 'C__CATG__GLOBAL.description' },
 ] as const
 
 function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {
