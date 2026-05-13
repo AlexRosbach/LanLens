@@ -10,8 +10,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from sqlalchemy.exc import IntegrityError
@@ -80,6 +81,7 @@ SETTING_DEFAULTS = {
     "idoit_default_object_type": "C__OBJTYPE__APPLIANCE",
     "idoit_auto_sync_enabled": "false",
     "idoit_sync_interval_minutes": "60",
+    "idoit_offline_retire_days": "7",
     "idoit_sync_status_field": "C__CATG__GLOBAL.description",
     "idoit_mapping_json": json.dumps(DEFAULT_MAPPING, indent=2),
 }
@@ -128,6 +130,7 @@ class IdoitConfig:
     default_object_type: str
     auto_sync_enabled: bool
     sync_interval_minutes: int
+    offline_retire_days: int
     sync_status_field: str
     mapping: dict[str, Any]
     mapping_error: Optional[str] = None
@@ -192,6 +195,10 @@ def get_config(db: Session) -> IdoitConfig:
         sync_interval = max(5, min(1440, int(_get_setting(db, "idoit_sync_interval_minutes") or "60")))
     except ValueError:
         sync_interval = 60
+    try:
+        offline_retire_days = max(1, min(3650, int(_get_setting(db, "idoit_offline_retire_days") or "7")))
+    except ValueError:
+        offline_retire_days = 7
     return IdoitConfig(
         enabled=_get_setting(db, "idoit_enabled") == "true",
         base_url=(_get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
@@ -204,6 +211,7 @@ def get_config(db: Session) -> IdoitConfig:
         default_object_type=_normalized_default_object_type(_get_setting(db, "idoit_default_object_type")),
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
         sync_interval_minutes=sync_interval,
+        offline_retire_days=offline_retire_days,
         sync_status_field=_normalized_sync_status_field(_get_setting(db, "idoit_sync_status_field")),
         mapping=mapping,
         mapping_error=mapping_error,
@@ -298,8 +306,8 @@ def validate_mapping(
     if not isinstance(fields, dict) or not fields:
         errors.append("Mapping requires at least one field mapping")
     else:
-        if invalid_targets := [name for name, target in fields.items() if not isinstance(target, str) or not target.strip()]:
-            errors.append(f"Mapping field targets must be non-empty strings: {', '.join(invalid_targets)}")
+        if invalid_targets := [name for name, target in fields.items() if not isinstance(target, str)]:
+            errors.append(f"Mapping field targets must be strings: {', '.join(invalid_targets)}")
         allowed_sources = _allowed_device_mapping_fields()
         if unknown_sources := [name for name in fields if name not in allowed_sources]:
             errors.append(f"Mapping source fields are not supported Device columns: {', '.join(unknown_sources)}")
@@ -352,6 +360,15 @@ def _json_safe_device_value(device: Device, field_name: str) -> Any:
     return None
 
 
+def _looks_like_server(device: Device) -> bool:
+    vendor = (device.vendor or "").lower()
+    hostname = (device.hostname or device.label or "").lower()
+    server_vendors = ("dell emc", "hewlett packard enterprise", "supermicro", "ibm", "lenovo system x")
+    if any(vendor_name in vendor for vendor_name in server_vendors):
+        return True
+    return bool(re.search(r"(^|[-_.])(srv|server|esx|esxi|hyperv|proxmox)([0-9-_.]|$)", hostname))
+
+
 def object_type_for_device(device: Device, config: IdoitConfig) -> str:
     mapping = _mapping_dict(config)
     device_class = (device.device_class or "").strip()
@@ -361,9 +378,13 @@ def object_type_for_device(device: Device, config: IdoitConfig) -> str:
     if isinstance(by_class, dict):
         mapped = by_class.get(device_class)
         if isinstance(mapped, str) and mapped.strip():
+            if mapped.strip() == "C__OBJTYPE__SERVER" and not _looks_like_server(device):
+                return "C__OBJTYPE__APPLIANCE"
             return mapped.strip()
         for key, value in by_class.items():
             if isinstance(key, str) and key.lower() in device_class.lower() and isinstance(value, str) and value.strip():
+                if value.strip() == "C__OBJTYPE__SERVER" and not _looks_like_server(device):
+                    return "C__OBJTYPE__APPLIANCE"
                 return value.strip()
     object_type = mapping.get("objectType")
     if isinstance(object_type, str) and object_type.strip():
@@ -411,7 +432,11 @@ def _latest_hardware_findings(db: Optional[Session], device: Device) -> dict[str
     findings: dict[str, str] = {}
     for key, value in rows:
         if key not in findings and value:
-            findings[key] = str(value)
+            try:
+                decoded = json.loads(value)
+            except Exception:
+                decoded = value
+            findings[key] = decoded if isinstance(decoded, str) else json.dumps(decoded, default=str)
     return findings
 
 
@@ -423,6 +448,41 @@ def _cpu_title(cpu_raw: Optional[str]) -> Optional[str]:
             value = line.split(":", 1)[-1].strip()
             return value or None
     return str(cpu_raw).strip()[:255] or None
+
+
+def _cpu_details(cpu_raw: Optional[str]) -> dict[str, Any]:
+    title = _cpu_title(cpu_raw)
+    if not cpu_raw:
+        return {}
+    raw = str(cpu_raw)
+    details: dict[str, Any] = {}
+    if title:
+        details["title"] = title[:255]
+        details["type"] = title[:255]
+        lowered = title.lower()
+        if "intel" in lowered:
+            details["manufacturer"] = "Intel"
+        elif "amd" in lowered:
+            details["manufacturer"] = "AMD"
+    for line in raw.splitlines():
+        if ":" not in line:
+            continue
+        key, value = [part.strip() for part in line.split(":", 1)]
+        key_lower = key.lower()
+        if key_lower == "cpu(s)" and value.isdigit():
+            details.setdefault("cores", int(value))
+        elif "core(s) per socket" in key_lower and value.isdigit():
+            details["cores"] = int(value)
+        elif key_lower in {"cpu mhz", "cpu max mhz"}:
+            try:
+                mhz = float(value.replace(",", "."))
+                if mhz > 0:
+                    details.setdefault("frequency", round(mhz / 1000, 2))
+                    details.setdefault("frequency_unit", 4)  # GHz in i-doit dialog defaults
+            except ValueError:
+                pass
+    details.setdefault("description", raw[:1000])
+    return details
 
 
 def _hardware_summary(findings: dict[str, str]) -> Optional[str]:
@@ -443,6 +503,12 @@ def _append_field(fields: dict[str, Any], target: str, value: Any) -> None:
         fields[target] = f"{fields[target]}\n{value}"
     else:
         fields[target] = value
+
+
+def _offline_retirement_due(device: Device, config: IdoitConfig) -> bool:
+    if device.is_online or not device.last_seen:
+        return False
+    return device.last_seen <= datetime.utcnow() - timedelta(days=config.offline_retire_days)
 
 
 def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = None) -> dict[str, Any]:
@@ -477,6 +543,14 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         else:
             value = _json_safe_device_value(device, lanlens_field)
         _append_field(fields, idoit_field.strip(), value)
+    cpu_details = _cpu_details(hw.get("cpu"))
+    if fields.get("C__CATG__CPU.title") and cpu_details:
+        for cpu_field in ("manufacturer", "type", "frequency", "frequency_unit", "cores", "description"):
+            target = f"C__CATG__CPU.{cpu_field}"
+            if target not in fields and cpu_details.get(cpu_field) not in (None, ""):
+                fields[target] = cpu_details[cpu_field]
+    if _offline_retirement_due(device, config):
+        fields["C__CATG__GLOBAL.cmdb_status"] = "C__CMDB_STATUS__OUT_OF_OPERATION"
     external_id_field = _mapping_identity(config).get("externalIdField")
     external_id_value = device.cmdb_id or device.mac_address
     if isinstance(external_id_field, str) and external_id_field.strip() and external_id_value and not fields.get(external_id_field):
@@ -527,6 +601,7 @@ MAX_SYNC_LOG_DETAILS_CHARS = 8000
 MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__NETWORK_PORT": ("mac", "title"),
     "C__CATG__IP": ("ipv4_address", "hostname"),
+    "C__CATG__CPU": ("title", "type"),
 }
 
 
@@ -598,6 +673,8 @@ def _category_entries(result: Any) -> list[dict[str, Any]]:
             return [entry for entry in nested if isinstance(entry, dict)]
         if isinstance(nested, dict):
             return [nested]
+    if result and all(isinstance(value, dict) for value in result.values()):
+        return list(result.values())
     # Some i-doit versions return one single-value category entry directly.
     return [result] if result else []
 
@@ -704,11 +781,32 @@ class IdoitClient:
     async def read_object(self, object_id: str) -> Any:
         return await self.call("cmdb.object.read", {"id": _object_id_as_int(object_id)})
 
+    async def read_cmdb_statuses(self) -> Any:
+        return await self.call("cmdb.status.read", {"language": "en"})
+
+    async def out_of_operation_status_id(self) -> Optional[int]:
+        try:
+            result = await self.read_cmdb_statuses()
+        except IdoitConnectionError:
+            return 10
+        for entry in _category_entries(result):
+            label = " ".join(
+                str(_plain_category_value(entry.get(key)) or "")
+                for key in ("title", "name", "const", "constant")
+            ).lower()
+            if "out of operation" in label or "außer betrieb" in label or "ausser betrieb" in label:
+                entry_id = _category_entry_id(entry)
+                if entry_id:
+                    return int(entry_id)
+        return 10
+
     async def read_category(self, object_id: str, category: str) -> Any:
-        return await self.call("cmdb.category.read", {"object": _object_id_as_int(object_id), "category": category})
+        object_int = _object_id_as_int(object_id)
+        return await self.call("cmdb.category.read", {"object": object_int, "objID": object_int, "category": category})
 
     async def save_category(self, object_id: str, category: str, data: dict[str, Any], entry_id: Optional[str] = None) -> Any:
-        params: dict[str, Any] = {"object": _object_id_as_int(object_id), "category": category, "data": data}
+        object_int = _object_id_as_int(object_id)
+        params: dict[str, Any] = {"object": object_int, "objID": object_int, "category": category, "data": data}
         if entry_id:
             params["entry"] = _object_id_as_int(entry_id)
         return await self.call("cmdb.category.save", params)
@@ -840,6 +938,9 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         categories, direct_fields = _category_payloads(payload.get("fields") if isinstance(payload.get("fields"), dict) else {})
         if direct_fields:
             details["direct_fields_skipped"] = direct_fields
+        if categories.get("C__CATG__GLOBAL", {}).get("cmdb_status") == "C__CMDB_STATUS__OUT_OF_OPERATION":
+            categories["C__CATG__GLOBAL"]["cmdb_status"] = await client.out_of_operation_status_id()
+            details["offline_retirement_applied"] = True
         sync_warnings: list[str] = []
         for category, data in categories.items():
             result = await client.save_category_best_effort(object_id, category, data)

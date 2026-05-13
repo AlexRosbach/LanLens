@@ -380,6 +380,7 @@ export default function Settings() {
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
         idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
+        idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
         idoit_mapping_json: idoitConfig.idoit_mapping_raw,
         // Do not send an empty API key: the backend interprets omitted as
@@ -416,6 +417,7 @@ export default function Settings() {
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
         idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
+        idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
         idoit_mapping_json: idoitConfig.idoit_mapping_raw,
         ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
@@ -1204,6 +1206,17 @@ export default function Settings() {
                     {idoitConfig.scheduler?.next_run_at && (
                       <p className="mt-1 text-xs text-text-subtle">{t('idoit_next_sync')}: {formatDateTime(idoitConfig.scheduler.next_run_at)}</p>
                     )}
+                  </div>
+                  <div className="max-w-xs">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_offline_retire_days')}</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={String(idoitConfig.idoit_offline_retire_days || 7)}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_offline_retire_days: Math.min(3650, Math.max(1, Number(e.target.value) || 7)) })}
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_offline_retire_days_hint')}</p>
                   </div>
                 </div>
 

@@ -38,6 +38,7 @@ class IdoitConfigPayload(BaseModel):
     idoit_default_object_type: Optional[str] = None
     idoit_auto_sync_enabled: Optional[bool] = None
     idoit_sync_interval_minutes: Optional[int] = None
+    idoit_offline_retire_days: Optional[int] = None
     idoit_sync_status_field: Optional[str] = None
     idoit_mapping_json: Optional[Any] = None
 
@@ -56,6 +57,7 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_default_object_type": cfg.default_object_type,
         "idoit_auto_sync_enabled": cfg.auto_sync_enabled,
         "idoit_sync_interval_minutes": cfg.sync_interval_minutes,
+        "idoit_offline_retire_days": cfg.offline_retire_days,
         "idoit_sync_status_field": cfg.sync_status_field,
         # Keep the editable setting as a string and expose the parsed object
         # separately. That avoids clients guessing whether idoit_mapping_json is
@@ -84,6 +86,10 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         sync_interval = max(5, min(1440, int(data.get("idoit_sync_interval_minutes", cfg.sync_interval_minutes) or 60)))
     except ValueError:
         sync_interval = cfg.sync_interval_minutes
+    try:
+        offline_retire_days = max(1, min(3650, int(data.get("idoit_offline_retire_days", cfg.offline_retire_days) or 7)))
+    except ValueError:
+        offline_retire_days = cfg.offline_retire_days
     return IdoitConfig(
         enabled=bool(data.get("idoit_enabled", cfg.enabled)),
         base_url=(data.get("idoit_base_url", cfg.base_url) or "").strip().rstrip("/"),
@@ -96,6 +102,7 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         default_object_type=_normalized_default_object_type(data.get("idoit_default_object_type", cfg.default_object_type)),
         auto_sync_enabled=bool(data.get("idoit_auto_sync_enabled", cfg.auto_sync_enabled)),
         sync_interval_minutes=sync_interval,
+        offline_retire_days=offline_retire_days,
         sync_status_field=data.get("idoit_sync_status_field", cfg.sync_status_field) or "C__CATG__GLOBAL.description",
         mapping=cfg.mapping,
         mapping_error=cfg.mapping_error,
