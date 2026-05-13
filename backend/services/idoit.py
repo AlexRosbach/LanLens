@@ -1094,6 +1094,20 @@ def _object_entry_title(entry: dict[str, Any]) -> str:
     return ""
 
 
+def _is_missing_object_error(exc: IdoitConnectionError) -> bool:
+    detail = json.dumps(exc.to_detail(), default=str).lower()
+    missing_markers = (
+        "not found",
+        "not be found",
+        "does not exist",
+        "not exists",
+        "unknown object",
+        "no object",
+        "invalid object",
+    )
+    return any(marker in detail for marker in missing_markers)
+
+
 def _clean_lanlens_global_description(value: Any) -> Optional[str]:
     text = _plain_category_value(value)
     if not isinstance(text, str):
@@ -1385,10 +1399,6 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
     state.last_validation_at = datetime.utcnow()
     digest = payload_hash(payload)
     previous_hash = state.payload_hash
-    if skip_unchanged and state.status == "synced" and state.idoit_object_id and previous_hash == digest:
-        log_sync(db, device.id, mode, "skipped", "i-doit sync skipped; payload unchanged", {"payload_hash": digest, "upstream_write_performed": False}, state.idoit_object_id)
-        db.commit()
-        return {"device_id": device.id, "status": state.status, "idoit_object_id": state.idoit_object_id, "payload_hash": digest, "upstream_write_performed": False, "skipped": True}
     state.payload_hash = digest
     if errors:
         state.status = "mapping_error"
@@ -1403,6 +1413,25 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         await client.login()
         object_id = state.idoit_object_id
         action = "update" if object_id else "create"
+        if object_id:
+            try:
+                await client.read_object(object_id)
+            except IdoitConnectionError as exc:
+                if not _is_missing_object_error(exc):
+                    raise
+                details["stale_object_link"] = {
+                    "old_idoit_object_id": object_id,
+                    "reason": "Linked i-doit object no longer exists; clearing local link and recreating/relinking on this sync.",
+                }
+                state.idoit_object_id = None
+                state.idoit_sysid = None
+                object_id = None
+                action = "recreate_missing"
+                db.commit()
+        if skip_unchanged and state.status == "synced" and object_id and previous_hash == digest:
+            log_sync(db, device.id, mode, "skipped", "i-doit sync skipped; payload unchanged", {"payload_hash": digest, "upstream_write_performed": False}, object_id)
+            db.commit()
+            return {"device_id": device.id, "status": state.status, "idoit_object_id": object_id, "payload_hash": digest, "upstream_write_performed": False, "skipped": True}
         if object_id:
             current_type_title = await client.object_type_title(object_id)
             desired_type = payload["objectType"]
