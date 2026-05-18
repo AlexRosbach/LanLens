@@ -152,6 +152,7 @@ Notes:
 - The configured `scan start` and `scan end` define the actual IPv4 scan range, so larger ranges inside the directly reachable local network are supported.
 - ARP scanning works directly only on the locally reachable Layer-2 network. Use **Additional routed scan targets** for other subnets, for example `192.168.10.0/24`.
 - Routed subnet discovery uses nmap ping scan. Across routed networks, MAC addresses and vendor information are often unavailable; LanLens tracks those hosts as IP-only discoveries.
+- Enterprise/VLAN deployments should either configure reachable routed CIDRs from a central LanLens instance or run one LanLens scanner per site/VLAN and consolidate through CMDB/i-doit. ARP/MAC discovery is only reliable inside the same broadcast domain; routed discovery is useful for reachability and IP/hostname inventory, not for guaranteed MAC/vendor identity.
 
 ### Optional navigation pages
 
@@ -402,9 +403,19 @@ Matching strategy for environments where i-doit already contains objects:
 2. Prefer a stable LanLens/CMDB external reference field (`cmdb_id` / configured `externalIdField`).
 3. Fall back to exact MAC address matches.
 4. Fall back to hostname/IP only as warning-level candidates, not automatic writes.
-5. Create a new object only when no confident match exists.
+5. In the default `match_only` create policy, skip sync when no confident match exists instead of creating a duplicate.
+6. Create a new object only when `idoit_create_policy=create_missing` is explicitly enabled.
 
-This keeps the scan enrichment one-way and predictable: LanLens colors/enriches discovered devices locally, prepares the mapped i-doit payload, links to existing objects when confidently matched, and only creates new i-doit objects once the live write path is enabled and the match result is unambiguous.
+This keeps the scan enrichment one-way and predictable: LanLens colors/enriches discovered devices locally, prepares the mapped i-doit payload, links to existing objects when confidently matched, and skips unmatched devices by default so prefilled i-doit environments are not polluted with duplicates.
+
+Enterprise rollout for prefilled i-doit environments:
+
+1. Start with `idoit_create_policy=match_only` and automatic sync disabled.
+2. Configure all VLANs/subnets as routed scan targets or deploy one scanner per routed site/VLAN.
+3. Import or set stable references first: i-doit object ID, `cmdb_id`, asset tag, MAC address or another agreed external reference.
+4. Run dry-runs and manual syncs; unmatched devices should become `match_required`, not new i-doit objects.
+5. Enable automatic sync after the match rate is clean.
+6. Enable `create_missing` only for greenfield segments where LanLens is allowed to create new CMDB objects.
 
 Troubleshooting checklist:
 
@@ -416,6 +427,7 @@ Troubleshooting checklist:
 - Object type/category/field not found: adjust the mapping JSON to your i-doit schema.
 - Selected sync status field is not writable: choose another writable custom/status/reference field.
 - Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
+- Prefilled i-doit tenant: keep `idoit_create_policy=match_only`; unmatched devices are skipped with `match_required` until linked or given a stable external reference.
 
 ### Generic CMDB REST API (v1.5.0 dev)
 

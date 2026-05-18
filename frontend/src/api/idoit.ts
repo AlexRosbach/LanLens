@@ -12,6 +12,7 @@ export interface IdoitConfig {
   idoit_default_object_type: string
   idoit_auto_sync_enabled: boolean
   idoit_sync_scope: 'all' | 'manual'
+  idoit_create_policy: 'match_only' | 'create_missing'
   idoit_sync_interval_minutes: number
   idoit_offline_retire_days: number
   idoit_sync_status_field: string
@@ -38,6 +39,7 @@ export interface IdoitConfigUpdate {
   idoit_default_object_type: string
   idoit_auto_sync_enabled: boolean
   idoit_sync_scope: 'all' | 'manual'
+  idoit_create_policy: 'match_only' | 'create_missing'
   idoit_sync_interval_minutes: number
   idoit_offline_retire_days: number
   idoit_sync_status_field: string

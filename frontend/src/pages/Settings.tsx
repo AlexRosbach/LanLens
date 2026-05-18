@@ -405,6 +405,7 @@ export default function Settings() {
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
         idoit_sync_scope: idoitConfig.idoit_sync_scope,
+        idoit_create_policy: idoitConfig.idoit_create_policy,
         idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
         idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
@@ -443,6 +444,7 @@ export default function Settings() {
         idoit_default_object_type: idoitConfig.idoit_default_object_type,
         idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
         idoit_sync_scope: idoitConfig.idoit_sync_scope,
+        idoit_create_policy: idoitConfig.idoit_create_policy,
         idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
         idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
         idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
@@ -1232,6 +1234,18 @@ export default function Settings() {
                       <option value="manual">{t('idoit_sync_scope_manual')}</option>
                     </select>
                     <p className="mt-1 text-xs text-text-subtle">{t('idoit_sync_scope_hint')}</p>
+                  </div>
+                  <div className="max-w-md">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_create_policy')}</label>
+                    <select
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                      value={idoitConfig.idoit_create_policy || 'match_only'}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_create_policy: e.target.value === 'create_missing' ? 'create_missing' : 'match_only' })}
+                    >
+                      <option value="match_only">{t('idoit_create_policy_match_only')}</option>
+                      <option value="create_missing">{t('idoit_create_policy_create_missing')}</option>
+                    </select>
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_create_policy_hint')}</p>
                   </div>
                   <div className="max-w-xs">
                     <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_interval_minutes')}</label>

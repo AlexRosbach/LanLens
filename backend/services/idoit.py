@@ -91,6 +91,7 @@ SETTING_DEFAULTS = {
     "idoit_default_object_type": "C__OBJTYPE__CLIENT",
     "idoit_auto_sync_enabled": "false",
     "idoit_sync_scope": "all",
+    "idoit_create_policy": "match_only",
     "idoit_sync_interval_minutes": "60",
     "idoit_offline_retire_days": "7",
     "idoit_sync_status_field": "",
@@ -141,6 +142,7 @@ class IdoitConfig:
     default_object_type: str
     auto_sync_enabled: bool
     sync_scope: str
+    create_policy: str
     sync_interval_minutes: int
     offline_retire_days: int
     sync_status_field: str
@@ -223,6 +225,7 @@ def get_config(db: Session) -> IdoitConfig:
         default_object_type=_normalized_default_object_type(_get_setting(db, "idoit_default_object_type")),
         auto_sync_enabled=_get_setting(db, "idoit_auto_sync_enabled") == "true",
         sync_scope="manual" if _get_setting(db, "idoit_sync_scope") == "manual" else "all",
+        create_policy="create_missing" if _get_setting(db, "idoit_create_policy") == "create_missing" else "match_only",
         sync_interval_minutes=sync_interval,
         offline_retire_days=offline_retire_days,
         sync_status_field=_normalized_sync_status_field(_get_setting(db, "idoit_sync_status_field")),
@@ -1512,7 +1515,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             else:
                 await client.update_object_title(object_id, payload["title"])
         else:
-            object_id = await client.find_object_by_title(payload["title"], payload["objectType"])
+            # Exact-title matching is only a duplicate guard before an explicit
+            # create. In match-only enterprise mode, title alone is not strong
+            # enough to update a prefilled CMDB object.
+            object_id = await client.find_object_by_title(payload["title"], payload["objectType"]) if config.create_policy == "create_missing" else None
             if object_id:
                 try:
                     await client.read_object(object_id)
@@ -1527,6 +1533,33 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     }
                     object_id = None
             if not object_id:
+                if config.create_policy != "create_missing":
+                    state.status = "match_required"
+                    state.last_error = "No confident existing i-doit match found; create policy is match-only"
+                    log_sync(
+                        db,
+                        device.id,
+                        mode,
+                        "skipped",
+                        "i-doit sync skipped; no confident existing object match and create policy is match-only",
+                        {
+                            **details,
+                            "payload_hash": digest,
+                            "match_required": True,
+                            "create_policy": config.create_policy,
+                            "upstream_write_performed": False,
+                        },
+                        None,
+                    )
+                    db.commit()
+                    return {
+                        "device_id": device.id,
+                        "status": state.status,
+                        "payload_hash": digest,
+                        "upstream_write_performed": False,
+                        "skipped": True,
+                        "skip_reason": "match_required",
+                    }
                 object_id = await client.create_object(payload["title"], payload["objectType"])
                 action = "create"
             state.idoit_object_id = object_id

@@ -4,6 +4,25 @@ This page collects common setup issues and fixes for LanLens integrations.
 
 ## i-doit integration FAQ
 
+### How should LanLens be used with multiple VLANs and an existing i-doit inventory?
+
+Treat this as two separate problems: discovery reachability and CMDB reconciliation.
+
+For VLAN discovery, use **Settings -> Network -> Additional routed scan targets** for routed CIDRs that the LanLens host can reach, for example `10.10.20.0/24`. LanLens uses `nmap -sn` for those targets. Across routed networks, MAC/vendor data may be missing because ARP only works reliably inside the local broadcast domain.
+
+For larger enterprises, deploy one LanLens instance or scanner near each site/VLAN when MAC-level discovery matters, then consolidate through i-doit/CMDB rather than forcing one central ARP scanner through routed networks.
+
+For prefilled i-doit tenants, keep **Object creation policy** set to **Match existing objects only**. In this mode LanLens updates confidently matched objects, but skips unmatched devices as `match_required` instead of creating a duplicate. Enable object creation only for greenfield segments where LanLens is allowed to become the source for new CMDB objects.
+
+Recommended rollout:
+
+1. Configure VLAN/subnet coverage first.
+2. Keep automatic i-doit sync disabled during onboarding.
+3. Set stable references on devices: i-doit object ID, LanLens `cmdb_id`, asset tag or MAC where available.
+4. Run dry-runs and manual syncs until unmatched devices are resolved.
+5. Enable automatic sync only after duplicate risk is low.
+6. Enable create-missing only for explicitly approved scopes.
+
 ### What does LanLens map by default?
 
 LanLens uses conservative i-doit standard categories for the initial mapping:
@@ -123,7 +142,7 @@ LanLens matches in this order:
 3. exact MAC address
 4. hostname or IP only as warning-level candidates
 
-If matches are ambiguous, set a stable `cmdb_id` or link the object explicitly before syncing again.
+If matches are ambiguous, set a stable `cmdb_id` or link the object explicitly before syncing again. With the default match-only policy, unmatched devices are skipped and logged as `match_required`; LanLens does not create a new i-doit object unless create-missing is explicitly enabled.
 
 ### Timeout or network error
 
