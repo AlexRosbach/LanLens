@@ -380,7 +380,7 @@ Database migrations run automatically on container start.
 
 ---
 
-## i-doit / CMDB Sync (v1.5.0 dev)
+## i-doit / CMDB Sync (v1.5.0)
 
 LanLens 1.5.0 adds a one-way i-doit integration. LanLens is intended to be the source of truth and i-doit the target: registered devices can be matched to existing i-doit objects or created, then selected categories are updated from the configured mapping. Every manual or automatic sync writes an audit log entry that includes the LanLens device name and a direct link back to the device detail page in the UI.
 
@@ -446,7 +446,7 @@ Troubleshooting checklist:
 - Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
 - Prefilled i-doit tenant: keep `idoit_create_policy=match_only`; unmatched devices are skipped with `match_required` until linked or given a stable external reference.
 
-### Generic CMDB REST API (v1.5.0 dev)
+### Generic CMDB REST API (v1.5.0)
 
 LanLens also exposes a connector-neutral CMDB REST foundation for tools that are not i-doit. This is meant for bidirectional CMDB workflows where LanLens can be queried as a discovery/inventory source and can explicitly push mapped device payloads to another REST-capable CMDB.
 
@@ -472,7 +472,7 @@ Security notes:
 - Pull/export endpoints require the normal LanLens API authentication.
 - Import currently has preview-only behavior; it does not mutate LanLens devices.
 
-### Inventory operations (v1.5.0 dev)
+### Inventory operations (v1.5.0)
 
 LanLens 1.5.0 also starts the inventory-operations foundation requested in issues #60–#65:
 
