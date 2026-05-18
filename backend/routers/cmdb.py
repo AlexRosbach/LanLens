@@ -35,6 +35,14 @@ def _to_naive_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _device_display_name(device: Optional[Device], fallback_id: Optional[int]) -> str:
+    if device:
+        return device.label or device.hostname or device.ip_address or device.mac_address or f"Device #{device.id}"
+    if fallback_id:
+        return f"Device #{fallback_id}"
+    return "System"
+
+
 class CmdbConfigPayload(BaseModel):
     cmdb_rest_enabled: Optional[bool] = None
     cmdb_rest_target_url: Optional[str] = None
@@ -241,16 +249,23 @@ async def preview_import(limit: int = Query(20, ge=1, le=100), db: Session = Dep
 
 @router.get("/logs")
 def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    rows = db.query(CmdbSyncLog).order_by(CmdbSyncLog.created_at.desc()).limit(min(max(limit, 1), 200)).all()
+    rows = (
+        db.query(CmdbSyncLog, Device)
+        .outerjoin(Device, CmdbSyncLog.device_id == Device.id)
+        .order_by(CmdbSyncLog.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+        .all()
+    )
     return [
         {
             "id": row.id,
             "device_id": row.device_id,
+            "device_name": _device_display_name(device, row.device_id),
             "mode": row.mode,
             "result": row.result,
             "message": row.message,
             "details": json.loads(row.details_json or "{}"),
             "created_at": row.created_at,
         }
-        for row in rows
+        for row, device in rows
     ]

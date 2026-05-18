@@ -62,6 +62,7 @@ export interface IdoitBulkSyncResult {
 export interface IdoitSyncLogEntry {
   id: number
   device_id?: number | null
+  device_name?: string | null
   mode: string
   result: string
   idoit_object_id?: string | null

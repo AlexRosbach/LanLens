@@ -26,6 +26,14 @@ from ..services.idoit_scheduler import get_idoit_scheduler_status, update_idoit_
 router = APIRouter(prefix="/api/idoit", tags=["idoit"])
 
 
+def _device_display_name(device: Optional[Device], fallback_id: Optional[int]) -> str:
+    if device:
+        return device.label or device.hostname or device.ip_address or device.mac_address or f"Device #{device.id}"
+    if fallback_id:
+        return f"Device #{fallback_id}"
+    return "System"
+
+
 class IdoitConfigPayload(BaseModel):
     idoit_enabled: Optional[bool] = None
     idoit_base_url: Optional[str] = None
@@ -222,11 +230,18 @@ async def sync_all_devices(db: Session = Depends(get_db), _: User = Depends(get_
 
 @router.get("/logs")
 def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    rows = db.query(IdoitSyncLog).order_by(IdoitSyncLog.created_at.desc()).limit(min(max(limit, 1), 200)).all()
+    rows = (
+        db.query(IdoitSyncLog, Device)
+        .outerjoin(Device, IdoitSyncLog.device_id == Device.id)
+        .order_by(IdoitSyncLog.created_at.desc())
+        .limit(min(max(limit, 1), 200))
+        .all()
+    )
     return [
         {
             "id": row.id,
             "device_id": row.device_id,
+            "device_name": _device_display_name(device, row.device_id),
             "mode": row.mode,
             "result": row.result,
             "idoit_object_id": row.idoit_object_id,
@@ -234,5 +249,5 @@ def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(
             "details": json.loads(row.details_json or "{}"),
             "created_at": row.created_at,
         }
-        for row in rows
+        for row, device in rows
     ]

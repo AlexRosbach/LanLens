@@ -714,7 +714,7 @@ Each registered device can receive an automatically generated CMDB identifier. T
 
 LanLens 1.5.0 adds two CMDB integration foundations:
 
-- **i-doit foundation**: configuration, JSON-RPC connection test, local mapping validation, per-device dry-run payload preview, validation/state marker and audit logs. Live upstream i-doit object/category writes are intentionally not performed in this slice.
+- **i-doit integration**: configuration, JSON-RPC connection test, local mapping validation, per-device dry-run payload preview, object matching/create/update, scheduled sync and audit logs.
 - **Generic CMDB REST**: authenticated inventory export, connector-neutral mapping/config endpoints, per-device dry-run/push, import preview and audit logs for REST-capable CMDB tools.
 
 Security and operational boundaries:
@@ -723,7 +723,7 @@ Security and operational boundaries:
 - Self-hosted private LAN targets are allowed; loopback, link-local, multicast, reserved, unspecified and cloud metadata addresses are blocked.
 - Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
-- i-doit `/sync` currently records LanLens-side validation state only (`validated_pending_sync` / `mapping_error`) and does not prove an upstream i-doit write happened.
+- i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
 
 ---
 

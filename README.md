@@ -364,19 +364,37 @@ Database migrations run automatically on container start.
 
 ## i-doit / CMDB Sync (v1.5.0 dev)
 
-LanLens 1.5.0 starts the one-way i-doit integration foundation. LanLens is intended to be the source of truth and i-doit the target, but this first slice is deliberately limited to configuration, connection checks, local mapping validation, payload preview, sync-state tracking and audit logs. It does **not** perform live i-doit object/category writes yet.
+LanLens 1.5.0 adds a one-way i-doit integration. LanLens is intended to be the source of truth and i-doit the target: registered devices can be matched to existing i-doit objects or created, then selected categories are updated from the configured mapping. Every manual or automatic sync writes an audit log entry that includes the LanLens device name and a direct link back to the device detail page in the UI.
 
 1. Configure the i-doit base URL, JSON-RPC path, portal URL and API key in the `/api/idoit/config` API.
 2. Choose the writable i-doit field used for LanLens sync/reference/status metadata (`idoit_sync_status_field`).
 3. Import or edit the mapping JSON. `objectType` is only the fallback; `objectTypeByDeviceClass` can route routers, switches, printers, firewalls, etc. into non-server i-doit object types.
 4. Run `POST /api/idoit/test-connection`.
 5. Run `POST /api/idoit/test-mapping` for local JSON structure validation. This does not verify remote i-doit object types/categories/fields yet.
-6. Run `POST /api/idoit/devices/{device_id}/dry-run` to inspect the generated payload before any future live sync implementation.
-7. Use `POST /api/idoit/devices/{device_id}/sync` only as a LanLens-side validation/state marker in this release; it records no upstream i-doit write.
+6. Run `POST /api/idoit/devices/{device_id}/dry-run` to inspect the generated payload.
+7. Use `POST /api/idoit/devices/{device_id}/sync` or **Sync now** in the device detail page to create/update the linked i-doit object.
 
 The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL, JSON-RPC path and API key. On-prem deployments can keep the default `/src/jsonrpc.php` path or set a custom reverse-proxy path; Cloud installations may differ in URL, enabled modules, token creation flow, and user permissions. The portal URL is stored separately so device detail pages can link directly to matched i-doit objects (`?objID=...`) without assuming that the JSON-RPC endpoint is also the browser entry point.
 
 Recommended i-doit permissions: create/update only the object types and categories you want LanLens to manage. Avoid administrator-wide tokens for routine sync.
+
+Default mapping uses conservative i-doit standard categories where they are broadly available:
+
+| LanLens field | Default i-doit target |
+| --- | --- |
+| Hostname | `C__CATG__IP.hostname` |
+| IP address | `C__CATG__IP.ipv4_address` |
+| MAC address | `C__CATG__NETWORK_PORT.mac` |
+| Vendor | `C__CATG__MODEL.manufacturer` |
+| Asset tag / CMDB ID | `C__CATG__ACCOUNTING.inventory_no` |
+| Purpose | `C__CATG__GLOBAL.purpose` |
+| OS info | `C__CATG__OPERATING_SYSTEM.assigned_version` |
+| CPU | `C__CATG__CPU.title` plus derived standard CPU details when accepted |
+| Model | `C__CATG__MODEL.title` |
+| Memory | `C__CATG__MEMORY.title` plus derived standard memory details when accepted |
+| Disks | `C__CATG__DRIVE.title` plus derived standard drive details when accepted |
+
+Fields such as notes, services, containers, hypervisor data, licenses, relationships and full LanLens inventory are left unmapped by default. Map them only after choosing a writable standard or custom field in your i-doit schema; LanLens deliberately does not dump these into generic global descriptions.
 
 Matching strategy for environments where i-doit already contains objects:
 
@@ -391,6 +409,10 @@ This keeps the scan enrichment one-way and predictable: LanLens colors/enriches 
 Troubleshooting checklist:
 
 - Authentication failed: verify API key/token and JSON-RPC endpoint URL.
+- `api.authenticated-users-only` error: configure HTTP Basic username/password for an i-doit user allowed to use the API, or disable that i-doit policy if appropriate for your environment.
+- HTTP 404: the JSON-RPC path is usually wrong; try `/src/jsonrpc.php`.
+- HTTP 401/403: check Basic Auth credentials, reverse proxy authentication, user permissions and API access policy.
+- Timeout/network error: verify DNS, firewall/proxy rules, TLS interception and that the i-doit URL is reachable from the LanLens container/host.
 - Object type/category/field not found: adjust the mapping JSON to your i-doit schema.
 - Selected sync status field is not writable: choose another writable custom/status/reference field.
 - Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.

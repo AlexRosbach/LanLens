@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
+import { Link } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
@@ -1438,7 +1439,7 @@ export default function Settings() {
                             <th className="px-3 py-2 font-medium">{t('time')}</th>
                             <th className="px-3 py-2 font-medium">{t('result')}</th>
                             <th className="px-3 py-2 font-medium">{t('mode')}</th>
-                            <th className="px-3 py-2 font-medium">Device</th>
+                            <th className="px-3 py-2 font-medium">{t('col_device')}</th>
                             <th className="px-3 py-2 font-medium">{t('message')}</th>
                           </tr>
                         </thead>
@@ -1452,7 +1453,19 @@ export default function Settings() {
                                 </span>
                               </td>
                               <td className="px-3 py-2 text-text-subtle">{entry.mode}</td>
-                              <td className="px-3 py-2 font-mono text-text-subtle">{entry.device_id ?? '—'}</td>
+                              <td className="px-3 py-2">
+                                {entry.device_id ? (
+                                  <Link
+                                    to={`/devices/${entry.device_id}`}
+                                    className="font-medium text-primary hover:underline"
+                                    title={`Device #${entry.device_id}`}
+                                  >
+                                    {entry.device_name || `Device #${entry.device_id}`}
+                                  </Link>
+                                ) : (
+                                  <span className="text-text-subtle">{entry.device_name || '—'}</span>
+                                )}
+                              </td>
                               <td className="px-3 py-2 text-text-muted">
                                 <p>{entry.message || '—'}</p>
                                 {Boolean(entry.details?.warnings) && (
