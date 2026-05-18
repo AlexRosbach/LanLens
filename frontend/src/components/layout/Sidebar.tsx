@@ -200,17 +200,38 @@ export default function Sidebar({ onClose }: Props) {
             </div>
           </div>
         ) : null}
-        <p className="text-xs text-text-subtle">
-          LanLens{' '}
-          <a
-            href={`https://github.com/${GITHUB_REPO}/releases/tag/v${APP_VERSION}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-text-muted transition-colors"
-          >
-            v{APP_VERSION}
-          </a>
-        </p>
+        <div className="flex flex-col gap-1 text-xs text-text-subtle">
+          <p>
+            LanLens{' '}
+            <a
+              href={`https://github.com/${GITHUB_REPO}/releases/tag/v${APP_VERSION}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-text-muted transition-colors"
+            >
+              v{APP_VERSION}
+            </a>
+          </p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <a
+              href={`https://github.com/${GITHUB_REPO}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-text-muted transition-colors"
+            >
+              GitHub
+            </a>
+            <span aria-hidden="true">/</span>
+            <a
+              href={`https://github.com/${GITHUB_REPO}/issues`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-text-muted transition-colors"
+            >
+              Report a bug
+            </a>
+          </div>
+        </div>
       </div>
     </aside>
   )
