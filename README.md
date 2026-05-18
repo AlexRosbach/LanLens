@@ -161,7 +161,7 @@ For segmented environments, LanLens can register optional **Scan Nodes**. A Scan
 In **Settings -> Network -> Scan Nodes**, create a node and copy the generated one-line Docker command. The command contains the central URL, node name and a one-time token:
 
 ```bash
-docker run -d --name lanlens-scan-node-vlan20 --restart unless-stopped --network host --cap-add NET_RAW --cap-add NET_ADMIN -e LANLENS_CENTRAL_URL=https://lanlens.example.com -e LANLENS_NODE_TOKEN=... -e LANLENS_NODE_NAME=vlan20 alexrosbach/lanlens:scan-node-dev
+docker run -d --name lanlens-scan-node-vlan20 --restart unless-stopped --network host --cap-add NET_RAW --cap-add NET_ADMIN -e LANLENS_CENTRAL_URL=https://lanlens.example.com -e LANLENS_NODE_TOKEN=... -e LANLENS_NODE_NAME=vlan20 alexrosbach/lanlens:scan-node-latest
 ```
 
 By default the node scans its local IPv4 interface CIDR. Set `LANLENS_SCAN_TARGETS` to override targets, for example `10.10.20.0/24,10.10.21.0/24`. Nodes need no inbound firewall rule; they only need outbound HTTPS to Central.
