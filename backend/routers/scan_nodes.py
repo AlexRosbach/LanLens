@@ -18,7 +18,7 @@ from ..services.scanner import _find_matching_segment, _is_ip_only_identifier, _
 
 router = APIRouter(prefix="/api/scan-nodes", tags=["scan-nodes"])
 
-SCAN_NODE_IMAGE = "alexrosbach/lanlens-scan-node:dev"
+SCAN_NODE_IMAGE = "alexrosbach/lanlens:scan-node-dev"
 
 
 class ScanNodeCreate(BaseModel):
