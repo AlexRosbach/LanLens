@@ -190,6 +190,28 @@ class ScanRun(Base):
     error_message = Column(Text, nullable=True)
 
 
+class ScanNode(Base):
+    """Remote scanner that reports local VLAN/site discoveries to Central."""
+    __tablename__ = "scan_nodes"
+    __table_args__ = (
+        Index("ix_scan_nodes_token_hash", "token_hash"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, unique=True)
+    site = Column(String(128), nullable=True)
+    segment_label = Column(String(128), nullable=True)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    status = Column(String(32), default="pending", nullable=False)
+    last_seen = Column(DateTime, nullable=True)
+    last_ip = Column(String(45), nullable=True)
+    version = Column(String(64), nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Setting(Base):
     __tablename__ = "settings"
 

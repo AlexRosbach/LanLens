@@ -12,6 +12,8 @@ For VLAN discovery, use **Settings -> Network -> Additional routed scan targets*
 
 For larger enterprises, deploy one LanLens instance or scanner near each site/VLAN when MAC-level discovery matters, then consolidate through i-doit/CMDB rather than forcing one central ARP scanner through routed networks.
 
+LanLens Scan Nodes implement this pattern. Create a node in **Settings -> Network -> Scan Nodes**, then run the generated Docker one-liner in the VLAN/site. The node scans locally and posts discoveries to Central with its token. Rotate the token if the command is lost or exposed.
+
 For prefilled i-doit tenants, keep **Object creation policy** set to **Match existing objects only**. In this mode LanLens updates confidently matched objects, but skips unmatched devices as `match_required` instead of creating a duplicate. Enable object creation only for greenfield segments where LanLens is allowed to become the source for new CMDB objects.
 
 Recommended rollout:

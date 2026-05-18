@@ -7,6 +7,7 @@ import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitSyncLogEntry } from '../api/idoit'
+import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -117,6 +118,12 @@ export default function Settings() {
   const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
   const [idoitLogs, setIdoitLogs] = useState<IdoitSyncLogEntry[]>([])
   const [idoitLogsLoading, setIdoitLogsLoading] = useState(false)
+  const [scanNodes, setScanNodes] = useState<ScanNode[]>([])
+  const [scanNodesLoading, setScanNodesLoading] = useState(false)
+  const [scanNodeName, setScanNodeName] = useState('')
+  const [scanNodeSite, setScanNodeSite] = useState('')
+  const [scanNodeSegment, setScanNodeSegment] = useState('')
+  const [scanNodeProvisioning, setScanNodeProvisioning] = useState<ScanNodeProvisioning | null>(null)
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
@@ -137,6 +144,7 @@ export default function Settings() {
       toast.error(t('settings_load_failed'))
     })
     loadIdoitConfig()
+    loadScanNodes().catch(() => {})
   }, [])
 
   if (!settings) {
@@ -175,6 +183,71 @@ export default function Settings() {
     } finally {
       setIdoitLogsLoading(false)
     }
+  }
+
+  async function loadScanNodes() {
+    setScanNodesLoading(true)
+    try {
+      setScanNodes(await scanNodesApi.list())
+    } catch {
+      toast.error('Scan Nodes konnten nicht geladen werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function createScanNode() {
+    if (!scanNodeName.trim()) {
+      toast.error('Name fehlt')
+      return
+    }
+    setScanNodesLoading(true)
+    try {
+      const created = await scanNodesApi.create({ name: scanNodeName.trim(), site: scanNodeSite.trim(), segment_label: scanNodeSegment.trim() })
+      setScanNodeProvisioning(created)
+      setScanNodeName('')
+      setScanNodeSite('')
+      setScanNodeSegment('')
+      await loadScanNodes()
+      toast.success('Scan Node erstellt')
+    } catch {
+      toast.error('Scan Node konnte nicht erstellt werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function rotateScanNodeToken(id: number) {
+    setScanNodesLoading(true)
+    try {
+      const rotated = await scanNodesApi.rotateToken(id)
+      setScanNodeProvisioning(rotated)
+      await loadScanNodes()
+      toast.success('Neuer Token erzeugt')
+    } catch {
+      toast.error('Token konnte nicht rotiert werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function deleteScanNode(id: number) {
+    setScanNodesLoading(true)
+    try {
+      await scanNodesApi.delete(id)
+      await loadScanNodes()
+      toast.success('Scan Node geloescht')
+    } catch {
+      toast.error('Scan Node konnte nicht geloescht werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function copyScanNodeCommand() {
+    if (!scanNodeProvisioning?.install_command) return
+    await navigator.clipboard.writeText(scanNodeProvisioning.install_command)
+    toast.success('Einzeiler kopiert')
   }
 
   async function saveTelegram() {
@@ -762,6 +835,70 @@ export default function Settings() {
             </div>
             <div className="mt-4">
               <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base mb-1">Scan Nodes</h2>
+                <p className="text-sm text-text-subtle">Optionale Scanner pro VLAN oder Standort. Die Nodes melden ausgehend an diese zentrale LanLens-Instanz.</p>
+              </div>
+              <Button variant="outline" onClick={loadScanNodes} loading={scanNodesLoading}>Aktualisieren</Button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input placeholder="Name, z.B. vlan-20-hamburg" value={scanNodeName} onChange={(e) => setScanNodeName(e.target.value)} />
+              <Input placeholder="Standort, z.B. Hamburg" value={scanNodeSite} onChange={(e) => setScanNodeSite(e.target.value)} />
+              <Input placeholder="Segment/VLAN, z.B. VLAN 20" value={scanNodeSegment} onChange={(e) => setScanNodeSegment(e.target.value)} />
+            </div>
+            <div className="mt-3">
+              <Button onClick={createScanNode} loading={scanNodesLoading}>Einzeiler generieren</Button>
+            </div>
+
+            {scanNodeProvisioning && (
+              <div className="mt-4 rounded-lg border border-primary/30 bg-primary-dim/20 p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="text-sm font-medium text-text-base">Einmaliger Install-Befehl fuer {scanNodeProvisioning.name}</p>
+                  <Button size="sm" variant="outline" onClick={copyScanNodeCommand}>Kopieren</Button>
+                </div>
+                <pre className="overflow-auto whitespace-pre-wrap break-all rounded bg-background p-3 text-xs text-text-muted">{scanNodeProvisioning.install_command}</pre>
+                <p className="mt-2 text-xs text-text-subtle">Der Token wird nur jetzt angezeigt. Bei Verlust Token rotieren und den Node neu starten.</p>
+              </div>
+            )}
+
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Name</th>
+                    <th className="px-3 py-2 font-medium">Standort</th>
+                    <th className="px-3 py-2 font-medium">Segment</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">Zuletzt gesehen</th>
+                    <th className="px-3 py-2 font-medium">Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {scanNodes.length === 0 ? (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={6}>Noch keine Scan Nodes eingerichtet.</td></tr>
+                  ) : scanNodes.map((node) => (
+                    <tr key={node.id}>
+                      <td className="px-3 py-2 font-medium text-text-base">{node.name}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.site || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.segment_label || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.status}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.last_seen ? formatDateTime(node.last_seen) : '—'}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => rotateScanNodeToken(node.id)}>Token</Button>
+                          <Button size="sm" variant="danger" onClick={() => deleteScanNode(node.id)}>Loeschen</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
 

@@ -468,6 +468,33 @@ def migrate():
         else:
             print("Migration: cmdb_sync_logs already exists — skipped")
 
+        # ── v1.5.0 ── Remote Scan Nodes ───────────────────────────────────
+        if IS_SQLITE and not _table_exists(conn, "scan_nodes"):
+            conn.execute(text(
+                "CREATE TABLE scan_nodes ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL UNIQUE, "
+                "site VARCHAR(128), "
+                "segment_label VARCHAR(128), "
+                "token_hash VARCHAR(64) NOT NULL UNIQUE, "
+                "enabled BOOLEAN NOT NULL DEFAULT TRUE, "
+                "status VARCHAR(32) NOT NULL DEFAULT 'pending', "
+                "last_seen DATETIME, "
+                "last_ip VARCHAR(45), "
+                "version VARCHAR(64), "
+                "last_error TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_scan_nodes_token_hash ON scan_nodes(token_hash)"))
+            conn.commit()
+            print("Migration: created scan_nodes")
+        elif not IS_SQLITE:
+            print("Migration: scan_nodes — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: scan_nodes already exists — skipped")
+
         # ── v1.5.0 ── Device timeline, maintenance and ignore rules ───────
         for column, ddl in {
             "idoit_sync_enabled": "ALTER TABLE devices ADD COLUMN idoit_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE",

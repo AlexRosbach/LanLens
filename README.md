@@ -154,6 +154,18 @@ Notes:
 - Routed subnet discovery uses nmap ping scan. Across routed networks, MAC addresses and vendor information are often unavailable; LanLens tracks those hosts as IP-only discoveries.
 - Enterprise/VLAN deployments should either configure reachable routed CIDRs from a central LanLens instance or run one LanLens scanner per site/VLAN and consolidate through CMDB/i-doit. ARP/MAC discovery is only reliable inside the same broadcast domain; routed discovery is useful for reachability and IP/hostname inventory, not for guaranteed MAC/vendor identity.
 
+### Optional Scan Nodes
+
+For segmented environments, LanLens can register optional **Scan Nodes**. A Scan Node is a small Docker container placed inside a VLAN/site. It scans locally with `nmap -sn` and reports results outbound to the central LanLens instance; the central instance keeps the database, UI, deduplication and i-doit sync.
+
+In **Settings -> Network -> Scan Nodes**, create a node and copy the generated one-line Docker command. The command contains the central URL, node name and a one-time token:
+
+```bash
+docker run -d --name lanlens-scan-node-vlan20 --restart unless-stopped --network host --cap-add NET_RAW --cap-add NET_ADMIN -e LANLENS_CENTRAL_URL=https://lanlens.example.com -e LANLENS_NODE_TOKEN=... -e LANLENS_NODE_NAME=vlan20 alexrosbach/lanlens-scan-node:dev
+```
+
+By default the node scans its local IPv4 interface CIDR. Set `LANLENS_SCAN_TARGETS` to override targets, for example `10.10.20.0/24,10.10.21.0/24`. Nodes need no inbound firewall rule; they only need outbound HTTPS to Central.
+
 ### Optional navigation pages
 
 In **Settings → System → UI Settings**, optional sidebar entries can be enabled or hidden:
