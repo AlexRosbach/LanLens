@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import { scanApi } from '../../api/scan'
 import { useAuthStore } from '../../store/authStore'
 import { useDeviceStore } from '../../store/deviceStore'
-import { useI18n } from '../../i18n'
+import { Lang, useI18n } from '../../i18n'
 import Button from '../ui/Button'
 
 type Theme = 'dark' | 'light'
@@ -25,6 +25,7 @@ const languageOptions = {
   en: { label: 'English', flag: '🇬🇧' },
   de: { label: 'Deutsch', flag: '🇩🇪' },
   it: { label: 'Italiano', flag: '🇮🇹' },
+  zh: { label: '中文', flag: '🇨🇳' },
 } as const
 
 export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
@@ -134,7 +135,7 @@ export default function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) 
                 <button
                   key={code}
                   onClick={() => {
-                    setLang(code as 'en' | 'de' | 'it')
+                    setLang(code as Lang)
                     setShowLanguageMenu(false)
                   }}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${lang === code ? 'bg-surface text-text-base' : 'text-text-muted hover:text-text-base hover:bg-surface'}`}

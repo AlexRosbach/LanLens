@@ -2,6 +2,23 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.0 — i-doit CMDB sync foundation
+
+### New Features
+- Added backend foundation for one-way LanLens → i-doit sync.
+- Added configurable i-doit URL/API key settings, JSON-RPC path for Cloud/on-prem deployments, mapping JSON, sync status field, and auto-sync flag storage.
+- Added i-doit connection test, local mapping validation, per-device dry-run preview, manual validation/state endpoint, and sync log API. Live i-doit writes remain intentionally disabled in this foundation slice.
+- Added per-device i-doit sync state and audit log database tables.
+- Added generic CMDB REST API foundation with authenticated inventory export, connector-neutral mapping/config endpoints, per-device dry-run/push endpoints, import preview, and audit logs for bidirectional CMDB workflows.
+- Added generic webhook notifications for new devices, including Gotify-compatible JSON payloads and a test-send action in Settings → Notifications.
+- Added Simplified Chinese UI language support.
+
+### Documentation
+- Added first setup notes for i-doit Cloud/on-prem JSON-RPC access, generic CMDB REST exchange, safe first-run workflow, mapping, status field selection, and troubleshooting.
+- Hardened outbound integration URL handling: webhook/i-doit/CMDB URL validation now reports invalid ports cleanly, CMDB URLs are trimmed before storage, and docs clarify the SSRF guard boundaries. i-doit and generic CMDB REST requests now use the validated, pinned resolved address to avoid DNS rebinding between validation and connect.
+- Changed DHCP Monitor probe execution from in-process Starlette background execution to a dedicated daemon thread after atomically reserving the capture slot, avoiding duplicate queued probes and blocking API workers during packet capture.
+- Improved translation coverage for Device Detail documentation and danger-zone copy across English, German, Italian, and Simplified Chinese.
+
 ## v1.4.5 — Multi-subnet discovery
 
 ### New Features

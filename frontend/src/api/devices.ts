@@ -1,4 +1,5 @@
 import apiClient from './client'
+import type { ChangeEvent } from './inventory'
 import type { Service } from './services'
 import { withBasePath } from '../utils/basePath'
 
@@ -48,6 +49,19 @@ export interface Device {
   notes: string | null
   // CMDB
   cmdb_id?: string | null
+  ignored?: boolean
+  notifications_muted?: boolean
+  maintenance_until?: string | null
+  maintenance_note?: string | null
+  idoit_enabled?: boolean
+  idoit_sync_enabled?: boolean
+  idoit_sync_status?: string | null
+  idoit_object_id?: string | null
+  idoit_sysid?: string | null
+  idoit_object_url?: string | null
+  idoit_last_sync_at?: string | null
+  idoit_last_validation_at?: string | null
+  idoit_last_error?: string | null
   // State
   is_registered: boolean
   is_new: boolean
@@ -85,6 +99,11 @@ export interface DeviceUpdate {
   asset_tag?: string
   notes?: string
   cmdb_id?: string
+  idoit_sync_enabled?: boolean
+  ignored?: boolean
+  notifications_muted?: boolean
+  maintenance_until?: string | null
+  maintenance_note?: string | null
 }
 
 export const devicesApi = {
@@ -100,10 +119,14 @@ export const devicesApi = {
   getIpHistory: (id: number) =>
     apiClient.get<DeviceIpHistoryEntry[]>(`/devices/${id}/ip-history`).then((r) => r.data),
 
+  getTimeline: (id: number) =>
+    apiClient.get<ChangeEvent[]>(`/devices/${id}/timeline`).then((r) => r.data),
+
   markViewed: (id: number) => apiClient.post(`/devices/${id}/mark-viewed`).then((r) => r.data),
 
   update: (id: number, data: DeviceUpdate) =>
     apiClient.put<Device>(`/devices/${id}`, data).then((r) => r.data),
+
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
 

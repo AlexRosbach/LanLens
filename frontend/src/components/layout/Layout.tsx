@@ -1,10 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
+import { useDeviceStore } from '../../store/deviceStore'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const fetchDevices = useDeviceStore((state) => state.fetchDevices)
+
+  useEffect(() => {
+    fetchDevices().catch(() => {})
+  }, [fetchDevices])
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

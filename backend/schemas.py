@@ -118,6 +118,26 @@ class ServiceGroupResponse(BaseModel):
         from_attributes = True
 
 
+# ── DHCP Monitor ──────────────────────────────────────────────────────────────
+
+class DhcpObservationResponse(BaseModel):
+    id: int
+    message_type: Optional[str]
+    server_ip: Optional[str]
+    server_mac: Optional[str]
+    client_mac: Optional[str]
+    client_hostname: Optional[str]
+    offered_ip: Optional[str]
+    requested_ip: Optional[str]
+    lease_time: Optional[int]
+    options: dict[str, Any]
+    observed_at: datetime
+
+
+class DhcpMonitorStatusResponse(BaseModel):
+    is_capturing: bool
+
+
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [
@@ -142,6 +162,7 @@ class DeviceUpdate(BaseModel):
     is_registered: Optional[bool] = None
     segment_id: Optional[int] = None
     cmdb_id: Optional[str] = None
+    idoit_sync_enabled: Optional[bool] = None
     # Documentation
     purpose: Optional[str] = None
     description: Optional[str] = None
@@ -151,6 +172,48 @@ class DeviceUpdate(BaseModel):
     os_info: Optional[str] = None
     asset_tag: Optional[str] = None
     notes: Optional[str] = None
+    ignored: Optional[bool] = None
+    notifications_muted: Optional[bool] = None
+    maintenance_until: Optional[datetime] = None
+    maintenance_note: Optional[str] = None
+
+
+class DeviceMaintenanceUpdate(BaseModel):
+    ignored: Optional[bool] = None
+    notifications_muted: Optional[bool] = None
+    maintenance_until: Optional[datetime] = None
+    maintenance_note: Optional[str] = None
+
+
+class DeviceChangeEventResponse(BaseModel):
+    id: int
+    device_id: int
+    event_type: str
+    field_name: Optional[str]
+    old_value: Optional[str]
+    new_value: Optional[str]
+    source: str
+    message: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeviceMergeRequest(BaseModel):
+    source_device_id: int
+    target_device_id: int
+    field_strategy: str = "keep_target"  # keep_target/source_wins/fill_empty
+
+
+class DeviceMergePreview(BaseModel):
+    source_device_id: int
+    target_device_id: int
+    source_label: str
+    target_label: str
+    conflicts: dict[str, dict[str, Optional[str]]]
+    move_counts: dict[str, int]
+    write_performed: bool = False
 
 
 class PortInfo(BaseModel):
@@ -221,6 +284,19 @@ class DeviceResponse(BaseModel):
     host_label: Optional[str] = None
     # CMDB
     cmdb_id: Optional[str] = None
+    ignored: bool = False
+    notifications_muted: bool = False
+    maintenance_until: Optional[datetime] = None
+    maintenance_note: Optional[str] = None
+    idoit_enabled: bool = False
+    idoit_sync_enabled: bool = False
+    idoit_sync_status: Optional[str] = None
+    idoit_object_id: Optional[str] = None
+    idoit_sysid: Optional[str] = None
+    idoit_object_url: Optional[str] = None
+    idoit_last_sync_at: Optional[datetime] = None
+    idoit_last_validation_at: Optional[datetime] = None
+    idoit_last_error: Optional[str] = None
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
@@ -236,6 +312,62 @@ class DeviceListResponse(BaseModel):
     online: int
     offline: int
     unregistered: int
+
+
+class DeviceIgnoreRuleBase(BaseModel):
+    name: str
+    rule_type: str
+    pattern: str
+    enabled: bool = True
+    mute_notifications: bool = True
+    ignore_discovery: bool = False
+    note: Optional[str] = None
+
+
+class DeviceIgnoreRuleCreate(DeviceIgnoreRuleBase):
+    pass
+
+
+class DeviceIgnoreRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    rule_type: Optional[str] = None
+    pattern: Optional[str] = None
+    enabled: Optional[bool] = None
+    mute_notifications: Optional[bool] = None
+    ignore_discovery: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class DeviceIgnoreRuleResponse(DeviceIgnoreRuleBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class TopologyNode(BaseModel):
+    id: int
+    label: str
+    ip_address: Optional[str]
+    device_class: str
+    is_online: bool
+    segment_id: Optional[int]
+    segment_name: Optional[str]
+    service_count: int
+
+
+class TopologyEdge(BaseModel):
+    source: int
+    target: int
+    relationship_type: str
+    label: Optional[str] = None
+
+
+class TopologyResponse(BaseModel):
+    nodes: List[TopologyNode]
+    edges: List[TopologyEdge]
 
 
 # ── Scan ──────────────────────────────────────────────────────────────────────
@@ -282,6 +414,12 @@ class TelegramSettings(BaseModel):
     telegram_chat_id: str
     telegram_enabled: bool
     notify_telegram_update: bool = False
+    notify_on_new_device: bool = True
+
+
+class WebhookSettings(BaseModel):
+    webhook_url: str = ""
+    webhook_enabled: bool = False
 
 
 class ServerUrlSettings(BaseModel):
@@ -290,6 +428,7 @@ class ServerUrlSettings(BaseModel):
 
 class UiSettings(BaseModel):
     show_services_nav: bool = False
+    show_dhcp_monitor_nav: bool = False
 
 
 class PortScanSettings(BaseModel):
@@ -319,6 +458,7 @@ class AllSettings(BaseModel):
     network_interface: Optional[str] = ""
     notify_on_device_online: bool = False
     notify_on_device_offline: bool = False
+    notify_on_new_device: bool = True
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587
@@ -328,9 +468,13 @@ class AllSettings(BaseModel):
     smtp_to_email: str = ""
     smtp_enabled: bool = False
     smtp_use_tls: bool = True
+    webhook_url: str = ""
+    webhook_url_configured: bool = False
+    webhook_enabled: bool = False
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
     show_services_nav: bool = False
+    show_dhcp_monitor_nav: bool = False
 
 
 class SmtpSettings(BaseModel):
@@ -353,6 +497,7 @@ class NotificationResponse(BaseModel):
     message: str
     is_read: bool
     telegram_sent: bool
+    webhook_sent: bool = False
     created_at: datetime
 
     class Config:

@@ -8,6 +8,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Index,
+    false,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -52,6 +54,11 @@ class Device(Base):
     # ── Discovery state ────────────────────────────────────────────────────────
     is_registered = Column(Boolean, default=False)
     cmdb_id = Column(String(64), nullable=True, unique=True, index=True)
+    idoit_sync_enabled = Column(Boolean, default=False, nullable=False, server_default="0")
+    ignored = Column(Boolean, default=False, nullable=False, server_default=false())
+    notifications_muted = Column(Boolean, default=False, nullable=False, server_default=false())
+    maintenance_until = Column(DateTime, nullable=True)
+    maintenance_note = Column(Text, nullable=True)
     is_online = Column(Boolean, default=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)
@@ -70,15 +77,22 @@ class Device(Base):
     deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
     deep_scan_findings = relationship("DeepScanFinding", back_populates="device",
                                       cascade="all, delete-orphan")
+    idoit_sync = relationship("IdoitDeviceSync", back_populates="device", uselist=False,
+                              cascade="all, delete-orphan")
+    idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", passive_deletes=True)
+    cmdb_sync_logs = relationship("CmdbSyncLog", back_populates="device", passive_deletes=True)
+    change_events = relationship("DeviceChangeEvent", back_populates="device", cascade="all, delete-orphan")
     host_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.host_device_id",
+        back_populates="host_device",
         cascade="all, delete",
         passive_deletes=True,
     )
     child_relationships = relationship(
         "DeviceHostRelationship",
         foreign_keys="DeviceHostRelationship.child_device_id",
+        back_populates="child_device",
         cascade="all, delete",
         passive_deletes=True,
     )
@@ -176,6 +190,28 @@ class ScanRun(Base):
     error_message = Column(Text, nullable=True)
 
 
+class ScanNode(Base):
+    """Remote scanner that reports local VLAN/site discoveries to Central."""
+    __tablename__ = "scan_nodes"
+    __table_args__ = (
+        Index("ix_scan_nodes_token_hash", "token_hash"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, unique=True)
+    site = Column(String(128), nullable=True)
+    segment_label = Column(String(128), nullable=True)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    status = Column(String(32), default="pending", nullable=False)
+    last_seen = Column(DateTime, nullable=True)
+    last_ip = Column(String(45), nullable=True)
+    version = Column(String(64), nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Setting(Base):
     __tablename__ = "settings"
 
@@ -193,9 +229,117 @@ class Notification(Base):
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
     telegram_sent = Column(Boolean, default=False)
+    webhook_sent = Column(Boolean, nullable=False, default=False, server_default=false())
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="notifications")
+
+
+class IdoitDeviceSync(Base):
+    """Per-device i-doit one-way sync state."""
+    __tablename__ = "idoit_device_sync"
+
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    status = Column(String(32), default="never_synced", nullable=False)
+    idoit_object_id = Column(String(64), nullable=True)
+    idoit_sysid = Column(String(128), nullable=True)
+    last_sync_at = Column(DateTime, nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
+    last_validation_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    last_mode = Column(String(16), nullable=True)
+    payload_hash = Column(String(64), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    device = relationship("Device", back_populates="idoit_sync")
+
+
+class IdoitSyncLog(Base):
+    """Audit log for i-doit dry-runs and sync attempts."""
+    __tablename__ = "idoit_sync_logs"
+    __table_args__ = (Index("ix_idoit_sync_logs_device_id", "device_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    mode = Column(String(16), nullable=False)  # dry_run/manual/bulk/auto/test
+    result = Column(String(16), nullable=False)  # success/failure/skipped
+    idoit_object_id = Column(String(64), nullable=True)
+    message = Column(Text, nullable=True)
+    details_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    device = relationship("Device", back_populates="idoit_sync_logs")
+
+
+class CmdbSyncLog(Base):
+    """Audit log for generic CMDB REST dry-runs, pushes and import previews."""
+    __tablename__ = "cmdb_sync_logs"
+    __table_args__ = (Index("ix_cmdb_sync_logs_device_id", "device_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    mode = Column(String(16), nullable=False)  # dry_run/push/import/test
+    result = Column(String(16), nullable=False)  # success/failure/skipped
+    message = Column(Text, nullable=True)
+    details_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    device = relationship("Device", back_populates="cmdb_sync_logs")
+
+
+class DeviceChangeEvent(Base):
+    """Structured per-device change timeline entries."""
+    __tablename__ = "device_change_events"
+    __table_args__ = (Index("ix_device_change_events_device_time", "device_id", "created_at"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(String(64), nullable=False)
+    field_name = Column(String(128), nullable=True)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    source = Column(String(64), nullable=False, default="system")
+    message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    device = relationship("Device", back_populates="change_events")
+
+
+class DeviceIgnoreRule(Base):
+    """Discovery/notification ignore rule for noisy lab devices or ranges."""
+    __tablename__ = "device_ignore_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    rule_type = Column(String(32), nullable=False)  # mac/ip/hostname/segment/device_class
+    pattern = Column(String(255), nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    mute_notifications = Column(Boolean, default=True, nullable=False, server_default=false())
+    ignore_discovery = Column(Boolean, default=False, nullable=False, server_default=false())
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DhcpObservation(Base):
+    """Observed DHCP server response and option snapshot."""
+    __tablename__ = "dhcp_observations"
+    __table_args__ = (
+        Index("ix_dhcp_observations_observed_at", "observed_at"),
+        Index("ix_dhcp_observations_server_ip", "server_ip"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_type = Column(String(32), nullable=True)
+    server_ip = Column(String(45), nullable=True)
+    server_mac = Column(String(17), nullable=True)
+    client_mac = Column(String(17), nullable=True)
+    client_hostname = Column(String(255), nullable=True)
+    offered_ip = Column(String(45), nullable=True)
+    requested_ip = Column(String(45), nullable=True)
+    lease_time = Column(Integer, nullable=True)
+    options_json = Column(Text, nullable=False, default="{}")
+    observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class TokenBlacklist(Base):
@@ -339,5 +483,5 @@ class DeviceHostRelationship(Base):
     observed_at = Column(DateTime, default=datetime.utcnow)
     last_confirmed_at = Column(DateTime, default=datetime.utcnow)
 
-    child_device = relationship("Device", foreign_keys=[child_device_id])
-    host_device = relationship("Device", foreign_keys=[host_device_id])
+    child_device = relationship("Device", foreign_keys=[child_device_id], back_populates="child_relationships")
+    host_device = relationship("Device", foreign_keys=[host_device_id], back_populates="host_relationships")

@@ -351,6 +351,209 @@ def migrate():
         else:
             print("Migration: services.service_group_id already exists — skipped")
 
+        # ── v1.5.0 ── i-doit one-way sync state/logs ───────────────────────
+        # SQLite installations need explicit table/index creation here. Other
+        # database engines rely on SQLAlchemy create_all from the app startup,
+        # which keeps this migration runner safe for existing non-SQLite setups.
+        if IS_SQLITE and not _table_exists(conn, "idoit_device_sync"):
+            conn.execute(text(
+                "CREATE TABLE idoit_device_sync ("
+                "device_id INTEGER PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE, "
+                "status VARCHAR(32) NOT NULL DEFAULT 'never_synced', "
+                "idoit_object_id VARCHAR(64), "
+                "idoit_sysid VARCHAR(128), "
+                "last_sync_at DATETIME, "
+                "last_success_at DATETIME, "
+                "last_validation_at DATETIME, "
+                "last_error TEXT, "
+                "last_mode VARCHAR(16), "
+                "payload_hash VARCHAR(64), "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created idoit_device_sync")
+        elif not IS_SQLITE:
+            print("Migration: idoit_device_sync — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: idoit_device_sync already exists — skipped")
+
+        if _table_exists(conn, "idoit_device_sync") and not _column_exists(conn, "idoit_device_sync", "last_validation_at"):
+            conn.execute(text("ALTER TABLE idoit_device_sync ADD COLUMN last_validation_at DATETIME"))
+            conn.execute(text("UPDATE idoit_device_sync SET last_validation_at = last_sync_at WHERE last_validation_at IS NULL AND last_success_at IS NULL AND last_sync_at IS NOT NULL"))
+            conn.commit()
+            print("Migration: added idoit_device_sync.last_validation_at")
+
+        if _table_exists(conn, "idoit_device_sync") and not _column_exists(conn, "idoit_device_sync", "idoit_sysid"):
+            conn.execute(text("ALTER TABLE idoit_device_sync ADD COLUMN idoit_sysid VARCHAR(128)"))
+            conn.commit()
+            print("Migration: added idoit_device_sync.idoit_sysid")
+
+        if IS_SQLITE and not _table_exists(conn, "idoit_sync_logs"):
+            conn.execute(text(
+                "CREATE TABLE idoit_sync_logs ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL, "
+                "mode VARCHAR(16) NOT NULL, "
+                "result VARCHAR(16) NOT NULL, "
+                "idoit_object_id VARCHAR(64), "
+                "message TEXT, "
+                "details_json TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_idoit_sync_logs_device_id ON idoit_sync_logs(device_id)"))
+            conn.commit()
+            print("Migration: created idoit_sync_logs")
+        elif not IS_SQLITE:
+            print("Migration: idoit_sync_logs — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: idoit_sync_logs already exists — skipped")
+
+        # Track webhook delivery separately from Telegram so disabled/unconfigured
+        # channels do not make old notification rows look permanently pending.
+        if not _column_exists(conn, "notifications", "webhook_sent"):
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN webhook_sent BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.commit()
+            print("Migration: added notifications.webhook_sent")
+        else:
+            print("Migration: notifications.webhook_sent already exists — skipped")
+        conn.execute(text("UPDATE notifications SET webhook_sent = FALSE WHERE webhook_sent IS NULL"))
+        conn.commit()
+
+        # ── v1.5.0 ── DHCP monitor observations ────────────────────────────
+        if IS_SQLITE and not _table_exists(conn, "dhcp_observations"):
+            conn.execute(text(
+                "CREATE TABLE dhcp_observations ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "message_type VARCHAR(32), "
+                "server_ip VARCHAR(45), "
+                "server_mac VARCHAR(17), "
+                "client_mac VARCHAR(17), "
+                "client_hostname VARCHAR(255), "
+                "offered_ip VARCHAR(45), "
+                "requested_ip VARCHAR(45), "
+                "lease_time INTEGER, "
+                "options_json TEXT NOT NULL DEFAULT '{}', "
+                "observed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_dhcp_observations_observed_at ON dhcp_observations(observed_at)"))
+            conn.execute(text("CREATE INDEX ix_dhcp_observations_server_ip ON dhcp_observations(server_ip)"))
+            conn.commit()
+            print("Migration: created dhcp_observations")
+        elif not IS_SQLITE:
+            print("Migration: dhcp_observations — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: dhcp_observations already exists — skipped")
+
+        # ── v1.5.0 ── Generic CMDB REST sync audit logs ────────────────────
+        if IS_SQLITE and not _table_exists(conn, "cmdb_sync_logs"):
+            conn.execute(text(
+                "CREATE TABLE cmdb_sync_logs ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL, "
+                "mode VARCHAR(16) NOT NULL, "
+                "result VARCHAR(16) NOT NULL, "
+                "message TEXT, "
+                "details_json TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_cmdb_sync_logs_device_id ON cmdb_sync_logs(device_id)"))
+            conn.commit()
+            print("Migration: created cmdb_sync_logs")
+        elif not IS_SQLITE:
+            print("Migration: cmdb_sync_logs — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: cmdb_sync_logs already exists — skipped")
+
+        # ── v1.5.0 ── Remote Scan Nodes ───────────────────────────────────
+        if IS_SQLITE and not _table_exists(conn, "scan_nodes"):
+            conn.execute(text(
+                "CREATE TABLE scan_nodes ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL UNIQUE, "
+                "site VARCHAR(128), "
+                "segment_label VARCHAR(128), "
+                "token_hash VARCHAR(64) NOT NULL UNIQUE, "
+                "enabled BOOLEAN NOT NULL DEFAULT TRUE, "
+                "status VARCHAR(32) NOT NULL DEFAULT 'pending', "
+                "last_seen DATETIME, "
+                "last_ip VARCHAR(45), "
+                "version VARCHAR(64), "
+                "last_error TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_scan_nodes_token_hash ON scan_nodes(token_hash)"))
+            conn.commit()
+            print("Migration: created scan_nodes")
+        elif not IS_SQLITE:
+            print("Migration: scan_nodes — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: scan_nodes already exists — skipped")
+
+        # ── v1.5.0 ── Device timeline, maintenance and ignore rules ───────
+        for column, ddl in {
+            "idoit_sync_enabled": "ALTER TABLE devices ADD COLUMN idoit_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+            "ignored": "ALTER TABLE devices ADD COLUMN ignored BOOLEAN NOT NULL DEFAULT FALSE",
+            "notifications_muted": "ALTER TABLE devices ADD COLUMN notifications_muted BOOLEAN NOT NULL DEFAULT FALSE",
+            "maintenance_until": "ALTER TABLE devices ADD COLUMN maintenance_until DATETIME",
+            "maintenance_note": "ALTER TABLE devices ADD COLUMN maintenance_note TEXT",
+        }.items():
+            if not _column_exists(conn, "devices", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added devices.{column}")
+            else:
+                print(f"Migration: devices.{column} already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "device_change_events"):
+            conn.execute(text(
+                "CREATE TABLE device_change_events ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "event_type VARCHAR(64) NOT NULL, "
+                "field_name VARCHAR(128), "
+                "old_value TEXT, "
+                "new_value TEXT, "
+                "source VARCHAR(64) NOT NULL DEFAULT 'system', "
+                "message TEXT, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_device_change_events_device_time ON device_change_events(device_id, created_at)"))
+            conn.commit()
+            print("Migration: created device_change_events")
+        elif not IS_SQLITE:
+            print("Migration: device_change_events — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: device_change_events already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "device_ignore_rules"):
+            conn.execute(text(
+                "CREATE TABLE device_ignore_rules ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL, "
+                "rule_type VARCHAR(32) NOT NULL, "
+                "pattern VARCHAR(255) NOT NULL, "
+                "enabled BOOLEAN NOT NULL DEFAULT TRUE, "
+                "mute_notifications BOOLEAN NOT NULL DEFAULT TRUE, "
+                "ignore_discovery BOOLEAN NOT NULL DEFAULT FALSE, "
+                "note TEXT, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created device_ignore_rules")
+        elif not IS_SQLITE:
+            print("Migration: device_ignore_rules — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: device_ignore_rules already exists — skipped")
+
         conn.commit()
 
 

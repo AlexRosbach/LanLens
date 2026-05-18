@@ -1,13 +1,77 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
+import { Link } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
+import { idoitApi, type IdoitConfig, type IdoitSyncLogEntry } from '../api/idoit'
+import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
+import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
+import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
+import { formatDateTime } from '../utils/formatters'
+
+interface IdoitErrorDetails {
+  message: string
+  stage?: string
+  endpoint?: string
+  status_code?: number | null
+  response_body?: string
+  jsonrpc_error?: unknown
+}
+
+interface IdoitMapping {
+  name?: string
+  version?: number
+  objectType?: string
+  objectTypeByDeviceClass?: Record<string, string>
+  identity?: Record<string, unknown>
+  fields?: Record<string, string>
+}
+
+const IDOIT_MAPPING_FIELDS = [
+  { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
+  { key: 'ip_address', labelKey: 'idoit_field_ip_address', placeholder: 'C__CATG__IP.ipv4_address' },
+  { key: 'mac_address', labelKey: 'idoit_field_mac_address', placeholder: 'C__CATG__NETWORK_PORT.mac' },
+  { key: 'vendor', labelKey: 'idoit_field_vendor', placeholder: 'C__CATG__MODEL.manufacturer' },
+  { key: 'asset_tag', labelKey: 'idoit_field_asset_tag', placeholder: 'C__CATG__ACCOUNTING.inventory_no' },
+  { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id', placeholder: 'C__CATG__ACCOUNTING.inventory_no' },
+  { key: 'purpose', labelKey: 'idoit_field_purpose', placeholder: '' },
+  { key: 'notes', labelKey: 'idoit_field_notes', placeholder: '' },
+  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__OPERATING_SYSTEM.assigned_version' },
+  { key: 'cpu', labelKey: 'idoit_field_cpu', placeholder: 'C__CATG__CPU.title' },
+  { key: 'model', labelKey: 'idoit_field_model', placeholder: 'C__CATG__MODEL.title' },
+  { key: 'serial', labelKey: 'idoit_field_serial', placeholder: 'C__CATG__MODEL.serial' },
+  { key: 'memory', labelKey: 'idoit_field_memory', placeholder: 'C__CATG__MEMORY.title' },
+  { key: 'disks', labelKey: 'idoit_field_disks', placeholder: 'C__CATG__DRIVE.title' },
+  { key: 'open_ports', labelKey: 'idoit_field_open_ports', placeholder: '' },
+  { key: 'services', labelKey: 'idoit_field_services', placeholder: '' },
+  { key: 'containers', labelKey: 'idoit_field_containers', placeholder: '' },
+  { key: 'hypervisor', labelKey: 'idoit_field_hypervisor', placeholder: '' },
+  { key: 'licenses', labelKey: 'idoit_field_licenses', placeholder: '' },
+  { key: 'relationships', labelKey: 'idoit_field_relationships', placeholder: '' },
+  { key: 'lanlens_inventory', labelKey: 'idoit_field_lanlens_inventory', placeholder: '' },
+  { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
+] as const
+
+function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {
+  try {
+    const parsed = JSON.parse(raw || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? { mapping: parsed as IdoitMapping, error: null }
+      : { mapping: null, error: 'Mapping must be a JSON object' }
+  } catch (error) {
+    return { mapping: null, error: error instanceof Error ? error.message : 'Invalid JSON' }
+  }
+}
+
+function stringifyIdoitMapping(mapping: IdoitMapping): string {
+  return JSON.stringify(mapping, null, 2)
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -20,24 +84,69 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
 }
 
+function extractIdoitErrorDetails(error: unknown): IdoitErrorDetails {
+  const response = (error as { response?: { data?: { detail?: unknown } } })?.response
+  const detail = response?.data?.detail
+  if (detail && typeof detail === 'object') {
+    const data = detail as Record<string, unknown>
+    return {
+      message: String(data.message || 'i-doit connection failed'),
+      stage: typeof data.stage === 'string' ? data.stage : undefined,
+      endpoint: typeof data.endpoint === 'string' ? data.endpoint : undefined,
+      status_code: typeof data.status_code === 'number' ? data.status_code : null,
+      response_body: typeof data.response_body === 'string' ? data.response_body : undefined,
+      jsonrpc_error: data.jsonrpc_error,
+    }
+  }
+  if (typeof detail === 'string') return { message: detail }
+  return { message: (error as Error)?.message || 'i-doit connection failed' }
+}
+
 export default function Settings() {
   const { t, lang, setLang } = useI18n()
   const [settings, setSettings] = useState<AllSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
-  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications'>('system')
+  const [idoitConfig, setIdoitConfig] = useState<IdoitConfig | null>(null)
+  const [idoitLoadError, setIdoitLoadError] = useState(false)
+  const [idoitApiKey, setIdoitApiKey] = useState('')
+  const [idoitBasicPassword, setIdoitBasicPassword] = useState('')
+  const [idoitTesting, setIdoitTesting] = useState(false)
+  const [idoitSyncingAll, setIdoitSyncingAll] = useState(false)
+  const [idoitEnablingAll, setIdoitEnablingAll] = useState(false)
+  const [idoitSyncProgress, setIdoitSyncProgress] = useState<{ current: number; total: number; success: number; failure: number; skipped: number; label?: string } | null>(null)
+  const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
+  const [idoitLogs, setIdoitLogs] = useState<IdoitSyncLogEntry[]>([])
+  const [idoitLogsLoading, setIdoitLogsLoading] = useState(false)
+  const [scanNodes, setScanNodes] = useState<ScanNode[]>([])
+  const [scanNodesLoading, setScanNodesLoading] = useState(false)
+  const [scanNodeName, setScanNodeName] = useState('')
+  const [scanNodeSite, setScanNodeSite] = useState('')
+  const [scanNodeSegment, setScanNodeSegment] = useState('')
+  const [scanNodeProvisioning, setScanNodeProvisioning] = useState<ScanNodeProvisioning | null>(null)
+  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
+  const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const idoitMappingState = useMemo(
+    () => parseIdoitMapping(idoitConfig?.idoit_mapping_raw || '{}'),
+    [idoitConfig?.idoit_mapping_raw]
+  )
 
   useEffect(() => {
+    // Load settings once on mount. Language switches should only re-render labels,
+    // not re-fetch and overwrite form fields or the mapping editor mid-edit.
     settingsApi.get().then((data) => {
       setSettings(data)
       setShowServicesNav(data.show_services_nav)
+      setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
-  }, [lang])
+    loadIdoitConfig()
+    loadScanNodes().catch(() => {})
+  }, [])
 
   if (!settings) {
     return (
@@ -49,6 +158,99 @@ export default function Settings() {
 
   const current = settings
 
+  async function loadIdoitConfig() {
+    // This endpoint is optional for the rest of Settings. If it fails, keep the
+    // CMDB card usable by showing an inline retry instead of an endless spinner.
+    setIdoitLoadError(false)
+    try {
+      const data = await idoitApi.getConfig()
+      setIdoitConfig(data)
+      setIdoitApiKey('')
+      setIdoitBasicPassword('')
+      loadIdoitLogs().catch(() => {})
+    } catch {
+      setIdoitConfig(null)
+      setIdoitLoadError(true)
+      toast.error(t('idoit_settings_load_failed'))
+    }
+  }
+
+  async function loadIdoitLogs() {
+    setIdoitLogsLoading(true)
+    try {
+      setIdoitLogs(await idoitApi.getLogs(50))
+    } catch {
+      toast.error(t('idoit_logs_load_failed'))
+    } finally {
+      setIdoitLogsLoading(false)
+    }
+  }
+
+  async function loadScanNodes() {
+    setScanNodesLoading(true)
+    try {
+      setScanNodes(await scanNodesApi.list())
+    } catch {
+      toast.error('Scan Nodes konnten nicht geladen werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function createScanNode() {
+    if (!scanNodeName.trim()) {
+      toast.error('Name fehlt')
+      return
+    }
+    setScanNodesLoading(true)
+    try {
+      const created = await scanNodesApi.create({ name: scanNodeName.trim(), site: scanNodeSite.trim(), segment_label: scanNodeSegment.trim() })
+      setScanNodeProvisioning(created)
+      setScanNodeName('')
+      setScanNodeSite('')
+      setScanNodeSegment('')
+      await loadScanNodes()
+      toast.success('Scan Node erstellt')
+    } catch {
+      toast.error('Scan Node konnte nicht erstellt werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function rotateScanNodeToken(id: number) {
+    setScanNodesLoading(true)
+    try {
+      const rotated = await scanNodesApi.rotateToken(id)
+      setScanNodeProvisioning(rotated)
+      await loadScanNodes()
+      toast.success('Neuer Token erzeugt')
+    } catch {
+      toast.error('Token konnte nicht rotiert werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function deleteScanNode(id: number) {
+    setScanNodesLoading(true)
+    try {
+      await scanNodesApi.delete(id)
+      await loadScanNodes()
+      toast.success('Scan Node geloescht')
+    } catch {
+      toast.error('Scan Node konnte nicht geloescht werden')
+    } finally {
+      setScanNodesLoading(false)
+    }
+  }
+
+  async function copyScanNodeCommand() {
+    if (!scanNodeProvisioning?.install_command) return
+    await navigator.clipboard.writeText(scanNodeProvisioning.install_command)
+    toast.success('Einzeiler kopiert')
+  }
+
   async function saveTelegram() {
     setSaving(true)
     try {
@@ -57,6 +259,7 @@ export default function Settings() {
         telegram_chat_id: current.telegram_chat_id,
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
+        notify_on_new_device: current.notify_on_new_device,
       })
       setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
       setTelegramTokenDirty(false)
@@ -167,6 +370,30 @@ export default function Settings() {
     }
   }
 
+  async function saveWebhook() {
+    setSaving(true)
+    try {
+      await settingsApi.updateWebhook({
+        webhook_url: current.webhook_url,
+        webhook_enabled: current.webhook_enabled,
+      })
+      toast.success(t('webhook_settings_saved'))
+    } catch {
+      toast.error(t('webhook_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function testWebhook() {
+    try {
+      await settingsApi.testWebhook()
+      toast.success(t('test_webhook_sent'))
+    } catch {
+      toast.error(t('webhook_test_failed'))
+    }
+  }
+
   async function checkForUpdates() {
     setCheckingUpdate(true)
     try {
@@ -218,6 +445,7 @@ export default function Settings() {
       settingsApi.get().then((data) => {
         setSettings(data)
         setShowServicesNav(data.show_services_nav)
+        setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
       })
     } catch {
       toast.error(t('import_failed'))
@@ -237,11 +465,199 @@ export default function Settings() {
     }
   }
 
+  async function saveIdoit() {
+    if (!idoitConfig) return
+    setSaving(true)
+    try {
+      const payload = {
+        idoit_enabled: idoitConfig.idoit_enabled,
+        idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
+        idoit_portal_url: idoitConfig.idoit_portal_url,
+        idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
+        idoit_basic_username: idoitConfig.idoit_basic_username,
+        idoit_default_object_type: idoitConfig.idoit_default_object_type,
+        idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_scope: idoitConfig.idoit_sync_scope,
+        idoit_create_policy: idoitConfig.idoit_create_policy,
+        idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
+        idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
+        idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
+        idoit_mapping_json: idoitConfig.idoit_mapping_raw,
+        // Do not send an empty API key: the backend interprets omitted as
+        // "keep existing secret", while an explicit non-empty value rotates it.
+        ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
+        ...(idoitBasicPassword ? { idoit_basic_password: idoitBasicPassword } : {}),
+      }
+      const updated = await idoitApi.updateConfig(payload)
+      setIdoitConfig(updated)
+      setIdoitApiKey('')
+      setIdoitBasicPassword('')
+      setIdoitTestError(null)
+      toast.success(t('idoit_settings_saved'))
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError({ ...details, message: details.message || t('idoit_settings_save_failed') })
+      toast.error(details.message || t('idoit_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function testIdoitConnection() {
+    if (!idoitConfig) return
+    setIdoitTesting(true)
+    try {
+      const result = await idoitApi.testConnection({
+        idoit_enabled: idoitConfig.idoit_enabled,
+        idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
+        idoit_portal_url: idoitConfig.idoit_portal_url,
+        idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
+        idoit_basic_username: idoitConfig.idoit_basic_username,
+        idoit_default_object_type: idoitConfig.idoit_default_object_type,
+        idoit_auto_sync_enabled: idoitConfig.idoit_auto_sync_enabled,
+        idoit_sync_scope: idoitConfig.idoit_sync_scope,
+        idoit_create_policy: idoitConfig.idoit_create_policy,
+        idoit_sync_interval_minutes: idoitConfig.idoit_sync_interval_minutes,
+        idoit_offline_retire_days: idoitConfig.idoit_offline_retire_days,
+        idoit_sync_status_field: idoitConfig.idoit_sync_status_field,
+        idoit_mapping_json: idoitConfig.idoit_mapping_raw,
+        ...(idoitApiKey ? { idoit_api_key: idoitApiKey } : {}),
+        ...(idoitBasicPassword ? { idoit_basic_password: idoitBasicPassword } : {}),
+      })
+      setIdoitTestError(null)
+      if (result.message) {
+        toast.success(String(result.message))
+      } else {
+        toast.success(t('idoit_connection_success'))
+      }
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError(details)
+      toast.error(details.message || t('idoit_connection_failed'))
+    } finally {
+      setIdoitTesting(false)
+    }
+  }
+
+  async function testIdoitMapping() {
+    setIdoitTesting(true)
+    try {
+      const result = await idoitApi.testMapping()
+      if (result.ok === false) {
+        toast.error(t('idoit_mapping_has_errors'))
+      } else {
+        toast.success(t('idoit_mapping_valid'))
+      }
+    } catch {
+      toast.error(t('idoit_mapping_test_failed'))
+    } finally {
+      setIdoitTesting(false)
+    }
+  }
+
+  function updateIdoitMapping(updater: (mapping: IdoitMapping) => IdoitMapping) {
+    if (!idoitConfig || !idoitMappingState.mapping) return
+    setIdoitConfig({
+      ...idoitConfig,
+      idoit_mapping_raw: stringifyIdoitMapping(updater(idoitMappingState.mapping)),
+    })
+  }
+
+  function updateIdoitFieldMapping(sourceField: string, targetField: string) {
+    updateIdoitMapping((mapping) => {
+      const fields = { ...(mapping.fields || {}) }
+      const trimmed = targetField.trim()
+      if (trimmed) {
+        fields[sourceField] = trimmed
+      } else {
+        delete fields[sourceField]
+      }
+      return { ...mapping, fields }
+    })
+  }
+
+  function updateIdoitIdentityField(identityField: 'externalIdField' | 'syncStatusField', targetField: string) {
+    updateIdoitMapping((mapping) => ({
+      ...mapping,
+      identity: {
+        ...(mapping.identity || {}),
+        [identityField]: targetField.trim(),
+      },
+    }))
+  }
+
+  async function syncAllIdoitDevices() {
+    setIdoitSyncingAll(true)
+    setIdoitSyncProgress(null)
+    try {
+      const deviceResult = await devicesApi.list()
+      const registeredDevices = deviceResult.items.filter((device) => device.is_registered && (idoitConfig?.idoit_sync_scope !== 'manual' || device.idoit_sync_enabled !== false))
+      const total = registeredDevices.length
+      let success = 0
+      let failure = 0
+      let skipped = 0
+
+      if (total === 0) {
+        toast.success(t('idoit_bulk_sync_success', { success: '0', failure: '0', skipped: '0' }))
+        return
+      }
+
+      for (let index = 0; index < registeredDevices.length; index += 1) {
+        const device = registeredDevices[index]
+        const label = device.label || device.hostname || device.ip_address || device.mac_address
+        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
+        try {
+          const result = await idoitApi.syncDevice(device.id)
+          if (result.skipped) {
+            skipped += 1
+          } else {
+            success += 1
+          }
+        } catch {
+          failure += 1
+        }
+        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
+      }
+
+      setIdoitTestError(null)
+      toast.success(t('idoit_bulk_sync_success', { success: String(success), failure: String(failure), skipped: String(skipped) }))
+      loadIdoitConfig().catch(() => {})
+      loadIdoitLogs().catch(() => {})
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError(details)
+      toast.error(details.message || t('idoit_sync_failed'))
+    } finally {
+      setIdoitSyncingAll(false)
+      setIdoitSyncProgress(null)
+    }
+  }
+
+  async function enableIdoitSyncForAllDevices() {
+    setIdoitEnablingAll(true)
+    try {
+      const result = await idoitApi.enableSyncAll()
+      toast.success(t('idoit_enable_sync_all_success', {
+        updated: String(result.updated),
+        total: String(result.total),
+      }))
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError(details)
+      toast.error(details.message || t('idoit_enable_sync_all_failed'))
+    } finally {
+      setIdoitEnablingAll(false)
+    }
+  }
+
   async function saveUi() {
     setSaving(true)
     try {
-      await settingsApi.updateUi(current.show_services_nav)
+      await settingsApi.updateUi(current.show_services_nav, current.show_dhcp_monitor_nav)
       setShowServicesNav(current.show_services_nav)
+      setShowDhcpMonitorNav(current.show_dhcp_monitor_nav)
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))
@@ -255,6 +671,9 @@ export default function Settings() {
     { key: 'database' as const, label: t('database') },
     { key: 'network' as const, label: t('network_discovery') },
     { key: 'notifications' as const, label: t('notifications') },
+    { key: 'inventory' as const, label: t('inventory_tools_title') },
+    { key: 'backup' as const, label: t('backup_restore') },
+    { key: 'cmdb' as const, label: t('cmdb_tab') },
   ]
 
   return (
@@ -299,11 +718,12 @@ export default function Settings() {
                 <select
                   className="input-field"
                   value={lang}
-                  onChange={(e) => setLang(e.target.value as 'en' | 'de' | 'it')}
+                  onChange={(e) => setLang(e.target.value as typeof lang)}
                 >
                   <option value="en">English</option>
                   <option value="de">Deutsch</option>
                   <option value="it">Italiano</option>
+                  <option value="zh">中文</option>
                 </select>
               </div>
 
@@ -322,98 +742,33 @@ export default function Settings() {
             </div>
           </Card>
 
+
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('ui_settings')}</h2>
             <p className="text-sm text-text-subtle mb-4">{t('ui_settings_description')}</p>
-            <label className="flex items-center gap-2 text-sm text-text-base">
-              <input
-                type="checkbox"
-                checked={current.show_services_nav}
-                onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
-              />
-              {t('show_services_nav')}
-            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.show_services_nav}
+                  onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
+                />
+                {t('show_services_nav')}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.show_dhcp_monitor_nav}
+                  onChange={(e) => setSettings({ ...current, show_dhcp_monitor_nav: e.target.checked })}
+                />
+                {t('show_dhcp_monitor_nav')}
+              </label>
+            </div>
             <div className="mt-4">
               <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
 
-          <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-1">
-              {t('export_import')}
-            </h2>
-            <p className="text-sm text-text-subtle mb-4">
-              {t('back_up_settings_description')}
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button variant="outline" onClick={handleExportSettings}>
-                {t('export_settings')}
-              </Button>
-              <Button variant="outline" onClick={handleExportDatabase}>
-                {t('export_database')}
-              </Button>
-            </div>
-            <div className="mt-4 pt-4 border-t border-border space-y-3">
-              <p className="text-xs text-text-subtle font-medium uppercase tracking-wide">
-                {t('import_label')}
-              </p>
-              <label className="flex items-center gap-3 cursor-pointer group">
-                <span className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface2 text-text-muted group-hover:text-primary group-hover:border-primary/50 transition-colors">
-                  {t('import_settings')}
-                </span>
-                <input
-                  type="file"
-                  accept=".json"
-                  className="hidden"
-                  onChange={handleImportSettings}
-                />
-              </label>
-              <p className="text-xs text-text-subtle">
-                {t('database_import_hint')}
-              </p>
-            </div>
-          </Card>
-
-          <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-1">{t('cmdb_ids_title')}</h2>
-            <p className="text-sm text-text-subtle mb-4">
-              {t('cmdb_ids_description')}
-            </p>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="block text-sm text-text-subtle mb-1">
-                  {t('prefix')}
-                </label>
-                <Input
-                  value={current.cmdb_id_prefix}
-                  onChange={(e) => setSettings({ ...current, cmdb_id_prefix: e.target.value.toUpperCase() })}
-                  placeholder="DEV"
-                  maxLength={20}
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-text-subtle mb-1">
-                  {t('digits')}
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={String(current.cmdb_id_digits)}
-                  onChange={(e) => setSettings({ ...current, cmdb_id_digits: Math.min(10, Math.max(1, Number(e.target.value) || 4)) })}
-                />
-              </div>
-            </div>
-            <div className="mt-2 text-xs text-text-subtle">
-              {t('preview')}{' '}
-              <span className="font-mono text-primary">
-                {current.cmdb_id_prefix || 'DEV'}-{'1'.padStart(current.cmdb_id_digits || 4, '0')}
-              </span>
-            </div>
-            <div className="mt-4">
-              <Button onClick={saveCmdb} loading={saving}>{t('save_changes')}</Button>
-            </div>
-          </Card>
         </div>
       </div>
       )}
@@ -498,6 +853,70 @@ export default function Settings() {
             </div>
             <div className="mt-4">
               <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base mb-1">Scan Nodes</h2>
+                <p className="text-sm text-text-subtle">Optionale Scanner pro VLAN oder Standort. Die Nodes melden ausgehend an diese zentrale LanLens-Instanz.</p>
+              </div>
+              <Button variant="outline" onClick={loadScanNodes} loading={scanNodesLoading}>Aktualisieren</Button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input placeholder="Name, z.B. vlan-20-hamburg" value={scanNodeName} onChange={(e) => setScanNodeName(e.target.value)} />
+              <Input placeholder="Standort, z.B. Hamburg" value={scanNodeSite} onChange={(e) => setScanNodeSite(e.target.value)} />
+              <Input placeholder="Segment/VLAN, z.B. VLAN 20" value={scanNodeSegment} onChange={(e) => setScanNodeSegment(e.target.value)} />
+            </div>
+            <div className="mt-3">
+              <Button onClick={createScanNode} loading={scanNodesLoading}>Einzeiler generieren</Button>
+            </div>
+
+            {scanNodeProvisioning && (
+              <div className="mt-4 rounded-lg border border-primary/30 bg-primary-dim/20 p-3">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="text-sm font-medium text-text-base">Einmaliger Install-Befehl fuer {scanNodeProvisioning.name}</p>
+                  <Button size="sm" variant="outline" onClick={copyScanNodeCommand}>Kopieren</Button>
+                </div>
+                <pre className="overflow-auto whitespace-pre-wrap break-all rounded bg-background p-3 text-xs text-text-muted">{scanNodeProvisioning.install_command}</pre>
+                <p className="mt-2 text-xs text-text-subtle">Der Token wird nur jetzt angezeigt. Bei Verlust Token rotieren und den Node neu starten.</p>
+              </div>
+            )}
+
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Name</th>
+                    <th className="px-3 py-2 font-medium">Standort</th>
+                    <th className="px-3 py-2 font-medium">Segment</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">Zuletzt gesehen</th>
+                    <th className="px-3 py-2 font-medium">Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {scanNodes.length === 0 ? (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={6}>Noch keine Scan Nodes eingerichtet.</td></tr>
+                  ) : scanNodes.map((node) => (
+                    <tr key={node.id}>
+                      <td className="px-3 py-2 font-medium text-text-base">{node.name}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.site || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.segment_label || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.status}</td>
+                      <td className="px-3 py-2 text-text-muted">{node.last_seen ? formatDateTime(node.last_seen) : '—'}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex gap-2">
+                          <Button size="sm" variant="outline" onClick={() => rotateScanNodeToken(node.id)}>Token</Button>
+                          <Button size="sm" variant="danger" onClick={() => deleteScanNode(node.id)}>Loeschen</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
 
@@ -587,10 +1006,53 @@ export default function Settings() {
                 />
                 {t('send_update_notifications')}
               </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.notify_on_new_device}
+                  onChange={(e) => setSettings({ ...current, notify_on_new_device: e.target.checked })}
+                />
+                {t('notify_on_new_device')}
+              </label>
+              <p className="text-xs text-text-subtle">{t('notify_on_new_device_hint')}</p>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
               <Button onClick={testTelegram} variant="outline">{t('test_telegram')}</Button>
+            </div>
+          </Card>
+
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-4">
+              {t('notifications_webhook')}
+            </h2>
+            <div className="grid gap-4">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {t('webhook_url_label')}
+                </label>
+                <Input
+                  value={current.webhook_url}
+                  onChange={(e) => setSettings({ ...current, webhook_url: e.target.value })}
+                  placeholder="https://gotify.example.com/message?token=..."
+                />
+                <p className="mt-1 text-xs text-text-subtle">{t('webhook_url_hint')}</p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.webhook_enabled}
+                  onChange={(e) => setSettings({ ...current, webhook_enabled: e.target.checked })}
+                />
+                {t('enable_webhook_notifications')}
+              </label>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <Button onClick={saveWebhook} loading={saving}>{t('save_changes')}</Button>
+              <Button onClick={testWebhook} variant="outline">
+                {t('test_webhook')}
+              </Button>
             </div>
           </Card>
 
@@ -688,9 +1150,517 @@ export default function Settings() {
               </Button>
             </div>
           </Card>
+
+          <IgnoreRulesCard />
         </div>
       </div>
       )}
+
+      {/* ── INVENTORY TOOLS ───────────────────────────────────────────────── */}
+      {activeSection === 'inventory' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('inventory_tools_title')}
+        </h2>
+        <div className="space-y-4">
+          <DocumentationExportCard />
+          <DeviceMergeCard />
+        </div>
+      </div>
+      )}
+
+      {/* ── BACKUP / RESTORE ──────────────────────────────────────────────── */}
+      {activeSection === 'backup' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('backup_restore')}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">
+              {t('export_import')}
+            </h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {t('back_up_settings_description')}
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button variant="outline" onClick={handleExportSettings}>
+                {t('export_settings')}
+              </Button>
+              <Button variant="outline" onClick={handleExportDatabase}>
+                {t('export_database')}
+              </Button>
+            </div>
+            <div className="mt-4 pt-4 border-t border-border space-y-3">
+              <p className="text-xs text-text-subtle font-medium uppercase tracking-wide">
+                {t('restore')}
+              </p>
+              <label className="flex items-center gap-3 cursor-pointer group">
+                <span className="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface2 text-text-muted group-hover:text-primary group-hover:border-primary/50 transition-colors">
+                  {t('import_settings')}
+                </span>
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportSettings}
+                />
+              </label>
+              <p className="text-xs text-text-subtle">
+                {t('database_import_hint')}
+              </p>
+            </div>
+          </Card>
+          <SelectiveBackupCard />
+        </div>
+      </div>
+      )}
+
+      {/* ── CMDB / I-DOIT ─────────────────────────────────────────────────── */}
+      {activeSection === 'cmdb' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('cmdb_tab')}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('cmdb_ids_title')}</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {t('cmdb_ids_description')}
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {t('prefix')}
+                </label>
+                <Input
+                  value={current.cmdb_id_prefix}
+                  onChange={(e) => setSettings({ ...current, cmdb_id_prefix: e.target.value.toUpperCase() })}
+                  placeholder="DEV"
+                  maxLength={20}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">
+                  {t('digits')}
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={String(current.cmdb_id_digits)}
+                  onChange={(e) => setSettings({ ...current, cmdb_id_digits: Math.min(10, Math.max(1, Number(e.target.value) || 4)) })}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-xs text-text-subtle">
+              {t('preview')}{' '}
+              <span className="font-mono text-primary">
+                {current.cmdb_id_prefix || 'DEV'}-{'1'.padStart(current.cmdb_id_digits || 4, '0')}
+              </span>
+            </div>
+            <div className="mt-4">
+              <Button onClick={saveCmdb} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('idoit_integration')}</h2>
+            <p className="text-sm text-text-subtle mb-4">
+              {t('idoit_integration_description')}
+            </p>
+            {!idoitConfig ? (
+              idoitLoadError ? (
+                <div className="rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm text-danger">
+                  <p className="mb-3">{t('idoit_settings_load_failed')}</p>
+                  <Button onClick={loadIdoitConfig} variant="outline">{t('retry')}</Button>
+                </div>
+              ) : (
+                <div className="py-6"><Spinner /></div>
+              )
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_base_url')}</label>
+                    <Input
+                      value={idoitConfig.idoit_base_url}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_base_url: e.target.value })}
+                      placeholder="https://idoit.example.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_jsonrpc_path')}</label>
+                    <Input
+                      value={idoitConfig.idoit_jsonrpc_path}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_jsonrpc_path: e.target.value })}
+                      placeholder="/src/jsonrpc.php"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_portal_url')}</label>
+                    <Input
+                      value={idoitConfig.idoit_portal_url}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_portal_url: e.target.value })}
+                      placeholder="https://idoit.example.com"
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_portal_url_hint')}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_api_key')}</label>
+                    <Input
+                      type="password"
+                      value={idoitApiKey}
+                      onChange={(e) => setIdoitApiKey(e.target.value)}
+                      placeholder={idoitConfig.idoit_api_key_configured ? t('idoit_api_key_keep_placeholder') : t('idoit_api_key_new_placeholder')}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_basic_username')}</label>
+                    <Input
+                      value={idoitConfig.idoit_basic_username || ''}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_basic_username: e.target.value })}
+                      placeholder="api-user"
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_basic_auth_hint')}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_basic_password')}</label>
+                    <Input
+                      type="password"
+                      value={idoitBasicPassword}
+                      onChange={(e) => setIdoitBasicPassword(e.target.value)}
+                      placeholder={idoitConfig.idoit_basic_password_configured ? t('idoit_basic_password_keep_placeholder') : t('idoit_basic_password_new_placeholder')}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_timeout_seconds')}</label>
+                    <Input
+                      type="number"
+                      min={3}
+                      max={120}
+                      value={String(idoitConfig.idoit_timeout_seconds)}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_timeout_seconds: Math.min(120, Math.max(3, Number(e.target.value) || 15)) })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_default_object_type')}</label>
+                    <Input
+                      value={idoitConfig.idoit_default_object_type}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_default_object_type: e.target.value })}
+                      placeholder="C__OBJTYPE__CLIENT"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_status_field')}</label>
+                    <Input
+                      value={idoitConfig.idoit_sync_status_field}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_status_field: e.target.value })}
+                      placeholder=""
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3">
+                  <label className="flex items-center gap-2 text-sm text-text-base">
+                    <input
+                      type="checkbox"
+                      checked={idoitConfig.idoit_enabled}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_enabled: e.target.checked })}
+                    />
+                    {t('enable_idoit_integration')}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-text-base">
+                    <input
+                      type="checkbox"
+                      checked={idoitConfig.idoit_auto_sync_enabled}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_auto_sync_enabled: e.target.checked })}
+                    />
+                    {t('enable_idoit_auto_sync')}
+                  </label>
+                  <div className="max-w-md">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_scope')}</label>
+                    <select
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                      value={idoitConfig.idoit_sync_scope || 'all'}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_scope: e.target.value === 'manual' ? 'manual' : 'all' })}
+                    >
+                      <option value="all">{t('idoit_sync_scope_all')}</option>
+                      <option value="manual">{t('idoit_sync_scope_manual')}</option>
+                    </select>
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_sync_scope_hint')}</p>
+                  </div>
+                  <div className="max-w-md">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_create_policy')}</label>
+                    <select
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                      value={idoitConfig.idoit_create_policy || 'match_only'}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_create_policy: e.target.value === 'create_missing' ? 'create_missing' : 'match_only' })}
+                    >
+                      <option value="match_only">{t('idoit_create_policy_match_only')}</option>
+                      <option value="create_missing">{t('idoit_create_policy_create_missing')}</option>
+                    </select>
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_create_policy_hint')}</p>
+                  </div>
+                  <div className="max-w-xs">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_interval_minutes')}</label>
+                    <Input
+                      type="number"
+                      min={5}
+                      max={1440}
+                      value={String(idoitConfig.idoit_sync_interval_minutes || 60)}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_sync_interval_minutes: Math.min(1440, Math.max(5, Number(e.target.value) || 60)) })}
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_sync_interval_hint')}</p>
+                    {idoitConfig.scheduler?.next_run_at && (
+                      <p className="mt-1 text-xs text-text-subtle">{t('idoit_next_sync')}: {formatDateTime(idoitConfig.scheduler.next_run_at)}</p>
+                    )}
+                  </div>
+                  <div className="max-w-xs">
+                    <label className="block text-sm text-text-subtle mb-1">{t('idoit_offline_retire_days')}</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={String(idoitConfig.idoit_offline_retire_days || 7)}
+                      onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_offline_retire_days: Math.min(3650, Math.max(1, Number(e.target.value) || 7)) })}
+                    />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_offline_retire_days_hint')}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
+                  <div className="flex flex-col gap-1 mb-4">
+                    <h3 className="text-sm font-semibold text-text-muted">{t('idoit_mapping_editor')}</h3>
+                    <p className="text-xs text-text-subtle">{t('idoit_mapping_editor_hint')}</p>
+                  </div>
+
+                  {idoitMappingState.error ? (
+                    <div className="rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                      {t('idoit_mapping_json_invalid')}: {idoitMappingState.error}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_mapping_name')}</label>
+                          <Input
+                            value={idoitMappingState.mapping?.name || ''}
+                            onChange={(e) => updateIdoitMapping((mapping) => ({ ...mapping, name: e.target.value }))}
+                            placeholder="Default i-doit mapping"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_mapping_object_type')}</label>
+                          <Input
+                            value={idoitMappingState.mapping?.objectType || ''}
+                            onChange={(e) => updateIdoitMapping((mapping) => ({ ...mapping, objectType: e.target.value.trim() }))}
+                            placeholder="C__OBJTYPE__CLIENT"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_external_id_field')}</label>
+                          <Input
+                            value={typeof idoitMappingState.mapping?.identity?.externalIdField === 'string' ? idoitMappingState.mapping.identity.externalIdField : ''}
+                            onChange={(e) => updateIdoitIdentityField('externalIdField', e.target.value)}
+                            placeholder=""
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-text-subtle mb-1">{t('idoit_sync_status_field')}</label>
+                          <Input
+                            value={typeof idoitMappingState.mapping?.identity?.syncStatusField === 'string' ? idoitMappingState.mapping.identity.syncStatusField : idoitConfig.idoit_sync_status_field}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              setIdoitConfig((currentConfig) => {
+                                if (!currentConfig) return currentConfig
+                                const parsed = parseIdoitMapping(currentConfig.idoit_mapping_raw || '{}')
+                                if (!parsed.mapping) return { ...currentConfig, idoit_sync_status_field: value }
+                                return {
+                                  ...currentConfig,
+                                  idoit_sync_status_field: value,
+                                  idoit_mapping_raw: stringifyIdoitMapping({
+                                    ...parsed.mapping,
+                                    identity: { ...(parsed.mapping.identity || {}), syncStatusField: value.trim() },
+                                  }),
+                                }
+                              })
+                            }}
+                            placeholder=""
+                          />
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto rounded-lg border border-border">
+                        <table className="w-full text-sm">
+                          <thead className="bg-surface2 text-text-subtle">
+                            <tr>
+                              <th className="text-left font-medium px-3 py-2">{t('idoit_lanlens_field')}</th>
+                              <th className="text-left font-medium px-3 py-2">{t('idoit_target_field')}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {IDOIT_MAPPING_FIELDS.map((field) => (
+                              <tr key={field.key}>
+                                <td className="px-3 py-2 text-text-muted whitespace-nowrap">{t(field.labelKey)}</td>
+                                <td className="px-3 py-2 min-w-80">
+                                  <Input
+                                    value={idoitMappingState.mapping?.fields?.[field.key] || ''}
+                                    onChange={(e) => updateIdoitFieldMapping(field.key, e.target.value)}
+                                    placeholder={field.placeholder}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <details className="mt-4">
+                  <summary className="cursor-pointer text-sm text-text-subtle hover:text-text-base">{t('idoit_advanced_json')}</summary>
+                  <textarea
+                    className="mt-2 w-full min-h-72 rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-text-base focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    value={idoitConfig.idoit_mapping_raw || ''}
+                    onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_mapping_raw: e.target.value })}
+                    spellCheck={false}
+                  />
+                </details>
+
+                {idoitConfig.mapping_errors?.length > 0 && (
+                  <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                    <p className="font-medium mb-1">{t('idoit_mapping_validation')}</p>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {idoitConfig.mapping_errors.map((error) => <li key={error}>{error}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {idoitTestError && (
+                  <div className="mt-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+                    <p className="font-semibold mb-2">{t('idoit_connection_failed')}</p>
+                    <div className="space-y-1">
+                      <p>{idoitTestError.message}</p>
+                      {idoitTestError.stage && <p><span className="font-medium">Stage:</span> {idoitTestError.stage}</p>}
+                      {idoitTestError.status_code && <p><span className="font-medium">HTTP:</span> {idoitTestError.status_code}</p>}
+                      {idoitTestError.endpoint && <p className="break-all"><span className="font-medium">Endpoint:</span> {idoitTestError.endpoint}</p>}
+                      {idoitTestError.response_body && (
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-xs text-text-muted border border-border">{idoitTestError.response_body}</pre>
+                      )}
+                      {idoitTestError.jsonrpc_error != null && (
+                        <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-xs text-text-muted border border-border">{JSON.stringify(idoitTestError.jsonrpc_error, null, 2)}</pre>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Button onClick={saveIdoit} loading={saving}>{t('save_changes')}</Button>
+                  <Button onClick={testIdoitConnection} loading={idoitTesting} variant="outline">{t('test_connection')}</Button>
+                  <Button onClick={testIdoitMapping} loading={idoitTesting} variant="outline">{t('test_mapping')}</Button>
+                  <Button onClick={enableIdoitSyncForAllDevices} loading={idoitEnablingAll} variant="outline">
+                    {t('idoit_enable_sync_all')}
+                  </Button>
+                  <Button onClick={syncAllIdoitDevices} loading={idoitSyncingAll} variant="outline">
+                    {idoitSyncProgress
+                      ? t('idoit_sync_progress', { current: String(idoitSyncProgress.current), total: String(idoitSyncProgress.total) })
+                      : t('idoit_sync_all_now')}
+                  </Button>
+                </div>
+                {idoitSyncProgress && (
+                  <div className="mt-3 rounded-lg border border-primary/30 bg-primary-dim/30 p-3 text-sm text-text-muted">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <span className="font-medium text-text-base">
+                        {t('idoit_sync_progress', { current: String(idoitSyncProgress.current), total: String(idoitSyncProgress.total) })}
+                      </span>
+                      <span className="text-xs text-text-subtle">
+                        {t('idoit_sync_progress_counts', {
+                          success: String(idoitSyncProgress.success),
+                          failure: String(idoitSyncProgress.failure),
+                          skipped: String(idoitSyncProgress.skipped),
+                        })}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-surface overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${Math.round((idoitSyncProgress.current / Math.max(idoitSyncProgress.total, 1)) * 100)}%` }}
+                      />
+                    </div>
+                    {idoitSyncProgress.label && <p className="mt-2 text-xs text-text-subtle truncate">{idoitSyncProgress.label}</p>}
+                  </div>
+                )}
+
+                <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-text-muted">{t('idoit_sync_logs')}</h3>
+                      <p className="text-xs text-text-subtle">{t('idoit_sync_logs_hint')}</p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={loadIdoitLogs} loading={idoitLogsLoading}>{t('refresh')}</Button>
+                  </div>
+                  {idoitLogs.length === 0 ? (
+                    <p className="text-sm text-text-subtle">{t('idoit_sync_logs_empty')}</p>
+                  ) : (
+                    <div className="max-h-96 overflow-auto rounded-lg border border-border bg-background">
+                      <table className="min-w-full text-left text-xs">
+                        <thead className="sticky top-0 bg-surface text-text-subtle">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">{t('time')}</th>
+                            <th className="px-3 py-2 font-medium">{t('result')}</th>
+                            <th className="px-3 py-2 font-medium">{t('mode')}</th>
+                            <th className="px-3 py-2 font-medium">{t('col_device')}</th>
+                            <th className="px-3 py-2 font-medium">{t('message')}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {idoitLogs.map((entry) => (
+                            <tr key={entry.id} className="align-top">
+                              <td className="whitespace-nowrap px-3 py-2 text-text-subtle">{formatDateTime(entry.created_at)}</td>
+                              <td className="px-3 py-2">
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${entry.result === 'failure' ? 'bg-danger/15 text-danger' : entry.result === 'skipped' ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success'}`}>
+                                  {entry.result}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-text-subtle">{entry.mode}</td>
+                              <td className="px-3 py-2">
+                                {entry.device_id ? (
+                                  <Link
+                                    to={`/devices/${entry.device_id}`}
+                                    className="font-medium text-primary hover:underline"
+                                    title={`Device #${entry.device_id}`}
+                                  >
+                                    {entry.device_name || `Device #${entry.device_id}`}
+                                  </Link>
+                                ) : (
+                                  <span className="text-text-subtle">{entry.device_name || '—'}</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-text-muted">
+                                <p>{entry.message || '—'}</p>
+                                {Boolean(entry.details?.warnings) && (
+                                  <pre className="mt-1 max-w-xl whitespace-pre-wrap break-words rounded bg-warning/10 p-2 text-[11px] text-warning">{JSON.stringify(entry.details?.warnings, null, 2)}</pre>
+                                )}
+                                {Boolean(entry.details?.error) && (
+                                  <pre className="mt-1 max-w-xl whitespace-pre-wrap break-words rounded bg-danger/10 p-2 text-[11px] text-danger">{JSON.stringify(entry.details?.error, null, 2)}</pre>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </Card>
+        </div>
+      </div>
+      )}
+
     </div>
   )
 }

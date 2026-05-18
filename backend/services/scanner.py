@@ -14,13 +14,14 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, joinedload
 
 from ..database import SessionLocal
-from ..models import Device, DeviceIpHistory, Notification, ScanRun, Setting
+from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, Notification, ScanRun, Segment, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
-from .notification import send_telegram_for_notification
+from .notification import send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
 
@@ -41,6 +42,8 @@ DEFAULT_SCAN_START = "192.168.1.1"
 DEFAULT_SCAN_END = "192.168.1.254"
 MIN_OFFLINE_GRACE_MINUTES = 15
 MISSED_SCAN_MULTIPLIER = 3
+NOTIFICATION_RETRY_BACKOFF_MINUTES = 5
+NOTIFICATION_RETRY_SETTING = "notification_delivery_last_failure_at"
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -221,12 +224,18 @@ def _summarize_range(start: str, end: str) -> List[str]:
 
 
 def _get_offline_grace_period(db: Session) -> timedelta:
+    # Do not mark a device offline just because one ARP/ping round missed it.
+    # The grace window scales with the configured interval but never drops below
+    # 15 minutes, which avoids noisy offline flapping on busy WLANs.
     interval_minutes = get_scan_interval_minutes(db)
     grace_minutes = max(MIN_OFFLINE_GRACE_MINUTES, interval_minutes * MISSED_SCAN_MULTIPLIER)
     return timedelta(minutes=grace_minutes)
 
 
 def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Optional[datetime] = None) -> None:
+    # Keep IP history up to date without duplicate rows. SQLite and MySQL have
+    # different upsert syntaxes, so use dialect-specific paths and fall back to
+    # a portable read/update path for other engines.
     if not ip:
         return
 
@@ -277,7 +286,94 @@ def record_device_ip_history(db: Session, device: Device, ip: str, seen_at: Opti
         db.add(DeviceIpHistory(**values))
 
 
+def _matches_segment_pattern(pattern: str, *, ip: str, segment: Optional[Segment]) -> bool:
+    if segment and pattern in {str(segment.id).lower(), (segment.name or "").lower()}:
+        return True
+    try:
+        ip_addr = ipaddress.IPv4Address(ip)
+        if "/" in pattern:
+            return ip_addr in ipaddress.IPv4Network(pattern, strict=False)
+        if "-" in pattern:
+            start, end = [part.strip() for part in pattern.split("-", 1)]
+            return ipaddress.IPv4Address(start) <= ip_addr <= ipaddress.IPv4Address(end)
+    except Exception:
+        return False
+    return False
+
+
+def _find_matching_segment(segments: list[Segment], ip: str) -> Optional[Segment]:
+    try:
+        ip_int = int(ipaddress.IPv4Address(ip))
+    except Exception:
+        return None
+    best: tuple[int, Segment] | None = None
+    for segment in segments:
+        try:
+            start = int(ipaddress.IPv4Address(segment.ip_start))
+            end = int(ipaddress.IPv4Address(segment.ip_end))
+        except Exception:
+            continue
+        if start <= ip_int <= end:
+            span = end - start
+            if best is None or span < best[0]:
+                best = (span, segment)
+    return best[1] if best else None
+
+
+def _matching_segment(db: Session, ip: str) -> Optional[Segment]:
+    return _find_matching_segment(db.query(Segment).all(), ip)
+
+
+def _matches_ignore_rule(rule: DeviceIgnoreRule, *, ip: str, mac: str, hostname: Optional[str], device_class: Optional[str], segment: Optional[Segment]) -> bool:
+    pattern = (rule.pattern or "").strip().lower()
+    if not pattern:
+        return False
+    if rule.rule_type == "mac":
+        return pattern == (mac or "").lower()
+    if rule.rule_type == "ip":
+        return pattern == (ip or "").lower()
+    if rule.rule_type == "hostname":
+        return pattern in (hostname or "").lower()
+    if rule.rule_type == "device_class":
+        return pattern in (device_class or "").lower()
+    if rule.rule_type == "segment":
+        return _matches_segment_pattern(pattern, ip=ip, segment=segment)
+    return False
+
+
+def _matching_ignore_rules(
+    db: Session,
+    *,
+    ip: str,
+    mac: str,
+    hostname: Optional[str],
+    device_class: Optional[str],
+    segments: Optional[list[Segment]] = None,
+    rules: Optional[list[DeviceIgnoreRule]] = None,
+) -> list[DeviceIgnoreRule]:
+    segment_rows = segments if segments is not None else db.query(Segment).all()
+    rule_rows = rules if rules is not None else db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
+    segment = _find_matching_segment(segment_rows, ip)
+    return [rule for rule in rule_rows if _matches_ignore_rule(rule, ip=ip, mac=mac, hostname=hostname, device_class=device_class, segment=segment)]
+
+
+def _record_change(db: Session, device_id: int, event_type: str, field_name: Optional[str], old_value, new_value, source: str) -> None:
+    if old_value == new_value:
+        return
+    db.add(DeviceChangeEvent(
+        device_id=device_id,
+        event_type=event_type,
+        field_name=field_name,
+        old_value=str(old_value) if old_value is not None else None,
+        new_value=str(new_value) if new_value is not None else None,
+        source=source,
+    ))
+
+
 def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
+    # Primary scan range is ARP/L2. Additional routed targets use nmap ping scan
+    # because MAC addresses are usually unavailable beyond the local broadcast
+    # domain. Return effective bounds/source so scan logs explain what happened.
     start_row = _get_setting_row(db, "scan_start")
     end_row = _get_setting_row(db, "scan_end")
     additional_targets_row = _get_setting_row(db, "scan_additional_targets")
@@ -354,6 +450,11 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             d.ip_address: d for d in all_devices if d.ip_address
         }
 
+        enabled_ignore_rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
+        segment_rows = db.query(Segment).all()
+        notify_new_devices_row = db.query(Setting).filter(Setting.key == "notify_on_new_device").first()
+        notify_new_devices = not notify_new_devices_row or notify_new_devices_row.value != "false"
+
         found_macs = set()
         devices_new = 0
 
@@ -383,40 +484,62 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             if existing is None:
                 # New device
                 device_class = classify_device(vendor, hostname or "")
+                ignore_matches = _matching_ignore_rules(
+                    db,
+                    ip=ip,
+                    mac=mac_normalized,
+                    hostname=hostname,
+                    device_class=device_class,
+                    segments=segment_rows,
+                    rules=enabled_ignore_rules,
+                )
+                if any(rule.ignore_discovery for rule in ignore_matches):
+                    logger.info("Ignored discovery by rule: %s (%s)", mac_normalized, ip)
+                    continue
                 new_device = Device(
                     mac_address=mac_normalized,
                     ip_address=ip,
                     hostname=hostname,
                     vendor=vendor,
                     device_class=device_class,
+                    ignored=False,
+                    notifications_muted=any(rule.mute_notifications for rule in ignore_matches),
                     is_online=True,
                     first_seen=seen_at,
                     last_seen=seen_at,
                 )
                 db.add(new_device)
                 db.flush()
+                db.add(DeviceChangeEvent(device_id=new_device.id, event_type="device_discovered", source="scan", message=f"Discovered at {ip}"))
                 record_device_ip_history(db, new_device, ip, seen_at)
                 existing_devices[mac_normalized] = new_device
                 existing_devices_by_ip[ip] = new_device
                 devices_new += 1
 
-                notification = Notification(
-                    device_id=new_device.id,
-                    event_type="new_device",
-                    message=(
-                        f"New device detected: {vendor or 'Unknown vendor'} "
-                        f"at {ip} ({mac_normalized})"
-                    ),
-                )
-                db.add(notification)
+                if notify_new_devices and not new_device.notifications_muted and not new_device.ignored:
+                    notification = Notification(
+                        device_id=new_device.id,
+                        event_type="new_device",
+                        message=(
+                            f"New device detected: {vendor or 'Unknown vendor'} "
+                            f"at {ip} ({mac_normalized})"
+                        ),
+                    )
+                    db.add(notification)
                 logger.info(f"New device: {mac_normalized} ({ip}) - {vendor}")
             else:
+                previous_ip = existing.ip_address
+                previous_online = existing.is_online
+                previous_hostname = existing.hostname
                 existing.ip_address = ip
                 existing.is_online = True
                 existing.last_seen = seen_at
+                _record_change(db, existing.id, "ip_changed", "ip_address", previous_ip, ip, "scan")
+                _record_change(db, existing.id, "online_state_changed", "is_online", previous_online, True, "scan")
                 record_device_ip_history(db, existing, ip, seen_at)
                 if hostname:
                     existing.hostname = hostname
+                    _record_change(db, existing.id, "hostname_changed", "hostname", previous_hostname, hostname, "scan")
 
         # Mark absent devices as offline only after a grace period.
         # A single missed ARP reply should not immediately flip stable devices offline.
@@ -428,7 +551,9 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 continue
             if device.last_seen and device.last_seen > offline_cutoff:
                 continue
+            previous_online = device.is_online
             device.is_online = False
+            _record_change(db, device.id, "online_state_changed", "is_online", previous_online, False, "scan")
             devices_offline += 1
 
         scan_run.devices_found = len(found_macs)
@@ -438,8 +563,10 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         scan_run.status = "done"
         db.commit()
 
-        if devices_new > 0:
-            await _send_telegram_notifications(db)
+        # Retry pending deliveries after every completed scan. This lets
+        # transient webhook/Telegram failures recover even when no new device is
+        # discovered in the next run.
+        await _send_notification_deliveries(db)
 
         logger.info(
             f"Scan complete: {len(found_macs)} found, "
@@ -463,20 +590,71 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         _scan_running = False
 
 
-async def _send_telegram_notifications(db: Session) -> None:
-    """Send Telegram messages for unsent new-device notifications."""
+async def _send_notification_deliveries(db: Session) -> None:
+    """Send configured external deliveries for unsent new-device notifications.
+
+    Only query rows for channels that are currently enabled. Otherwise disabled
+    channels leave *_sent=false forever and old notifications would be scanned
+    again after every discovery run.
+    """
+    def get_setting(key: str) -> str:
+        row = db.query(Setting).filter(Setting.key == key).first()
+        return row.value if row and row.value is not None else ""
+
+    telegram_configured = (
+        get_setting("telegram_enabled") == "true"
+        and bool(get_setting("telegram_bot_token"))
+        and bool(get_setting("telegram_chat_id"))
+    )
+    webhook_configured = get_setting("webhook_enabled") == "true" and bool(get_setting("webhook_url"))
+
+    if not telegram_configured and not webhook_configured:
+        return
+
+    pending_filters = []
+    if telegram_configured:
+        pending_filters.append(Notification.telegram_sent == False)
+    if webhook_configured:
+        pending_filters.append(Notification.webhook_sent == False)
+
     unsent = (
         db.query(Notification)
-        .filter(
-            Notification.event_type == "new_device",
-            Notification.telegram_sent == False,
-        )
+        .options(joinedload(Notification.device))
+        .filter(Notification.event_type == "new_device", or_(*pending_filters))
         .all()
     )
+    if not unsent:
+        return
 
+    retry_row = db.query(Setting).filter(Setting.key == NOTIFICATION_RETRY_SETTING).first()
+    if retry_row and retry_row.value:
+        try:
+            last_failure = datetime.fromisoformat(retry_row.value)
+            if datetime.utcnow() - last_failure < timedelta(minutes=NOTIFICATION_RETRY_BACKOFF_MINUTES):
+                return
+        except ValueError:
+            pass
+
+    had_failure = False
     for notif in unsent:
-        success = await send_telegram_for_notification(db, notif)
-        if success:
-            notif.telegram_sent = True
+        if telegram_configured and not notif.telegram_sent:
+            if await send_telegram_for_notification(db, notif):
+                notif.telegram_sent = True
+            else:
+                had_failure = True
+        if webhook_configured and not notif.webhook_sent:
+            if await send_webhook_for_notification(db, notif):
+                notif.webhook_sent = True
+            else:
+                had_failure = True
+
+    if had_failure:
+        failure_at = datetime.utcnow().isoformat()
+        if retry_row:
+            retry_row.value = failure_at
+        else:
+            db.add(Setting(key=NOTIFICATION_RETRY_SETTING, value=failure_at))
+    elif retry_row:
+        retry_row.value = ""
 
     db.commit()

@@ -8,10 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings  # validates SECRET_KEY on import — must be first
 from .database import SessionLocal
 from .models import TokenBlacklist
-from .routers import admin, auth, auto_scan_rules, connect, credentials, deep_scan, devices, notifications, scan, segments, services
+from .routers import admin, auth, auto_scan_rules, cmdb, connect, credentials, deep_scan, devices, dhcp_monitor, idoit, inventory, notifications, scan, scan_nodes, segments, services
 from .routers import settings as settings_router
-from .services import deep_scan_scheduler, scheduler
+from .services import deep_scan_scheduler, idoit_scheduler, scheduler
 from .services.settings_helpers import get_scan_interval_minutes
+from .version import APP_VERSION
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,20 +65,22 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         interval = get_scan_interval_minutes(db)
+        from .services.idoit import get_config as get_idoit_config
+        idoit_interval = get_idoit_config(db).sync_interval_minutes
         _cleanup_expired_tokens(db)
     finally:
         db.close()
 
     scheduler.start_scheduler(interval)
     deep_scan_scheduler.start_deep_scan_scheduler()
+    idoit_scheduler.start_idoit_scheduler(idoit_interval)
     logger.info(f"LanLens started — scan interval: {interval} min")
     yield
     scheduler.stop_scheduler()
     deep_scan_scheduler.stop_deep_scan_scheduler()
+    idoit_scheduler.stop_idoit_scheduler()
     logger.info("LanLens stopped")
 
-
-APP_VERSION = "1.4.5"
 
 app = FastAPI(
     title="LanLens",
@@ -101,6 +104,7 @@ app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(devices.router)
 app.include_router(scan.router)
+app.include_router(scan_nodes.router)
 app.include_router(settings_router.router)
 app.include_router(notifications.router)
 app.include_router(services.router)
@@ -110,6 +114,12 @@ app.include_router(segments.router)
 app.include_router(credentials.router)
 app.include_router(deep_scan.router)
 app.include_router(auto_scan_rules.router)
+app.include_router(idoit.router)
+app.include_router(cmdb.router)
+app.include_router(dhcp_monitor.router)
+app.include_router(inventory.router)
+app.include_router(inventory.ignore_router)
+app.include_router(inventory.backup_router)
 
 
 @app.websocket("/ws/scan-updates")

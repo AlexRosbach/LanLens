@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Setting, User
+from ..version import APP_VERSION
 from ..schemas import (
     AllSettings,
     DhcpSettings,
@@ -20,8 +21,9 @@ from ..schemas import (
     SmtpSettings,
     TelegramSettings,
     UiSettings,
+    WebhookSettings,
 )
-from ..services.notification import send_test_message, send_update_notification
+from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message, validate_webhook_url
 from ..services.scheduler import update_interval
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
@@ -35,10 +37,11 @@ SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
     "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
-    "network_interface", "notify_on_device_online", "notify_on_device_offline",
+    "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
+    "webhook_url", "webhook_enabled",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
-    "show_services_nav",
+    "show_services_nav", "show_dhcp_monitor_nav",
 ]
 
 
@@ -138,6 +141,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         network_interface=_get(db, "network_interface", ""),
         notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
+        notify_on_new_device=_get(db, "notify_on_new_device", "true") != "false",
         server_url=_get(db, "server_url", ""),
         smtp_host=_get(db, "smtp_host", ""),
         smtp_port=int(_get(db, "smtp_port", "587") or "587"),
@@ -147,9 +151,13 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         smtp_to_email=_get(db, "smtp_to_email", ""),
         smtp_enabled=_get(db, "smtp_enabled", "false") == "true",
         smtp_use_tls=_get(db, "smtp_use_tls", "true") != "false",
+        webhook_url=_mask_secret(_get(db, "webhook_url", "")),
+        webhook_url_configured=bool(_get(db, "webhook_url", "")),
+        webhook_enabled=_get(db, "webhook_enabled", "false") == "true",
         cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
         cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
+        show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
     )
 
 
@@ -293,6 +301,7 @@ def update_telegram(
     _set(db, "telegram_chat_id", data.telegram_chat_id)
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
+    _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
     db.commit()
     return MessageResponse(message="Telegram settings updated")
 
@@ -304,6 +313,7 @@ def update_ui_settings(
     _: User = Depends(get_current_user),
 ):
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
+    _set(db, "show_dhcp_monitor_nav", "true" if data.show_dhcp_monitor_nav else "false")
     db.commit()
     return MessageResponse(message="UI settings updated")
 
@@ -354,6 +364,43 @@ def update_smtp(
     return MessageResponse(message="SMTP settings updated")
 
 
+@router.put("/webhook", response_model=MessageResponse)
+async def update_webhook(
+    data: WebhookSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    current_url = _get(db, "webhook_url", "") or ""
+    url = data.webhook_url.strip()
+    if url == TOKEN_MASK:
+        url = current_url
+    if data.webhook_enabled and not url:
+        raise HTTPException(status_code=400, detail="Webhook URL is required when webhook notifications are enabled")
+    if url:
+        valid, reason = await validate_webhook_url(url)
+        if not valid:
+            raise HTTPException(status_code=400, detail=reason)
+    _set(db, "webhook_url", url)
+    _set(db, "webhook_enabled", "true" if data.webhook_enabled else "false")
+    db.commit()
+    return MessageResponse(message="Webhook settings updated")
+
+
+@router.post("/webhook/test", response_model=MessageResponse)
+async def test_webhook(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    webhook_url = _get(db, "webhook_url", "")
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="Webhook not configured")
+
+    success = await send_webhook_test_message(webhook_url)
+    if success:
+        return MessageResponse(message="Test webhook sent successfully")
+    raise HTTPException(status_code=502, detail="Failed to send test webhook — check the URL")
+
+
 @router.post("/smtp/test", response_model=MessageResponse)
 async def test_smtp(
     db: Session = Depends(get_db),
@@ -397,7 +444,6 @@ async def check_update(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    from ..main import APP_VERSION
 
     latest, release_url = await _fetch_latest_release_info()
     update_available = _is_newer_version(latest, APP_VERSION)
@@ -415,7 +461,6 @@ async def notify_update_available(
     _: User = Depends(get_current_user),
 ):
     """Called when a new GitHub release is detected — sends a Telegram message if enabled."""
-    from ..main import APP_VERSION
 
     latest, release_url = await _fetch_latest_release_info()
 

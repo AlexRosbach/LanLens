@@ -15,12 +15,35 @@ export function formatIp(ip: string | null): string {
  * Parse a date string from the backend. The backend stores UTC times without
  * timezone info, so we append 'Z' to ensure correct interpretation.
  */
-function parseDateStr(dateStr: string): Date {
+export function parseDateStr(dateStr: string): Date {
   const normalized =
     dateStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateStr)
       ? dateStr
       : dateStr + 'Z'
   return new Date(normalized)
+}
+
+
+function padDatePart(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+export function backendUtcToLocalDateTimeInput(dateStr?: string | null): string {
+  if (!dateStr) return ''
+  try {
+    const date = parseDateStr(dateStr)
+    if (Number.isNaN(date.getTime())) return ''
+    return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}T${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`
+  } catch {
+    return ''
+  }
+}
+
+export function localDateTimeInputToUtcIso(value: string): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toISOString()
 }
 
 export function formatRelativeTime(dateStr: string, lang = 'en'): string {

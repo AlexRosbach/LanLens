@@ -15,6 +15,7 @@ export interface AllSettings {
   network_interface: string
   notify_on_device_online: boolean
   notify_on_device_offline: boolean
+  notify_on_new_device: boolean
   server_url: string
   smtp_host: string
   smtp_port: number
@@ -24,9 +25,13 @@ export interface AllSettings {
   smtp_to_email: string
   smtp_enabled: boolean
   smtp_use_tls: boolean
+  webhook_url: string
+  webhook_url_configured: boolean
+  webhook_enabled: boolean
   cmdb_id_prefix: string
   cmdb_id_digits: number
   show_services_nav: boolean
+  show_dhcp_monitor_nav: boolean
 }
 
 export interface UpdateCheckResponse {
@@ -53,6 +58,7 @@ export const settingsApi = {
     telegram_chat_id: string
     telegram_enabled: boolean
     notify_telegram_update: boolean
+    notify_on_new_device: boolean
   }) => apiClient.put('/settings/telegram', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),
@@ -68,8 +74,8 @@ export const settingsApi = {
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),
 
-  updateUi: (show_services_nav: boolean) =>
-    apiClient.put('/settings/ui', { show_services_nav }).then((r) => r.data),
+  updateUi: (show_services_nav: boolean, show_dhcp_monitor_nav: boolean) =>
+    apiClient.put('/settings/ui', { show_services_nav, show_dhcp_monitor_nav }).then((r) => r.data),
 
   updateSmtp: (data: {
     smtp_host: string
@@ -83,6 +89,13 @@ export const settingsApi = {
   }) => apiClient.put('/settings/smtp', data).then((r) => r.data),
 
   testSmtp: () => apiClient.post('/settings/smtp/test').then((r) => r.data),
+
+  updateWebhook: (data: {
+    webhook_url: string
+    webhook_enabled: boolean
+  }) => apiClient.put('/settings/webhook', data).then((r) => r.data),
+
+  testWebhook: () => apiClient.post('/settings/webhook/test').then((r) => r.data),
 
   updateCmdb: (prefix: string, digits: number) =>
     apiClient.put('/settings/cmdb', null, { params: { prefix, digits } }).then((r) => r.data),

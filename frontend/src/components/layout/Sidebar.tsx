@@ -19,6 +19,7 @@ export default function Sidebar({ onClose }: Props) {
   const update = useUpdateCheck()
   const navigate = useNavigate()
   const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
+  const showDhcpMonitorNav = useUiSettingsStore((state) => state.showDhcpMonitorNav)
   const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
 
   useEffect(() => {
@@ -58,6 +59,16 @@ export default function Sidebar({ onClose }: Props) {
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
             d="M13.828 10.172a4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1-1m-.656-4.656a4 4 0 015.656 0l3 3a4 4 0 01-5.656 5.656l-1-1M14 7h.01M10 7h.01M7 7h.01M17 7h.01" />
+        </svg>
+      ),
+    }] : []),
+    ...(showDhcpMonitorNav ? [{
+      to: '/dhcp-monitor',
+      label: t('nav_dhcp_monitor'),
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+            d="M8 9h8M8 13h5m-8 7h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zm4-4h.01M15 16h.01" />
         </svg>
       ),
     }] : []),
@@ -189,17 +200,38 @@ export default function Sidebar({ onClose }: Props) {
             </div>
           </div>
         ) : null}
-        <p className="text-xs text-text-subtle">
-          LanLens{' '}
-          <a
-            href={`https://github.com/${GITHUB_REPO}/releases/tag/v${APP_VERSION}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-text-muted transition-colors"
-          >
-            v{APP_VERSION}
-          </a>
-        </p>
+        <div className="flex flex-col gap-1 text-xs text-text-subtle">
+          <p>
+            LanLens{' '}
+            <a
+              href={`https://github.com/${GITHUB_REPO}/releases/tag/v${APP_VERSION}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-text-muted transition-colors"
+            >
+              v{APP_VERSION}
+            </a>
+          </p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <a
+              href={`https://github.com/${GITHUB_REPO}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-text-muted transition-colors"
+            >
+              GitHub
+            </a>
+            <span aria-hidden="true">/</span>
+            <a
+              href={`https://github.com/${GITHUB_REPO}/issues`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-text-muted transition-colors"
+            >
+              Report a bug
+            </a>
+          </div>
+        </div>
       </div>
     </aside>
   )

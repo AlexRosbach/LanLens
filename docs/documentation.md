@@ -15,7 +15,8 @@
 11. [Frontend Structure](#frontend-structure)
 12. [Configuration Reference](#configuration-reference)
 13. [Deep Scan](#deep-scan)
-14. [Troubleshooting](#troubleshooting)
+14. [Scan Nodes](#scan-nodes-experimental)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -710,6 +711,50 @@ Each registered device can receive an automatically generated CMDB identifier. T
 
 ---
 
+## Scan Nodes (experimental)
+
+Scan Nodes are an optional and currently **untested/experimental** way to cover segmented VLAN/site networks from one central LanLens instance.
+
+- Central LanLens owns the UI, database, deduplication, device documentation and i-doit sync.
+- A Scan Node is a small Docker container deployed inside a VLAN/site with host networking and `nmap -sn`.
+- The node has no inbound API. It only needs outbound HTTPS to Central.
+- Central generates the deployment command in **Settings -> Network -> Scan Nodes** with the central URL, node name and token.
+- The generated image tag is `alexrosbach/lanlens:scan-node-latest`.
+- Set `LANLENS_SCAN_TARGETS` to override the node's local auto-detected IPv4 CIDR.
+- Set `LANLENS_SCAN_INTERVAL` to control the node loop interval; invalid values fall back to 300 seconds.
+- If a node does not report MAC addresses, Central uses IP-only pseudo-identifiers. IP-only matches are intentionally conservative and must not overwrite an existing device with a real MAC address.
+
+Operational notes:
+
+- Test Scan Nodes in a controlled VLAN/site before production rollout.
+- Avoid overlapping IP ranges unless devices can be matched by MAC or another stable identifier.
+- Treat a lost node token like a credential leak and rotate it from the Scan Nodes UI.
+- For prefilled i-doit tenants, keep `idoit_create_policy=match_only` during onboarding so unmatched Scan Node discoveries become `match_required` instead of creating duplicate CMDB objects.
+
+See also:
+
+- [Knowledge Base / FAQ](knowledgebase.md)
+- [README Scan Nodes section](../README.md#optional-scan-nodes)
+
+---
+
+## CMDB / i-doit Integrations (v1.5.0)
+
+LanLens 1.5.0 adds two CMDB integration foundations:
+
+- **i-doit integration**: configuration, JSON-RPC connection test, local mapping validation, per-device dry-run payload preview, object matching/create/update, scheduled sync and audit logs.
+- **Generic CMDB REST**: authenticated inventory export, connector-neutral mapping/config endpoints, per-device dry-run/push, import preview and audit logs for REST-capable CMDB tools.
+
+Security and operational boundaries:
+
+- i-doit, webhook and generic CMDB REST URLs are validated before outbound requests.
+- Self-hosted private LAN targets are allowed; loopback, link-local, multicast, reserved, unspecified and cloud metadata addresses are blocked.
+- Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
+- Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
+- i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
+
+---
+
 ## External Database (MariaDB / PostgreSQL)
 
 Set the `DATABASE_URL` environment variable to use an external database instead of the built-in SQLite file:
@@ -743,13 +788,14 @@ Select the auth method in the Credential Modal. The private key is stored encryp
 
 ## UI Languages
 
-The frontend supports three languages, switchable via the TopBar toggle (EN → DE → IT → EN) or the Settings page:
+The frontend supports four languages, switchable via the TopBar toggle or the Settings page:
 
 | Code | Language |
 |------|----------|
 | `en` | English |
 | `de` | Deutsch |
 | `it` | Italiano |
+| `zh` | 简体中文 |
 
 ---
 

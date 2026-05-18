@@ -16,6 +16,9 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
+    # API clients may use Bearer tokens while the SPA normally authenticates via
+    # the httpOnly session cookie. Keep both paths here so routers do not need to
+    # care how the request was authenticated.
     token = credentials.credentials if credentials else request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         raise HTTPException(
@@ -40,6 +43,8 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Logout/revocation works by blacklisting JWT IDs until they expire. This
+    # keeps already-issued access tokens from remaining valid after sign-out.
     jti = payload.get("jti")
     if jti:
         blacklisted = db.query(TokenBlacklist).filter(TokenBlacklist.jti == jti).first()

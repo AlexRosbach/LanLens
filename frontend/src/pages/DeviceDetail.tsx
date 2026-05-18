@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, DeviceIpHistoryEntry, devicesApi } from '../api/devices'
+import { idoitApi } from '../api/idoit'
+import type { ChangeEvent } from '../api/inventory'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -27,6 +29,14 @@ interface EditState {
   assetTag: string
   notes: string
   cmdbId: string
+}
+
+function idoitStatusVariant(status?: string | null): 'success' | 'danger' | 'warning' | 'primary' | 'muted' {
+  if (status === 'synced' || status === 'validated') return 'success'
+  if (status === 'error' || status === 'mapping_error') return 'danger'
+  if (status === 'preview_ready' || status === 'pending_changes' || status === 'validated_pending_sync' || status === 'synced_with_warnings') return 'warning'
+  if (status === 'linked') return 'primary'
+  return 'muted'
 }
 
 function toEditState(d: Device): EditState {
@@ -71,6 +81,8 @@ export default function DeviceDetail() {
   const [portScanInputLoading, setPortScanInputLoading] = useState(false)
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
+  const [timeline, setTimeline] = useState<ChangeEvent[]>([])
+  const [idoitSyncing, setIdoitSyncing] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -88,6 +100,7 @@ export default function DeviceDetail() {
       setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
       devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
+      devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
   }, [id])
 
@@ -177,6 +190,7 @@ export default function DeviceDetail() {
       setForm(toEditState(updated))
       setIpHistory(updated.ip_history ?? ipHistory)
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
+      devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
     } catch {
       toast.error(t('device_status_refresh_failed'))
@@ -185,12 +199,42 @@ export default function DeviceDetail() {
     }
   }
 
+  async function handleIdoitSyncNow() {
+    if (!device) return
+    setIdoitSyncing(true)
+    try {
+      await idoitApi.syncDevice(device.id)
+      const refreshed = await devicesApi.get(device.id)
+      setDevice(refreshed)
+      toast.success(t('idoit_sync_started'))
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      const message = typeof detail === 'object' && detail && 'message' in detail
+        ? String((detail as { message?: unknown }).message)
+        : t('idoit_sync_failed')
+      toast.error(message)
+    } finally {
+      setIdoitSyncing(false)
+    }
+  }
+
+  async function handleIdoitSyncEnabledChange(enabled: boolean) {
+    if (!device) return
+    try {
+      const updated = await devicesApi.update(device.id, { idoit_sync_enabled: enabled })
+      setDevice(updated)
+      setForm(toEditState(updated))
+      toast.success(enabled ? t('idoit_device_sync_enabled') : t('idoit_device_sync_disabled'))
+    } catch {
+      toast.error(t('save_failed'))
+    }
+  }
+
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
   const hasDocumentation = device.purpose || device.description || device.location ||
     device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
-
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-5">
       {/* Header */}
@@ -240,6 +284,8 @@ export default function DeviceDetail() {
         </div>
       </div>
 
+
+
       {/* Connect */}
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
@@ -264,8 +310,8 @@ export default function DeviceDetail() {
           <div className="flex flex-col gap-4">
             {/* Identity */}
             <div className="grid grid-cols-2 gap-3">
-              <Input label={t('label')} placeholder="e.g. Proxmox Host" {...field('label')} />
-              <Input label={t('asset_tag')} placeholder="e.g. SRV-001" {...field('assetTag')} />
+              <Input label={t('label')} placeholder={t('device_label_placeholder')} {...field('label')} />
+              <Input label={t('asset_tag')} placeholder={t('asset_tag_placeholder')} {...field('assetTag')} />
               <div className="col-span-2 flex items-end gap-2">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-text-muted mb-1">{t('cmdb_id')}</label>
@@ -320,12 +366,12 @@ export default function DeviceDetail() {
 
             {/* Documentation fields */}
             <div className="border-t border-border pt-4 grid grid-cols-2 gap-3">
-              <Input label={t('purpose')} placeholder="e.g. Virtualisation host" {...field('purpose')} />
-              <Input label={t('location')} placeholder="e.g. Server rack, Shelf 2" {...field('location')} />
-              <Input label={t('responsible')} placeholder="e.g. IT Admin" {...field('responsible')} />
-              <Input label={t('os_info')} placeholder="e.g. Proxmox VE 8.2" {...field('osInfo')} />
+              <Input label={t('purpose')} placeholder={t('purpose_placeholder')} {...field('purpose')} />
+              <Input label={t('location')} placeholder={t('location_placeholder')} {...field('location')} />
+              <Input label={t('responsible')} placeholder={t('responsible_placeholder')} {...field('responsible')} />
+              <Input label={t('os_info')} placeholder={t('os_info_placeholder')} {...field('osInfo')} />
               <div className="col-span-2">
-                <Input label={t('password_location')} placeholder="e.g. Vaultwarden → Servers" {...field('passwordLocation')} />
+                <Input label={t('password_location')} placeholder={t('password_location_placeholder')} {...field('passwordLocation')} />
               </div>
             </div>
 
@@ -334,7 +380,7 @@ export default function DeviceDetail() {
               <textarea
                 rows={2}
                 className="input-field resize-none"
-                placeholder="What does this device do?"
+                placeholder={t('description_placeholder')}
                 {...field('description')}
               />
             </div>
@@ -344,7 +390,7 @@ export default function DeviceDetail() {
               <textarea
                 rows={2}
                 className="input-field resize-none"
-                placeholder="Additional notes…"
+                placeholder={t('notes_placeholder')}
                 {...field('notes')}
               />
             </div>
@@ -375,6 +421,46 @@ export default function DeviceDetail() {
               </div>
             </div>
 
+            {device.idoit_enabled && (
+              <div className="border-t border-border pt-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h2 className="text-sm font-semibold text-text-muted">{t('idoit_sync')}</h2>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={idoitStatusVariant(device.idoit_sync_status)} dot>{device.idoit_sync_status || 'never_synced'}</Badge>
+                    <Button size="sm" variant="outline" onClick={handleIdoitSyncNow} loading={idoitSyncing}>{t('idoit_sync_now')}</Button>
+                  </div>
+                </div>
+                <label className="mb-3 flex items-center gap-2 text-xs text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={device.idoit_sync_enabled !== false}
+                    onChange={(e) => handleIdoitSyncEnabledChange(e.target.checked)}
+                  />
+                  {t('idoit_device_sync_enabled_label')}
+                </label>
+                <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                  <InfoRow label={t('idoit_object_id')} value={device.idoit_object_id} mono />
+                  <InfoRow label={t('idoit_sysid')} value={device.idoit_sysid} mono />
+                  <div>
+                    <p className="text-text-subtle text-xs mb-0.5">{t('idoit_object')}</p>
+                    {device.idoit_object_url ? (
+                      <a className="text-xs text-primary hover:underline" href={device.idoit_object_url} target="_blank" rel="noreferrer">{t('open_in_idoit')}</a>
+                    ) : (
+                      <p className="text-text-muted text-xs">—</p>
+                    )}
+                  </div>
+                  <InfoRow label={t('idoit_last_sync')} value={device.idoit_last_sync_at ? formatDateTime(device.idoit_last_sync_at) : null} />
+                  <InfoRow label={t('idoit_last_validation')} value={device.idoit_last_validation_at ? formatDateTime(device.idoit_last_validation_at) : null} />
+                  {device.idoit_last_error && (
+                    <div className="col-span-2">
+                      <p className="text-text-subtle text-xs mb-0.5">{t('idoit_last_error')}</p>
+                      <p className="text-danger text-xs whitespace-pre-wrap">{device.idoit_last_error}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Documentation fields */}
             {hasDocumentation && (
               <div className="border-t border-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
@@ -399,7 +485,7 @@ export default function DeviceDetail() {
 
             {!hasDocumentation && (
               <p className="text-xs text-text-subtle border-t border-border pt-3">
-                No documentation yet — click <strong>{t('edit')}</strong> to add purpose, location, responsible, and more.
+                {t('no_device_documentation', { edit: t('edit') })}
               </p>
             )}
           </div>
@@ -555,11 +641,34 @@ export default function DeviceDetail() {
         )}
       </Card>
 
+
+
+      <Card>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('change_timeline')}</h2>
+        {timeline.length === 0 ? (
+          <p className="text-sm text-text-subtle">{t('no_changes_recorded')}</p>
+        ) : (
+          <div className="space-y-2">
+            {timeline.slice(0, 12).map((event) => (
+              <div key={event.id} className="border border-border rounded-lg p-3 bg-surface2/40">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-text-base">{event.event_type.replace(/_/g, ' ')}</p>
+                  <span className="text-xs text-text-subtle">{formatRelativeTime(event.created_at, lang)}</span>
+                </div>
+                <p className="text-xs text-text-subtle mt-1">
+                  {event.field_name ? `${event.field_name}: ${event.old_value ?? '—'} → ${event.new_value ?? '—'}` : event.message ?? event.source}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       {/* Danger zone */}
       <Card>
-        <h2 className="text-sm font-semibold text-danger mb-2">Danger Zone</h2>
+        <h2 className="text-sm font-semibold text-danger mb-2">{t('danger_zone')}</h2>
         <p className="text-xs text-text-subtle mb-3">
-          Removing this device will delete all port scan history and services documentation. The device will reappear automatically on the next network scan.
+          {t('delete_device_warning')}
         </p>
         <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
           {t('delete_device')}
