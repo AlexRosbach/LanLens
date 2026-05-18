@@ -165,7 +165,11 @@ def ingest_scan_node_results(
         mac = normalize_mac(host.mac) if host.mac else None
         existing = db.query(Device).filter(Device.mac_address == mac).first() if mac else None
         if existing is None:
-            existing = db.query(Device).filter(Device.ip_address == ip).first()
+            ip_matched_existing = db.query(Device).filter(Device.ip_address == ip).first()
+            if ip_matched_existing is not None and (
+                not mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
+            ):
+                existing = ip_matched_existing
         mac_or_identifier = mac or (existing.mac_address if existing else _pseudo_mac_for_ip(ip))
 
         if mac and existing and _is_ip_only_identifier(existing.mac_address):

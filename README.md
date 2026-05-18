@@ -66,6 +66,8 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - [Knowledge Base / FAQ](docs/knowledgebase.md)
 - [Extended documentation](docs/documentation.md)
 
+Use the Knowledge Base for setup errors, i-doit/CMDB troubleshooting, duplicate-prevention guidance, and Scan Node deployment notes. Use the extended documentation for architecture, API details, scanning behaviour, and configuration references.
+
 ---
 
 ## Quick Start
@@ -155,6 +157,9 @@ Notes:
 - Enterprise/VLAN deployments should either configure reachable routed CIDRs from a central LanLens instance or run one LanLens scanner per site/VLAN and consolidate through CMDB/i-doit. ARP/MAC discovery is only reliable inside the same broadcast domain; routed discovery is useful for reachability and IP/hostname inventory, not for guaranteed MAC/vendor identity.
 
 ### Optional Scan Nodes
+
+> [!WARNING]
+> Scan Nodes are currently an untested/experimental deployment option. The generated one-line Docker command, token registration and central ingest API are available for validation, but this should be tested in a controlled VLAN/site before relying on it in production.
 
 For segmented environments, LanLens can register optional **Scan Nodes**. A Scan Node is a small Docker container placed inside a VLAN/site. It scans locally with `nmap -sn` and reports results outbound to the central LanLens instance; the central instance keeps the database, UI, deduplication and i-doit sync.
 

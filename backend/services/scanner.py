@@ -452,6 +452,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
 
         enabled_ignore_rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled == True).all()
         segment_rows = db.query(Segment).all()
+        notify_new_devices_row = db.query(Setting).filter(Setting.key == "notify_on_new_device").first()
+        notify_new_devices = not notify_new_devices_row or notify_new_devices_row.value != "false"
 
         found_macs = set()
         devices_new = 0
@@ -514,8 +516,6 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 existing_devices_by_ip[ip] = new_device
                 devices_new += 1
 
-                notify_new_devices_row = db.query(Setting).filter(Setting.key == "notify_on_new_device").first()
-                notify_new_devices = not notify_new_devices_row or notify_new_devices_row.value != "false"
                 if notify_new_devices and not new_device.notifications_muted and not new_device.ignored:
                     notification = Notification(
                         device_id=new_device.id,

@@ -15,7 +15,8 @@
 11. [Frontend Structure](#frontend-structure)
 12. [Configuration Reference](#configuration-reference)
 13. [Deep Scan](#deep-scan)
-14. [Troubleshooting](#troubleshooting)
+14. [Scan Nodes](#scan-nodes-experimental)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -707,6 +708,33 @@ Each registered device can receive an automatically generated CMDB identifier. T
 - IDs are generated on first device registration and can be regenerated from Device Detail.
 - Uniqueness is enforced by a database unique index; the generator retries up to 3 times on concurrent collision before returning HTTP 409.
 - Prefix defaults to `DEV`, digit count defaults to `4` (e.g. `DEV-0001`).
+
+---
+
+## Scan Nodes (experimental)
+
+Scan Nodes are an optional and currently **untested/experimental** way to cover segmented VLAN/site networks from one central LanLens instance.
+
+- Central LanLens owns the UI, database, deduplication, device documentation and i-doit sync.
+- A Scan Node is a small Docker container deployed inside a VLAN/site with host networking and `nmap -sn`.
+- The node has no inbound API. It only needs outbound HTTPS to Central.
+- Central generates the deployment command in **Settings -> Network -> Scan Nodes** with the central URL, node name and token.
+- The generated image tag is `alexrosbach/lanlens:scan-node-latest`.
+- Set `LANLENS_SCAN_TARGETS` to override the node's local auto-detected IPv4 CIDR.
+- Set `LANLENS_SCAN_INTERVAL` to control the node loop interval; invalid values fall back to 300 seconds.
+- If a node does not report MAC addresses, Central uses IP-only pseudo-identifiers. IP-only matches are intentionally conservative and must not overwrite an existing device with a real MAC address.
+
+Operational notes:
+
+- Test Scan Nodes in a controlled VLAN/site before production rollout.
+- Avoid overlapping IP ranges unless devices can be matched by MAC or another stable identifier.
+- Treat a lost node token like a credential leak and rotate it from the Scan Nodes UI.
+- For prefilled i-doit tenants, keep `idoit_create_policy=match_only` during onboarding so unmatched Scan Node discoveries become `match_required` instead of creating duplicate CMDB objects.
+
+See also:
+
+- [Knowledge Base / FAQ](knowledgebase.md)
+- [README Scan Nodes section](../README.md#optional-scan-nodes)
 
 ---
 

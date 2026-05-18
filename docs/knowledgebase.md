@@ -14,6 +14,8 @@ For larger enterprises, deploy one LanLens instance or scanner near each site/VL
 
 LanLens Scan Nodes implement this pattern. Create a node in **Settings -> Network -> Scan Nodes**, then run the generated Docker one-liner in the VLAN/site. The node scans locally and posts discoveries to Central with its token. Rotate the token if the command is lost or exposed.
 
+Scan Nodes are currently marked as an **untested/experimental deployment option**. Validate them in a controlled VLAN/site first, especially in environments with NAT, overlapping RFC1918 ranges, strict egress filtering, or existing i-doit inventories.
+
 For prefilled i-doit tenants, keep **Object creation policy** set to **Match existing objects only**. In this mode LanLens updates confidently matched objects, but skips unmatched devices as `match_required` instead of creating a duplicate. Enable object creation only for greenfield segments where LanLens is allowed to become the source for new CMDB objects.
 
 Recommended rollout:

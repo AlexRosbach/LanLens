@@ -18,10 +18,19 @@ def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
+def int_env(name: str, default: int, minimum: int) -> int:
+    raw = env(name, str(default)) or str(default)
+    try:
+        return max(minimum, int(raw))
+    except ValueError:
+        print(f"Invalid {name}={raw!r}; using {default}", flush=True)
+        return default
+
+
 CENTRAL_URL = env("LANLENS_CENTRAL_URL").rstrip("/")
 TOKEN = env("LANLENS_NODE_TOKEN")
 NODE_NAME = env("LANLENS_NODE_NAME", "scan-node")
-INTERVAL = max(30, int(env("LANLENS_SCAN_INTERVAL", "300") or "300"))
+INTERVAL = int_env("LANLENS_SCAN_INTERVAL", 300, 30)
 TARGETS = [item.strip() for item in env("LANLENS_SCAN_TARGETS").replace("\n", ",").split(",") if item.strip()]
 VERSION = env("LANLENS_SCAN_NODE_VERSION", "dev")
 
