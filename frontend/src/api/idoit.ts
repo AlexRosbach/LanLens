@@ -61,6 +61,11 @@ export interface IdoitBulkSyncResult {
   results: unknown[]
 }
 
+export interface IdoitEnableSyncAllResult {
+  total: number
+  updated: number
+}
+
 export interface IdoitSyncLogEntry {
   id: number
   device_id?: number | null
@@ -86,6 +91,8 @@ export const idoitApi = {
   syncDevice: (id: number) => apiClient.post<IdoitTestResult>(`/idoit/devices/${id}/sync`).then((r) => r.data),
 
   syncAll: () => apiClient.post<IdoitBulkSyncResult>('/idoit/sync-all').then((r) => r.data),
+
+  enableSyncAll: () => apiClient.post<IdoitEnableSyncAllResult>('/idoit/devices/enable-sync-all').then((r) => r.data),
 
   getLogs: (limit = 50) => apiClient.get<IdoitSyncLogEntry[]>('/idoit/logs', { params: { limit } }).then((r) => r.data),
 }

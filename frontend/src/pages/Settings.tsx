@@ -114,6 +114,7 @@ export default function Settings() {
   const [idoitBasicPassword, setIdoitBasicPassword] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
   const [idoitSyncingAll, setIdoitSyncingAll] = useState(false)
+  const [idoitEnablingAll, setIdoitEnablingAll] = useState(false)
   const [idoitSyncProgress, setIdoitSyncProgress] = useState<{ current: number; total: number; success: number; failure: number; skipped: number; label?: string } | null>(null)
   const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
   const [idoitLogs, setIdoitLogs] = useState<IdoitSyncLogEntry[]>([])
@@ -631,6 +632,23 @@ export default function Settings() {
     } finally {
       setIdoitSyncingAll(false)
       setIdoitSyncProgress(null)
+    }
+  }
+
+  async function enableIdoitSyncForAllDevices() {
+    setIdoitEnablingAll(true)
+    try {
+      const result = await idoitApi.enableSyncAll()
+      toast.success(t('idoit_enable_sync_all_success', {
+        updated: String(result.updated),
+        total: String(result.total),
+      }))
+    } catch (error) {
+      const details = extractIdoitErrorDetails(error)
+      setIdoitTestError(details)
+      toast.error(details.message || t('idoit_enable_sync_all_failed'))
+    } finally {
+      setIdoitEnablingAll(false)
     }
   }
 
@@ -1542,6 +1560,9 @@ export default function Settings() {
                   <Button onClick={saveIdoit} loading={saving}>{t('save_changes')}</Button>
                   <Button onClick={testIdoitConnection} loading={idoitTesting} variant="outline">{t('test_connection')}</Button>
                   <Button onClick={testIdoitMapping} loading={idoitTesting} variant="outline">{t('test_mapping')}</Button>
+                  <Button onClick={enableIdoitSyncForAllDevices} loading={idoitEnablingAll} variant="outline">
+                    {t('idoit_enable_sync_all')}
+                  </Button>
                   <Button onClick={syncAllIdoitDevices} loading={idoitSyncingAll} variant="outline">
                     {idoitSyncProgress
                       ? t('idoit_sync_progress', { current: String(idoitSyncProgress.current), total: String(idoitSyncProgress.total) })

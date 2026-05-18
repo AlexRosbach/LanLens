@@ -233,6 +233,18 @@ async def sync_all_devices(db: Session = Depends(get_db), _: User = Depends(get_
     return result
 
 
+@router.post("/devices/enable-sync-all")
+def enable_sync_for_all_registered_devices(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    query = db.query(Device).filter(Device.is_registered == True)  # noqa: E712
+    total = query.count()
+    updated = query.filter(Device.idoit_sync_enabled == False).update(  # noqa: E712
+        {Device.idoit_sync_enabled: True},
+        synchronize_session=False,
+    )
+    db.commit()
+    return {"total": total, "updated": updated}
+
+
 @router.get("/logs")
 def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     rows = (
