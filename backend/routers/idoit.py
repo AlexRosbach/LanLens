@@ -158,7 +158,7 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
             raise HTTPException(status_code=400, detail=reason)
     update_config(db, data)
     if "idoit_sync_interval_minutes" in data:
-        update_idoit_interval(int(data.get("idoit_sync_interval_minutes") or 60))
+        update_idoit_interval(get_config(db).sync_interval_minutes)
     return _config_response(db)
 
 

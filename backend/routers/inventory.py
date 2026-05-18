@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -47,6 +47,8 @@ SECRET_SETTING_KEY_PARTS = (
     "credential",
     "webhook_url",
     "header_value",
+    "auth",
+    "bearer",
 )
 
 
@@ -57,6 +59,39 @@ def _device_label(device: Device) -> str:
 def _is_secret_setting(key: str) -> bool:
     lowered = key.lower()
     return any(part in lowered for part in SECRET_SETTING_KEY_PARTS)
+
+
+def _safe_csv_cell(value: Any) -> Any:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return value
+    candidate = value.lstrip(" \t\r\n")
+    if candidate.startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r")):
+        return f"'{value}"
+    return value
+
+
+def _backup_records(payload: dict[str, Any], key: str, errors: list[str]) -> list[dict[str, Any]]:
+    value = payload.get(key, [])
+    if not isinstance(value, list):
+        errors.append(f"{key} must be a list")
+        return []
+    records = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            errors.append(f"{key}[{index}] must be an object")
+            continue
+        records.append(item)
+    return records
+
+
+def _required_text(item: dict[str, Any], key: str, path: str, errors: list[str]) -> str:
+    value = item.get(key)
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{path}.{key} is required")
+        return ""
+    return value.strip()
 
 
 @router.get("/topology", response_model=TopologyResponse)
@@ -120,7 +155,7 @@ def export_report(
         writer = csv.writer(output)
         writer.writerow(["CMDB ID", "Name", "IP", "MAC", "Class", "Vendor", "Online", "Location", "Responsible", "Services"])
         for device in devices:
-            writer.writerow([
+            writer.writerow([_safe_csv_cell(value) for value in [
                 device.cmdb_id or "",
                 _device_label(device),
                 device.ip_address or "",
@@ -131,7 +166,7 @@ def export_report(
                 device.location or "",
                 device.responsible or "",
                 ", ".join(s.name for s in services_by_device.get(device.id, [])),
-            ])
+            ]])
         return Response(output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=lanlens-report.csv"})
 
     lines = ["# LanLens Network Report", "", f"Generated: {datetime.utcnow().isoformat()} UTC", ""]
@@ -276,14 +311,64 @@ def export_selective_backup(db: Session = Depends(get_db), _: User = Depends(get
 
 
 @backup_router.post("/selective/import-preview")
-def preview_selective_import(payload: dict[str, Any], _: User = Depends(get_current_user)):
+def preview_selective_import(payload: dict[str, Any], db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     if payload.get("format") != "lanlens-selective-backup-v1":
         raise HTTPException(status_code=400, detail="Unsupported backup format")
+    errors: list[str] = []
+    warnings: list[str] = []
+    conflicts: list[dict[str, Any]] = []
+
+    settings = payload.get("settings", {})
+    if not isinstance(settings, dict):
+        errors.append("settings must be an object")
+        settings = {}
+    for key in settings:
+        if not isinstance(key, str) or not key.strip():
+            errors.append("settings keys must be non-empty strings")
+        elif _is_secret_setting(key):
+            errors.append(f"settings.{key} looks like secret material and cannot be imported from selective backups")
+        elif not (key.startswith(SAFE_SETTING_PREFIXES) or key in SAFE_SETTING_KEYS):
+            warnings.append(f"settings.{key} is not part of the selective backup allowlist")
+
+    segments = _backup_records(payload, "segments", errors)
+    for index, segment in enumerate(segments):
+        name = _required_text(segment, "name", f"segments[{index}]", errors)
+        if name and db.query(Segment.id).filter(Segment.name == name).first():
+            conflicts.append({"type": "segment", "key": name, "action": "update_existing"})
+
+    devices = _backup_records(payload, "devices", errors)
+    for index, device in enumerate(devices):
+        if not any(device.get(key) for key in ("cmdb_id", "mac_address", "ip_address", "hostname", "label")):
+            errors.append(f"devices[{index}] needs at least one identity field")
+            continue
+        match_filters = []
+        if device.get("cmdb_id"):
+            match_filters.append(Device.cmdb_id == str(device["cmdb_id"]))
+        if device.get("mac_address"):
+            match_filters.append(Device.mac_address == str(device["mac_address"]))
+        if device.get("ip_address"):
+            match_filters.append(Device.ip_address == str(device["ip_address"]))
+        if match_filters and db.query(Device.id).filter(or_(*match_filters)).first():
+            conflicts.append({"type": "device", "key": device.get("cmdb_id") or device.get("mac_address") or device.get("ip_address"), "action": "update_existing"})
+
+    ignore_rules = _backup_records(payload, "ignore_rules", errors)
+    for index, rule in enumerate(ignore_rules):
+        name = _required_text(rule, "name", f"ignore_rules[{index}]", errors)
+        _required_text(rule, "rule_type", f"ignore_rules[{index}]", errors)
+        _required_text(rule, "pattern", f"ignore_rules[{index}]", errors)
+        if name and db.query(DeviceIgnoreRule.id).filter(DeviceIgnoreRule.name == name).first():
+            conflicts.append({"type": "ignore_rule", "key": name, "action": "update_existing"})
+
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": "Selective backup import preview failed validation", "errors": errors})
+
     return {
         "write_performed": False,
-        "settings": len(payload.get("settings") or {}),
-        "segments": len(payload.get("segments") or []),
-        "devices": len(payload.get("devices") or []),
-        "ignore_rules": len(payload.get("ignore_rules") or []),
+        "settings": len(settings),
+        "segments": len(segments),
+        "devices": len(devices),
+        "ignore_rules": len(ignore_rules),
+        "conflicts": conflicts,
+        "warnings": warnings,
         "secrets_included": False,
     }
