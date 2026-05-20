@@ -8,9 +8,11 @@ All notable changes to this project should be documented in this file.
 - Added an editable i-doit CSV export preview in Settings → CMDB.
 - Added backend endpoints for i-doit export preview and reviewed CSV download.
 - Export rows include object type, title, network identifiers, hardware fields, inventory/CMDB IDs, location, responsible person, notes and LanLens ID.
+- Added optional built-in HTTPS settings for host-network deployments, including certificate/key upload, nginx reload and optional HTTP-to-HTTPS redirect.
 
 ### Fixes / Hardening
 - Added CSV export test coverage for excluding unchecked rows.
+- Added certificate/key validation and restrictive private-key permissions for uploaded HTTPS material.
 - Bumped backend and frontend version metadata to 1.5.1.
 
 ## v1.5.0 — i-doit CMDB sync foundation

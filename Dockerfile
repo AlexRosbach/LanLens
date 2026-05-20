@@ -18,7 +18,7 @@ FROM python:3.12-slim
 
 LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version="1.5.0" \
+      org.opencontainers.image.version="1.5.1" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 
@@ -57,7 +57,8 @@ COPY nginx/nginx.conf /etc/nginx/nginx.conf
 
 # Copy and prepare entrypoint
 COPY scripts/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY scripts/render-nginx-config.sh /usr/local/bin/render-lanlens-nginx
+RUN chmod +x /entrypoint.sh /usr/local/bin/render-lanlens-nginx
 
 # Create the reset-password CLI wrapper
 RUN printf '#!/bin/sh\nexec python /app/backend/cli/reset_password.py "$@"\n' \
@@ -82,6 +83,6 @@ ENV DB_PATH=/data/lanlens.db \
 EXPOSE 7765
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD sh -c 'curl -fs "http://localhost:${LANLENS_PORT:-7765}/api/health" || exit 1'
+    CMD sh -c 'if python -c "import json,sys; data=json.load(open(\"/data/tls/config.json\")); sys.exit(0 if data.get(\"enabled\") else 1)" 2>/dev/null; then port=$(python -c "import json; print(json.load(open(\"/data/tls/config.json\")).get(\"port\") or \"${LANLENS_PORT:-7765}\")"); curl -kfs "https://localhost:${port}/api/health"; else curl -fs "http://localhost:${LANLENS_PORT:-7765}/api/health"; fi || exit 1'
 
 ENTRYPOINT ["/entrypoint.sh"]

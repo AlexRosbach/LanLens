@@ -475,6 +475,10 @@ class AllSettings(BaseModel):
     cmdb_id_digits: int = 4
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    https_enabled: bool = False
+    https_configured: bool = False
+    https_port: int = 7765
+    https_redirect_http: bool = False
 
 
 class SmtpSettings(BaseModel):

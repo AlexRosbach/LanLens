@@ -443,6 +443,18 @@ ARP scanning requires sending raw Ethernet frames to the broadcast address. This
 
 **Alternative (bridge mode)**: Remove `network_mode: host` and add `ports: ["8080:80"]`. ARP scanning will not work from a bridge network. Additional routed scan targets still use nmap ping sweep (`-sn`), but the primary local ARP range needs host networking/raw-socket access for full MAC/vendor discovery.
 
+### Built-in HTTPS for host mode
+
+Host-network containers cannot also join a Docker reverse-proxy network. For standalone host-mode deployments, LanLens can terminate HTTPS inside its own nginx process:
+
+1. Open **Settings → System → HTTPS Settings**.
+2. Upload the certificate and matching private key. An optional CA chain can be uploaded as well.
+3. Select the HTTPS port and enable HTTPS.
+
+LanLens stores certificate material under `/data/tls`, validates the certificate/key pair before activation, renders the nginx configuration, and reloads nginx. If the HTTPS port is the same as `LANLENS_PORT`, that port switches from HTTP to HTTPS. If the ports differ, HTTP can optionally redirect to HTTPS.
+
+External reverse proxies remain the better central TLS option when the deployment model allows them.
+
 ### Capabilities
 
 - `NET_ADMIN`: Required for interface configuration
@@ -452,6 +464,7 @@ ARP scanning requires sending raw Ethernet frames to the broadcast address. This
 
 `/data` is a Docker named volume containing:
 - `lanlens.db` — SQLite database (all persistent state)
+- `tls/` — optional HTTPS certificate, private key, and HTTPS settings
 
 **Backup:** `docker run --rm -v lanlens_data:/data -v $(pwd):/backup alpine tar czf /backup/lanlens-backup.tar.gz /data`
 

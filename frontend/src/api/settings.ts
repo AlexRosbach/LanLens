@@ -32,6 +32,10 @@ export interface AllSettings {
   cmdb_id_digits: number
   show_services_nav: boolean
   show_dhcp_monitor_nav: boolean
+  https_enabled: boolean
+  https_configured: boolean
+  https_port: number
+  https_redirect_http: boolean
 }
 
 export interface UpdateCheckResponse {
@@ -73,6 +77,26 @@ export const settingsApi = {
 
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),
+
+  updateHttps: (data: {
+    enabled: boolean
+    https_port: number
+    redirect_http: boolean
+    certificate?: File | null
+    private_key?: File | null
+    ca_chain?: File | null
+  }) => {
+    const form = new FormData()
+    form.append('enabled', String(data.enabled))
+    form.append('https_port', String(data.https_port))
+    form.append('redirect_http', String(data.redirect_http))
+    if (data.certificate) form.append('certificate', data.certificate)
+    if (data.private_key) form.append('private_key', data.private_key)
+    if (data.ca_chain) form.append('ca_chain', data.ca_chain)
+    return apiClient.put('/settings/https', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data)
+  },
 
   updateUi: (show_services_nav: boolean, show_dhcp_monitor_nav: boolean) =>
     apiClient.put('/settings/ui', { show_services_nav, show_dhcp_monitor_nav }).then((r) => r.data),

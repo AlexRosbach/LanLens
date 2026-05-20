@@ -261,6 +261,9 @@ export default function Settings() {
   const [settings, setSettings] = useState<AllSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [httpsCertificate, setHttpsCertificate] = useState<File | null>(null)
+  const [httpsPrivateKey, setHttpsPrivateKey] = useState<File | null>(null)
+  const [httpsCaChain, setHttpsCaChain] = useState<File | null>(null)
   const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
   const [idoitConfig, setIdoitConfig] = useState<IdoitConfig | null>(null)
   const [idoitLoadError, setIdoitLoadError] = useState(false)
@@ -480,6 +483,30 @@ export default function Settings() {
       toast.success(t('server_url_saved'))
     } catch {
       toast.error(t('server_url_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveHttpsSettings() {
+    setSaving(true)
+    try {
+      await settingsApi.updateHttps({
+        enabled: current.https_enabled,
+        https_port: current.https_port,
+        redirect_http: current.https_redirect_http,
+        certificate: httpsCertificate,
+        private_key: httpsPrivateKey,
+        ca_chain: httpsCaChain,
+      })
+      const data = await settingsApi.get()
+      setSettings(data)
+      setHttpsCertificate(null)
+      setHttpsPrivateKey(null)
+      setHttpsCaChain(null)
+      toast.success(t('https_settings_saved'))
+    } catch {
+      toast.error(t('https_settings_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -893,6 +920,84 @@ export default function Settings() {
 
             <div className="mt-4">
               <Button onClick={saveServerUrl} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('https_settings')}</h2>
+                <p className="text-sm text-text-subtle">{t('https_settings_description')}</p>
+              </div>
+              <span className={`rounded-full px-2 py-1 text-xs ${current.https_configured ? 'bg-success/10 text-success' : 'bg-surface2 text-text-subtle'}`}>
+                {current.https_configured ? t('certificate_configured') : t('certificate_missing')}
+              </span>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.https_enabled}
+                  onChange={(e) => setSettings({ ...current, https_enabled: e.target.checked })}
+                />
+                {t('enable_https')}
+              </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.https_redirect_http}
+                  onChange={(e) => setSettings({ ...current, https_redirect_http: e.target.checked })}
+                />
+                {t('redirect_http_to_https')}
+              </label>
+
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('https_port')}</label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={String(current.https_port)}
+                  onChange={(e) => setSettings({ ...current, https_port: Number(e.target.value) || 7765 })}
+                />
+                <p className="mt-1 text-xs text-text-subtle">{t('https_port_hint')}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('certificate_file')}</label>
+                <input
+                  className="block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-white"
+                  type="file"
+                  accept=".crt,.cer,.pem"
+                  onChange={(e) => setHttpsCertificate(e.target.files?.[0] || null)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('private_key_file')}</label>
+                <input
+                  className="block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-white"
+                  type="file"
+                  accept=".key,.pem"
+                  onChange={(e) => setHttpsPrivateKey(e.target.files?.[0] || null)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('ca_chain_file')}</label>
+                <input
+                  className="block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface2 file:px-3 file:py-2 file:text-sm file:font-medium file:text-text-base"
+                  type="file"
+                  accept=".crt,.cer,.pem"
+                  onChange={(e) => setHttpsCaChain(e.target.files?.[0] || null)}
+                />
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-text-subtle">{t('https_upload_hint')}</p>
+            <div className="mt-4">
+              <Button onClick={saveHttpsSettings} loading={saving}>{t('save_https_settings')}</Button>
             </div>
           </Card>
 

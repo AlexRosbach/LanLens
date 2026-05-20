@@ -91,7 +91,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml` with the generated value.
 
-### 3. Optional: choose the HTTP port
+### 3. Optional: choose the HTTP/HTTPS port
 
 In `docker-compose.yml` you can change:
 
@@ -102,6 +102,8 @@ In `docker-compose.yml` you can change:
 Examples:
 - `LANLENS_PORT=80` for direct port 80 in host mode
 - `LANLENS_PORT=8080` for port 8080
+
+LanLens can also terminate HTTPS itself for host-network deployments. In **Settings → System → HTTPS Settings**, upload a certificate and private key, choose the HTTPS port, and enable HTTPS. Certificate files are stored in the persistent `/data/tls` volume path. External reverse proxies such as Traefik, Caddy, or Nginx Proxy Manager remain the preferred option when LanLens runs behind a central proxy.
 
 ### 4. Start LanLens
 
