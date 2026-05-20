@@ -772,6 +772,36 @@ LanLens 1.5.1 adds a reviewed CSV export for i-doit. In **Settings → CMDB → 
 
 This workflow is deliberately file-based and does not call i-doit JSON-RPC. It is useful when operators want an AutoDoku-style review step before import, or when the i-doit environment expects CSV reconciliation instead of automated writes.
 
+The export can include SNMP-derived identity context when switches have been polled through **Settings → Network → SNMP switch topology**:
+
+- `SNMP-Switch`
+- `SNMP-Port`
+- `SNMP-VLAN`
+- `Identity Confidence`
+
+These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port/VLAN where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
+
+## SNMP Switch Topology Foundation
+
+LanLens can register SNMP v2c switch profiles and poll switch inventory from the container using `snmpwalk`. The foundation release stores:
+
+- switch system name, description and object ID
+- interface index, name, description, alias, status, speed and physical address
+- bridge forwarding table entries, mapped back from MAC address to interface index where the switch exposes the bridge-port mapping
+
+The API surface is available under `/api/snmp`:
+
+- `GET /api/snmp/profiles`
+- `POST /api/snmp/profiles`
+- `GET /api/snmp/switches`
+- `POST /api/snmp/switches`
+- `POST /api/snmp/switches/{switch_id}/poll`
+- `GET /api/snmp/switches/{switch_id}/interfaces`
+- `GET /api/snmp/topology/endpoints`
+- `GET /api/snmp/devices/{device_id}/identity`
+
+SNMP community strings are stored in the application database and masked in API responses. Protect the database volume accordingly. SNMPv3, LLDP/CDP, VLAN-specific bridge tables and a richer topology graph are intentionally left for later increments.
+
 ---
 
 ## External Database (MariaDB / PostgreSQL)

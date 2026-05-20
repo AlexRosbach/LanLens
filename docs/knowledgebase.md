@@ -148,6 +148,12 @@ LanLens matches in this order:
 
 If matches are ambiguous, set a stable `cmdb_id` or link the object explicitly before syncing again. With the default match-only policy, unmatched devices are skipped and logged as `match_required`; LanLens does not create a new i-doit object unless create-missing is explicitly enabled.
 
+### Can SNMP switch data help with i-doit identification?
+
+Yes. If switches are configured under **Settings → Network → SNMP switch topology** and polled successfully, LanLens can map a device MAC address to the switch, interface and VLAN where it was learned. The reviewed i-doit CSV export then includes this context as additional columns.
+
+This is especially useful when hostname, DHCP address or stale object IDs are unreliable. Switch-port identity is not perfect, but it is a stronger reconciliation signal than IP address alone in segmented networks.
+
 ### Timeout or network error
 
 LanLens cannot reach i-doit from the container/host. Check:

@@ -356,6 +356,9 @@ class TopologyNode(BaseModel):
     segment_id: Optional[int]
     segment_name: Optional[str]
     service_count: int
+    snmp_switch: Optional[str] = None
+    snmp_interface: Optional[str] = None
+    snmp_vlan: Optional[str] = None
 
 
 class TopologyEdge(BaseModel):
@@ -363,6 +366,7 @@ class TopologyEdge(BaseModel):
     target: int
     relationship_type: str
     label: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 class TopologyResponse(BaseModel):

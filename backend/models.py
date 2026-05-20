@@ -81,6 +81,7 @@ class Device(Base):
                               cascade="all, delete-orphan")
     idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", passive_deletes=True)
     cmdb_sync_logs = relationship("CmdbSyncLog", back_populates="device", passive_deletes=True)
+    snmp_switch = relationship("SnmpSwitch", back_populates="device", uselist=False)
     change_events = relationship("DeviceChangeEvent", back_populates="device", cascade="all, delete-orphan")
     host_relationships = relationship(
         "DeviceHostRelationship",
@@ -210,6 +211,86 @@ class ScanNode(Base):
     last_error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SnmpProfile(Base):
+    """SNMP access profile for lightweight switch polling."""
+    __tablename__ = "snmp_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, unique=True)
+    version = Column(String(8), default="2c", nullable=False)
+    community = Column(String(255), nullable=False)
+    port = Column(Integer, default=161, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    switches = relationship("SnmpSwitch", back_populates="profile")
+
+
+class SnmpSwitch(Base):
+    """Switch or network device polled through SNMP."""
+    __tablename__ = "snmp_switches"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    profile_id = Column(Integer, ForeignKey("snmp_profiles.id", ondelete="SET NULL"), nullable=True)
+    name = Column(String(128), nullable=False)
+    host = Column(String(255), nullable=False, unique=True)
+    enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    sys_name = Column(String(255), nullable=True)
+    sys_descr = Column(Text, nullable=True)
+    sys_object_id = Column(String(255), nullable=True)
+    last_poll_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    device = relationship("Device", back_populates="snmp_switch")
+    profile = relationship("SnmpProfile", back_populates="switches")
+    interfaces = relationship("SnmpInterface", back_populates="switch", cascade="all, delete-orphan")
+    mac_entries = relationship("SnmpMacTableEntry", back_populates="switch", cascade="all, delete-orphan")
+
+
+class SnmpInterface(Base):
+    __tablename__ = "snmp_interfaces"
+    __table_args__ = (
+        UniqueConstraint("switch_id", "if_index", name="uq_snmp_interfaces_switch_index"),
+        Index("ix_snmp_interfaces_switch_index", "switch_id", "if_index"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    switch_id = Column(Integer, ForeignKey("snmp_switches.id", ondelete="CASCADE"), nullable=False)
+    if_index = Column(Integer, nullable=False)
+    name = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    alias = Column(String(255), nullable=True)
+    admin_status = Column(String(32), nullable=True)
+    oper_status = Column(String(32), nullable=True)
+    speed_bps = Column(Integer, nullable=True)
+    phys_address = Column(String(64), nullable=True)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    switch = relationship("SnmpSwitch", back_populates="interfaces")
+
+
+class SnmpMacTableEntry(Base):
+    __tablename__ = "snmp_mac_table"
+    __table_args__ = (
+        UniqueConstraint("switch_id", "mac_address", "vlan", name="uq_snmp_mac_switch_mac_vlan"),
+        Index("ix_snmp_mac_table_mac", "mac_address"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    switch_id = Column(Integer, ForeignKey("snmp_switches.id", ondelete="CASCADE"), nullable=False)
+    mac_address = Column(String(17), nullable=False)
+    if_index = Column(Integer, nullable=True)
+    vlan = Column(String(64), nullable=True)
+    learned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    switch = relationship("SnmpSwitch", back_populates="mac_entries")
 
 
 class Setting(Base):

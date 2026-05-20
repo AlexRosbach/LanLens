@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Device, DeepScanFinding, DeviceHostRelationship, IdoitDeviceSync, IdoitSyncLog, PortScan, Setting
 from .notification import request_json_via_validated_url
+from .snmp import identity_for_device
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +437,10 @@ IDOIT_EXPORT_COLUMNS = [
     "Standort",
     "Verantwortlich",
     "Notizen",
+    "SNMP-Switch",
+    "SNMP-Port",
+    "SNMP-VLAN",
+    "Identity Confidence",
     "LanLens-ID",
 ]
 
@@ -443,6 +448,7 @@ IDOIT_EXPORT_COLUMNS = [
 def build_export_row(db: Session, device: Device, config: IdoitConfig) -> dict[str, Any]:
     """Build one editable i-doit CSV export row for a LanLens device."""
     findings = _latest_findings(db, device)
+    snmp_identity = identity_for_device(db, device) or {}
     model = _first_finding_text(
         findings,
         [("hardware", "model"), ("hardware", "computer_system")],
@@ -476,6 +482,10 @@ def build_export_row(db: Session, device: Device, config: IdoitConfig) -> dict[s
         "location": device.location or "",
         "responsible": device.responsible or "",
         "notes": "\n\n".join(notes_parts),
+        "snmp_switch": snmp_identity.get("switch_name", ""),
+        "snmp_port": snmp_identity.get("interface_name", "") or snmp_identity.get("if_index", ""),
+        "snmp_vlan": snmp_identity.get("vlan", ""),
+        "identity_confidence": snmp_identity.get("confidence", "base"),
         "lanlens_id": str(device.id),
     }
 
@@ -509,6 +519,10 @@ def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:
             row.get("location", ""),
             row.get("responsible", ""),
             row.get("notes", ""),
+            row.get("snmp_switch", ""),
+            row.get("snmp_port", ""),
+            row.get("snmp_vlan", ""),
+            row.get("identity_confidence", ""),
             row.get("lanlens_id", ""),
         ])
     return output.getvalue()

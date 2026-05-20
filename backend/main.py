@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings  # validates SECRET_KEY on import — must be first
 from .database import SessionLocal
 from .models import TokenBlacklist
-from .routers import admin, auth, auto_scan_rules, cmdb, connect, credentials, deep_scan, devices, dhcp_monitor, idoit, inventory, notifications, scan, scan_nodes, segments, services
+from .routers import admin, auth, auto_scan_rules, cmdb, connect, credentials, deep_scan, devices, dhcp_monitor, idoit, inventory, notifications, scan, scan_nodes, segments, services, snmp
 from .routers import settings as settings_router
 from .services import deep_scan_scheduler, idoit_scheduler, scheduler
 from .services.settings_helpers import get_scan_interval_minutes
@@ -105,6 +105,7 @@ app.include_router(auth.router)
 app.include_router(devices.router)
 app.include_router(scan.router)
 app.include_router(scan_nodes.router)
+app.include_router(snmp.router)
 app.include_router(settings_router.router)
 app.include_router(notifications.router)
 app.include_router(services.router)

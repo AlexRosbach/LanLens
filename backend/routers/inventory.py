@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, Service, Setting, User
+from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, Service, Setting, SnmpSwitch, User
 from ..schemas import (
     DeviceIgnoreRuleCreate,
     DeviceIgnoreRuleResponse,
@@ -20,6 +20,7 @@ from ..schemas import (
     TopologyNode,
     TopologyResponse,
 )
+from ..services.snmp import identity_for_device
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 ignore_router = APIRouter(prefix="/api/ignore-rules", tags=["ignore-rules"])
@@ -106,6 +107,7 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
     nodes = []
     for device in devices:
         segment = segments.get(device.segment_id) if device.segment_id else None
+        identity = identity_for_device(db, device) or {}
         nodes.append(TopologyNode(
             id=device.id,
             label=_device_label(device),
@@ -115,6 +117,9 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
             segment_id=segment.id if segment else None,
             segment_name=segment.name if segment else None,
             service_count=counts.get(device.id, 0),
+            snmp_switch=identity.get("switch_name") or None,
+            snmp_interface=identity.get("interface_name") or None,
+            snmp_vlan=identity.get("vlan") or None,
         ))
     edges = [
         TopologyEdge(
@@ -125,6 +130,19 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
         )
         for rel in db.query(DeviceHostRelationship).all()
     ]
+    switch_nodes_by_id = {switch.id: switch.device_id for switch in db.query(SnmpSwitch).all() if switch.device_id}
+    for device in devices:
+        identity = identity_for_device(db, device) or {}
+        switch_id = identity.get("switch_id")
+        switch_device_id = switch_nodes_by_id.get(int(switch_id)) if switch_id else None
+        if switch_device_id and switch_device_id != device.id:
+            edges.append(TopologyEdge(
+                source=switch_device_id,
+                target=device.id,
+                relationship_type="snmp_port",
+                label=identity.get("interface_name") or f"ifIndex {identity.get('if_index')}",
+                metadata=identity,
+            ))
     return TopologyResponse(nodes=nodes, edges=edges)
 
 

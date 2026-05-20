@@ -9,9 +9,11 @@ All notable changes to this project should be documented in this file.
 - Added backend endpoints for i-doit export preview and reviewed CSV download.
 - Export rows include object type, title, network identifiers, hardware fields, inventory/CMDB IDs, location, responsible person, notes and LanLens ID.
 - Added optional built-in HTTPS settings for host-network deployments, including certificate/key upload, nginx reload and optional HTTP-to-HTTPS redirect.
+- Added an SNMP v2c switch topology foundation with profiles, switch polling, interface/MAC-table storage and i-doit export enrichment for switch, port, VLAN and identity confidence.
 
 ### Fixes / Hardening
 - Added CSV export test coverage for excluding unchecked rows.
+- Added SNMP parser and identity-resolution test coverage.
 - Added certificate/key validation and restrictive private-key permissions for uploaded HTTPS material.
 - Bumped backend and frontend version metadata to 1.5.1.
 

@@ -8,6 +8,7 @@ import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
+import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpSwitch } from '../api/snmp'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -73,6 +74,10 @@ const IDOIT_EXPORT_EDIT_FIELDS = [
   { key: 'location', labelKey: 'idoit_export_location' },
   { key: 'responsible', labelKey: 'idoit_export_responsible' },
   { key: 'notes', labelKey: 'idoit_field_notes', wide: true },
+  { key: 'snmp_switch', labelKey: 'idoit_export_snmp_switch' },
+  { key: 'snmp_port', labelKey: 'idoit_export_snmp_port' },
+  { key: 'snmp_vlan', labelKey: 'idoit_export_snmp_vlan' },
+  { key: 'identity_confidence', labelKey: 'idoit_export_identity_confidence' },
 ] as const
 
 function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {
@@ -282,6 +287,15 @@ export default function Settings() {
   const [scanNodeSite, setScanNodeSite] = useState('')
   const [scanNodeSegment, setScanNodeSegment] = useState('')
   const [scanNodeProvisioning, setScanNodeProvisioning] = useState<ScanNodeProvisioning | null>(null)
+  const [snmpProfiles, setSnmpProfiles] = useState<SnmpProfile[]>([])
+  const [snmpSwitches, setSnmpSwitches] = useState<SnmpSwitch[]>([])
+  const [snmpEndpoints, setSnmpEndpoints] = useState<SnmpEndpoint[]>([])
+  const [snmpLoading, setSnmpLoading] = useState(false)
+  const [snmpProfileName, setSnmpProfileName] = useState('')
+  const [snmpCommunity, setSnmpCommunity] = useState('')
+  const [snmpSwitchName, setSnmpSwitchName] = useState('')
+  const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
+  const [snmpProfileId, setSnmpProfileId] = useState('')
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
@@ -303,6 +317,7 @@ export default function Settings() {
     })
     loadIdoitConfig()
     loadScanNodes().catch(() => {})
+    loadSnmp().catch(() => {})
   }, [])
 
   if (!settings) {
@@ -351,6 +366,75 @@ export default function Settings() {
       toast.error('Scan Nodes konnten nicht geladen werden')
     } finally {
       setScanNodesLoading(false)
+    }
+  }
+
+  async function loadSnmp() {
+    setSnmpLoading(true)
+    try {
+      const [profiles, switches, endpoints] = await Promise.all([
+        snmpApi.listProfiles(),
+        snmpApi.listSwitches(),
+        snmpApi.listEndpoints(),
+      ])
+      setSnmpProfiles(profiles)
+      setSnmpSwitches(switches)
+      setSnmpEndpoints(endpoints)
+      if (!snmpProfileId && profiles[0]) setSnmpProfileId(String(profiles[0].id))
+    } catch {
+      toast.error(t('snmp_load_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function createSnmpProfile() {
+    if (!snmpProfileName.trim() || !snmpCommunity.trim()) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.createProfile({ name: snmpProfileName.trim(), community: snmpCommunity.trim(), port: 161, enabled: true })
+      setSnmpProfileName('')
+      setSnmpCommunity('')
+      await loadSnmp()
+      toast.success(t('snmp_profile_saved'))
+    } catch {
+      toast.error(t('snmp_profile_save_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function createSnmpSwitch() {
+    if (!snmpSwitchName.trim() || !snmpSwitchHost.trim() || !snmpProfileId) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.createSwitch({
+        name: snmpSwitchName.trim(),
+        host: snmpSwitchHost.trim(),
+        profile_id: Number(snmpProfileId),
+        enabled: true,
+      })
+      setSnmpSwitchName('')
+      setSnmpSwitchHost('')
+      await loadSnmp()
+      toast.success(t('snmp_switch_saved'))
+    } catch {
+      toast.error(t('snmp_switch_save_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function pollSnmpSwitch(switchId: number) {
+    setSnmpLoading(true)
+    try {
+      await snmpApi.pollSwitch(switchId)
+      await loadSnmp()
+      toast.success(t('snmp_poll_complete'))
+    } catch {
+      toast.error(t('snmp_poll_failed'))
+    } finally {
+      setSnmpLoading(false)
     }
   }
 
@@ -1174,6 +1258,93 @@ export default function Settings() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('snmp_topology_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('snmp_topology_description')}</p>
+              </div>
+              <Button variant="outline" onClick={loadSnmp} loading={snmpLoading}>{t('refresh')}</Button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input placeholder={t('snmp_profile_name')} value={snmpProfileName} onChange={(e) => setSnmpProfileName(e.target.value)} />
+              <Input placeholder={t('snmp_community')} type="password" value={snmpCommunity} onChange={(e) => setSnmpCommunity(e.target.value)} />
+              <Button onClick={createSnmpProfile} loading={snmpLoading}>{t('snmp_add_profile')}</Button>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <Input placeholder={t('snmp_switch_name')} value={snmpSwitchName} onChange={(e) => setSnmpSwitchName(e.target.value)} />
+              <Input placeholder={t('snmp_switch_host')} value={snmpSwitchHost} onChange={(e) => setSnmpSwitchHost(e.target.value)} />
+              <select className="input-field" value={snmpProfileId} onChange={(e) => setSnmpProfileId(e.target.value)}>
+                <option value="">{t('snmp_select_profile')}</option>
+                {snmpProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+              <Button onClick={createSnmpSwitch} loading={snmpLoading}>{t('snmp_add_switch')}</Button>
+            </div>
+
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('name')}</th>
+                    <th className="px-3 py-2 font-medium">Host</th>
+                    <th className="px-3 py-2 font-medium">SysName</th>
+                    <th className="px-3 py-2 font-medium">{t('interfaces')}</th>
+                    <th className="px-3 py-2 font-medium">MACs</th>
+                    <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
+                    <th className="px-3 py-2 font-medium">{t('actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {snmpSwitches.length === 0 ? (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={7}>{t('snmp_no_switches')}</td></tr>
+                  ) : snmpSwitches.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-3 py-2 font-medium text-text-base">{item.name}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.host}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.sys_name || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.mac_count}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.last_poll_at ? formatDateTime(item.last_poll_at) : '—'}</td>
+                      <td className="px-3 py-2"><Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)}>{t('poll_now')}</Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Device</th>
+                    <th className="px-3 py-2 font-medium">MAC</th>
+                    <th className="px-3 py-2 font-medium">Switch</th>
+                    <th className="px-3 py-2 font-medium">Port</th>
+                    <th className="px-3 py-2 font-medium">VLAN</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {snmpEndpoints.slice(0, 20).map((entry) => (
+                    <tr key={`${entry.switch_host}-${entry.mac_address}-${entry.vlan || ''}`}>
+                      <td className="px-3 py-2 text-text-muted">{entry.device_label || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{entry.mac_address}</td>
+                      <td className="px-3 py-2 text-text-muted">{entry.switch_name}</td>
+                      <td className="px-3 py-2 text-text-muted">{entry.interface_name || entry.if_index || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{entry.vlan || '—'}</td>
+                    </tr>
+                  ))}
+                  {snmpEndpoints.length === 0 && (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={5}>{t('snmp_no_endpoints')}</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

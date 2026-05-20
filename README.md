@@ -40,6 +40,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
+- **SNMP switch identity foundation** — poll SNMP v2c switches, map MAC addresses to switch ports, and enrich i-doit export rows with switch/port/VLAN context
 - **Inventory tools in Settings** — per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, backup and restore helpers
 - Telegram notifications for new devices and updates
 - English, German, Italian, and Simplified Chinese UI
@@ -172,6 +173,16 @@ docker run -d --name lanlens-scan-node-vlan20 --restart unless-stopped --network
 ```
 
 By default the node scans its local IPv4 interface CIDR. Set `LANLENS_SCAN_TARGETS` to override targets, for example `10.10.20.0/24,10.10.21.0/24`. Nodes need no inbound firewall rule; they only need outbound HTTPS to Central.
+
+### SNMP switch topology foundation
+
+In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v2c profiles, register switches and poll interface plus bridge forwarding tables. The first implementation focuses on identity quality rather than full network visualization:
+
+- MAC addresses learned from switches are matched back to known LanLens devices
+- device topology data can show the switch, interface and VLAN context when available
+- the i-doit CSV export includes `SNMP-Switch`, `SNMP-Port`, `SNMP-VLAN` and `Identity Confidence`
+
+SNMP community strings are stored in the LanLens database and masked in API responses. Treat the database and `/data` volume as sensitive application data. SNMPv3, LLDP/CDP and richer graph visualization are planned follow-ups.
 
 ### Optional navigation pages
 
@@ -455,6 +466,7 @@ LanLens 1.5.1 adds a CSV-based i-doit export workflow in **Settings → CMDB →
 - load registered devices into an editable review table
 - include or exclude individual rows before export
 - adjust object type, title, network fields, hardware fields, inventory number, CMDB ID, location, responsible person and notes directly in the browser
+- review SNMP-derived switch, port, VLAN and identity-confidence fields before importing
 - download an Excel-friendly UTF-8 BOM / semicolon CSV for i-doit import
 
 The export does not write to i-doit. It is intended for controlled review/import workflows and for environments where CSV reconciliation is preferred over live sync.

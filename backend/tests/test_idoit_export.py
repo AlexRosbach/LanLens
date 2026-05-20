@@ -28,6 +28,8 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Bezeichnung"], "included")
         self.assertEqual(rows[0]["IP-Adresse"], "192.0.2.10")
+        self.assertIn("SNMP-Switch", rows[0])
+        self.assertIn("Identity Confidence", rows[0])
 
 
 if __name__ == "__main__":
