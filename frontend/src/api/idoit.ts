@@ -78,6 +78,33 @@ export interface IdoitSyncLogEntry {
   created_at: string
 }
 
+export interface IdoitExportRow {
+  include: boolean
+  device_id?: number | null
+  object_type: string
+  title: string
+  ip_address: string
+  mac_address: string
+  hostname: string
+  manufacturer: string
+  model: string
+  serial: string
+  os_info: string
+  inventory_no: string
+  cmdb_id: string
+  location: string
+  responsible: string
+  notes: string
+  lanlens_id: string
+}
+
+export interface IdoitExportPreview {
+  rows: IdoitExportRow[]
+  total: number
+  registered_only: boolean
+  include_offline: boolean
+}
+
 export const idoitApi = {
   getConfig: () => apiClient.get<IdoitConfig>('/idoit/config').then((r) => r.data),
 
@@ -95,4 +122,10 @@ export const idoitApi = {
   enableSyncAll: () => apiClient.post<IdoitEnableSyncAllResult>('/idoit/devices/enable-sync-all').then((r) => r.data),
 
   getLogs: (limit = 50) => apiClient.get<IdoitSyncLogEntry[]>('/idoit/logs', { params: { limit } }).then((r) => r.data),
+
+  previewExport: (params?: { registered_only?: boolean; include_offline?: boolean; limit?: number }) =>
+    apiClient.get<IdoitExportPreview>('/idoit/export/preview', { params }).then((r) => r.data),
+
+  exportCsv: (rows: IdoitExportRow[]) =>
+    apiClient.post('/idoit/export/csv', { rows }, { responseType: 'blob' }).then((r) => r.data as Blob),
 }

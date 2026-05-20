@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.0-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.1-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -374,7 +374,7 @@ Database migrations run automatically on container start.
 ## Releases
 
 - Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
-- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.0` for this release.
+- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.1` for this release.
 - GitHub releases should be maintained for release-based update checks and Telegram update notifications
 - Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
 
@@ -445,6 +445,17 @@ Troubleshooting checklist:
 - Selected sync status field is not writable: choose another writable custom/status/reference field.
 - Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
 - Prefilled i-doit tenant: keep `idoit_create_policy=match_only`; unmatched devices are skipped with `match_required` until linked or given a stable external reference.
+
+### Editable i-doit CSV Export (v1.5.1)
+
+LanLens 1.5.1 adds a CSV-based i-doit export workflow in **Settings → CMDB → i-doit**. It is separate from the live JSON-RPC sync: LanLens builds an export preview from registered devices, deep-scan hardware findings, open ports and documentation fields, then lets operators review the rows before writing a file.
+
+- load registered devices into an editable review table
+- include or exclude individual rows before export
+- adjust object type, title, network fields, hardware fields, inventory number, CMDB ID, location, responsible person and notes directly in the browser
+- download an Excel-friendly UTF-8 BOM / semicolon CSV for i-doit import
+
+The export does not write to i-doit. It is intended for controlled review/import workflows and for environments where CSV reconciliation is preferred over live sync.
 
 ### Generic CMDB REST API (v1.5.0)
 

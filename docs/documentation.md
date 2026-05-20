@@ -753,6 +753,12 @@ Security and operational boundaries:
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
 
+### Editable i-doit CSV Export (v1.5.1)
+
+LanLens 1.5.1 adds a reviewed CSV export for i-doit. In **Settings → CMDB → i-doit**, use **Load export preview** to build rows from the current inventory, adjust fields in the table, untick rows that should not be included, and download the CSV.
+
+This workflow is deliberately file-based and does not call i-doit JSON-RPC. It is useful when operators want an AutoDoku-style review step before import, or when the i-doit environment expects CSV reconciliation instead of automated writes.
+
 ---
 
 ## External Database (MariaDB / PostgreSQL)

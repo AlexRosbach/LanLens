@@ -2,6 +2,17 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.1 — Editable i-doit CSV export
+
+### New Features
+- Added an editable i-doit CSV export preview in Settings → CMDB.
+- Added backend endpoints for i-doit export preview and reviewed CSV download.
+- Export rows include object type, title, network identifiers, hardware fields, inventory/CMDB IDs, location, responsible person, notes and LanLens ID.
+
+### Fixes / Hardening
+- Added CSV export test coverage for excluding unchecked rows.
+- Bumped backend and frontend version metadata to 1.5.1.
+
 ## v1.5.0 — i-doit CMDB sync foundation
 
 ### New Features

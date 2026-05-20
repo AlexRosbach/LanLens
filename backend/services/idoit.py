@@ -8,7 +8,9 @@ returned session token. Cloud-specific differences should stay in configuration
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
+import io
 import json
 import logging
 import re
@@ -416,6 +418,100 @@ def object_type_for_device(device: Device, config: IdoitConfig) -> str:
     if isinstance(object_type, str) and object_type.strip():
         return _normalized_default_object_type(object_type)
     return _normalized_default_object_type(config.default_object_type)
+
+
+IDOIT_EXPORT_COLUMNS = [
+    "Include",
+    "Objekt-Typ",
+    "Bezeichnung",
+    "IP-Adresse",
+    "MAC-Adresse",
+    "Hostname",
+    "Hersteller",
+    "Modell",
+    "Seriennummer",
+    "Betriebssystem",
+    "Inventarnummer",
+    "CMDB-ID",
+    "Standort",
+    "Verantwortlich",
+    "Notizen",
+    "LanLens-ID",
+]
+
+
+def build_export_row(db: Session, device: Device, config: IdoitConfig) -> dict[str, Any]:
+    """Build one editable i-doit CSV export row for a LanLens device."""
+    findings = _latest_findings(db, device)
+    model = _first_finding_text(
+        findings,
+        [("hardware", "model"), ("hardware", "computer_system")],
+        limit=255,
+    )
+    serial = _first_finding_text(
+        findings,
+        [("hardware", "serial"), ("hardware", "bios")],
+        limit=255,
+    )
+    os_info = device.os_info or _first_finding_text(
+        findings,
+        [("os", "release"), ("os", "system"), ("hardware", "os")],
+        limit=255,
+    )
+    notes_parts = [part for part in [device.notes, device.description, _latest_open_ports(db, device)] if part]
+    return {
+        "include": True,
+        "device_id": device.id,
+        "object_type": object_type_for_device(device, config),
+        "title": device.label or device.hostname or device.ip_address or device.mac_address,
+        "ip_address": device.ip_address or "",
+        "mac_address": device.mac_address or "",
+        "hostname": device.hostname or "",
+        "manufacturer": device.vendor or "",
+        "model": model or "",
+        "serial": serial or "",
+        "os_info": os_info or "",
+        "inventory_no": device.asset_tag or "",
+        "cmdb_id": device.cmdb_id or "",
+        "location": device.location or "",
+        "responsible": device.responsible or "",
+        "notes": "\n\n".join(notes_parts),
+        "lanlens_id": str(device.id),
+    }
+
+
+def build_export_rows(db: Session, devices: list[Device], config: IdoitConfig) -> list[dict[str, Any]]:
+    """Return editable i-doit CSV export rows for the selected devices."""
+    return [build_export_row(db, device, config) for device in devices]
+
+
+def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:
+    """Serialize reviewed i-doit export rows as Excel-friendly semicolon CSV."""
+    output = io.StringIO()
+    output.write("\ufeff")
+    writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(IDOIT_EXPORT_COLUMNS[1:])
+    for row in rows:
+        if row.get("include") is False:
+            continue
+        writer.writerow([
+            row.get("object_type", ""),
+            row.get("title", ""),
+            row.get("ip_address", ""),
+            row.get("mac_address", ""),
+            row.get("hostname", ""),
+            row.get("manufacturer", ""),
+            row.get("model", ""),
+            row.get("serial", ""),
+            row.get("os_info", ""),
+            row.get("inventory_no", ""),
+            row.get("cmdb_id", ""),
+            row.get("location", ""),
+            row.get("responsible", ""),
+            row.get("notes", ""),
+            row.get("lanlens_id", ""),
+        ])
+    return output.getvalue()
 
 
 def build_object_url(portal_url: str, object_id: Optional[str]) -> Optional[str]:

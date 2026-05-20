@@ -6,7 +6,7 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
-import { idoitApi, type IdoitConfig, type IdoitSyncLogEntry } from '../api/idoit'
+import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
@@ -58,6 +58,23 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
 ] as const
 
+const IDOIT_EXPORT_EDIT_FIELDS = [
+  { key: 'object_type', labelKey: 'idoit_export_object_type' },
+  { key: 'title', labelKey: 'idoit_export_title' },
+  { key: 'ip_address', labelKey: 'idoit_field_ip_address' },
+  { key: 'mac_address', labelKey: 'idoit_field_mac_address' },
+  { key: 'hostname', labelKey: 'idoit_field_hostname' },
+  { key: 'manufacturer', labelKey: 'idoit_export_manufacturer' },
+  { key: 'model', labelKey: 'idoit_field_model' },
+  { key: 'serial', labelKey: 'idoit_field_serial' },
+  { key: 'os_info', labelKey: 'idoit_field_os_info' },
+  { key: 'inventory_no', labelKey: 'idoit_export_inventory_no' },
+  { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id' },
+  { key: 'location', labelKey: 'idoit_export_location' },
+  { key: 'responsible', labelKey: 'idoit_export_responsible' },
+  { key: 'notes', labelKey: 'idoit_field_notes', wide: true },
+] as const
+
 function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {
   try {
     const parsed = JSON.parse(raw || '{}')
@@ -100,6 +117,143 @@ function extractIdoitErrorDetails(error: unknown): IdoitErrorDetails {
   }
   if (typeof detail === 'string') return { message: detail }
   return { message: (error as Error)?.message || 'i-doit connection failed' }
+}
+
+function IdoitExportReviewPanel() {
+  const { t } = useI18n()
+  const [rows, setRows] = useState<IdoitExportRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [registeredOnly, setRegisteredOnly] = useState(true)
+  const [includeOffline, setIncludeOffline] = useState(true)
+
+  const includedCount = rows.filter((row) => row.include).length
+
+  async function loadPreview() {
+    setLoading(true)
+    try {
+      const preview = await idoitApi.previewExport({
+        registered_only: registeredOnly,
+        include_offline: includeOffline,
+        limit: 500,
+      })
+      setRows(preview.rows)
+      toast.success(t('idoit_export_preview_loaded', { count: preview.rows.length }))
+    } catch {
+      toast.error(t('idoit_export_preview_failed'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function updateRow(index: number, patch: Partial<IdoitExportRow>) {
+    setRows((currentRows) => currentRows.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, ...patch } : row
+    )))
+  }
+
+  function setAllIncluded(include: boolean) {
+    setRows((currentRows) => currentRows.map((row) => ({ ...row, include })))
+  }
+
+  async function downloadExport() {
+    if (!rows.length || includedCount === 0) {
+      toast.error(t('idoit_export_no_rows'))
+      return
+    }
+    setExporting(true)
+    try {
+      const blob = await idoitApi.exportCsv(rows)
+      downloadBlob(blob, `lanlens-idoit-export-${new Date().toISOString().slice(0, 10)}.csv`)
+      toast.success(t('idoit_export_downloaded', { count: includedCount }))
+    } catch {
+      toast.error(t('idoit_export_failed'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
+      <div className="flex flex-col gap-1 mb-4">
+        <h3 className="text-sm font-semibold text-text-muted">{t('idoit_export_review')}</h3>
+        <p className="text-xs text-text-subtle">{t('idoit_export_review_hint')}</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 text-sm text-text-muted">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={registeredOnly} onChange={(event) => setRegisteredOnly(event.target.checked)} />
+          {t('idoit_export_registered_only')}
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={includeOffline} onChange={(event) => setIncludeOffline(event.target.checked)} />
+          {t('idoit_export_include_offline')}
+        </label>
+        <Button onClick={loadPreview} loading={loading} variant="outline">{t('idoit_export_load_preview')}</Button>
+        <Button onClick={downloadExport} loading={exporting} disabled={!rows.length || includedCount === 0}>
+          {t('idoit_export_download')}
+        </Button>
+        {rows.length > 0 && (
+          <span className="text-xs text-text-subtle">
+            {t('idoit_export_selected_count', { selected: includedCount, total: rows.length })}
+          </span>
+        )}
+      </div>
+
+      {rows.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setAllIncluded(true)}>{t('select_all')}</Button>
+            <Button size="sm" variant="outline" onClick={() => setAllIncluded(false)}>{t('select_none')}</Button>
+          </div>
+          <div className="max-h-[32rem] overflow-auto rounded-lg border border-border bg-background">
+            <table className="min-w-[1400px] text-left text-xs">
+              <thead className="sticky top-0 bg-surface text-text-subtle">
+                <tr>
+                  <th className="px-3 py-2 font-medium">{t('include')}</th>
+                  {IDOIT_EXPORT_EDIT_FIELDS.map((field) => (
+                    <th key={field.key} className={`px-3 py-2 font-medium ${'wide' in field && field.wide ? 'min-w-72' : 'min-w-40'}`}>
+                      {t(field.labelKey)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map((row, rowIndex) => (
+                  <tr key={`${row.device_id ?? rowIndex}-${rowIndex}`} className={!row.include ? 'opacity-50' : undefined}>
+                    <td className="px-3 py-2 align-top">
+                      <input
+                        type="checkbox"
+                        checked={row.include}
+                        onChange={(event) => updateRow(rowIndex, { include: event.target.checked })}
+                      />
+                    </td>
+                    {IDOIT_EXPORT_EDIT_FIELDS.map((field) => (
+                      <td key={field.key} className="px-2 py-2 align-top">
+                        {'wide' in field && field.wide ? (
+                          <textarea
+                            className="h-20 w-full rounded-lg border border-border bg-surface px-2 py-1 text-xs text-text-base focus:outline-none focus:ring-2 focus:ring-primary/40"
+                            value={String(row[field.key] ?? '')}
+                            onChange={(event) => updateRow(rowIndex, { [field.key]: event.target.value } as Partial<IdoitExportRow>)}
+                          />
+                        ) : (
+                          <Input
+                            className="text-xs"
+                            value={String(row[field.key] ?? '')}
+                            onChange={(event) => updateRow(rowIndex, { [field.key]: event.target.value } as Partial<IdoitExportRow>)}
+                          />
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function Settings() {
@@ -1592,6 +1746,8 @@ export default function Settings() {
                     {idoitSyncProgress.label && <p className="mt-2 text-xs text-text-subtle truncate">{idoitSyncProgress.label}</p>}
                   </div>
                 )}
+
+                <IdoitExportReviewPanel />
 
                 <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
