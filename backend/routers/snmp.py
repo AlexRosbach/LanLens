@@ -189,41 +189,34 @@ def list_switch_interfaces(switch_id: int, db: Session = Depends(get_db), _: Use
 
 @router.get("/topology/endpoints")
 def list_snmp_endpoints(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    entries = db.query(SnmpMacTableEntry).order_by(SnmpMacTableEntry.last_seen_at.desc()).limit(1000).all()
-    if not entries:
-        return []
-
-    switch_ids = {e.switch_id for e in entries}
-    switches = {s.id: s for s in db.query(SnmpSwitch).filter(SnmpSwitch.id.in_(switch_ids)).all()}
-
-    iface_keys = {(e.switch_id, e.if_index) for e in entries if e.if_index is not None}
-    ifaces: dict[tuple, SnmpInterface] = {}
-    if iface_keys:
-        sw_ids_for_ifaces = {k[0] for k in iface_keys}
-        for iface in db.query(SnmpInterface).filter(SnmpInterface.switch_id.in_(sw_ids_for_ifaces)).all():
-            ifaces[(iface.switch_id, iface.if_index)] = iface
-
-    mac_addresses = {e.mac_address for e in entries}
-    devices = {d.mac_address: d for d in db.query(Device).filter(Device.mac_address.in_(mac_addresses)).all()}
-
-    result = []
-    for entry in entries:
-        switch = switches.get(entry.switch_id)
-        iface = ifaces.get((entry.switch_id, entry.if_index)) if entry.if_index is not None else None
-        device = devices.get(entry.mac_address)
-        result.append({
+    rows = (
+        db.query(SnmpMacTableEntry, SnmpSwitch, SnmpInterface, Device)
+        .join(SnmpSwitch, SnmpMacTableEntry.switch_id == SnmpSwitch.id)
+        .outerjoin(
+            SnmpInterface,
+            (SnmpMacTableEntry.switch_id == SnmpInterface.switch_id)
+            & (SnmpMacTableEntry.if_index == SnmpInterface.if_index),
+        )
+        .outerjoin(Device, SnmpMacTableEntry.mac_address == Device.mac_address)
+        .order_by(SnmpMacTableEntry.last_seen_at.desc())
+        .limit(1000)
+        .all()
+    )
+    return [
+        {
             "mac_address": entry.mac_address,
             "device_id": device.id if device else None,
             "device_label": (device.label or device.hostname or device.ip_address) if device else "",
-            "switch_name": switch.name if switch else "",
-            "switch_host": switch.host if switch else "",
+            "switch_name": switch.name,
+            "switch_host": switch.host,
             "if_index": entry.if_index,
             "interface_name": iface.name if iface else "",
             "interface_alias": iface.alias if iface else "",
             "vlan": entry.vlan or "",
             "last_seen_at": entry.last_seen_at,
-        })
-    return result
+        }
+        for entry, switch, iface, device in rows
+    ]
 
 
 @router.get("/devices/{device_id}/identity")
