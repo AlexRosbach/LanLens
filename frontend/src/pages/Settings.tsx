@@ -297,6 +297,7 @@ export default function Settings() {
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
   const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
+  const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
   const idoitMappingState = useMemo(
@@ -309,16 +310,28 @@ export default function Settings() {
     // not re-fetch and overwrite form fields or the mapping editor mid-edit.
     settingsApi.get().then((data) => {
       setSettings(data)
-      setShowServicesNav(data.show_services_nav)
-      setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
+      setAdvancedViewEnabled(data.advanced_view_enabled)
+      setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+      setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
-    loadIdoitConfig()
-    loadScanNodes().catch(() => {})
-    loadSnmp().catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (settings?.advanced_view_enabled) {
+      loadIdoitConfig()
+      loadScanNodes().catch(() => {})
+      loadSnmp().catch(() => {})
+    }
+  }, [settings?.advanced_view_enabled])
+
+  useEffect(() => {
+    if (settings && !settings.advanced_view_enabled && activeSection === 'cmdb') {
+      setActiveSection('system')
+    }
+  }, [activeSection, settings])
 
   if (!settings) {
     return (
@@ -709,8 +722,9 @@ export default function Settings() {
       toast.success(result.data.message || t('settings_imported'))
       settingsApi.get().then((data) => {
         setSettings(data)
-        setShowServicesNav(data.show_services_nav)
-        setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
+        setAdvancedViewEnabled(data.advanced_view_enabled)
+        setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+        setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
       })
     } catch {
       toast.error(t('import_failed'))
@@ -920,9 +934,10 @@ export default function Settings() {
   async function saveUi() {
     setSaving(true)
     try {
-      await settingsApi.updateUi(current.show_services_nav, current.show_dhcp_monitor_nav)
-      setShowServicesNav(current.show_services_nav)
-      setShowDhcpMonitorNav(current.show_dhcp_monitor_nav)
+      await settingsApi.updateUi(current.advanced_view_enabled, current.show_services_nav, current.show_dhcp_monitor_nav)
+      setAdvancedViewEnabled(current.advanced_view_enabled)
+      setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
+      setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))
@@ -938,7 +953,7 @@ export default function Settings() {
     { key: 'notifications' as const, label: t('notifications') },
     { key: 'inventory' as const, label: t('inventory_tools_title') },
     { key: 'backup' as const, label: t('backup_restore') },
-    { key: 'cmdb' as const, label: t('cmdb_tab') },
+    ...(current.advanced_view_enabled ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
   ]
 
   return (
@@ -1093,7 +1108,17 @@ export default function Settings() {
               <label className="flex items-center gap-2 text-sm text-text-base">
                 <input
                   type="checkbox"
+                  checked={current.advanced_view_enabled}
+                  onChange={(e) => setSettings({ ...current, advanced_view_enabled: e.target.checked })}
+                />
+                {t('advanced_view_enabled')}
+              </label>
+              <p className="pl-6 text-xs text-text-subtle">{t('advanced_view_enabled_hint')}</p>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
                   checked={current.show_services_nav}
+                  disabled={!current.advanced_view_enabled}
                   onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
                 />
                 {t('show_services_nav')}
@@ -1102,6 +1127,7 @@ export default function Settings() {
                 <input
                   type="checkbox"
                   checked={current.show_dhcp_monitor_nav}
+                  disabled={!current.advanced_view_enabled}
                   onChange={(e) => setSettings({ ...current, show_dhcp_monitor_nav: e.target.checked })}
                 />
                 {t('show_dhcp_monitor_nav')}
@@ -1199,6 +1225,7 @@ export default function Settings() {
             </div>
           </Card>
 
+          {current.advanced_view_enabled && (
           <Card>
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
@@ -1262,7 +1289,9 @@ export default function Settings() {
               </table>
             </div>
           </Card>
+          )}
 
+          {current.advanced_view_enabled && (
           <Card>
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
@@ -1349,6 +1378,7 @@ export default function Settings() {
               </table>
             </div>
           </Card>
+          )}
 
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">{t('scan_schedule_title')}</h2>
@@ -1365,6 +1395,7 @@ export default function Settings() {
             </div>
           </Card>
 
+          {current.advanced_view_enabled && (
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-2">{t('port_scan_range_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
@@ -1384,6 +1415,7 @@ export default function Settings() {
               <Button onClick={savePortScanSettings} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
+          )}
         </div>
       </div>
       )}

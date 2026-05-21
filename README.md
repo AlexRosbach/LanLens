@@ -106,6 +106,10 @@ Examples:
 
 LanLens can also terminate HTTPS itself for host-network deployments. In **Settings → System → HTTPS Settings**, upload a certificate and private key, choose the HTTPS port, and enable HTTPS. Certificate files are stored in the persistent `/data/tls` volume path. External reverse proxies such as Traefik, Caddy, or Nginx Proxy Manager remain the preferred option when LanLens runs behind a central proxy.
 
+### Optional advanced view
+
+LanLens keeps expert-oriented areas hidden by default for simpler home-network installations. Enable **Settings → System → UI Settings → Advanced View** to show CMDB/i-doit, SNMP switch topology, Scan Nodes, Services, DHCP Monitor and detailed port-scan controls. Existing feature settings are preserved while the advanced view is disabled, but the related navigation entries stay hidden.
+
 ### 4. Start LanLens
 
 ```bash

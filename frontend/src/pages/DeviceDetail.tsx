@@ -15,6 +15,7 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
+import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
 
 interface EditState {
@@ -69,6 +70,7 @@ export default function DeviceDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { t, lang } = useI18n()
+  const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const [device, setDevice] = useState<Device | null>(null)
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -524,6 +526,7 @@ export default function DeviceDetail() {
       </Card>
 
       {/* Services */}
+      {advancedViewEnabled && (
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('services')}</h2>
         <ServicesList
@@ -532,6 +535,7 @@ export default function DeviceDetail() {
           onChange={(services) => setDevice({ ...device, services })}
         />
       </Card>
+      )}
 
       {/* Host assignment (only for VM device classes) */}
       {isVmClass(device.device_class) && (

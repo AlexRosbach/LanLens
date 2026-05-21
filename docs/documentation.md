@@ -455,6 +455,10 @@ LanLens stores certificate material under `/data/tls`, validates the certificate
 
 External reverse proxies remain the better central TLS option when the deployment model allows them.
 
+### Advanced View
+
+The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → System → UI Settings → Advanced View**. When disabled, LanLens hides the CMDB/i-doit tab, SNMP switch topology, Scan Nodes, Services navigation, DHCP Monitor navigation and detailed port-scan controls. The stored settings remain intact and become visible again when Advanced View is re-enabled.
+
 ### Capabilities
 
 - `NET_ADMIN`: Required for interface configuration

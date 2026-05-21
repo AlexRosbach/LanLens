@@ -18,6 +18,7 @@ export default function Sidebar({ onClose }: Props) {
   const { t } = useI18n()
   const update = useUpdateCheck()
   const navigate = useNavigate()
+  const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
   const showDhcpMonitorNav = useUiSettingsStore((state) => state.showDhcpMonitorNav)
   const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
@@ -52,7 +53,7 @@ export default function Sidebar({ onClose }: Props) {
       ),
       badge: unreadCount,
     },
-    ...(showServicesNav ? [{
+    ...(advancedViewEnabled && showServicesNav ? [{
       to: '/services',
       label: t('nav_services'),
       icon: (
@@ -62,7 +63,7 @@ export default function Sidebar({ onClose }: Props) {
         </svg>
       ),
     }] : []),
-    ...(showDhcpMonitorNav ? [{
+    ...(advancedViewEnabled && showDhcpMonitorNav ? [{
       to: '/dhcp-monitor',
       label: t('nav_dhcp_monitor'),
       icon: (

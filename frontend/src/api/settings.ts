@@ -30,6 +30,7 @@ export interface AllSettings {
   webhook_enabled: boolean
   cmdb_id_prefix: string
   cmdb_id_digits: number
+  advanced_view_enabled: boolean
   show_services_nav: boolean
   show_dhcp_monitor_nav: boolean
   https_enabled: boolean
@@ -98,8 +99,8 @@ export const settingsApi = {
     }).then((r) => r.data)
   },
 
-  updateUi: (show_services_nav: boolean, show_dhcp_monitor_nav: boolean) =>
-    apiClient.put('/settings/ui', { show_services_nav, show_dhcp_monitor_nav }).then((r) => r.data),
+  updateUi: (advanced_view_enabled: boolean, show_services_nav: boolean, show_dhcp_monitor_nav: boolean) =>
+    apiClient.put('/settings/ui', { advanced_view_enabled, show_services_nav, show_dhcp_monitor_nav }).then((r) => r.data),
 
   updateSmtp: (data: {
     smtp_host: string

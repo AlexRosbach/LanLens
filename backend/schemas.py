@@ -431,6 +431,7 @@ class ServerUrlSettings(BaseModel):
 
 
 class UiSettings(BaseModel):
+    advanced_view_enabled: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
 
@@ -477,6 +478,7 @@ class AllSettings(BaseModel):
     webhook_enabled: bool = False
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
+    advanced_view_enabled: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
     https_enabled: bool = False

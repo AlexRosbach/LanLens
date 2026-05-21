@@ -10,6 +10,7 @@ All notable changes to this project should be documented in this file.
 - Export rows include object type, title, network identifiers, hardware fields, inventory/CMDB IDs, location, responsible person, notes and LanLens ID.
 - Added optional built-in HTTPS settings for host-network deployments, including certificate/key upload, nginx reload and optional HTTP-to-HTTPS redirect.
 - Added an SNMP v2c switch topology foundation with profiles, switch polling, interface/MAC-table storage and i-doit export enrichment for switch, port, VLAN and identity confidence.
+- Added an optional Advanced View setting that keeps CMDB/i-doit, SNMP, Scan Nodes, Services, DHCP Monitor and detailed port-scan controls hidden from simpler home-network setups until explicitly enabled.
 
 ### Fixes / Hardening
 - Added CSV export test coverage for excluding unchecked rows.

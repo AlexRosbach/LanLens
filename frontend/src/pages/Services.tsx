@@ -8,6 +8,7 @@ import Button from '../components/ui/Button'
 import Spinner from '../components/ui/Spinner'
 import ServiceIcon, { ServiceTypeTag } from '../components/devices/ServiceIcon'
 import { useI18n } from '../i18n'
+import { useUiSettingsStore } from '../store/uiSettingsStore'
 
 type Section = {
   id: string
@@ -18,6 +19,9 @@ type Section = {
 
 export default function Services() {
   const { t } = useI18n()
+  const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
+  const uiSettingsLoading = useUiSettingsStore((state) => state.loading)
+  const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
   const [services, setServices] = useState<ServiceDirectoryItem[]>([])
   const [groups, setGroups] = useState<ServiceGroup[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,6 +31,7 @@ export default function Services() {
   const [dragOverSection, setDragOverSection] = useState<string | null>(null)
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [uiSettingsChecked, setUiSettingsChecked] = useState(false)
 
   async function load() {
     const [serviceItems, groupItems] = await Promise.all([servicesApi.listAll(), servicesApi.listGroups()])
@@ -35,8 +40,17 @@ export default function Services() {
   }
 
   useEffect(() => {
-    load().finally(() => setLoading(false))
-  }, [])
+    fetchUiSettings().finally(() => setUiSettingsChecked(true))
+  }, [fetchUiSettings])
+
+  useEffect(() => {
+    if (!uiSettingsChecked) return
+    if (advancedViewEnabled) {
+      load().finally(() => setLoading(false))
+    } else if (!uiSettingsLoading) {
+      setLoading(false)
+    }
+  }, [advancedViewEnabled, uiSettingsChecked, uiSettingsLoading])
 
   const filtered = services.filter((service) => {
     const term = search.toLowerCase()
@@ -139,7 +153,16 @@ export default function Services() {
     }
   }
 
-  if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+  if (!uiSettingsChecked || uiSettingsLoading || loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+
+  if (!advancedViewEnabled) {
+    return (
+      <Card>
+        <h1 className="text-xl font-bold text-text-base mb-2">{t('nav_services')}</h1>
+        <p className="text-sm text-text-subtle">{t('advanced_view_required')}</p>
+      </Card>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-5">
