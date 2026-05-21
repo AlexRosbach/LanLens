@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -44,7 +45,7 @@ def _profile_response(profile: SnmpProfile) -> dict:
     }
 
 
-def _switch_response(switch: SnmpSwitch) -> dict:
+def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, mac_count: Optional[int] = None) -> dict:
     return {
         "id": switch.id,
         "name": switch.name,
@@ -57,8 +58,8 @@ def _switch_response(switch: SnmpSwitch) -> dict:
         "sys_object_id": switch.sys_object_id,
         "last_poll_at": switch.last_poll_at,
         "last_error": switch.last_error,
-        "interface_count": len(switch.interfaces or []),
-        "mac_count": len(switch.mac_entries or []),
+        "interface_count": interface_count if interface_count is not None else len(switch.interfaces or []),
+        "mac_count": mac_count if mac_count is not None else len(switch.mac_entries or []),
     }
 
 
@@ -89,7 +90,33 @@ def create_profile(payload: SnmpProfilePayload, db: Session = Depends(get_db), _
 @router.get("/switches")
 def list_switches(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     switches = db.query(SnmpSwitch).order_by(SnmpSwitch.name.asc()).all()
-    return [_switch_response(switch) for switch in switches]
+    if not switches:
+        return []
+    switch_ids = [s.id for s in switches]
+    interface_counts = {
+        row.switch_id: row.cnt
+        for row in db.query(
+            SnmpInterface.switch_id,
+            func.count(SnmpInterface.id).label("cnt"),
+        )
+        .filter(SnmpInterface.switch_id.in_(switch_ids))
+        .group_by(SnmpInterface.switch_id)
+        .all()
+    }
+    mac_counts = {
+        row.switch_id: row.cnt
+        for row in db.query(
+            SnmpMacTableEntry.switch_id,
+            func.count(SnmpMacTableEntry.id).label("cnt"),
+        )
+        .filter(SnmpMacTableEntry.switch_id.in_(switch_ids))
+        .group_by(SnmpMacTableEntry.switch_id)
+        .all()
+    }
+    return [
+        _switch_response(switch, interface_counts.get(switch.id, 0), mac_counts.get(switch.id, 0))
+        for switch in switches
+    ]
 
 
 @router.post("/switches")

@@ -1250,7 +1250,7 @@ const translations = {
     server_url_saved: 'Server-URL gespeichert',
     server_url_save_failed: 'Server-URL konnte nicht gespeichert werden',
     https_settings: 'HTTPS-Einstellungen',
-    https_settings_description: 'Aktiviert direktes HTTPS fuer Host-Network-Deployments ohne externen Reverse Proxy.',
+    https_settings_description: 'Aktiviert direktes HTTPS für Host-Network-Deployments ohne externen Reverse Proxy.',
     https_settings_saved: 'HTTPS-Einstellungen gespeichert',
     https_settings_save_failed: 'HTTPS-Einstellungen konnten nicht gespeichert werden',
     certificate_configured: 'Zertifikat hinterlegt',
