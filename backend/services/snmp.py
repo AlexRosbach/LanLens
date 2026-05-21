@@ -4,7 +4,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
@@ -218,10 +218,73 @@ def identity_for_device(db: Session, device: Device) -> Optional[dict[str, str |
         "switch_id": entry.switch_id,
         "switch_name": (switch.name if switch else "") or "",
         "switch_host": (switch.host if switch else "") or "",
-        "if_index": entry.if_index or "",
-        "interface_name": (iface.name or iface.description if iface else "") or "",
+        "if_index": entry.if_index,
+        "interface_name": ((iface.name or iface.description) if iface else "") or "",
         "interface_alias": (iface.alias if iface else "") or "",
         "vlan": entry.vlan or "",
         "last_seen_at": entry.last_seen_at.isoformat() if entry.last_seen_at else "",
         "confidence": "high" if entry.if_index else "medium",
     }
+
+
+def bulk_identities_for_devices(db: Session, devices: list[Device]) -> dict[int, dict[str, Any]]:
+    """Return a {device_id: identity} map for all devices using bulk DB queries.
+
+    This avoids the N+1 pattern of calling identity_for_device() per device.
+    Devices without a MAC or with an ip:-prefixed pseudo-MAC are skipped.
+    """
+    mac_to_device_id: dict[str, int] = {}
+    for device in devices:
+        if not device.mac_address or device.mac_address.startswith("ip:"):
+            continue
+        mac_to_device_id[normalize_mac(device.mac_address)] = device.id
+
+    if not mac_to_device_id:
+        return {}
+
+    all_macs = list(mac_to_device_id.keys())
+    all_entries = (
+        db.query(SnmpMacTableEntry)
+        .filter(SnmpMacTableEntry.mac_address.in_(all_macs))
+        .order_by(SnmpMacTableEntry.last_seen_at.desc())
+        .all()
+    )
+    # Keep only the latest entry per MAC.
+    latest_by_mac: dict[str, SnmpMacTableEntry] = {}
+    for entry in all_entries:
+        if entry.mac_address not in latest_by_mac:
+            latest_by_mac[entry.mac_address] = entry
+
+    if not latest_by_mac:
+        return {}
+
+    switch_ids = {e.switch_id for e in latest_by_mac.values()}
+    switches: dict[int, SnmpSwitch] = {
+        s.id: s for s in db.query(SnmpSwitch).filter(SnmpSwitch.id.in_(switch_ids)).all()
+    }
+
+    ifaces: dict[tuple[int, int], SnmpInterface] = {}
+    iface_switch_ids = {e.switch_id for e in latest_by_mac.values() if e.if_index is not None}
+    if iface_switch_ids:
+        for iface in db.query(SnmpInterface).filter(SnmpInterface.switch_id.in_(iface_switch_ids)).all():
+            ifaces[(iface.switch_id, iface.if_index)] = iface
+
+    result: dict[int, dict[str, Any]] = {}
+    for mac, entry in latest_by_mac.items():
+        device_id = mac_to_device_id.get(mac)
+        if device_id is None:
+            continue
+        switch = switches.get(entry.switch_id)
+        iface = ifaces.get((entry.switch_id, entry.if_index)) if entry.if_index is not None else None
+        result[device_id] = {
+            "switch_id": entry.switch_id,
+            "switch_name": (switch.name if switch else "") or "",
+            "switch_host": (switch.host if switch else "") or "",
+            "if_index": entry.if_index,
+            "interface_name": ((iface.name or iface.description) if iface else "") or "",
+            "interface_alias": (iface.alias if iface else "") or "",
+            "vlan": entry.vlan or "",
+            "last_seen_at": entry.last_seen_at.isoformat() if entry.last_seen_at else "",
+            "confidence": "high" if entry.if_index else "medium",
+        }
+    return result

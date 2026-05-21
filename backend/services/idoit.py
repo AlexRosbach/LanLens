@@ -27,6 +27,19 @@ from .snmp import identity_for_device
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_csv_cell(value: Any) -> Any:
+    """Escape formula-injection characters for Excel/LibreOffice CSV exports."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return value
+    candidate = value.lstrip(" \t\r\n")
+    if candidate.startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r")):
+        return f"'{value}"
+    return value
+
+
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
     "version": 8,
@@ -505,25 +518,25 @@ def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:
         if row.get("include") is False:
             continue
         writer.writerow([
-            row.get("object_type", ""),
-            row.get("title", ""),
-            row.get("ip_address", ""),
-            row.get("mac_address", ""),
-            row.get("hostname", ""),
-            row.get("manufacturer", ""),
-            row.get("model", ""),
-            row.get("serial", ""),
-            row.get("os_info", ""),
-            row.get("inventory_no", ""),
-            row.get("cmdb_id", ""),
-            row.get("location", ""),
-            row.get("responsible", ""),
-            row.get("notes", ""),
-            row.get("snmp_switch", ""),
-            row.get("snmp_port", ""),
-            row.get("snmp_vlan", ""),
-            row.get("identity_confidence", ""),
-            row.get("lanlens_id", ""),
+            _safe_csv_cell(row.get("object_type", "")),
+            _safe_csv_cell(row.get("title", "")),
+            _safe_csv_cell(row.get("ip_address", "")),
+            _safe_csv_cell(row.get("mac_address", "")),
+            _safe_csv_cell(row.get("hostname", "")),
+            _safe_csv_cell(row.get("manufacturer", "")),
+            _safe_csv_cell(row.get("model", "")),
+            _safe_csv_cell(row.get("serial", "")),
+            _safe_csv_cell(row.get("os_info", "")),
+            _safe_csv_cell(row.get("inventory_no", "")),
+            _safe_csv_cell(row.get("cmdb_id", "")),
+            _safe_csv_cell(row.get("location", "")),
+            _safe_csv_cell(row.get("responsible", "")),
+            _safe_csv_cell(row.get("notes", "")),
+            _safe_csv_cell(row.get("snmp_switch", "")),
+            _safe_csv_cell(row.get("snmp_port", "")),
+            _safe_csv_cell(row.get("snmp_vlan", "")),
+            _safe_csv_cell(row.get("identity_confidence", "")),
+            _safe_csv_cell(row.get("lanlens_id", "")),
         ])
     return output.getvalue()
 

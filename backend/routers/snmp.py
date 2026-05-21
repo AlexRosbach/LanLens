@@ -163,17 +163,27 @@ def list_switch_interfaces(switch_id: int, db: Session = Depends(get_db), _: Use
 @router.get("/topology/endpoints")
 def list_snmp_endpoints(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     entries = db.query(SnmpMacTableEntry).order_by(SnmpMacTableEntry.last_seen_at.desc()).limit(1000).all()
+    if not entries:
+        return []
+
+    switch_ids = {e.switch_id for e in entries}
+    switches = {s.id: s for s in db.query(SnmpSwitch).filter(SnmpSwitch.id.in_(switch_ids)).all()}
+
+    iface_keys = {(e.switch_id, e.if_index) for e in entries if e.if_index is not None}
+    ifaces: dict[tuple, SnmpInterface] = {}
+    if iface_keys:
+        sw_ids_for_ifaces = {k[0] for k in iface_keys}
+        for iface in db.query(SnmpInterface).filter(SnmpInterface.switch_id.in_(sw_ids_for_ifaces)).all():
+            ifaces[(iface.switch_id, iface.if_index)] = iface
+
+    mac_addresses = {e.mac_address for e in entries}
+    devices = {d.mac_address: d for d in db.query(Device).filter(Device.mac_address.in_(mac_addresses)).all()}
+
     result = []
     for entry in entries:
-        switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == entry.switch_id).first()
-        iface = (
-            db.query(SnmpInterface)
-            .filter(SnmpInterface.switch_id == entry.switch_id, SnmpInterface.if_index == entry.if_index)
-            .first()
-            if entry.if_index is not None
-            else None
-        )
-        device = db.query(Device).filter(Device.mac_address == entry.mac_address).first()
+        switch = switches.get(entry.switch_id)
+        iface = ifaces.get((entry.switch_id, entry.if_index)) if entry.if_index is not None else None
+        device = devices.get(entry.mac_address)
         result.append({
             "mac_address": entry.mac_address,
             "device_id": device.id if device else None,

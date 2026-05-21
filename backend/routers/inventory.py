@@ -20,7 +20,7 @@ from ..schemas import (
     TopologyNode,
     TopologyResponse,
 )
-from ..services.snmp import identity_for_device
+from ..services.snmp import bulk_identities_for_devices, identity_for_device
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 ignore_router = APIRouter(prefix="/api/ignore-rules", tags=["ignore-rules"])
@@ -104,10 +104,11 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
         .group_by(Service.device_id)
         .all()
     )
+    identities = bulk_identities_for_devices(db, devices)
     nodes = []
     for device in devices:
         segment = segments.get(device.segment_id) if device.segment_id else None
-        identity = identity_for_device(db, device) or {}
+        identity = identities.get(device.id) or {}
         nodes.append(TopologyNode(
             id=device.id,
             label=_device_label(device),
@@ -132,7 +133,7 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
     ]
     switch_nodes_by_id = {switch.id: switch.device_id for switch in db.query(SnmpSwitch).all() if switch.device_id}
     for device in devices:
-        identity = identity_for_device(db, device) or {}
+        identity = identities.get(device.id) or {}
         switch_id = identity.get("switch_id")
         switch_device_id = switch_nodes_by_id.get(int(switch_id)) if switch_id else None
         if switch_device_id and switch_device_id != device.id:
