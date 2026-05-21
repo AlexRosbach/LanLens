@@ -138,7 +138,7 @@ def create_switch(payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: 
     db.add(switch)
     db.commit()
     db.refresh(switch)
-    return _switch_response(switch)
+    return _switch_response(switch, interface_count=0, mac_count=0)
 
 
 @router.post("/switches/{switch_id}/poll")
@@ -160,7 +160,7 @@ def poll_snmp_switch(switch_id: int, db: Session = Depends(get_db), _: User = De
         "message": "SNMP poll completed",
         "interfaces": result.interfaces,
         "mac_entries": result.mac_entries,
-        "switch": _switch_response(switch),
+        "switch": _switch_response(switch, interface_count=result.interfaces, mac_count=result.mac_entries),
     }
 
 
