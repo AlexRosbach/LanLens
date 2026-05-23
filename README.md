@@ -9,8 +9,11 @@
 [![Version](https://img.shields.io/badge/version-1.5.1-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
+[![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
 
 LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, and connect to them.
+
+Project updates, release notes, and occasional build notes are posted on [X / @itneedtoknow](https://x.com/itneedtoknow).
 
 > [!IMPORTANT]
 > LanLens is intended exclusively for use in your own network or in networks where you have explicit permission to scan and monitor devices.
