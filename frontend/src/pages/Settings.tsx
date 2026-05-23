@@ -76,7 +76,6 @@ const IDOIT_EXPORT_EDIT_FIELDS = [
   { key: 'notes', labelKey: 'idoit_field_notes', wide: true },
   { key: 'snmp_switch', labelKey: 'idoit_export_snmp_switch' },
   { key: 'snmp_port', labelKey: 'idoit_export_snmp_port' },
-  { key: 'snmp_vlan', labelKey: 'idoit_export_snmp_vlan' },
   { key: 'identity_confidence', labelKey: 'idoit_export_identity_confidence' },
 ] as const
 
@@ -1324,10 +1323,10 @@ export default function Settings() {
                 <thead className="bg-surface2 text-text-subtle">
                   <tr>
                     <th className="px-3 py-2 font-medium">{t('name')}</th>
-                    <th className="px-3 py-2 font-medium">Host</th>
-                    <th className="px-3 py-2 font-medium">SysName</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_host')}</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_sys_name')}</th>
                     <th className="px-3 py-2 font-medium">{t('interfaces')}</th>
-                    <th className="px-3 py-2 font-medium">MACs</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_macs')}</th>
                     <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
                     <th className="px-3 py-2 font-medium">{t('actions')}</th>
                   </tr>
@@ -1354,11 +1353,10 @@ export default function Settings() {
               <table className="min-w-full text-left text-xs">
                 <thead className="bg-surface2 text-text-subtle">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Device</th>
-                    <th className="px-3 py-2 font-medium">MAC</th>
-                    <th className="px-3 py-2 font-medium">Switch</th>
-                    <th className="px-3 py-2 font-medium">Port</th>
-                    <th className="px-3 py-2 font-medium">VLAN</th>
+                    <th className="px-3 py-2 font-medium">{t('col_device')}</th>
+                    <th className="px-3 py-2 font-medium">{t('mac_address')}</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_switch')}</th>
+                    <th className="px-3 py-2 font-medium">{t('port')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1368,11 +1366,10 @@ export default function Settings() {
                       <td className="px-3 py-2 text-text-muted">{entry.mac_address}</td>
                       <td className="px-3 py-2 text-text-muted">{entry.switch_name}</td>
                       <td className="px-3 py-2 text-text-muted">{entry.interface_name || entry.if_index || '—'}</td>
-                      <td className="px-3 py-2 text-text-muted">{entry.vlan || '—'}</td>
                     </tr>
                   ))}
                   {snmpEndpoints.length === 0 && (
-                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={5}>{t('snmp_no_endpoints')}</td></tr>
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={4}>{t('snmp_no_endpoints')}</td></tr>
                   )}
                 </tbody>
               </table>

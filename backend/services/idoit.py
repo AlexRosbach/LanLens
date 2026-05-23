@@ -452,7 +452,6 @@ IDOIT_EXPORT_COLUMNS = [
     "Notizen",
     "SNMP-Switch",
     "SNMP-Port",
-    "SNMP-VLAN",
     "Identity Confidence",
     "LanLens-ID",
 ]
@@ -463,9 +462,11 @@ def build_export_row(
     device: Device,
     config: IdoitConfig,
     snmp_identity: Optional[dict[str, Any]] = None,
+    findings: Optional[dict[str, dict[str, Any]]] = None,
+    open_ports_summary: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build one editable i-doit CSV export row for a LanLens device."""
-    findings = _latest_findings(db, device)
+    findings = findings if findings is not None else _latest_findings(db, device)
     snmp_identity = snmp_identity if snmp_identity is not None else (identity_for_device(db, device) or {})
     model = _first_finding_text(
         findings,
@@ -482,7 +483,8 @@ def build_export_row(
         [("os", "release"), ("os", "system"), ("hardware", "os")],
         limit=255,
     )
-    notes_parts = [part for part in [device.notes, device.description, _latest_open_ports(db, device)] if part]
+    open_ports_summary = open_ports_summary if open_ports_summary is not None else _latest_open_ports(db, device)
+    notes_parts = [part for part in [device.notes, device.description, open_ports_summary] if part]
     return {
         "include": True,
         "device_id": device.id,
@@ -502,7 +504,6 @@ def build_export_row(
         "notes": "\n\n".join(notes_parts),
         "snmp_switch": snmp_identity.get("switch_name", ""),
         "snmp_port": snmp_identity.get("interface_name", "") or snmp_identity.get("if_index", ""),
-        "snmp_vlan": snmp_identity.get("vlan", ""),
         "identity_confidence": snmp_identity.get("confidence", "base"),
         "lanlens_id": str(device.id),
     }
@@ -511,7 +512,19 @@ def build_export_row(
 def build_export_rows(db: Session, devices: list[Device], config: IdoitConfig) -> list[dict[str, Any]]:
     """Return editable i-doit CSV export rows for the selected devices."""
     identities = bulk_identities_for_devices(db, devices)
-    return [build_export_row(db, device, config, identities.get(device.id, {})) for device in devices]
+    findings_by_device = _bulk_latest_findings(db, devices)
+    open_ports_by_device = _bulk_latest_open_ports(db, devices)
+    return [
+        build_export_row(
+            db,
+            device,
+            config,
+            identities.get(device.id, {}),
+            findings_by_device.get(device.id, {}),
+            open_ports_by_device.get(device.id),
+        )
+        for device in devices
+    ]
 
 
 def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:
@@ -540,7 +553,6 @@ def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:
             _safe_csv_cell(row.get("notes", "")),
             _safe_csv_cell(row.get("snmp_switch", "")),
             _safe_csv_cell(row.get("snmp_port", "")),
-            _safe_csv_cell(row.get("snmp_vlan", "")),
             _safe_csv_cell(row.get("identity_confidence", "")),
             _safe_csv_cell(row.get("lanlens_id", "")),
         ])
@@ -639,6 +651,41 @@ def _latest_findings(db: Optional[Session], device: Device) -> dict[str, dict[st
                 "observed_at": observed_at.isoformat() if isinstance(observed_at, datetime) else None,
             }
     return findings
+
+
+def _bulk_latest_findings(db: Session, devices: list[Device]) -> dict[int, dict[str, dict[str, Any]]]:
+    device_ids = [device.id for device in devices if device.id]
+    if not device_ids:
+        return {}
+    rows = (
+        db.query(
+            DeepScanFinding.device_id,
+            DeepScanFinding.finding_type,
+            DeepScanFinding.key,
+            DeepScanFinding.value_json,
+            DeepScanFinding.source,
+            DeepScanFinding.observed_at,
+        )
+        .filter(DeepScanFinding.device_id.in_(device_ids))
+        .order_by(
+            DeepScanFinding.device_id,
+            DeepScanFinding.finding_type,
+            DeepScanFinding.key,
+            DeepScanFinding.observed_at.desc(),
+        )
+        .all()
+    )
+    result: dict[int, dict[str, dict[str, Any]]] = {}
+    for device_id, finding_type, key, value_json, source, observed_at in rows:
+        device_findings = result.setdefault(device_id, {})
+        group = device_findings.setdefault(finding_type, {})
+        if key not in group:
+            group[key] = {
+                "value": _decode_finding_value(value_json),
+                "source": source,
+                "observed_at": observed_at.isoformat() if isinstance(observed_at, datetime) else None,
+            }
+    return result
 
 
 def _finding_text(findings: dict[str, dict[str, Any]], finding_type: str, key: str, limit: int = 1200) -> Optional[str]:
@@ -871,6 +918,31 @@ def _latest_open_ports(db: Optional[Session], device: Device) -> Optional[str]:
     )
     if not scan:
         return None
+    return _format_open_ports(scan)
+
+
+def _bulk_latest_open_ports(db: Session, devices: list[Device]) -> dict[int, str]:
+    device_ids = [device.id for device in devices if device.id]
+    if not device_ids:
+        return {}
+    scans = (
+        db.query(PortScan)
+        .filter(PortScan.device_id.in_(device_ids))
+        .order_by(PortScan.device_id, PortScan.scanned_at.desc())
+        .all()
+    )
+    latest: dict[int, PortScan] = {}
+    for scan in scans:
+        if scan.device_id not in latest:
+            latest[scan.device_id] = scan
+    return {
+        device_id: summary
+        for device_id, scan in latest.items()
+        if (summary := _format_open_ports(scan))
+    }
+
+
+def _format_open_ports(scan: PortScan) -> str:
     try:
         ports = json.loads(scan.open_ports or "[]")
     except Exception:

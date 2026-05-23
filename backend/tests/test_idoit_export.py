@@ -42,6 +42,7 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertEqual(rows[0]["Bezeichnung"], "included")
         self.assertEqual(rows[0]["IP-Adresse"], "192.0.2.10")
         self.assertIn("SNMP-Switch", rows[0])
+        self.assertNotIn("SNMP-VLAN", rows[0])
         self.assertIn("Identity Confidence", rows[0])
 
     def test_build_export_rows_uses_bulk_snmp_identity(self):
@@ -84,7 +85,7 @@ class IdoitExportCsvTest(unittest.TestCase):
 
             self.assertEqual(rows[0]["snmp_switch"], "core-switch")
             self.assertEqual(rows[0]["snmp_port"], "Gi1/0/12")
-            self.assertEqual(rows[0]["snmp_vlan"], "20")
+            self.assertNotIn("snmp_vlan", rows[0])
         finally:
             db.close()
 

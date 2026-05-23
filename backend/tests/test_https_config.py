@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import unittest
+import shutil
 from pathlib import Path
 
 from backend.services import https_config
@@ -8,6 +9,8 @@ from backend.services import https_config
 
 class HttpsConfigTests(unittest.TestCase):
     def test_save_https_config_validates_and_persists_key_pair(self):
+        if shutil.which("openssl") is None:
+            self.skipTest("openssl is required to generate a temporary certificate")
         with tempfile.TemporaryDirectory() as tmp_name:
             tmp_dir = Path(tmp_name)
             source_cert = tmp_dir / "source.crt"

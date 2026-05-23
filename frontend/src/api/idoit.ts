@@ -97,7 +97,6 @@ export interface IdoitExportRow {
   notes: string
   snmp_switch: string
   snmp_port: string
-  snmp_vlan: string
   identity_confidence: string
   lanlens_id: string
 }

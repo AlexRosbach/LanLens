@@ -780,10 +780,9 @@ The export can include SNMP-derived identity context when switches have been pol
 
 - `SNMP-Switch`
 - `SNMP-Port`
-- `SNMP-VLAN`
 - `Identity Confidence`
 
-These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port/VLAN where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
+These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
 
 ## SNMP Switch Topology Foundation
 
