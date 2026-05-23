@@ -541,6 +541,14 @@ def migrate():
         else:
             print("Migration: snmp_switches already exists — skipped")
 
+        if IS_SQLITE and not _index_exists(conn, "ix_snmp_switches_device_id_unique"):
+            conn.execute(text(
+                "CREATE UNIQUE INDEX ix_snmp_switches_device_id_unique "
+                "ON snmp_switches(device_id) WHERE device_id IS NOT NULL"
+            ))
+            conn.commit()
+            print("Migration: created ix_snmp_switches_device_id_unique")
+
         if IS_SQLITE and not _table_exists(conn, "snmp_interfaces"):
             conn.execute(text(
                 "CREATE TABLE snmp_interfaces ("

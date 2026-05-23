@@ -232,6 +232,9 @@ class SnmpProfile(Base):
 class SnmpSwitch(Base):
     """Switch or network device polled through SNMP."""
     __tablename__ = "snmp_switches"
+    __table_args__ = (
+        Index("ix_snmp_switches_device_id_unique", "device_id", unique=True),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)

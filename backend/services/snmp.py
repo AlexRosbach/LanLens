@@ -194,7 +194,7 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     return PollResult(interfaces=len(indexes), mac_entries=mac_count)
 
 
-def identity_for_device(db: Session, device: Device) -> Optional[dict[str, str | int]]:
+def identity_for_device(db: Session, device: Device) -> Optional[dict[str, Any]]:
     if not device.mac_address or device.mac_address.startswith("ip:"):
         return None
     mac = normalize_mac(device.mac_address)
@@ -216,6 +216,7 @@ def identity_for_device(db: Session, device: Device) -> Optional[dict[str, str |
     switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == entry.switch_id).first()
     return {
         "switch_id": entry.switch_id,
+        "switch_device_id": switch.device_id if switch else None,
         "switch_name": (switch.name if switch else "") or "",
         "switch_host": (switch.host if switch else "") or "",
         "if_index": entry.if_index,
@@ -278,6 +279,7 @@ def bulk_identities_for_devices(db: Session, devices: list[Device]) -> dict[int,
         iface = ifaces.get((entry.switch_id, entry.if_index)) if entry.if_index is not None else None
         result[device_id] = {
             "switch_id": entry.switch_id,
+            "switch_device_id": switch.device_id if switch else None,
             "switch_name": (switch.name if switch else "") or "",
             "switch_host": (switch.host if switch else "") or "",
             "if_index": entry.if_index,

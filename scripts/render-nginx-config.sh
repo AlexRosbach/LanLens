@@ -42,6 +42,13 @@ PY
     )"
 fi
 
+if [ -z "${HTTPS_CERTIFICATE}" ]; then
+    HTTPS_CERTIFICATE="${TLS_DIR}/lanlens.crt"
+fi
+if [ -z "${HTTPS_PRIVATE_KEY}" ]; then
+    HTTPS_PRIVATE_KEY="${TLS_DIR}/lanlens.key"
+fi
+
 case "${LANLENS_PORT}" in
     ''|*[!0-9]*)
         echo "ERROR: LANLENS_PORT must be a numeric TCP port."

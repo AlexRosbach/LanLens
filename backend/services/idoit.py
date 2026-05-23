@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Device, DeepScanFinding, DeviceHostRelationship, IdoitDeviceSync, IdoitSyncLog, PortScan, Setting
 from .notification import request_json_via_validated_url
-from .snmp import identity_for_device
+from .snmp import bulk_identities_for_devices, identity_for_device
 
 logger = logging.getLogger(__name__)
 
@@ -458,10 +458,15 @@ IDOIT_EXPORT_COLUMNS = [
 ]
 
 
-def build_export_row(db: Session, device: Device, config: IdoitConfig) -> dict[str, Any]:
+def build_export_row(
+    db: Session,
+    device: Device,
+    config: IdoitConfig,
+    snmp_identity: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Build one editable i-doit CSV export row for a LanLens device."""
     findings = _latest_findings(db, device)
-    snmp_identity = identity_for_device(db, device) or {}
+    snmp_identity = snmp_identity if snmp_identity is not None else (identity_for_device(db, device) or {})
     model = _first_finding_text(
         findings,
         [("hardware", "model"), ("hardware", "computer_system")],
@@ -505,7 +510,8 @@ def build_export_row(db: Session, device: Device, config: IdoitConfig) -> dict[s
 
 def build_export_rows(db: Session, devices: list[Device], config: IdoitConfig) -> list[dict[str, Any]]:
     """Return editable i-doit CSV export rows for the selected devices."""
-    return [build_export_row(db, device, config) for device in devices]
+    identities = bulk_identities_for_devices(db, devices)
+    return [build_export_row(db, device, config, identities.get(device.id, {})) for device in devices]
 
 
 def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:

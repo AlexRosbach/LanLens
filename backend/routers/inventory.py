@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, Service, Setting, SnmpSwitch, User
+from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIgnoreRuleCreate,
     DeviceIgnoreRuleResponse,
@@ -20,7 +20,7 @@ from ..schemas import (
     TopologyNode,
     TopologyResponse,
 )
-from ..services.snmp import bulk_identities_for_devices, identity_for_device
+from ..services.snmp import bulk_identities_for_devices
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 ignore_router = APIRouter(prefix="/api/ignore-rules", tags=["ignore-rules"])
@@ -131,17 +131,20 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
         )
         for rel in db.query(DeviceHostRelationship).all()
     ]
-    switch_nodes_by_id = {switch.id: switch.device_id for switch in db.query(SnmpSwitch).all() if switch.device_id}
     for device in devices:
         identity = identities.get(device.id) or {}
-        switch_id = identity.get("switch_id")
-        switch_device_id = switch_nodes_by_id.get(int(switch_id)) if switch_id else None
+        switch_device_id = identity.get("switch_device_id")
+        port_label = identity.get("interface_name") or (
+            f"ifIndex {identity.get('if_index')}" if identity.get("if_index") is not None else ""
+        )
         if switch_device_id and switch_device_id != device.id:
+            if not port_label:
+                continue
             edges.append(TopologyEdge(
                 source=switch_device_id,
                 target=device.id,
                 relationship_type="snmp_port",
-                label=identity.get("interface_name") or f"ifIndex {identity.get('if_index')}",
+                label=port_label,
                 metadata=identity,
             ))
     return TopologyResponse(nodes=nodes, edges=edges)

@@ -61,6 +61,7 @@ class SnmpIdentityTests(unittest.TestCase):
             identity = identity_for_device(db, device)
 
             self.assertIsNotNone(identity)
+            self.assertEqual(identity["switch_device_id"], switch.device_id)
             self.assertEqual(identity["switch_name"], "core-switch")
             self.assertEqual(identity["interface_name"], "Gi1/0/12")
             self.assertEqual(identity["vlan"], "20")
