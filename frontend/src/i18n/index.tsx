@@ -2,6 +2,23 @@ import { createContext, useContext, useState, useCallback, ReactNode } from 'rea
 
 export type Lang = 'en' | 'de' | 'it' | 'zh'
 
+const SUPPORTED_LANGUAGES: Lang[] = ['en', 'de', 'it', 'zh']
+const LANGUAGE_STORAGE_KEY = 'lanlens.language'
+
+function isSupportedLang(value: string | null): value is Lang {
+  return SUPPORTED_LANGUAGES.includes(value as Lang)
+}
+
+function getInitialLang(): Lang {
+  if (typeof window === 'undefined') return 'en'
+  try {
+    const storedLang = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
+    return isSupportedLang(storedLang) ? storedLang : 'en'
+  } catch {
+    return 'en'
+  }
+}
+
 const translations = {
   en: {
     nav_dashboard: 'Dashboard',
@@ -3144,10 +3161,15 @@ const I18nContext = createContext<I18nContextType>({
 })
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>('en')
+  const [lang, setLangState] = useState<Lang>(getInitialLang)
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l)
+    try {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, l)
+    } catch {
+      // Keep the in-memory language change even if browser storage is unavailable.
+    }
   }, [])
 
   const t = useCallback(
