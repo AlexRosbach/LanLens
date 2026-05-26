@@ -105,6 +105,13 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
 }
 
+function buildHttpsSettingsUrl(port: number) {
+  const url = new URL(window.location.href)
+  url.protocol = 'https:'
+  url.port = port === 443 ? '' : String(port)
+  return url.toString()
+}
+
 function extractIdoitErrorDetails(error: unknown): IdoitErrorDetails {
   const response = (error as { response?: { data?: { detail?: unknown } } })?.response
   const detail = response?.data?.detail
@@ -588,6 +595,15 @@ export default function Settings() {
 
   async function saveHttpsSettings() {
     setSaving(true)
+    const switchesToHttps = current.https_enabled && window.location.protocol === 'http:'
+    const nextSettings = {
+      ...current,
+      https_enabled: current.https_enabled,
+      https_port: current.https_port,
+      https_redirect_http: current.https_redirect_http,
+      https_configured: current.https_configured || Boolean(httpsCertificate && httpsPrivateKey),
+    }
+    const redirectUrl = switchesToHttps ? buildHttpsSettingsUrl(current.https_port) : null
     try {
       await settingsApi.updateHttps({
         enabled: current.https_enabled,
@@ -597,13 +613,29 @@ export default function Settings() {
         private_key: httpsPrivateKey,
         ca_chain: httpsCaChain,
       })
-      const data = await settingsApi.get()
-      setSettings(data)
+      setSettings(nextSettings)
       setHttpsCertificate(null)
       setHttpsPrivateKey(null)
       setHttpsCaChain(null)
       toast.success(t('https_settings_saved'))
-    } catch {
+      if (redirectUrl) {
+        window.setTimeout(() => {
+          window.location.href = redirectUrl
+        }, 1000)
+      }
+    } catch (error) {
+      const hasServerResponse = Boolean((error as { response?: unknown })?.response)
+      if (!hasServerResponse && redirectUrl) {
+        setSettings(nextSettings)
+        setHttpsCertificate(null)
+        setHttpsPrivateKey(null)
+        setHttpsCaChain(null)
+        toast.success(t('https_settings_saved'))
+        window.setTimeout(() => {
+          window.location.href = redirectUrl
+        }, 1000)
+        return
+      }
       toast.error(t('https_settings_save_failed'))
     } finally {
       setSaving(false)
