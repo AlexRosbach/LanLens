@@ -1,11 +1,15 @@
 from datetime import datetime
+import os
 import unittest
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-12345")
+
 from backend.database import Base
 from backend.models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from backend.routers.snmp import delete_profile, delete_switch
 from backend.services.snmp import (
     _parse_bridge_port_map,
     _parse_mac_suffix,
@@ -150,6 +154,56 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertEqual(identity["interface_name"], "Gi1/0/12")
             self.assertEqual(identity["vlan"], "20")
             self.assertEqual(identity["confidence"], "high")
+        finally:
+            db.close()
+
+    def test_delete_profile_detaches_assigned_switches(self):
+        db = self.Session()
+        try:
+            profile = SnmpProfile(name="default", version="2c", community="public")
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile)
+            db.add_all([profile, switch])
+            db.commit()
+            db.refresh(profile)
+            db.refresh(switch)
+
+            result = delete_profile(profile.id, db, None)
+            db.refresh(switch)
+
+            self.assertTrue(result.success)
+            self.assertIsNone(db.query(SnmpProfile).filter(SnmpProfile.id == profile.id).first())
+            self.assertIsNone(switch.profile_id)
+        finally:
+            db.close()
+
+    def test_delete_switch_removes_learned_snmp_data(self):
+        db = self.Session()
+        try:
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1")
+            db.add(switch)
+            db.commit()
+            db.refresh(switch)
+
+            db.add(SnmpInterface(
+                switch_id=switch.id,
+                if_index=1,
+                name="Gi1/0/1",
+                last_seen_at=datetime.utcnow(),
+            ))
+            db.add(SnmpMacTableEntry(
+                switch_id=switch.id,
+                mac_address="00:11:22:33:44:55",
+                if_index=1,
+                last_seen_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            result = delete_switch(switch.id, db, None)
+
+            self.assertTrue(result.success)
+            self.assertIsNone(db.query(SnmpSwitch).filter(SnmpSwitch.id == switch.id).first())
+            self.assertEqual(db.query(SnmpInterface).count(), 0)
+            self.assertEqual(db.query(SnmpMacTableEntry).count(), 0)
         finally:
             db.close()
 

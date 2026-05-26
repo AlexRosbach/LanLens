@@ -12,6 +12,7 @@ All notable changes to this project should be documented in this file.
 - Export rows include object type, title, network identifiers, hardware fields, inventory/CMDB IDs, location, responsible person, notes and LanLens ID.
 - Added optional built-in HTTPS settings for host-network deployments, including certificate/key upload, nginx reload and optional HTTP-to-HTTPS redirect.
 - Added an SNMP v1/v2c/v3 switch topology foundation with Cisco, Sophos, UniFi/Ubiquiti and generic SNMP vendor detection, profiles, switch polling, interface/MAC-table storage and i-doit export enrichment for switch, port and identity confidence.
+- Added SNMP profile and switch-target deletion from Settings, including backend cleanup for assigned profile references and learned switch data.
 - Added optional feature visibility settings that keep CMDB/i-doit, SNMP, Scan Nodes, Services, DHCP Monitor and detailed port-scan controls hidden from simpler home-network setups until explicitly enabled.
 
 ### Fixes / Hardening

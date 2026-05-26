@@ -188,6 +188,7 @@ In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v1, v
 - MAC addresses learned from switches are matched back to known LanLens devices
 - device topology data can show the switch and interface context when available
 - the i-doit CSV export includes `SNMP-Switch`, `SNMP-Port` and `Identity Confidence`
+- SNMP profiles and switch targets can be removed again from the same settings view
 
 LanLens detects the vendor from `sysObjectID`/`sysDescr` and uses standard IF-MIB, BRIDGE-MIB and Q-BRIDGE-MIB fallbacks. Routers and firewalls such as UniFi gateways or Sophos appliances may expose interface inventory without a switch MAC table; those polls complete with a clear warning instead of failing the whole poll.
 

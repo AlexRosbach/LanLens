@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch, User
+from ..schemas import MessageResponse
 from ..services.snmp import detect_vendor, identity_for_device, poll_switch
 
 router = APIRouter(prefix="/api/snmp", tags=["snmp"])
@@ -134,6 +135,21 @@ def create_profile(payload: SnmpProfilePayload, db: Session = Depends(get_db), _
     return _profile_response(profile)
 
 
+@router.delete("/profiles/{profile_id}", response_model=MessageResponse)
+def delete_profile(profile_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MessageResponse:
+    profile = db.query(SnmpProfile).filter(SnmpProfile.id == profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="SNMP profile not found")
+
+    db.query(SnmpSwitch).filter(SnmpSwitch.profile_id == profile_id).update(
+        {SnmpSwitch.profile_id: None},
+        synchronize_session=False,
+    )
+    db.delete(profile)
+    db.commit()
+    return MessageResponse(message="SNMP profile deleted")
+
+
 @router.get("/switches")
 def list_switches(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     switches = db.query(SnmpSwitch).order_by(SnmpSwitch.name.asc()).all()
@@ -186,6 +202,17 @@ def create_switch(payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: 
     db.commit()
     db.refresh(switch)
     return _switch_response(switch, interface_count=0, mac_count=0)
+
+
+@router.delete("/switches/{switch_id}", response_model=MessageResponse)
+def delete_switch(switch_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MessageResponse:
+    switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == switch_id).first()
+    if not switch:
+        raise HTTPException(status_code=404, detail="SNMP switch not found")
+
+    db.delete(switch)
+    db.commit()
+    return MessageResponse(message="SNMP switch deleted")
 
 
 @router.post("/switches/{switch_id}/poll")

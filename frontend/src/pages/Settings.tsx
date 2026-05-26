@@ -536,6 +536,35 @@ export default function Settings() {
     }
   }
 
+  async function deleteSnmpProfile(profile: SnmpProfile) {
+    if (!confirm(t('snmp_profile_delete_confirm', { name: profile.name }))) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.deleteProfile(profile.id)
+      if (snmpProfileId === String(profile.id)) setSnmpProfileId('')
+      await loadSnmp()
+      toast.success(t('snmp_profile_deleted'))
+    } catch (error) {
+      toast.error(`${t('snmp_profile_delete_failed')}: ${extractApiErrorMessage(error, t('snmp_profile_delete_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function deleteSnmpSwitch(item: SnmpSwitch) {
+    if (!confirm(t('snmp_switch_delete_confirm', { name: item.name }))) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.deleteSwitch(item.id)
+      await loadSnmp()
+      toast.success(t('snmp_switch_deleted'))
+    } catch (error) {
+      toast.error(`${t('snmp_switch_delete_failed')}: ${extractApiErrorMessage(error, t('snmp_switch_delete_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
   async function createScanNode() {
     if (!scanNodeName.trim()) {
       toast.error('Name fehlt')
@@ -1482,6 +1511,37 @@ export default function Settings() {
               <Button onClick={createSnmpProfile} loading={snmpLoading}>{t('snmp_add_profile')}</Button>
             </div>
 
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('snmp_profile_name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('profile')}</th>
+                    <th className="px-3 py-2 font-medium">{t('port')}</th>
+                    <th className="px-3 py-2 font-medium">{t('actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {snmpProfiles.length === 0 ? (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={4}>{t('snmp_no_profiles')}</td></tr>
+                  ) : snmpProfiles.map((profile) => (
+                    <tr key={profile.id}>
+                      <td className="px-3 py-2 font-medium text-text-base">{profile.name}</td>
+                      <td className="px-3 py-2 text-text-muted">
+                        {profile.version === '3' ? t('snmp_version_3') : profile.version === '1' ? t('snmp_version_1') : t('snmp_version_2c')}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted">{profile.port}</td>
+                      <td className="px-3 py-2">
+                        <Button size="sm" variant="danger" onClick={() => deleteSnmpProfile(profile)} disabled={snmpLoading}>
+                          {t('delete')}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
             <div className="mt-4 grid gap-3 md:grid-cols-4">
               <Input placeholder={t('snmp_switch_name')} value={snmpSwitchName} onChange={(e) => setSnmpSwitchName(e.target.value)} />
               <Input placeholder={t('snmp_switch_host')} value={snmpSwitchHost} onChange={(e) => setSnmpSwitchHost(e.target.value)} />
@@ -1526,7 +1586,12 @@ export default function Settings() {
                       <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.mac_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.last_poll_at ? formatDateTime(item.last_poll_at) : '—'}</td>
-                      <td className="px-3 py-2"><Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)}>{t('poll_now')}</Button></td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading}>{t('poll_now')}</Button>
+                          <Button size="sm" variant="danger" onClick={() => deleteSnmpSwitch(item)} disabled={snmpLoading}>{t('delete')}</Button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

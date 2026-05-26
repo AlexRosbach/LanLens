@@ -799,8 +799,10 @@ The API surface is available under `/api/snmp`:
 
 - `GET /api/snmp/profiles`
 - `POST /api/snmp/profiles`
+- `DELETE /api/snmp/profiles/{profile_id}`
 - `GET /api/snmp/switches`
 - `POST /api/snmp/switches`
+- `DELETE /api/snmp/switches/{switch_id}`
 - `POST /api/snmp/switches/{switch_id}/poll`
 - `GET /api/snmp/switches/{switch_id}/interfaces`
 - `GET /api/snmp/topology/endpoints`

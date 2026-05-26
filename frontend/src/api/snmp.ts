@@ -65,9 +65,11 @@ export const snmpApi = {
   listProfiles: () => apiClient.get<SnmpProfile[]>('/snmp/profiles').then((r) => r.data),
   createProfile: (data: SnmpProfileCreate) =>
     apiClient.post<SnmpProfile>('/snmp/profiles', data).then((r) => r.data),
+  deleteProfile: (profileId: number) => apiClient.delete(`/snmp/profiles/${profileId}`).then((r) => r.data),
   listSwitches: () => apiClient.get<SnmpSwitch[]>('/snmp/switches').then((r) => r.data),
   createSwitch: (data: { name: string; host: string; profile_id: number; device_id?: number | null; enabled: boolean }) =>
     apiClient.post<SnmpSwitch>('/snmp/switches', data).then((r) => r.data),
+  deleteSwitch: (switchId: number) => apiClient.delete(`/snmp/switches/${switchId}`).then((r) => r.data),
   pollSwitch: (switchId: number) => apiClient.post(`/snmp/switches/${switchId}/poll`).then((r) => r.data),
   listEndpoints: () => apiClient.get<SnmpEndpoint[]>('/snmp/topology/endpoints').then((r) => r.data),
 }
