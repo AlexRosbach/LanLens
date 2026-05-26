@@ -71,6 +71,7 @@ export default function DeviceDetail() {
   const navigate = useNavigate()
   const { t, lang } = useI18n()
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
+  const showCmdbIntegrations = useUiSettingsStore((state) => state.showCmdbIntegrations)
   const [device, setDevice] = useState<Device | null>(null)
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -423,7 +424,7 @@ export default function DeviceDetail() {
               </div>
             </div>
 
-            {device.idoit_enabled && (
+            {showCmdbIntegrations && device.idoit_enabled && (
               <div className="border-t border-border pt-4">
                 <div className="flex items-center justify-between gap-3 mb-3">
                   <h2 className="text-sm font-semibold text-text-muted">{t('idoit_sync')}</h2>

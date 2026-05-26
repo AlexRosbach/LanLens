@@ -130,6 +130,50 @@ function extractIdoitErrorDetails(error: unknown): IdoitErrorDetails {
   return { message: (error as Error)?.message || 'i-doit connection failed' }
 }
 
+function extractApiErrorMessage(error: unknown, fallback: string): string {
+  const response = (error as { response?: { data?: { detail?: unknown } } })?.response
+  const detail = response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (detail && typeof detail === 'object') {
+    const data = detail as Record<string, unknown>
+    if (typeof data.message === 'string' && data.message.trim()) return data.message
+  }
+  return (error as Error)?.message || fallback
+}
+
+function ToggleSwitch({
+  checked,
+  disabled = false,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+  label: string
+  description: string
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`flex w-full items-center justify-between gap-4 rounded-lg border px-4 py-3 text-left transition-colors ${
+        checked ? 'border-primary/40 bg-primary-dim/20' : 'border-border bg-surface2/40'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary/50'}`}
+    >
+      <span>
+        <span className="block text-sm font-medium text-text-base">{label}</span>
+        <span className="mt-1 block text-xs text-text-subtle">{description}</span>
+      </span>
+      <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
+        <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+      </span>
+    </button>
+  )
+}
+
 function IdoitExportReviewPanel() {
   const { t } = useI18n()
   const [rows, setRows] = useState<IdoitExportRow[]>([])
@@ -309,8 +353,9 @@ export default function Settings() {
   const [snmpSwitchName, setSnmpSwitchName] = useState('')
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
-  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
+  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
+  const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
   const setShowBuildInfo = useUiSettingsStore((state) => state.setShowBuildInfo)
@@ -325,6 +370,7 @@ export default function Settings() {
     settingsApi.get().then((data) => {
       setSettings(data)
       setAdvancedViewEnabled(data.advanced_view_enabled)
+      setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
       setShowBuildInfo(data.show_build_info)
@@ -336,14 +382,14 @@ export default function Settings() {
 
   useEffect(() => {
     if (settings?.advanced_view_enabled) {
-      loadIdoitConfig()
+      if (settings.show_cmdb_integrations) loadIdoitConfig()
       loadScanNodes().catch(() => {})
       loadSnmp().catch(() => {})
     }
-  }, [settings?.advanced_view_enabled])
+  }, [settings?.advanced_view_enabled, settings?.show_cmdb_integrations])
 
   useEffect(() => {
-    if (settings && !settings.advanced_view_enabled && activeSection === 'cmdb') {
+    if (settings && (!settings.advanced_view_enabled || !settings.show_cmdb_integrations) && activeSection === 'cmdb') {
       setActiveSection('system')
     }
   }, [activeSection, settings])
@@ -483,8 +529,8 @@ export default function Settings() {
       await snmpApi.pollSwitch(switchId)
       await loadSnmp()
       toast.success(t('snmp_poll_complete'))
-    } catch {
-      toast.error(t('snmp_poll_failed'))
+    } catch (error) {
+      toast.error(`${t('snmp_poll_failed')}: ${extractApiErrorMessage(error, t('snmp_poll_failed'))}`)
     } finally {
       setSnmpLoading(false)
     }
@@ -1001,11 +1047,13 @@ export default function Settings() {
     try {
       await settingsApi.updateUi(
         current.advanced_view_enabled,
+        current.show_cmdb_integrations,
         current.show_services_nav,
         current.show_dhcp_monitor_nav,
         current.show_build_info,
       )
       setAdvancedViewEnabled(current.advanced_view_enabled)
+      setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
       setShowBuildInfo(current.show_build_info)
@@ -1019,12 +1067,13 @@ export default function Settings() {
 
   const settingSections = [
     { key: 'system' as const, label: t('system') },
+    { key: 'features' as const, label: t('feature_visibility_tab') },
     { key: 'database' as const, label: t('database') },
     { key: 'network' as const, label: t('network_discovery') },
     { key: 'notifications' as const, label: t('notifications') },
     { key: 'inventory' as const, label: t('inventory_tools_title') },
     { key: 'backup' as const, label: t('backup_restore') },
-    ...(current.advanced_view_enabled ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
+    ...(current.advanced_view_enabled && current.show_cmdb_integrations ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
   ]
 
   return (
@@ -1171,53 +1220,65 @@ export default function Settings() {
             </div>
           </Card>
 
+        </div>
+      </div>
+      )}
 
+      {/* ── FEATURE VISIBILITY ───────────────────────────────────────────── */}
+      {activeSection === 'features' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('feature_visibility_tab')}
+        </h2>
+        <div className="space-y-4">
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-1">{t('ui_settings')}</h2>
-            <p className="text-sm text-text-subtle mb-4">{t('ui_settings_description')}</p>
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.advanced_view_enabled}
-                  onChange={(e) => setSettings({ ...current, advanced_view_enabled: e.target.checked })}
-                />
-                {t('advanced_view_enabled')}
-              </label>
-              <p className="pl-6 text-xs text-text-subtle">{t('advanced_view_enabled_hint')}</p>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.show_services_nav}
-                  disabled={!current.advanced_view_enabled}
-                  onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
-                />
-                {t('show_services_nav')}
-              </label>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.show_dhcp_monitor_nav}
-                  disabled={!current.advanced_view_enabled}
-                  onChange={(e) => setSettings({ ...current, show_dhcp_monitor_nav: e.target.checked })}
-                />
-                {t('show_dhcp_monitor_nav')}
-              </label>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.show_build_info}
-                  onChange={(e) => setSettings({ ...current, show_build_info: e.target.checked })}
-                />
-                {t('show_build_info')}
-              </label>
-              <p className="pl-6 text-xs text-text-subtle">{t('show_build_info_hint')}</p>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('feature_visibility_title')}</h2>
+            <p className="text-sm text-text-subtle mb-4">{t('feature_visibility_description')}</p>
+            <div className="space-y-3">
+              <ToggleSwitch
+                checked={current.advanced_view_enabled}
+                label={t('advanced_view_enabled')}
+                description={t('advanced_view_enabled_hint')}
+                onChange={(checked) => setSettings({
+                  ...current,
+                  advanced_view_enabled: checked,
+                  show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
+                  show_services_nav: checked ? current.show_services_nav : false,
+                  show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
+                })}
+              />
+              <ToggleSwitch
+                checked={current.show_cmdb_integrations}
+                disabled={!current.advanced_view_enabled}
+                label={t('show_cmdb_integrations')}
+                description={t('show_cmdb_integrations_hint')}
+                onChange={(checked) => setSettings({ ...current, show_cmdb_integrations: checked })}
+              />
+              <ToggleSwitch
+                checked={current.show_services_nav}
+                disabled={!current.advanced_view_enabled}
+                label={t('show_services_nav')}
+                description={t('show_services_nav_hint')}
+                onChange={(checked) => setSettings({ ...current, show_services_nav: checked })}
+              />
+              <ToggleSwitch
+                checked={current.show_dhcp_monitor_nav}
+                disabled={!current.advanced_view_enabled}
+                label={t('show_dhcp_monitor_nav')}
+                description={t('show_dhcp_monitor_nav_hint')}
+                onChange={(checked) => setSettings({ ...current, show_dhcp_monitor_nav: checked })}
+              />
+              <ToggleSwitch
+                checked={current.show_build_info}
+                label={t('show_build_info')}
+                description={t('show_build_info_hint')}
+                onChange={(checked) => setSettings({ ...current, show_build_info: checked })}
+              />
             </div>
             <div className="mt-4">
               <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
-
         </div>
       </div>
       )}
@@ -1451,7 +1512,10 @@ export default function Settings() {
                     <tr><td className="px-3 py-3 text-text-subtle" colSpan={7}>{t('snmp_no_switches')}</td></tr>
                   ) : snmpSwitches.map((item) => (
                     <tr key={item.id}>
-                      <td className="px-3 py-2 font-medium text-text-base">{item.name}</td>
+                      <td className="px-3 py-2 font-medium text-text-base">
+                        <div>{item.name}</div>
+                        {item.last_error && <div className="mt-1 max-w-xs text-xs font-normal text-danger">{item.last_error}</div>}
+                      </td>
                       <td className="px-3 py-2 text-text-muted">{item.host}</td>
                       <td className="px-3 py-2 text-text-muted">{item.sys_name || '—'}</td>
                       <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>

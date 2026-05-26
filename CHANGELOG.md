@@ -6,16 +6,17 @@ All notable changes to this project should be documented in this file.
 
 ### New Features
 - Added optional internal build metadata with build code, branch, commit and build time for Docker and frontend builds.
-- Added a UI setting to show build information in the sidebar footer while keeping it hidden by default.
+- Added a dedicated Settings → Features tab with switch-style controls for Advanced View, CMDB/i-doit visibility, optional navigation modules and build metadata.
 - Added an editable i-doit CSV export preview in Settings → CMDB.
 - Added backend endpoints for i-doit export preview and reviewed CSV download.
 - Export rows include object type, title, network identifiers, hardware fields, inventory/CMDB IDs, location, responsible person, notes and LanLens ID.
 - Added optional built-in HTTPS settings for host-network deployments, including certificate/key upload, nginx reload and optional HTTP-to-HTTPS redirect.
 - Added an SNMP v1/v2c/v3 switch topology foundation with profiles, switch polling, interface/MAC-table storage and i-doit export enrichment for switch, port and identity confidence.
-- Added an optional Advanced View setting that keeps CMDB/i-doit, SNMP, Scan Nodes, Services, DHCP Monitor and detailed port-scan controls hidden from simpler home-network setups until explicitly enabled.
+- Added optional feature visibility settings that keep CMDB/i-doit, SNMP, Scan Nodes, Services, DHCP Monitor and detailed port-scan controls hidden from simpler home-network setups until explicitly enabled.
 
 ### Fixes / Hardening
 - Added CSV export test coverage for excluding unchecked rows.
+- SNMP poll failures now surface the backend error details in the Settings UI and keep the latest switch error visible in the SNMP table.
 - Added SNMP parser and identity-resolution test coverage.
 - Added certificate/key validation and restrictive private-key permissions for uploaded HTTPS material.
 - Bumped backend, frontend and image metadata to 1.5.2.

@@ -457,7 +457,7 @@ External reverse proxies remain the better central TLS option when the deploymen
 
 ### Advanced View
 
-The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → System → UI Settings → Advanced View**. When disabled, LanLens hides the CMDB/i-doit tab, SNMP switch topology, Scan Nodes, Services navigation, DHCP Monitor navigation and detailed port-scan controls. The stored settings remain intact and become visible again when Advanced View is re-enabled.
+The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor and internal build metadata visibility. When disabled, LanLens hides the related UI surfaces but keeps the stored settings intact.
 
 ### Capabilities
 

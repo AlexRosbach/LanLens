@@ -31,6 +31,7 @@ export interface AllSettings {
   cmdb_id_prefix: string
   cmdb_id_digits: number
   advanced_view_enabled: boolean
+  show_cmdb_integrations: boolean
   show_services_nav: boolean
   show_dhcp_monitor_nav: boolean
   show_build_info: boolean
@@ -107,12 +108,14 @@ export const settingsApi = {
 
   updateUi: (
     advanced_view_enabled: boolean,
+    show_cmdb_integrations: boolean,
     show_services_nav: boolean,
     show_dhcp_monitor_nav: boolean,
     show_build_info: boolean,
   ) =>
     apiClient.put('/settings/ui', {
       advanced_view_enabled,
+      show_cmdb_integrations,
       show_services_nav,
       show_dhcp_monitor_nav,
       show_build_info,

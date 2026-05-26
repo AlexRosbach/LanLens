@@ -3,6 +3,7 @@ import { settingsApi } from '../api/settings'
 
 interface UiSettingsState {
   advancedViewEnabled: boolean
+  showCmdbIntegrations: boolean
   showServicesNav: boolean
   showDhcpMonitorNav: boolean
   showBuildInfo: boolean
@@ -13,6 +14,7 @@ interface UiSettingsState {
   buildCreated: string
   loading: boolean
   setAdvancedViewEnabled: (advancedViewEnabled: boolean) => void
+  setShowCmdbIntegrations: (showCmdbIntegrations: boolean) => void
   setShowServicesNav: (showServicesNav: boolean) => void
   setShowDhcpMonitorNav: (showDhcpMonitorNav: boolean) => void
   setShowBuildInfo: (showBuildInfo: boolean) => void
@@ -21,6 +23,7 @@ interface UiSettingsState {
 
 export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   advancedViewEnabled: false,
+  showCmdbIntegrations: false,
   showServicesNav: false,
   showDhcpMonitorNav: false,
   showBuildInfo: false,
@@ -32,6 +35,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   loading: false,
 
   setAdvancedViewEnabled: (advancedViewEnabled) => set({ advancedViewEnabled }),
+  setShowCmdbIntegrations: (showCmdbIntegrations) => set({ showCmdbIntegrations }),
   setShowServicesNav: (showServicesNav) => set({ showServicesNav }),
   setShowDhcpMonitorNav: (showDhcpMonitorNav) => set({ showDhcpMonitorNav }),
   setShowBuildInfo: (showBuildInfo) => set({ showBuildInfo }),
@@ -42,6 +46,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
       const settings = await settingsApi.get()
       set({
         advancedViewEnabled: settings.advanced_view_enabled,
+        showCmdbIntegrations: settings.advanced_view_enabled && settings.show_cmdb_integrations,
         showServicesNav: settings.advanced_view_enabled && settings.show_services_nav,
         showDhcpMonitorNav: settings.advanced_view_enabled && settings.show_dhcp_monitor_nav,
         showBuildInfo: settings.show_build_info,

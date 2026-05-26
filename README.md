@@ -111,7 +111,7 @@ LanLens can also terminate HTTPS itself for host-network deployments. In **Setti
 
 ### Optional advanced view
 
-LanLens keeps expert-oriented areas hidden by default for simpler home-network installations. Enable **Settings → System → UI Settings → Advanced View** to show CMDB/i-doit, SNMP switch topology, Scan Nodes, Services, DHCP Monitor and detailed port-scan controls. Existing feature settings are preserved while the advanced view is disabled, but the related navigation entries stay hidden.
+LanLens keeps expert-oriented areas hidden by default for simpler home-network installations. Use **Settings → Features** to enable Advanced View and then turn on the modules this deployment actually needs, such as CMDB/i-doit, Services, DHCP Monitor and build metadata. Existing feature settings are preserved while Advanced View is disabled, but the related UI surfaces stay hidden.
 
 ### 4. Start LanLens
 
@@ -191,12 +191,14 @@ In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v1, v
 
 SNMP community strings and SNMPv3 credentials are stored in the LanLens database and masked in API responses. Treat the database and `/data` volume as sensitive application data. LLDP/CDP and richer graph visualization are planned follow-ups.
 
-### Optional navigation pages
+### Optional feature visibility
 
-In **Settings → System → UI Settings**, optional sidebar entries can be enabled or hidden:
+In **Settings -> Features**, optional modules can be enabled or hidden:
 
+- **CMDB/i-doit**: shows the CMDB settings tab and i-doit sync details on device pages.
 - **Services**: shows the global Services directory.
 - **DHCP Monitor**: shows a DHCP server/options monitor. It is not a full DHCP process timeline; it actively sends a DHCP Discover probe from the LanLens host/container and displays which DHCP server answers with which options.
+- **Build information**: shows internal build metadata in the sidebar footer.
 
 The DHCP Monitor requires host networking and raw packet permissions so LanLens can send a DHCP Discover and receive DHCP replies. Renewing a lease on another workstation may not be visible on a normal switched network because DHCP renewal ACKs are often unicast directly to that client.
 

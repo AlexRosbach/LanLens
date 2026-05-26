@@ -432,6 +432,7 @@ class ServerUrlSettings(BaseModel):
 
 class UiSettings(BaseModel):
     advanced_view_enabled: bool = False
+    show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
     show_build_info: bool = False
@@ -480,6 +481,7 @@ class AllSettings(BaseModel):
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
     advanced_view_enabled: bool = False
+    show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
     show_build_info: bool = False
