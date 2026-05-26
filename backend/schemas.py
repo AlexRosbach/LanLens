@@ -356,6 +356,9 @@ class TopologyNode(BaseModel):
     segment_id: Optional[int]
     segment_name: Optional[str]
     service_count: int
+    snmp_switch: Optional[str] = None
+    snmp_interface: Optional[str] = None
+    snmp_vlan: Optional[str] = None
 
 
 class TopologyEdge(BaseModel):
@@ -363,6 +366,7 @@ class TopologyEdge(BaseModel):
     target: int
     relationship_type: str
     label: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 class TopologyResponse(BaseModel):
@@ -427,8 +431,11 @@ class ServerUrlSettings(BaseModel):
 
 
 class UiSettings(BaseModel):
+    advanced_view_enabled: bool = False
+    show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_build_info: bool = False
 
 
 class PortScanSettings(BaseModel):
@@ -473,8 +480,20 @@ class AllSettings(BaseModel):
     webhook_enabled: bool = False
     cmdb_id_prefix: str = "DEV"
     cmdb_id_digits: int = 4
+    advanced_view_enabled: bool = False
+    show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_build_info: bool = False
+    app_version: str = ""
+    build_code: str = ""
+    build_commit: str = ""
+    build_branch: str = ""
+    build_created: str = ""
+    https_enabled: bool = False
+    https_configured: bool = False
+    https_port: int = 7765
+    https_redirect_http: bool = False
 
 
 class SmtpSettings(BaseModel):

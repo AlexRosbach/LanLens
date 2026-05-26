@@ -36,6 +36,7 @@ services:
 
     # Host mode still allows a custom HTTP port.
     # Example: set LANLENS_PORT=80 above if you want LanLens on port 80.
+    # Optional built-in HTTPS can be enabled in Settings → System after startup.
 
     # ── Bridge networking alternative (ARP scanning disabled) ─────────────────
     # Comment out network_mode and cap_add above, then uncomment:
@@ -44,7 +45,7 @@ services:
     # and set LANLENS_PORT=8080 above so nginx listens on the same port.
 
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:$${LANLENS_PORT:-7765}/api/health"]
+      test: ["CMD-SHELL", "if python -c 'import json,sys; data=json.load(open(\"/data/tls/config.json\")); sys.exit(0 if data.get(\"enabled\") else 1)' 2>/dev/null; then port=$$(python -c 'import json; print(json.load(open(\"/data/tls/config.json\")).get(\"port\") or \"\")' 2>/dev/null); curl -kfs https://localhost:$${port:-$${LANLENS_PORT:-7765}}/api/health; else curl -fs http://localhost:$${LANLENS_PORT:-7765}/api/health; fi"]
       interval: 30s
       timeout: 10s
       retries: 3

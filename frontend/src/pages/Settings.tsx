@@ -6,8 +6,9 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
-import { idoitApi, type IdoitConfig, type IdoitSyncLogEntry } from '../api/idoit'
+import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
+import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -58,6 +59,26 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
 ] as const
 
+const IDOIT_EXPORT_EDIT_FIELDS = [
+  { key: 'object_type', labelKey: 'idoit_export_object_type' },
+  { key: 'title', labelKey: 'idoit_export_title' },
+  { key: 'ip_address', labelKey: 'idoit_field_ip_address' },
+  { key: 'mac_address', labelKey: 'idoit_field_mac_address' },
+  { key: 'hostname', labelKey: 'idoit_field_hostname' },
+  { key: 'manufacturer', labelKey: 'idoit_export_manufacturer' },
+  { key: 'model', labelKey: 'idoit_field_model' },
+  { key: 'serial', labelKey: 'idoit_field_serial' },
+  { key: 'os_info', labelKey: 'idoit_field_os_info' },
+  { key: 'inventory_no', labelKey: 'idoit_export_inventory_no' },
+  { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id' },
+  { key: 'location', labelKey: 'idoit_export_location' },
+  { key: 'responsible', labelKey: 'idoit_export_responsible' },
+  { key: 'notes', labelKey: 'idoit_field_notes', wide: true },
+  { key: 'snmp_switch', labelKey: 'idoit_export_snmp_switch' },
+  { key: 'snmp_port', labelKey: 'idoit_export_snmp_port' },
+  { key: 'identity_confidence', labelKey: 'idoit_export_identity_confidence' },
+] as const
+
 function parseIdoitMapping(raw: string): { mapping: IdoitMapping | null; error: string | null } {
   try {
     const parsed = JSON.parse(raw || '{}')
@@ -84,6 +105,13 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a) }, 100)
 }
 
+function buildHttpsSettingsUrl(port: number) {
+  const url = new URL(window.location.href)
+  url.protocol = 'https:'
+  url.port = port === 443 ? '' : String(port)
+  return url.toString()
+}
+
 function extractIdoitErrorDetails(error: unknown): IdoitErrorDetails {
   const response = (error as { response?: { data?: { detail?: unknown } } })?.response
   const detail = response?.data?.detail
@@ -102,11 +130,195 @@ function extractIdoitErrorDetails(error: unknown): IdoitErrorDetails {
   return { message: (error as Error)?.message || 'i-doit connection failed' }
 }
 
+function extractApiErrorMessage(error: unknown, fallback: string): string {
+  const response = (error as { response?: { data?: { detail?: unknown } } })?.response
+  const detail = response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (detail && typeof detail === 'object') {
+    const data = detail as Record<string, unknown>
+    if (typeof data.message === 'string' && data.message.trim()) return data.message
+  }
+  return (error as Error)?.message || fallback
+}
+
+function ToggleSwitch({
+  checked,
+  disabled = false,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+  label: string
+  description: string
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`flex w-full items-center justify-between gap-4 rounded-lg border px-4 py-3 text-left transition-colors ${
+        checked ? 'border-primary/40 bg-primary-dim/20' : 'border-border bg-surface2/40'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary/50'}`}
+    >
+      <span>
+        <span className="block text-sm font-medium text-text-base">{label}</span>
+        <span className="mt-1 block text-xs text-text-subtle">{description}</span>
+      </span>
+      <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
+        <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+      </span>
+    </button>
+  )
+}
+
+function IdoitExportReviewPanel() {
+  const { t } = useI18n()
+  const [rows, setRows] = useState<IdoitExportRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [registeredOnly, setRegisteredOnly] = useState(true)
+  const [includeOffline, setIncludeOffline] = useState(true)
+
+  const includedCount = rows.filter((row) => row.include).length
+
+  async function loadPreview() {
+    setLoading(true)
+    try {
+      const preview = await idoitApi.previewExport({
+        registered_only: registeredOnly,
+        include_offline: includeOffline,
+        limit: 500,
+      })
+      setRows(preview.rows)
+      toast.success(t('idoit_export_preview_loaded', { count: preview.rows.length }))
+    } catch {
+      toast.error(t('idoit_export_preview_failed'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function updateRow(index: number, patch: Partial<IdoitExportRow>) {
+    setRows((currentRows) => currentRows.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, ...patch } : row
+    )))
+  }
+
+  function setAllIncluded(include: boolean) {
+    setRows((currentRows) => currentRows.map((row) => ({ ...row, include })))
+  }
+
+  async function downloadExport() {
+    if (!rows.length || includedCount === 0) {
+      toast.error(t('idoit_export_no_rows'))
+      return
+    }
+    setExporting(true)
+    try {
+      const blob = await idoitApi.exportCsv(rows)
+      downloadBlob(blob, `lanlens-idoit-export-${new Date().toISOString().slice(0, 10)}.csv`)
+      toast.success(t('idoit_export_downloaded', { count: includedCount }))
+    } catch {
+      toast.error(t('idoit_export_failed'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
+      <div className="flex flex-col gap-1 mb-4">
+        <h3 className="text-sm font-semibold text-text-muted">{t('idoit_export_review')}</h3>
+        <p className="text-xs text-text-subtle">{t('idoit_export_review_hint')}</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 text-sm text-text-muted">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={registeredOnly} onChange={(event) => setRegisteredOnly(event.target.checked)} />
+          {t('idoit_export_registered_only')}
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={includeOffline} onChange={(event) => setIncludeOffline(event.target.checked)} />
+          {t('idoit_export_include_offline')}
+        </label>
+        <Button onClick={loadPreview} loading={loading} variant="outline">{t('idoit_export_load_preview')}</Button>
+        <Button onClick={downloadExport} loading={exporting} disabled={!rows.length || includedCount === 0}>
+          {t('idoit_export_download')}
+        </Button>
+        {rows.length > 0 && (
+          <span className="text-xs text-text-subtle">
+            {t('idoit_export_selected_count', { selected: includedCount, total: rows.length })}
+          </span>
+        )}
+      </div>
+
+      {rows.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setAllIncluded(true)}>{t('select_all')}</Button>
+            <Button size="sm" variant="outline" onClick={() => setAllIncluded(false)}>{t('select_none')}</Button>
+          </div>
+          <div className="max-h-[32rem] overflow-auto rounded-lg border border-border bg-background">
+            <table className="min-w-[1400px] text-left text-xs">
+              <thead className="sticky top-0 bg-surface text-text-subtle">
+                <tr>
+                  <th className="px-3 py-2 font-medium">{t('include')}</th>
+                  {IDOIT_EXPORT_EDIT_FIELDS.map((field) => (
+                    <th key={field.key} className={`px-3 py-2 font-medium ${'wide' in field && field.wide ? 'min-w-72' : 'min-w-40'}`}>
+                      {t(field.labelKey)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map((row, rowIndex) => (
+                  <tr key={`${row.device_id ?? rowIndex}-${rowIndex}`} className={!row.include ? 'opacity-50' : undefined}>
+                    <td className="px-3 py-2 align-top">
+                      <input
+                        type="checkbox"
+                        checked={row.include}
+                        onChange={(event) => updateRow(rowIndex, { include: event.target.checked })}
+                      />
+                    </td>
+                    {IDOIT_EXPORT_EDIT_FIELDS.map((field) => (
+                      <td key={field.key} className="px-2 py-2 align-top">
+                        {'wide' in field && field.wide ? (
+                          <textarea
+                            className="h-20 w-full rounded-lg border border-border bg-surface px-2 py-1 text-xs text-text-base focus:outline-none focus:ring-2 focus:ring-primary/40"
+                            value={String(row[field.key] ?? '')}
+                            onChange={(event) => updateRow(rowIndex, { [field.key]: event.target.value } as Partial<IdoitExportRow>)}
+                          />
+                        ) : (
+                          <Input
+                            className="text-xs"
+                            value={String(row[field.key] ?? '')}
+                            onChange={(event) => updateRow(rowIndex, { [field.key]: event.target.value } as Partial<IdoitExportRow>)}
+                          />
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Settings() {
   const { t, lang, setLang } = useI18n()
   const [settings, setSettings] = useState<AllSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [httpsCertificate, setHttpsCertificate] = useState<File | null>(null)
+  const [httpsPrivateKey, setHttpsPrivateKey] = useState<File | null>(null)
+  const [httpsCaChain, setHttpsCaChain] = useState<File | null>(null)
   const [telegramTokenDirty, setTelegramTokenDirty] = useState(false)
   const [idoitConfig, setIdoitConfig] = useState<IdoitConfig | null>(null)
   const [idoitLoadError, setIdoitLoadError] = useState(false)
@@ -125,9 +337,28 @@ export default function Settings() {
   const [scanNodeSite, setScanNodeSite] = useState('')
   const [scanNodeSegment, setScanNodeSegment] = useState('')
   const [scanNodeProvisioning, setScanNodeProvisioning] = useState<ScanNodeProvisioning | null>(null)
-  const [activeSection, setActiveSection] = useState<'system' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
+  const [snmpProfiles, setSnmpProfiles] = useState<SnmpProfile[]>([])
+  const [snmpSwitches, setSnmpSwitches] = useState<SnmpSwitch[]>([])
+  const [snmpEndpoints, setSnmpEndpoints] = useState<SnmpEndpoint[]>([])
+  const [snmpLoading, setSnmpLoading] = useState(false)
+  const [snmpProfileName, setSnmpProfileName] = useState('')
+  const [snmpVersion, setSnmpVersion] = useState<SnmpProfileCreate['version']>('2c')
+  const [snmpCommunity, setSnmpCommunity] = useState('')
+  const [snmpUsername, setSnmpUsername] = useState('')
+  const [snmpSecurityLevel, setSnmpSecurityLevel] = useState<SnmpProfileCreate['security_level']>('authPriv')
+  const [snmpAuthProtocol, setSnmpAuthProtocol] = useState<SnmpProfileCreate['auth_protocol']>('SHA')
+  const [snmpAuthPassword, setSnmpAuthPassword] = useState('')
+  const [snmpPrivacyProtocol, setSnmpPrivacyProtocol] = useState<SnmpProfileCreate['privacy_protocol']>('AES')
+  const [snmpPrivacyPassword, setSnmpPrivacyPassword] = useState('')
+  const [snmpSwitchName, setSnmpSwitchName] = useState('')
+  const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
+  const [snmpProfileId, setSnmpProfileId] = useState('')
+  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
+  const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
+  const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const setShowBuildInfo = useUiSettingsStore((state) => state.setShowBuildInfo)
   const idoitMappingState = useMemo(
     () => parseIdoitMapping(idoitConfig?.idoit_mapping_raw || '{}'),
     [idoitConfig?.idoit_mapping_raw]
@@ -138,15 +369,30 @@ export default function Settings() {
     // not re-fetch and overwrite form fields or the mapping editor mid-edit.
     settingsApi.get().then((data) => {
       setSettings(data)
-      setShowServicesNav(data.show_services_nav)
-      setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
+      setAdvancedViewEnabled(data.advanced_view_enabled)
+      setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
+      setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+      setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+      setShowBuildInfo(data.show_build_info)
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
-    loadIdoitConfig()
-    loadScanNodes().catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (settings?.advanced_view_enabled) {
+      if (settings.show_cmdb_integrations) loadIdoitConfig()
+      loadScanNodes().catch(() => {})
+      loadSnmp().catch(() => {})
+    }
+  }, [settings?.advanced_view_enabled, settings?.show_cmdb_integrations])
+
+  useEffect(() => {
+    if (settings && (!settings.advanced_view_enabled || !settings.show_cmdb_integrations) && activeSection === 'cmdb') {
+      setActiveSection('system')
+    }
+  }, [activeSection, settings])
 
   if (!settings) {
     return (
@@ -194,6 +440,128 @@ export default function Settings() {
       toast.error('Scan Nodes konnten nicht geladen werden')
     } finally {
       setScanNodesLoading(false)
+    }
+  }
+
+  async function loadSnmp() {
+    setSnmpLoading(true)
+    try {
+      const [profiles, switches, endpoints] = await Promise.all([
+        snmpApi.listProfiles(),
+        snmpApi.listSwitches(),
+        snmpApi.listEndpoints(),
+      ])
+      setSnmpProfiles(profiles)
+      setSnmpSwitches(switches)
+      setSnmpEndpoints(endpoints)
+      if (!snmpProfileId && profiles[0]) setSnmpProfileId(String(profiles[0].id))
+    } catch {
+      toast.error(t('snmp_load_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function createSnmpProfile() {
+    const needsCommunity = snmpVersion !== '3'
+    const needsAuth = snmpVersion === '3' && ['authNoPriv', 'authPriv'].includes(snmpSecurityLevel)
+    const needsPrivacy = snmpVersion === '3' && snmpSecurityLevel === 'authPriv'
+    if (
+      !snmpProfileName.trim()
+      || (needsCommunity && !snmpCommunity.trim())
+      || (snmpVersion === '3' && !snmpUsername.trim())
+      || (needsAuth && !snmpAuthPassword.trim())
+      || (needsPrivacy && !snmpPrivacyPassword.trim())
+    ) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.createProfile({
+        name: snmpProfileName.trim(),
+        version: snmpVersion,
+        community: snmpCommunity.trim(),
+        username: snmpUsername.trim(),
+        security_level: snmpSecurityLevel,
+        auth_protocol: snmpAuthProtocol,
+        auth_password: snmpAuthPassword.trim(),
+        privacy_protocol: snmpPrivacyProtocol,
+        privacy_password: snmpPrivacyPassword.trim(),
+        port: 161,
+        enabled: true,
+      })
+      setSnmpProfileName('')
+      setSnmpCommunity('')
+      setSnmpUsername('')
+      setSnmpAuthPassword('')
+      setSnmpPrivacyPassword('')
+      await loadSnmp()
+      toast.success(t('snmp_profile_saved'))
+    } catch {
+      toast.error(t('snmp_profile_save_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function createSnmpSwitch() {
+    if (!snmpSwitchName.trim() || !snmpSwitchHost.trim() || !snmpProfileId) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.createSwitch({
+        name: snmpSwitchName.trim(),
+        host: snmpSwitchHost.trim(),
+        profile_id: Number(snmpProfileId),
+        enabled: true,
+      })
+      setSnmpSwitchName('')
+      setSnmpSwitchHost('')
+      await loadSnmp()
+      toast.success(t('snmp_switch_saved'))
+    } catch {
+      toast.error(t('snmp_switch_save_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function pollSnmpSwitch(switchId: number) {
+    setSnmpLoading(true)
+    try {
+      await snmpApi.pollSwitch(switchId)
+      await loadSnmp()
+      toast.success(t('snmp_poll_complete'))
+    } catch (error) {
+      toast.error(`${t('snmp_poll_failed')}: ${extractApiErrorMessage(error, t('snmp_poll_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function deleteSnmpProfile(profile: SnmpProfile) {
+    if (!confirm(t('snmp_profile_delete_confirm', { name: profile.name }))) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.deleteProfile(profile.id)
+      if (snmpProfileId === String(profile.id)) setSnmpProfileId('')
+      await loadSnmp()
+      toast.success(t('snmp_profile_deleted'))
+    } catch (error) {
+      toast.error(`${t('snmp_profile_delete_failed')}: ${extractApiErrorMessage(error, t('snmp_profile_delete_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function deleteSnmpSwitch(item: SnmpSwitch) {
+    if (!confirm(t('snmp_switch_delete_confirm', { name: item.name }))) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.deleteSwitch(item.id)
+      await loadSnmp()
+      toast.success(t('snmp_switch_deleted'))
+    } catch (error) {
+      toast.error(`${t('snmp_switch_delete_failed')}: ${extractApiErrorMessage(error, t('snmp_switch_delete_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
     }
   }
 
@@ -331,6 +699,55 @@ export default function Settings() {
     }
   }
 
+  async function saveHttpsSettings() {
+    setSaving(true)
+    const switchesToHttps = current.https_enabled && window.location.protocol === 'http:'
+    const nextSettings = {
+      ...current,
+      https_enabled: current.https_enabled,
+      https_port: current.https_port,
+      https_redirect_http: current.https_redirect_http,
+      https_configured: current.https_configured || Boolean(httpsCertificate && httpsPrivateKey),
+    }
+    const redirectUrl = switchesToHttps ? buildHttpsSettingsUrl(current.https_port) : null
+    try {
+      await settingsApi.updateHttps({
+        enabled: current.https_enabled,
+        https_port: current.https_port,
+        redirect_http: current.https_redirect_http,
+        certificate: httpsCertificate,
+        private_key: httpsPrivateKey,
+        ca_chain: httpsCaChain,
+      })
+      setSettings(nextSettings)
+      setHttpsCertificate(null)
+      setHttpsPrivateKey(null)
+      setHttpsCaChain(null)
+      toast.success(t('https_settings_saved'))
+      if (redirectUrl) {
+        window.setTimeout(() => {
+          window.location.href = redirectUrl
+        }, 1000)
+      }
+    } catch (error) {
+      const hasServerResponse = Boolean((error as { response?: unknown })?.response)
+      if (!hasServerResponse && redirectUrl) {
+        setSettings(nextSettings)
+        setHttpsCertificate(null)
+        setHttpsPrivateKey(null)
+        setHttpsCaChain(null)
+        toast.success(t('https_settings_saved'))
+        window.setTimeout(() => {
+          window.location.href = redirectUrl
+        }, 1000)
+        return
+      }
+      toast.error(t('https_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function testTelegram() {
     try {
       await settingsApi.testTelegram()
@@ -444,8 +861,10 @@ export default function Settings() {
       toast.success(result.data.message || t('settings_imported'))
       settingsApi.get().then((data) => {
         setSettings(data)
-        setShowServicesNav(data.show_services_nav)
-        setShowDhcpMonitorNav(data.show_dhcp_monitor_nav)
+        setAdvancedViewEnabled(data.advanced_view_enabled)
+        setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+        setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+        setShowBuildInfo(data.show_build_info)
       })
     } catch {
       toast.error(t('import_failed'))
@@ -655,9 +1074,18 @@ export default function Settings() {
   async function saveUi() {
     setSaving(true)
     try {
-      await settingsApi.updateUi(current.show_services_nav, current.show_dhcp_monitor_nav)
-      setShowServicesNav(current.show_services_nav)
-      setShowDhcpMonitorNav(current.show_dhcp_monitor_nav)
+      await settingsApi.updateUi(
+        current.advanced_view_enabled,
+        current.show_cmdb_integrations,
+        current.show_services_nav,
+        current.show_dhcp_monitor_nav,
+        current.show_build_info,
+      )
+      setAdvancedViewEnabled(current.advanced_view_enabled)
+      setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
+      setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
+      setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
+      setShowBuildInfo(current.show_build_info)
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))
@@ -668,12 +1096,13 @@ export default function Settings() {
 
   const settingSections = [
     { key: 'system' as const, label: t('system') },
+    { key: 'features' as const, label: t('feature_visibility_tab') },
     { key: 'database' as const, label: t('database') },
     { key: 'network' as const, label: t('network_discovery') },
     { key: 'notifications' as const, label: t('notifications') },
     { key: 'inventory' as const, label: t('inventory_tools_title') },
     { key: 'backup' as const, label: t('backup_restore') },
-    { key: 'cmdb' as const, label: t('cmdb_tab') },
+    ...(current.advanced_view_enabled && current.show_cmdb_integrations ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
   ]
 
   return (
@@ -742,33 +1171,143 @@ export default function Settings() {
             </div>
           </Card>
 
-
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-1">{t('ui_settings')}</h2>
-            <p className="text-sm text-text-subtle mb-4">{t('ui_settings_description')}</p>
-            <div className="space-y-2">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('https_settings')}</h2>
+                <p className="text-sm text-text-subtle">{t('https_settings_description')}</p>
+              </div>
+              <span className={`rounded-full px-2 py-1 text-xs ${current.https_configured ? 'bg-success/10 text-success' : 'bg-surface2 text-text-subtle'}`}>
+                {current.https_configured ? t('certificate_configured') : t('certificate_missing')}
+              </span>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
               <label className="flex items-center gap-2 text-sm text-text-base">
                 <input
                   type="checkbox"
-                  checked={current.show_services_nav}
-                  onChange={(e) => setSettings({ ...current, show_services_nav: e.target.checked })}
+                  checked={current.https_enabled}
+                  onChange={(e) => setSettings({ ...current, https_enabled: e.target.checked })}
                 />
-                {t('show_services_nav')}
+                {t('enable_https')}
               </label>
               <label className="flex items-center gap-2 text-sm text-text-base">
                 <input
                   type="checkbox"
-                  checked={current.show_dhcp_monitor_nav}
-                  onChange={(e) => setSettings({ ...current, show_dhcp_monitor_nav: e.target.checked })}
+                  checked={current.https_redirect_http}
+                  onChange={(e) => setSettings({ ...current, https_redirect_http: e.target.checked })}
                 />
-                {t('show_dhcp_monitor_nav')}
+                {t('redirect_http_to_https')}
               </label>
+
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('https_port')}</label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="65535"
+                  value={String(current.https_port)}
+                  onChange={(e) => setSettings({ ...current, https_port: Number(e.target.value) || 7765 })}
+                />
+                <p className="mt-1 text-xs text-text-subtle">{t('https_port_hint')}</p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('certificate_file')}</label>
+                <input
+                  className="block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-white"
+                  type="file"
+                  accept=".crt,.cer,.pem"
+                  onChange={(e) => setHttpsCertificate(e.target.files?.[0] || null)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('private_key_file')}</label>
+                <input
+                  className="block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-2 file:text-sm file:font-medium file:text-white"
+                  type="file"
+                  accept=".key,.pem"
+                  onChange={(e) => setHttpsPrivateKey(e.target.files?.[0] || null)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('ca_chain_file')}</label>
+                <input
+                  className="block w-full text-sm text-text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface2 file:px-3 file:py-2 file:text-sm file:font-medium file:text-text-base"
+                  type="file"
+                  accept=".crt,.cer,.pem"
+                  onChange={(e) => setHttpsCaChain(e.target.files?.[0] || null)}
+                />
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-text-subtle">{t('https_upload_hint')}</p>
+            <div className="mt-4">
+              <Button onClick={saveHttpsSettings} loading={saving}>{t('save_https_settings')}</Button>
+            </div>
+          </Card>
+
+        </div>
+      </div>
+      )}
+
+      {/* ── FEATURE VISIBILITY ───────────────────────────────────────────── */}
+      {activeSection === 'features' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('feature_visibility_tab')}
+        </h2>
+        <div className="space-y-4">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('feature_visibility_title')}</h2>
+            <p className="text-sm text-text-subtle mb-4">{t('feature_visibility_description')}</p>
+            <div className="space-y-3">
+              <ToggleSwitch
+                checked={current.advanced_view_enabled}
+                label={t('advanced_view_enabled')}
+                description={t('advanced_view_enabled_hint')}
+                onChange={(checked) => setSettings({
+                  ...current,
+                  advanced_view_enabled: checked,
+                  show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
+                  show_services_nav: checked ? current.show_services_nav : false,
+                  show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
+                })}
+              />
+              <ToggleSwitch
+                checked={current.show_cmdb_integrations}
+                disabled={!current.advanced_view_enabled}
+                label={t('show_cmdb_integrations')}
+                description={t('show_cmdb_integrations_hint')}
+                onChange={(checked) => setSettings({ ...current, show_cmdb_integrations: checked })}
+              />
+              <ToggleSwitch
+                checked={current.show_services_nav}
+                disabled={!current.advanced_view_enabled}
+                label={t('show_services_nav')}
+                description={t('show_services_nav_hint')}
+                onChange={(checked) => setSettings({ ...current, show_services_nav: checked })}
+              />
+              <ToggleSwitch
+                checked={current.show_dhcp_monitor_nav}
+                disabled={!current.advanced_view_enabled}
+                label={t('show_dhcp_monitor_nav')}
+                description={t('show_dhcp_monitor_nav_hint')}
+                onChange={(checked) => setSettings({ ...current, show_dhcp_monitor_nav: checked })}
+              />
+              <ToggleSwitch
+                checked={current.show_build_info}
+                label={t('show_build_info')}
+                description={t('show_build_info_hint')}
+                onChange={(checked) => setSettings({ ...current, show_build_info: checked })}
+              />
             </div>
             <div className="mt-4">
               <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
-
         </div>
       </div>
       )}
@@ -856,6 +1395,7 @@ export default function Settings() {
             </div>
           </Card>
 
+          {current.advanced_view_enabled && (
           <Card>
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
@@ -919,6 +1459,172 @@ export default function Settings() {
               </table>
             </div>
           </Card>
+          )}
+
+          {current.advanced_view_enabled && (
+          <Card>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('snmp_topology_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('snmp_topology_description')}</p>
+              </div>
+              <Button variant="outline" onClick={loadSnmp} loading={snmpLoading}>{t('refresh')}</Button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <Input placeholder={t('snmp_profile_name')} value={snmpProfileName} onChange={(e) => setSnmpProfileName(e.target.value)} />
+              <select className="input-field" value={snmpVersion} onChange={(e) => setSnmpVersion(e.target.value as SnmpProfileCreate['version'])}>
+                <option value="1">{t('snmp_version_1')}</option>
+                <option value="2c">{t('snmp_version_2c')}</option>
+                <option value="3">{t('snmp_version_3')}</option>
+              </select>
+              {snmpVersion === '3' ? (
+                <>
+                  <Input placeholder={t('snmp_username')} value={snmpUsername} onChange={(e) => setSnmpUsername(e.target.value)} />
+                  <select className="input-field" value={snmpSecurityLevel} onChange={(e) => setSnmpSecurityLevel(e.target.value as SnmpProfileCreate['security_level'])}>
+                    <option value="noAuthNoPriv">{t('snmp_security_noauth')}</option>
+                    <option value="authNoPriv">{t('snmp_security_auth')}</option>
+                    <option value="authPriv">{t('snmp_security_authpriv')}</option>
+                  </select>
+                  {snmpSecurityLevel !== 'noAuthNoPriv' && (
+                    <>
+                      <select className="input-field" value={snmpAuthProtocol} onChange={(e) => setSnmpAuthProtocol(e.target.value as SnmpProfileCreate['auth_protocol'])}>
+                        <option value="SHA">{t('snmp_auth_sha')}</option>
+                        <option value="MD5">{t('snmp_auth_md5')}</option>
+                      </select>
+                      <Input placeholder={t('snmp_auth_password')} type="password" value={snmpAuthPassword} onChange={(e) => setSnmpAuthPassword(e.target.value)} />
+                    </>
+                  )}
+                  {snmpSecurityLevel === 'authPriv' && (
+                    <>
+                      <select className="input-field" value={snmpPrivacyProtocol} onChange={(e) => setSnmpPrivacyProtocol(e.target.value as SnmpProfileCreate['privacy_protocol'])}>
+                        <option value="AES">{t('snmp_privacy_aes')}</option>
+                        <option value="DES">{t('snmp_privacy_des')}</option>
+                      </select>
+                      <Input placeholder={t('snmp_privacy_password')} type="password" value={snmpPrivacyPassword} onChange={(e) => setSnmpPrivacyPassword(e.target.value)} />
+                    </>
+                  )}
+                </>
+              ) : (
+                <Input placeholder={t('snmp_community')} type="password" value={snmpCommunity} onChange={(e) => setSnmpCommunity(e.target.value)} />
+              )}
+              <Button onClick={createSnmpProfile} loading={snmpLoading}>{t('snmp_add_profile')}</Button>
+            </div>
+
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('snmp_profile_name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('profile')}</th>
+                    <th className="px-3 py-2 font-medium">{t('port')}</th>
+                    <th className="px-3 py-2 font-medium">{t('actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {snmpProfiles.length === 0 ? (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={4}>{t('snmp_no_profiles')}</td></tr>
+                  ) : snmpProfiles.map((profile) => (
+                    <tr key={profile.id}>
+                      <td className="px-3 py-2 font-medium text-text-base">{profile.name}</td>
+                      <td className="px-3 py-2 text-text-muted">
+                        {profile.version === '3' ? t('snmp_version_3') : profile.version === '1' ? t('snmp_version_1') : t('snmp_version_2c')}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted">{profile.port}</td>
+                      <td className="px-3 py-2">
+                        <Button size="sm" variant="danger" onClick={() => deleteSnmpProfile(profile)} disabled={snmpLoading}>
+                          {t('delete')}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-4">
+              <Input placeholder={t('snmp_switch_name')} value={snmpSwitchName} onChange={(e) => setSnmpSwitchName(e.target.value)} />
+              <Input placeholder={t('snmp_switch_host')} value={snmpSwitchHost} onChange={(e) => setSnmpSwitchHost(e.target.value)} />
+              <select className="input-field" value={snmpProfileId} onChange={(e) => setSnmpProfileId(e.target.value)}>
+                <option value="">{t('snmp_select_profile')}</option>
+                {snmpProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+              <Button onClick={createSnmpSwitch} loading={snmpLoading}>{t('snmp_add_switch')}</Button>
+            </div>
+
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_host')}</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_sys_name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('vendor')}</th>
+                    <th className="px-3 py-2 font-medium">{t('interfaces')}</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_macs')}</th>
+                    <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
+                    <th className="px-3 py-2 font-medium">{t('actions')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {snmpSwitches.length === 0 ? (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={8}>{t('snmp_no_switches')}</td></tr>
+                  ) : snmpSwitches.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-3 py-2 font-medium text-text-base">
+                        <div>{item.name}</div>
+                        {item.last_error && <div className="mt-1 max-w-xs text-xs font-normal text-danger">{item.last_error}</div>}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted">{item.host}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.sys_name || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">
+                        <div>{item.vendor || '—'}</div>
+                        {item.vendor_notes && <div className="mt-1 max-w-xs text-[11px] text-text-subtle">{item.vendor_notes}</div>}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.mac_count}</td>
+                      <td className="px-3 py-2 text-text-muted">{item.last_poll_at ? formatDateTime(item.last_poll_at) : '—'}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading}>{t('poll_now')}</Button>
+                          <Button size="sm" variant="danger" onClick={() => deleteSnmpSwitch(item)} disabled={snmpLoading}>{t('delete')}</Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 overflow-auto rounded-lg border border-border">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-surface2 text-text-subtle">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">{t('col_device')}</th>
+                    <th className="px-3 py-2 font-medium">{t('mac_address')}</th>
+                    <th className="px-3 py-2 font-medium">{t('snmp_switch')}</th>
+                    <th className="px-3 py-2 font-medium">{t('port')}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {snmpEndpoints.slice(0, 20).map((entry) => (
+                    <tr key={`${entry.switch_host}-${entry.mac_address}-${entry.vlan || ''}`}>
+                      <td className="px-3 py-2 text-text-muted">{entry.device_label || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">{entry.mac_address}</td>
+                      <td className="px-3 py-2 text-text-muted">{entry.switch_name}</td>
+                      <td className="px-3 py-2 text-text-muted">{entry.interface_name || entry.if_index || '—'}</td>
+                    </tr>
+                  ))}
+                  {snmpEndpoints.length === 0 && (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={4}>{t('snmp_no_endpoints')}</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+          )}
 
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">{t('scan_schedule_title')}</h2>
@@ -935,6 +1641,7 @@ export default function Settings() {
             </div>
           </Card>
 
+          {current.advanced_view_enabled && (
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-2">{t('port_scan_range_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
@@ -954,6 +1661,7 @@ export default function Settings() {
               <Button onClick={savePortScanSettings} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
+          )}
         </div>
       </div>
       )}
@@ -1592,6 +2300,8 @@ export default function Settings() {
                     {idoitSyncProgress.label && <p className="mt-2 text-xs text-text-subtle truncate">{idoitSyncProgress.label}</p>}
                   </div>
                 )}
+
+                <IdoitExportReviewPanel />
 
                 <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">

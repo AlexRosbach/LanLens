@@ -443,6 +443,22 @@ ARP scanning requires sending raw Ethernet frames to the broadcast address. This
 
 **Alternative (bridge mode)**: Remove `network_mode: host` and add `ports: ["8080:80"]`. ARP scanning will not work from a bridge network. Additional routed scan targets still use nmap ping sweep (`-sn`), but the primary local ARP range needs host networking/raw-socket access for full MAC/vendor discovery.
 
+### Built-in HTTPS for host mode
+
+Host-network containers cannot also join a Docker reverse-proxy network. For standalone host-mode deployments, LanLens can terminate HTTPS inside its own nginx process:
+
+1. Open **Settings → System → HTTPS Settings**.
+2. Upload the certificate and matching private key. An optional CA chain can be uploaded as well.
+3. Select the HTTPS port and enable HTTPS.
+
+LanLens stores certificate material under `/data/tls`, validates the certificate/key pair before activation, renders the nginx configuration, and reloads nginx. If the HTTPS port is the same as `LANLENS_PORT`, that port switches from HTTP to HTTPS. If the ports differ, HTTP can optionally redirect to HTTPS.
+
+External reverse proxies remain the better central TLS option when the deployment model allows them.
+
+### Advanced View
+
+The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor and internal build metadata visibility. When disabled, LanLens hides the related UI surfaces but keeps the stored settings intact.
+
 ### Capabilities
 
 - `NET_ADMIN`: Required for interface configuration
@@ -452,6 +468,7 @@ ARP scanning requires sending raw Ethernet frames to the broadcast address. This
 
 `/data` is a Docker named volume containing:
 - `lanlens.db` — SQLite database (all persistent state)
+- `tls/` — optional HTTPS certificate, private key, and HTTPS settings
 
 **Backup:** `docker run --rm -v lanlens_data:/data -v $(pwd):/backup alpine tar czf /backup/lanlens-backup.tar.gz /data`
 
@@ -752,6 +769,46 @@ Security and operational boundaries:
 - Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
+
+### Editable i-doit CSV Export (v1.5.1)
+
+LanLens 1.5.1 adds a reviewed CSV export for i-doit. In **Settings → CMDB → i-doit**, use **Load export preview** to build rows from the current inventory, adjust fields in the table, untick rows that should not be included, and download the CSV.
+
+This workflow is deliberately file-based and does not call i-doit JSON-RPC. It is useful when operators want an AutoDoku-style review step before import, or when the i-doit environment expects CSV reconciliation instead of automated writes.
+
+The export can include SNMP-derived identity context when switches have been polled through **Settings → Network → SNMP switch topology**:
+
+- `SNMP-Switch`
+- `SNMP-Port`
+- `Identity Confidence`
+
+These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
+
+## SNMP Switch Topology Foundation
+
+LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiquiti and generic SNMP devices, then poll inventory from the container using `snmpwalk`. The foundation release stores:
+
+- switch system name, description and object ID
+- interface index, name, description, alias, status, speed and physical address
+- bridge forwarding table entries, mapped back from MAC address to interface index where the switch exposes BRIDGE-MIB or Q-BRIDGE-MIB mappings
+- detected vendor context from `sysObjectID` and `sysDescr`
+
+Routers and firewalls may expose IF-MIB without a switch MAC table. In that case LanLens keeps the interface inventory, returns a completed poll, and records a clear warning instead of turning the whole poll into a generic failure.
+
+The API surface is available under `/api/snmp`:
+
+- `GET /api/snmp/profiles`
+- `POST /api/snmp/profiles`
+- `DELETE /api/snmp/profiles/{profile_id}`
+- `GET /api/snmp/switches`
+- `POST /api/snmp/switches`
+- `DELETE /api/snmp/switches/{switch_id}`
+- `POST /api/snmp/switches/{switch_id}/poll`
+- `GET /api/snmp/switches/{switch_id}/interfaces`
+- `GET /api/snmp/topology/endpoints`
+- `GET /api/snmp/devices/{device_id}/identity`
+
+SNMP community strings and SNMPv3 credentials are stored in the application database and masked in API responses. Protect the database volume accordingly. LLDP/CDP and a richer topology graph are intentionally left for later increments.
 
 ---
 

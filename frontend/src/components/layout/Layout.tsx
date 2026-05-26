@@ -3,14 +3,20 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 import { useDeviceStore } from '../../store/deviceStore'
+import { useUiSettingsStore } from '../../store/uiSettingsStore'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const fetchDevices = useDeviceStore((state) => state.fetchDevices)
+  const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
 
   useEffect(() => {
     fetchDevices().catch(() => {})
   }, [fetchDevices])
+
+  useEffect(() => {
+    fetchUiSettings().catch(() => {})
+  }, [fetchUiSettings])
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

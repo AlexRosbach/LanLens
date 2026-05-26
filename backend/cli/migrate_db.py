@@ -495,6 +495,120 @@ def migrate():
         else:
             print("Migration: scan_nodes already exists — skipped")
 
+        # ── v1.5.1 ── SNMP switch polling and MAC-to-port topology ─────────
+        if IS_SQLITE and not _table_exists(conn, "snmp_profiles"):
+            conn.execute(text(
+                "CREATE TABLE snmp_profiles ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL UNIQUE, "
+                "version VARCHAR(8) NOT NULL DEFAULT '2c', "
+                "community VARCHAR(255) NOT NULL, "
+                "port INTEGER NOT NULL DEFAULT 161, "
+                "enabled BOOLEAN NOT NULL DEFAULT TRUE, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created snmp_profiles")
+        elif not IS_SQLITE:
+            print("Migration: snmp_profiles — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: snmp_profiles already exists — skipped")
+
+        for column, ddl in {
+            "username": "ALTER TABLE snmp_profiles ADD COLUMN username VARCHAR(255)",
+            "security_level": "ALTER TABLE snmp_profiles ADD COLUMN security_level VARCHAR(32)",
+            "auth_protocol": "ALTER TABLE snmp_profiles ADD COLUMN auth_protocol VARCHAR(32)",
+            "auth_password": "ALTER TABLE snmp_profiles ADD COLUMN auth_password VARCHAR(255)",
+            "privacy_protocol": "ALTER TABLE snmp_profiles ADD COLUMN privacy_protocol VARCHAR(32)",
+            "privacy_password": "ALTER TABLE snmp_profiles ADD COLUMN privacy_password VARCHAR(255)",
+        }.items():
+            if _table_exists(conn, "snmp_profiles") and not _column_exists(conn, "snmp_profiles", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added snmp_profiles.{column}")
+            elif _table_exists(conn, "snmp_profiles"):
+                print(f"Migration: snmp_profiles.{column} already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "snmp_switches"):
+            conn.execute(text(
+                "CREATE TABLE snmp_switches ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL, "
+                "profile_id INTEGER REFERENCES snmp_profiles(id) ON DELETE SET NULL, "
+                "name VARCHAR(128) NOT NULL, "
+                "host VARCHAR(255) NOT NULL UNIQUE, "
+                "enabled BOOLEAN NOT NULL DEFAULT TRUE, "
+                "sys_name VARCHAR(255), "
+                "sys_descr TEXT, "
+                "sys_object_id VARCHAR(255), "
+                "last_poll_at DATETIME, "
+                "last_error TEXT, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.commit()
+            print("Migration: created snmp_switches")
+        elif not IS_SQLITE:
+            print("Migration: snmp_switches — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: snmp_switches already exists — skipped")
+
+        if IS_SQLITE and not _index_exists(conn, "ix_snmp_switches_device_id_unique"):
+            conn.execute(text(
+                "CREATE UNIQUE INDEX ix_snmp_switches_device_id_unique "
+                "ON snmp_switches(device_id) WHERE device_id IS NOT NULL"
+            ))
+            conn.commit()
+            print("Migration: created ix_snmp_switches_device_id_unique")
+
+        if IS_SQLITE and not _table_exists(conn, "snmp_interfaces"):
+            conn.execute(text(
+                "CREATE TABLE snmp_interfaces ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "switch_id INTEGER NOT NULL REFERENCES snmp_switches(id) ON DELETE CASCADE, "
+                "if_index INTEGER NOT NULL, "
+                "name VARCHAR(255), "
+                "description TEXT, "
+                "alias VARCHAR(255), "
+                "admin_status VARCHAR(32), "
+                "oper_status VARCHAR(32), "
+                "speed_bps INTEGER, "
+                "phys_address VARCHAR(64), "
+                "last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE UNIQUE INDEX uq_snmp_interfaces_switch_index ON snmp_interfaces(switch_id, if_index)"))
+            conn.commit()
+            print("Migration: created snmp_interfaces")
+        elif not IS_SQLITE:
+            print("Migration: snmp_interfaces — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: snmp_interfaces already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "snmp_mac_table"):
+            conn.execute(text(
+                "CREATE TABLE snmp_mac_table ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "switch_id INTEGER NOT NULL REFERENCES snmp_switches(id) ON DELETE CASCADE, "
+                "mac_address VARCHAR(17) NOT NULL, "
+                "if_index INTEGER, "
+                "vlan VARCHAR(64), "
+                "learned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE UNIQUE INDEX uq_snmp_mac_switch_mac_vlan ON snmp_mac_table(switch_id, mac_address, vlan)"))
+            conn.execute(text("CREATE INDEX ix_snmp_mac_table_mac ON snmp_mac_table(mac_address)"))
+            conn.commit()
+            print("Migration: created snmp_mac_table")
+        elif not IS_SQLITE:
+            print("Migration: snmp_mac_table — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: snmp_mac_table already exists — skipped")
+
         # ── v1.5.0 ── Device timeline, maintenance and ignore rules ───────
         for column, ddl in {
             "idoit_sync_enabled": "ALTER TABLE devices ADD COLUMN idoit_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE",

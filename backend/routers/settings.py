@@ -3,13 +3,13 @@ import re
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Setting, User
-from ..version import APP_VERSION
+from ..version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 from ..schemas import (
     AllSettings,
     DhcpSettings,
@@ -24,6 +24,7 @@ from ..schemas import (
     WebhookSettings,
 )
 from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message, validate_webhook_url
+from ..services.https_config import apply_nginx_config, load_https_config, save_https_config
 from ..services.scheduler import update_interval
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
@@ -41,7 +42,7 @@ SETTING_KEYS = [
     "webhook_url", "webhook_enabled",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
-    "show_services_nav", "show_dhcp_monitor_nav",
+    "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav", "show_build_info",
 ]
 
 
@@ -108,6 +109,7 @@ async def _fetch_latest_release_info() -> tuple[str, str]:
 @router.get("", response_model=AllSettings)
 def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     interval_minutes = get_scan_interval_minutes(db)
+    https_config = load_https_config()
 
     dhcp_start = _get(db, "dhcp_start", "192.168.1.1")
     dhcp_end = _get(db, "dhcp_end", "192.168.1.254")
@@ -156,8 +158,20 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         webhook_enabled=_get(db, "webhook_enabled", "false") == "true",
         cmdb_id_prefix=_get(db, "cmdb_id_prefix", "DEV") or "DEV",
         cmdb_id_digits=int(_get(db, "cmdb_id_digits", "4") or "4"),
+        advanced_view_enabled=_get(db, "advanced_view_enabled", "false") == "true",
+        show_cmdb_integrations=_get(db, "show_cmdb_integrations", "false") == "true",
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
         show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
+        show_build_info=_get(db, "show_build_info", "false") == "true",
+        app_version=APP_VERSION,
+        build_code=BUILD_CODE,
+        build_commit=BUILD_COMMIT,
+        build_branch=BUILD_BRANCH,
+        build_created=BUILD_CREATED,
+        https_enabled=https_config["enabled"] is True,
+        https_configured=https_config["configured"] is True,
+        https_port=int(https_config["port"] or 7765),
+        https_redirect_http=https_config["redirect_http"] is True,
     )
 
 
@@ -312,8 +326,11 @@ def update_ui_settings(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _set(db, "advanced_view_enabled", "true" if data.advanced_view_enabled else "false")
+    _set(db, "show_cmdb_integrations", "true" if data.show_cmdb_integrations else "false")
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
     _set(db, "show_dhcp_monitor_nav", "true" if data.show_dhcp_monitor_nav else "false")
+    _set(db, "show_build_info", "true" if data.show_build_info else "false")
     db.commit()
     return MessageResponse(message="UI settings updated")
 
@@ -328,6 +345,37 @@ def update_server_url(
     _set(db, "server_url", url)
     db.commit()
     return MessageResponse(message="Server URL updated")
+
+
+@router.put("/https", response_model=MessageResponse)
+async def update_https_settings(
+    enabled: bool = Form(False),
+    https_port: int = Form(7765),
+    redirect_http: bool = Form(False),
+    certificate: UploadFile | None = File(None),
+    private_key: UploadFile | None = File(None),
+    ca_chain: UploadFile | None = File(None),
+    _: User = Depends(get_current_user),
+):
+    cert_bytes = await certificate.read() if certificate else None
+    key_bytes = await private_key.read() if private_key else None
+    chain_bytes = await ca_chain.read() if ca_chain else None
+
+    try:
+        save_https_config(
+            enabled=enabled,
+            port=https_port,
+            redirect_http=redirect_http,
+            certificate=cert_bytes,
+            private_key=key_bytes,
+            chain=chain_bytes,
+        )
+        apply_nginx_config()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HTTPS settings saved, but nginx reload failed: {e}")
+    return MessageResponse(message="HTTPS settings updated")
 
 
 @router.post("/telegram/test", response_model=MessageResponse)

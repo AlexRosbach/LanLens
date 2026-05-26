@@ -20,6 +20,7 @@ from ..schemas import (
     TopologyNode,
     TopologyResponse,
 )
+from ..services.snmp import bulk_identities_for_devices
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 ignore_router = APIRouter(prefix="/api/ignore-rules", tags=["ignore-rules"])
@@ -103,9 +104,11 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
         .group_by(Service.device_id)
         .all()
     )
+    identities = bulk_identities_for_devices(db, devices)
     nodes = []
     for device in devices:
         segment = segments.get(device.segment_id) if device.segment_id else None
+        identity = identities.get(device.id) or {}
         nodes.append(TopologyNode(
             id=device.id,
             label=_device_label(device),
@@ -115,6 +118,9 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
             segment_id=segment.id if segment else None,
             segment_name=segment.name if segment else None,
             service_count=counts.get(device.id, 0),
+            snmp_switch=identity.get("switch_name") or None,
+            snmp_interface=identity.get("interface_name") or None,
+            snmp_vlan=identity.get("vlan") or None,
         ))
     edges = [
         TopologyEdge(
@@ -125,6 +131,22 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
         )
         for rel in db.query(DeviceHostRelationship).all()
     ]
+    for device in devices:
+        identity = identities.get(device.id) or {}
+        switch_device_id = identity.get("switch_device_id")
+        port_label = identity.get("interface_name") or (
+            f"ifIndex {identity.get('if_index')}" if identity.get("if_index") is not None else ""
+        )
+        if switch_device_id and switch_device_id != device.id:
+            if not port_label:
+                continue
+            edges.append(TopologyEdge(
+                source=switch_device_id,
+                target=device.id,
+                relationship_type="snmp_port",
+                label=port_label,
+                metadata=identity,
+            ))
     return TopologyResponse(nodes=nodes, edges=edges)
 
 

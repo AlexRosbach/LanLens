@@ -6,6 +6,7 @@ import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
+import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { parseDateStr } from '../utils/formatters'
 
 function formatDate(value: string) {
@@ -37,8 +38,12 @@ const HIGHLIGHT_OPTIONS = [
 
 export default function DhcpMonitor() {
   const { t } = useI18n()
+  const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
+  const uiSettingsLoading = useUiSettingsStore((state) => state.loading)
+  const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
   const [observations, setObservations] = useState<DhcpObservation[]>([])
   const [loading, setLoading] = useState(true)
+  const [uiSettingsChecked, setUiSettingsChecked] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [loadError, setLoadError] = useState(false)
@@ -51,13 +56,22 @@ export default function DhcpMonitor() {
   }
 
   useEffect(() => {
-    load()
-      .catch(() => {
-        setLoadError(true)
-        toast.error(t('dhcp_load_failed'))
-      })
-      .finally(() => setLoading(false))
-  }, [])
+    fetchUiSettings().finally(() => setUiSettingsChecked(true))
+  }, [fetchUiSettings])
+
+  useEffect(() => {
+    if (!uiSettingsChecked) return
+    if (advancedViewEnabled) {
+      load()
+        .catch(() => {
+          setLoadError(true)
+          toast.error(t('dhcp_load_failed'))
+        })
+        .finally(() => setLoading(false))
+    } else if (!uiSettingsLoading) {
+      setLoading(false)
+    }
+  }, [advancedViewEnabled, uiSettingsChecked, uiSettingsLoading])
 
   useEffect(() => {
     if (!capturing) return
@@ -106,7 +120,16 @@ export default function DhcpMonitor() {
     }
   }
 
-  if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+  if (!uiSettingsChecked || uiSettingsLoading || loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+
+  if (!advancedViewEnabled) {
+    return (
+      <Card>
+        <h1 className="text-xl font-bold text-text-base mb-2">{t('nav_dhcp_monitor')}</h1>
+        <p className="text-sm text-text-subtle">{t('advanced_view_required')}</p>
+      </Card>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-5">

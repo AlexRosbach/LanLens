@@ -1,9 +1,9 @@
 import json
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
@@ -13,7 +13,9 @@ from ..services.idoit import (
     IdoitClient,
     IdoitConnectionError,
     dry_run,
+    build_export_rows,
     get_config,
+    rows_to_export_csv,
     sync_all_registered_devices_to_idoit,
     sync_device_to_idoit,
     update_config,
@@ -51,6 +53,33 @@ class IdoitConfigPayload(BaseModel):
     idoit_offline_retire_days: Optional[int] = None
     idoit_sync_status_field: Optional[str] = None
     idoit_mapping_json: Optional[Any] = None
+
+
+class IdoitExportRow(BaseModel):
+    include: bool = True
+    device_id: Optional[int] = None
+    object_type: str = ""
+    title: str = ""
+    ip_address: str = ""
+    mac_address: str = ""
+    hostname: str = ""
+    manufacturer: str = ""
+    model: str = ""
+    serial: str = ""
+    os_info: str = ""
+    inventory_no: str = ""
+    cmdb_id: str = ""
+    location: str = ""
+    responsible: str = ""
+    notes: str = ""
+    snmp_switch: str = ""
+    snmp_port: str = ""
+    identity_confidence: str = ""
+    lanlens_id: str = ""
+
+
+class IdoitExportPayload(BaseModel):
+    rows: list[IdoitExportRow]
 
 
 def _config_response(db: Session) -> dict[str, Any]:
@@ -201,6 +230,42 @@ def test_mapping(db: Session = Depends(get_db), _: User = Depends(get_current_us
         "scope": "local_structure_only",
         "remoteValidation": "not_performed",
     }
+
+
+@router.get("/export/preview")
+def preview_export(
+    registered_only: bool = Query(True),
+    include_offline: bool = Query(True),
+    limit: int = Query(250, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    query = db.query(Device).options(
+        joinedload(Device.segment),
+        joinedload(Device.idoit_sync),
+    )
+    if registered_only:
+        query = query.filter(Device.is_registered == True)  # noqa: E712
+    if not include_offline:
+        query = query.filter(Device.is_online == True)  # noqa: E712
+    devices = query.order_by(Device.label.asc(), Device.hostname.asc(), Device.id.asc()).limit(limit).all()
+    rows = build_export_rows(db, devices, get_config(db))
+    return {
+        "rows": rows,
+        "total": len(rows),
+        "registered_only": registered_only,
+        "include_offline": include_offline,
+    }
+
+
+@router.post("/export/csv")
+def export_csv(payload: IdoitExportPayload, _: User = Depends(get_current_user)):
+    csv_body = rows_to_export_csv([row.model_dump() for row in payload.rows])
+    return Response(
+        csv_body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=lanlens-idoit-export.csv"},
+    )
 
 
 @router.post("/devices/{device_id}/dry-run")

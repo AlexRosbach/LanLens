@@ -6,11 +6,14 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.0-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.2-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
+[![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
 
 LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, and connect to them.
+
+Project updates, release notes, and occasional build notes are posted on [X / @itneedtoknow](https://x.com/itneedtoknow).
 
 > [!IMPORTANT]
 > LanLens is intended exclusively for use in your own network or in networks where you have explicit permission to scan and monitor devices.
@@ -40,6 +43,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
+- **SNMP switch identity foundation** — poll SNMP v1, v2c and v3 switches, map MAC addresses to switch ports, and enrich i-doit export rows with switch/port context
 - **Inventory tools in Settings** — per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, backup and restore helpers
 - Telegram notifications for new devices and updates
 - English, German, Italian, and Simplified Chinese UI
@@ -91,7 +95,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml` with the generated value.
 
-### 3. Optional: choose the HTTP port
+### 3. Optional: choose the HTTP/HTTPS port
 
 In `docker-compose.yml` you can change:
 
@@ -102,6 +106,12 @@ In `docker-compose.yml` you can change:
 Examples:
 - `LANLENS_PORT=80` for direct port 80 in host mode
 - `LANLENS_PORT=8080` for port 8080
+
+LanLens can also terminate HTTPS itself for host-network deployments. In **Settings → System → HTTPS Settings**, upload a certificate and private key, choose the HTTPS port, and enable HTTPS. Certificate files are stored in the persistent `/data/tls` volume path. External reverse proxies such as Traefik, Caddy, or Nginx Proxy Manager remain the preferred option when LanLens runs behind a central proxy.
+
+### Optional advanced view
+
+LanLens keeps expert-oriented areas hidden by default for simpler home-network installations. Use **Settings → Features** to enable Advanced View and then turn on the modules this deployment actually needs, such as CMDB/i-doit, Services, DHCP Monitor and build metadata. Existing feature settings are preserved while Advanced View is disabled, but the related UI surfaces stay hidden.
 
 ### 4. Start LanLens
 
@@ -171,12 +181,27 @@ docker run -d --name lanlens-scan-node-vlan20 --restart unless-stopped --network
 
 By default the node scans its local IPv4 interface CIDR. Set `LANLENS_SCAN_TARGETS` to override targets, for example `10.10.20.0/24,10.10.21.0/24`. Nodes need no inbound firewall rule; they only need outbound HTTPS to Central.
 
-### Optional navigation pages
+### SNMP switch topology foundation
 
-In **Settings → System → UI Settings**, optional sidebar entries can be enabled or hidden:
+In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v1, v2c and v3 profiles, register Cisco, Sophos, UniFi/Ubiquiti or generic SNMP devices, and poll interface plus bridge forwarding tables. The first implementation focuses on identity quality rather than full network visualization:
 
+- MAC addresses learned from switches are matched back to known LanLens devices
+- device topology data can show the switch and interface context when available
+- the i-doit CSV export includes `SNMP-Switch`, `SNMP-Port` and `Identity Confidence`
+- SNMP profiles and switch targets can be removed again from the same settings view
+
+LanLens detects the vendor from `sysObjectID`/`sysDescr` and uses standard IF-MIB, BRIDGE-MIB and Q-BRIDGE-MIB fallbacks. Routers and firewalls such as UniFi gateways or Sophos appliances may expose interface inventory without a switch MAC table; those polls complete with a clear warning instead of failing the whole poll.
+
+SNMP community strings and SNMPv3 credentials are stored in the LanLens database and masked in API responses. Treat the database and `/data` volume as sensitive application data. LLDP/CDP and richer graph visualization are planned follow-ups.
+
+### Optional feature visibility
+
+In **Settings -> Features**, optional modules can be enabled or hidden:
+
+- **CMDB/i-doit**: shows the CMDB settings tab and i-doit sync details on device pages.
 - **Services**: shows the global Services directory.
 - **DHCP Monitor**: shows a DHCP server/options monitor. It is not a full DHCP process timeline; it actively sends a DHCP Discover probe from the LanLens host/container and displays which DHCP server answers with which options.
+- **Build information**: shows internal build metadata in the sidebar footer.
 
 The DHCP Monitor requires host networking and raw packet permissions so LanLens can send a DHCP Discover and receive DHCP replies. Renewing a lease on another workstation may not be visible on a normal switched network because DHCP renewal ACKs are often unicast directly to that client.
 
@@ -374,7 +399,7 @@ Database migrations run automatically on container start.
 ## Releases
 
 - Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
-- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.0` for this release.
+- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.2` for this release.
 - GitHub releases should be maintained for release-based update checks and Telegram update notifications
 - Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
 
@@ -445,6 +470,18 @@ Troubleshooting checklist:
 - Selected sync status field is not writable: choose another writable custom/status/reference field.
 - Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
 - Prefilled i-doit tenant: keep `idoit_create_policy=match_only`; unmatched devices are skipped with `match_required` until linked or given a stable external reference.
+
+### Editable i-doit CSV Export (v1.5.2)
+
+LanLens 1.5.2 adds a CSV-based i-doit export workflow in **Settings → CMDB → i-doit**. It is separate from the live JSON-RPC sync: LanLens builds an export preview from registered devices, deep-scan hardware findings, open ports and documentation fields, then lets operators review the rows before writing a file.
+
+- load registered devices into an editable review table
+- include or exclude individual rows before export
+- adjust object type, title, network fields, hardware fields, inventory number, CMDB ID, location, responsible person and notes directly in the browser
+- review SNMP-derived switch, port and identity-confidence fields before importing
+- download an Excel-friendly UTF-8 BOM / semicolon CSV for i-doit import
+
+The export does not write to i-doit. It is intended for controlled review/import workflows and for environments where CSV reconciliation is preferred over live sync.
 
 ### Generic CMDB REST API (v1.5.0)
 
