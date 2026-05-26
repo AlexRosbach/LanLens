@@ -89,6 +89,44 @@ class IdoitExportCsvTest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_build_export_rows_normalizes_snmp_port_to_string(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+            )
+            switch_device = Device(
+                mac_address="00:aa:bb:cc:dd:ee",
+                ip_address="192.0.2.1",
+                hostname="switch-01",
+            )
+            db.add_all([device, switch_device])
+            db.commit()
+            db.refresh(device)
+            db.refresh(switch_device)
+
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1", device_id=switch_device.id)
+            db.add(switch)
+            db.commit()
+            db.refresh(switch)
+
+            db.add(SnmpMacTableEntry(
+                switch_id=switch.id,
+                mac_address="00:11:22:33:44:55",
+                if_index=12,
+                vlan=None,
+            ))
+            db.commit()
+
+            rows = build_export_rows(db, [device], get_config(db))
+
+            self.assertEqual(rows[0]["snmp_port"], "12")
+            self.assertIsInstance(rows[0]["snmp_port"], str)
+        finally:
+            db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

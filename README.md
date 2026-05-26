@@ -43,7 +43,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
-- **SNMP switch identity foundation** — poll SNMP v2c switches, map MAC addresses to switch ports, and enrich i-doit export rows with switch/port/VLAN context
+- **SNMP switch identity foundation** — poll SNMP v2c switches, map MAC addresses to switch ports, and enrich i-doit export rows with switch/port context
 - **Inventory tools in Settings** — per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, backup and restore helpers
 - Telegram notifications for new devices and updates
 - English, German, Italian, and Simplified Chinese UI
@@ -466,14 +466,14 @@ Troubleshooting checklist:
 - Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
 - Prefilled i-doit tenant: keep `idoit_create_policy=match_only`; unmatched devices are skipped with `match_required` until linked or given a stable external reference.
 
-### Editable i-doit CSV Export (v1.5.1)
+### Editable i-doit CSV Export (v1.5.2)
 
-LanLens 1.5.1 adds a CSV-based i-doit export workflow in **Settings → CMDB → i-doit**. It is separate from the live JSON-RPC sync: LanLens builds an export preview from registered devices, deep-scan hardware findings, open ports and documentation fields, then lets operators review the rows before writing a file.
+LanLens 1.5.2 adds a CSV-based i-doit export workflow in **Settings → CMDB → i-doit**. It is separate from the live JSON-RPC sync: LanLens builds an export preview from registered devices, deep-scan hardware findings, open ports and documentation fields, then lets operators review the rows before writing a file.
 
 - load registered devices into an editable review table
 - include or exclude individual rows before export
 - adjust object type, title, network fields, hardware fields, inventory number, CMDB ID, location, responsible person and notes directly in the browser
-- review SNMP-derived switch, port, VLAN and identity-confidence fields before importing
+- review SNMP-derived switch, port and identity-confidence fields before importing
 - download an Excel-friendly UTF-8 BOM / semicolon CSV for i-doit import
 
 The export does not write to i-doit. It is intended for controlled review/import workflows and for environments where CSV reconciliation is preferred over live sync.

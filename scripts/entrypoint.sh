@@ -15,12 +15,56 @@ fi
 
 LANLENS_PORT="${LANLENS_PORT:-7765}"
 BACKEND_PORT="${BACKEND_PORT:-17765}"
+TLS_DIR="${LANLENS_TLS_DIR:-/data/tls}"
+TLS_CONFIG="${TLS_DIR}/config.json"
+HTTPS_ENABLED="false"
+HTTPS_PORT="${LANLENS_PORT}"
+HTTPS_REDIRECT_HTTP="false"
+HTTPS_CERTIFICATE="${TLS_DIR}/lanlens.crt"
+HTTPS_PRIVATE_KEY="${TLS_DIR}/lanlens.key"
 
 # Ensure data directory exists (mounted volume)
 mkdir -p /data
 
 # Render nginx config with the selected HTTP/HTTPS settings.
 render-lanlens-nginx
+
+if [ -f "${TLS_CONFIG}" ]; then
+    eval "$(
+        python - "${TLS_CONFIG}" "${LANLENS_PORT}" <<'PY'
+import json
+import shlex
+import sys
+
+config_path, default_port = sys.argv[1], sys.argv[2]
+try:
+    with open(config_path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    data = {}
+
+values = {
+    "HTTPS_ENABLED": "true" if data.get("enabled") is True else "false",
+    "HTTPS_PORT": str(data.get("port") or default_port),
+    "HTTPS_REDIRECT_HTTP": "true" if data.get("redirect_http") is True else "false",
+    "HTTPS_CERTIFICATE": str(data.get("certificate_path") or ""),
+    "HTTPS_PRIVATE_KEY": str(data.get("private_key_path") or ""),
+}
+for key, value in values.items():
+    print(f"{key}={shlex.quote(value)}")
+PY
+    )"
+fi
+if [ -z "${HTTPS_CERTIFICATE}" ]; then
+    HTTPS_CERTIFICATE="${TLS_DIR}/lanlens.crt"
+fi
+if [ -z "${HTTPS_PRIVATE_KEY}" ]; then
+    HTTPS_PRIVATE_KEY="${TLS_DIR}/lanlens.key"
+fi
+HTTPS_AVAILABLE="false"
+if [ "${HTTPS_ENABLED}" = "true" ] && [ -r "${HTTPS_CERTIFICATE}" ] && [ -r "${HTTPS_PRIVATE_KEY}" ]; then
+    HTTPS_AVAILABLE="true"
+fi
 
 # Show network interfaces, IP addresses and access info
 echo "──────────────────────────────────────────────────────"
@@ -35,25 +79,27 @@ echo ""
 FIRST_IP=$(ip -4 addr show scope global | awk '/inet / { print $2 }' | head -1 | cut -d'/' -f1)
 echo " Access LanLens at:"
 if [ -n "$FIRST_IP" ]; then
-    echo "   http://${FIRST_IP}:${LANLENS_PORT}"
-    if [ -f /data/tls/config.json ]; then
-        HTTPS_LINE=$(python - <<'PY'
-import json
-try:
-    with open("/data/tls/config.json", "r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    if data.get("enabled") is True:
-        print(str(data.get("port") or ""))
-except Exception:
-    pass
-PY
-)
-        if [ -n "$HTTPS_LINE" ]; then
-            echo "   https://${FIRST_IP}:${HTTPS_LINE}"
+    if [ "${HTTPS_AVAILABLE}" = "true" ] && [ "${HTTPS_PORT}" = "${LANLENS_PORT}" ]; then
+        echo "   https://${FIRST_IP}:${LANLENS_PORT}"
+    else
+        if [ "${HTTPS_AVAILABLE}" = "true" ] && [ "${HTTPS_REDIRECT_HTTP}" = "true" ]; then
+            echo "   http://${FIRST_IP}:${LANLENS_PORT}  (redirects to HTTPS)"
+        else
+            echo "   http://${FIRST_IP}:${LANLENS_PORT}"
+        fi
+        if [ "${HTTPS_AVAILABLE}" = "true" ] && [ "${HTTPS_PORT}" != "${LANLENS_PORT}" ]; then
+            echo "   https://${FIRST_IP}:${HTTPS_PORT}"
         fi
     fi
 fi
-echo "   http://localhost:${LANLENS_PORT}  (from this host)"
+if [ "${HTTPS_AVAILABLE}" = "true" ] && [ "${HTTPS_PORT}" = "${LANLENS_PORT}" ]; then
+    echo "   https://localhost:${LANLENS_PORT}  (from this host)"
+else
+    echo "   http://localhost:${LANLENS_PORT}  (from this host)"
+    if [ "${HTTPS_AVAILABLE}" = "true" ] && [ "${HTTPS_PORT}" != "${LANLENS_PORT}" ]; then
+        echo "   https://localhost:${HTTPS_PORT}  (from this host)"
+    fi
+fi
 echo ""
 echo " Default credentials:"
 echo "   Username: admin"

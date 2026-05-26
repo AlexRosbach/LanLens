@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { withBasePath } from '../../utils/basePath'
 import { useDeviceStore } from '../../store/deviceStore'
@@ -27,12 +26,6 @@ export default function Sidebar({ onClose }: Props) {
   const buildCommit = useUiSettingsStore((state) => state.buildCommit)
   const buildBranch = useUiSettingsStore((state) => state.buildBranch)
   const buildCreated = useUiSettingsStore((state) => state.buildCreated)
-  const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
-
-  useEffect(() => {
-    fetchUiSettings().catch(() => {})
-  }, [fetchUiSettings])
-
   const displayVersion = appVersion || APP_VERSION
 
   function handleNavClick() {

@@ -503,7 +503,7 @@ def build_export_row(
         "responsible": device.responsible or "",
         "notes": "\n\n".join(notes_parts),
         "snmp_switch": snmp_identity.get("switch_name", ""),
-        "snmp_port": snmp_identity.get("interface_name", "") or snmp_identity.get("if_index", ""),
+        "snmp_port": str(snmp_identity.get("interface_name") or snmp_identity.get("if_index") or ""),
         "identity_confidence": snmp_identity.get("confidence", "base"),
         "lanlens_id": str(device.id),
     }
