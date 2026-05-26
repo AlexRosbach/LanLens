@@ -136,6 +136,23 @@ def _snmp_command(profile: SnmpProfile, host: str, oid: str, port: int = 161) ->
     raise RuntimeError(f"Unsupported SNMP version: {profile.version}")
 
 
+def _format_snmp_error(host: str, port: int, detail: str = "") -> str:
+    message = detail.strip()
+    lower = message.lower()
+    if "timeout" in lower or "no response" in lower:
+        return (
+            f"SNMP timeout: no response from {host}:{port}. "
+            "Check that SNMP is enabled on the target, UDP/161 is reachable from the LanLens container, "
+            "and the selected SNMP version/community or SNMPv3 credentials match the device."
+        )
+    if "authorizationerror" in lower or "authentication failure" in lower or "unknown user name" in lower:
+        return (
+            f"SNMP authentication failed for {host}:{port}. "
+            "Check the selected profile, community string, SNMPv3 user, auth protocol and privacy settings."
+        )
+    return message or f"snmpwalk failed for {host}:{port}"
+
+
 def _snmpwalk(profile: SnmpProfile, host: str, oid: str, port: int = 161, timeout: int = 8) -> dict[str, str]:
     cmd = _snmp_command(
         profile,
@@ -148,10 +165,10 @@ def _snmpwalk(profile: SnmpProfile, host: str, oid: str, port: int = 161, timeou
     except FileNotFoundError as exc:
         raise RuntimeError("snmpwalk is not installed in the LanLens container") from exc
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"SNMP polling timed out for {host}") from exc
+        raise RuntimeError(_format_snmp_error(host, port, "Timeout")) from exc
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
-        raise RuntimeError(detail or f"snmpwalk failed with exit code {completed.returncode}")
+        raise RuntimeError(_format_snmp_error(host, port, detail or f"snmpwalk failed with exit code {completed.returncode}"))
 
     values: dict[str, str] = {}
     for line in completed.stdout.splitlines():

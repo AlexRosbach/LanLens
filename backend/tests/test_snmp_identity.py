@@ -10,6 +10,7 @@ from backend.services.snmp import (
     _parse_bridge_port_map,
     _parse_mac_suffix,
     _parse_q_bridge_suffix,
+    _format_snmp_error,
     _snmp_command,
     detect_vendor,
     identity_for_device,
@@ -45,6 +46,13 @@ class SnmpIdentityTests(unittest.TestCase):
         self.assertEqual(detect_vendor("UniFi Switch", "1.3.6.1.4.1.41112.1.6").key, "unifi")
         self.assertEqual(detect_vendor("SFOS Sophos Firewall", "1.3.6.1.4.1.2604.5").key, "sophos")
         self.assertEqual(detect_vendor("Other", "1.3.6.1.4.1.999").key, "generic")
+
+    def test_formats_snmp_timeout_with_actionable_hint(self):
+        message = _format_snmp_error("192.0.2.1", 161, "Timeout: No Response from 192.0.2.1:161")
+
+        self.assertIn("SNMP timeout", message)
+        self.assertIn("UDP/161", message)
+        self.assertIn("SNMPv3 credentials", message)
 
     def test_builds_snmp_v2c_command(self):
         profile = SnmpProfile(version="2c", community="public")
