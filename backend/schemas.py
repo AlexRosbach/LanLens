@@ -434,6 +434,7 @@ class UiSettings(BaseModel):
     advanced_view_enabled: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_build_info: bool = False
 
 
 class PortScanSettings(BaseModel):
@@ -481,6 +482,12 @@ class AllSettings(BaseModel):
     advanced_view_enabled: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_build_info: bool = False
+    app_version: str = ""
+    build_code: str = ""
+    build_commit: str = ""
+    build_branch: str = ""
+    build_created: str = ""
     https_enabled: bool = False
     https_configured: bool = False
     https_port: int = 7765

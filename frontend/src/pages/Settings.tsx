@@ -299,6 +299,7 @@ export default function Settings() {
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const setShowBuildInfo = useUiSettingsStore((state) => state.setShowBuildInfo)
   const idoitMappingState = useMemo(
     () => parseIdoitMapping(idoitConfig?.idoit_mapping_raw || '{}'),
     [idoitConfig?.idoit_mapping_raw]
@@ -312,6 +313,7 @@ export default function Settings() {
       setAdvancedViewEnabled(data.advanced_view_enabled)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+      setShowBuildInfo(data.show_build_info)
       setTelegramTokenDirty(false)
     }).catch(() => {
       toast.error(t('settings_load_failed'))
@@ -724,6 +726,7 @@ export default function Settings() {
         setAdvancedViewEnabled(data.advanced_view_enabled)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+        setShowBuildInfo(data.show_build_info)
       })
     } catch {
       toast.error(t('import_failed'))
@@ -933,10 +936,16 @@ export default function Settings() {
   async function saveUi() {
     setSaving(true)
     try {
-      await settingsApi.updateUi(current.advanced_view_enabled, current.show_services_nav, current.show_dhcp_monitor_nav)
+      await settingsApi.updateUi(
+        current.advanced_view_enabled,
+        current.show_services_nav,
+        current.show_dhcp_monitor_nav,
+        current.show_build_info,
+      )
       setAdvancedViewEnabled(current.advanced_view_enabled)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
+      setShowBuildInfo(current.show_build_info)
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))
@@ -1131,6 +1140,15 @@ export default function Settings() {
                 />
                 {t('show_dhcp_monitor_nav')}
               </label>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.show_build_info}
+                  onChange={(e) => setSettings({ ...current, show_build_info: e.target.checked })}
+                />
+                {t('show_build_info')}
+              </label>
+              <p className="pl-6 text-xs text-text-subtle">{t('show_build_info_hint')}</p>
             </div>
             <div className="mt-4">
               <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>

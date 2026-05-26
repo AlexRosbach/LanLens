@@ -2,6 +2,15 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.2 — Build metadata visibility
+
+### New Features
+- Added optional internal build metadata with build code, branch, commit and build time for Docker and frontend builds.
+- Added a UI setting to show build information in the sidebar footer while keeping it hidden by default.
+
+### Fixes / Hardening
+- Bumped backend, frontend and image metadata to 1.5.2.
+
 ## v1.5.1 — Editable i-doit CSV export
 
 ### New Features

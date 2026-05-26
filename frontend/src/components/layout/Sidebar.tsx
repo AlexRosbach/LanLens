@@ -21,11 +21,19 @@ export default function Sidebar({ onClose }: Props) {
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
   const showDhcpMonitorNav = useUiSettingsStore((state) => state.showDhcpMonitorNav)
+  const showBuildInfo = useUiSettingsStore((state) => state.showBuildInfo)
+  const appVersion = useUiSettingsStore((state) => state.appVersion)
+  const buildCode = useUiSettingsStore((state) => state.buildCode)
+  const buildCommit = useUiSettingsStore((state) => state.buildCommit)
+  const buildBranch = useUiSettingsStore((state) => state.buildBranch)
+  const buildCreated = useUiSettingsStore((state) => state.buildCreated)
   const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
 
   useEffect(() => {
     fetchUiSettings().catch(() => {})
   }, [fetchUiSettings])
+
+  const displayVersion = appVersion || APP_VERSION
 
   function handleNavClick() {
     onClose?.()
@@ -205,14 +213,19 @@ export default function Sidebar({ onClose }: Props) {
           <p>
             LanLens{' '}
             <a
-              href={`https://github.com/${GITHUB_REPO}/releases/tag/v${APP_VERSION}`}
+              href={`https://github.com/${GITHUB_REPO}/releases/tag/v${displayVersion}`}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-text-muted transition-colors"
             >
-              v{APP_VERSION}
+              v{displayVersion}
             </a>
           </p>
+          {showBuildInfo && (
+            <p className="break-all text-[11px] leading-snug text-text-subtle">
+              Build {buildCode || 'dev'} · {buildBranch || 'unknown'} · {(buildCommit || 'unknown').slice(0, 7)} · {buildCreated || 'unknown'}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <a
               href={`https://github.com/${GITHUB_REPO}`}

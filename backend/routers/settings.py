@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Setting, User
-from ..version import APP_VERSION
+from ..version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 from ..schemas import (
     AllSettings,
     DhcpSettings,
@@ -42,7 +42,7 @@ SETTING_KEYS = [
     "webhook_url", "webhook_enabled",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
-    "advanced_view_enabled", "show_services_nav", "show_dhcp_monitor_nav",
+    "advanced_view_enabled", "show_services_nav", "show_dhcp_monitor_nav", "show_build_info",
 ]
 
 
@@ -161,6 +161,12 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         advanced_view_enabled=_get(db, "advanced_view_enabled", "false") == "true",
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
         show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
+        show_build_info=_get(db, "show_build_info", "false") == "true",
+        app_version=APP_VERSION,
+        build_code=BUILD_CODE,
+        build_commit=BUILD_COMMIT,
+        build_branch=BUILD_BRANCH,
+        build_created=BUILD_CREATED,
         https_enabled=https_config["enabled"] is True,
         https_configured=https_config["configured"] is True,
         https_port=int(https_config["port"] or 7765),
@@ -322,6 +328,7 @@ def update_ui_settings(
     _set(db, "advanced_view_enabled", "true" if data.advanced_view_enabled else "false")
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
     _set(db, "show_dhcp_monitor_nav", "true" if data.show_dhcp_monitor_nav else "false")
+    _set(db, "show_build_info", "true" if data.show_build_info else "false")
     db.commit()
     return MessageResponse(message="UI settings updated")
 

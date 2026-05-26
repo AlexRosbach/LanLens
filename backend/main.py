@@ -12,7 +12,7 @@ from .routers import admin, auth, auto_scan_rules, cmdb, connect, credentials, d
 from .routers import settings as settings_router
 from .services import deep_scan_scheduler, idoit_scheduler, scheduler
 from .services.settings_helpers import get_scan_interval_minutes
-from .version import APP_VERSION
+from .version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 
 logging.basicConfig(
     level=logging.INFO,
@@ -136,4 +136,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "service": "LanLens", "version": APP_VERSION}
+    return {
+        "status": "ok",
+        "service": "LanLens",
+        "version": APP_VERSION,
+        "build_code": BUILD_CODE,
+        "build_commit": BUILD_COMMIT,
+        "build_branch": BUILD_BRANCH,
+        "build_created": BUILD_CREATED,
+    }

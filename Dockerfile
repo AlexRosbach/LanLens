@@ -3,6 +3,15 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+ARG LANLENS_BUILD_CODE=dev
+ARG LANLENS_BUILD_COMMIT=unknown
+ARG LANLENS_BUILD_BRANCH=unknown
+ARG LANLENS_BUILD_CREATED=unknown
+ENV VITE_LANLENS_BUILD_CODE=$LANLENS_BUILD_CODE \
+    VITE_LANLENS_BUILD_COMMIT=$LANLENS_BUILD_COMMIT \
+    VITE_LANLENS_BUILD_BRANCH=$LANLENS_BUILD_BRANCH \
+    VITE_LANLENS_BUILD_CREATED=$LANLENS_BUILD_CREATED
+
 # Copy package files first for layer caching
 COPY frontend/package.json ./
 # Use package-lock.json if available for reproducible builds
@@ -16,9 +25,16 @@ RUN npm run build
 # ─── Stage 2: Runtime image ───────────────────────────────────────────────────
 FROM python:3.12-slim
 
+ARG LANLENS_BUILD_CODE=dev
+ARG LANLENS_BUILD_COMMIT=unknown
+ARG LANLENS_BUILD_BRANCH=unknown
+ARG LANLENS_BUILD_CREATED=unknown
+
 LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version="1.5.1" \
+      org.opencontainers.image.version="1.5.2" \
+      org.opencontainers.image.revision=$LANLENS_BUILD_COMMIT \
+      org.opencontainers.image.created=$LANLENS_BUILD_CREATED \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 
@@ -77,6 +93,10 @@ ENV DB_PATH=/data/lanlens.db \
     LANLENS_PORT=7765 \
     BACKEND_PORT=17765 \
     TZ=UTC \
+    LANLENS_BUILD_CODE=$LANLENS_BUILD_CODE \
+    LANLENS_BUILD_COMMIT=$LANLENS_BUILD_COMMIT \
+    LANLENS_BUILD_BRANCH=$LANLENS_BUILD_BRANCH \
+    LANLENS_BUILD_CREATED=$LANLENS_BUILD_CREATED \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
