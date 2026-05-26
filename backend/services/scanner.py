@@ -18,7 +18,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import SessionLocal
-from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, Notification, ScanRun, Segment, Setting
+from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, DevicePingSample, Notification, ScanRun, Segment, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification, send_webhook_for_notification
@@ -178,6 +178,46 @@ def _get_hostname(ip: str) -> Optional[str]:
         return None
     finally:
         socket.setdefaulttimeout(old_timeout)
+
+
+def _ping_host(ip: str, timeout_seconds: int = 1) -> Optional[float]:
+    """Return ICMP latency in ms, or None when the host does not answer."""
+    try:
+        completed = subprocess.run(
+            ["ping", "-c", "1", "-W", str(timeout_seconds), ip],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds + 1,
+        )
+    except Exception:
+        return None
+    if completed.returncode != 0:
+        return None
+    match = __import__("re").search(r"time[=<]([0-9.]+)\s*ms", completed.stdout)
+    if not match:
+        return None
+    try:
+        return round(float(match.group(1)), 2)
+    except ValueError:
+        return None
+
+
+def record_ping_sample(
+    db: Session,
+    device_id: int,
+    success: bool,
+    latency_ms: Optional[float],
+    source: str = "scan",
+    checked_at: Optional[datetime] = None,
+) -> None:
+    db.add(DevicePingSample(
+        device_id=device_id,
+        checked_at=checked_at or datetime.utcnow(),
+        success=success,
+        latency_ms=latency_ms,
+        source=source,
+    ))
 
 
 def _detect_host_network() -> Optional[ipaddress.IPv4Network]:
@@ -480,7 +520,6 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 existing = existing_devices.get(mac_normalized)
 
             seen_at = datetime.utcnow()
-
             if existing is None:
                 # New device
                 device_class = classify_device(vendor, hostname or "")
@@ -512,6 +551,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 db.flush()
                 db.add(DeviceChangeEvent(device_id=new_device.id, event_type="device_discovered", source="scan", message=f"Discovered at {ip}"))
                 record_device_ip_history(db, new_device, ip, seen_at)
+                record_ping_sample(db, new_device.id, True, None, "scan", seen_at)
                 existing_devices[mac_normalized] = new_device
                 existing_devices_by_ip[ip] = new_device
                 devices_new += 1
@@ -537,6 +577,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 _record_change(db, existing.id, "ip_changed", "ip_address", previous_ip, ip, "scan")
                 _record_change(db, existing.id, "online_state_changed", "is_online", previous_online, True, "scan")
                 record_device_ip_history(db, existing, ip, seen_at)
+                record_ping_sample(db, existing.id, True, None, "scan", seen_at)
                 if hostname:
                     existing.hostname = hostname
                     _record_change(db, existing.id, "hostname_changed", "hostname", previous_hostname, hostname, "scan")
@@ -553,6 +594,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 continue
             previous_online = device.is_online
             device.is_online = False
+            record_ping_sample(db, device.id, False, None, "scan", scan_reference_time)
             _record_change(db, device.id, "online_state_changed", "is_online", previous_online, False, "scan")
             devices_offline += 1
 

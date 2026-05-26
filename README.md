@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.2-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.3-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -399,7 +399,7 @@ Database migrations run automatically on container start.
 ## Releases
 
 - Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
-- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.2` for this release.
+- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.3` for this release.
 - GitHub releases should be maintained for release-based update checks and Telegram update notifications
 - Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
 

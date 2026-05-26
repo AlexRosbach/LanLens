@@ -18,6 +18,14 @@ export interface Service {
   username_hint: string | null
   password_location: string | null
   notes: string | null
+  tls_checked_at: string | null
+  tls_status: string | null
+  tls_expires_at: string | null
+  tls_issuer: string | null
+  tls_subject: string | null
+  tls_sans: string | null
+  tls_self_signed: boolean | null
+  tls_error: string | null
   sort_order: number
   created_at: string
   updated_at: string
@@ -83,6 +91,9 @@ export const servicesApi = {
 
   update: (deviceId: number, serviceId: number, data: ServiceUpdate) =>
     apiClient.put<Service>(`/devices/${deviceId}/services/${serviceId}`, data).then((r) => r.data),
+
+  checkTls: (deviceId: number, serviceId: number) =>
+    apiClient.post<Service>(`/devices/${deviceId}/services/${serviceId}/check-tls`).then((r) => r.data),
 
   delete: (deviceId: number, serviceId: number) =>
     apiClient.delete(`/devices/${deviceId}/services/${serviceId}`),

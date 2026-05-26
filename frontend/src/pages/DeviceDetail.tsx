@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Device, DeviceIpHistoryEntry, devicesApi } from '../api/devices'
+import { Device, DeviceIpHistoryEntry, DevicePingSample, devicesApi } from '../api/devices'
 import { idoitApi } from '../api/idoit'
 import type { ChangeEvent } from '../api/inventory'
 import ConnectButtons from '../components/devices/ConnectButtons'
@@ -74,6 +74,7 @@ export default function DeviceDetail() {
   const showCmdbIntegrations = useUiSettingsStore((state) => state.showCmdbIntegrations)
   const [device, setDevice] = useState<Device | null>(null)
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
+  const [pingHistory, setPingHistory] = useState<DevicePingSample[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState | null>(null)
@@ -103,6 +104,7 @@ export default function DeviceDetail() {
       setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
       devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
+      devicesApi.getPingHistory(currentDevice.id).then(setPingHistory).catch(() => {})
       devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
   }, [id])
@@ -193,6 +195,7 @@ export default function DeviceDetail() {
       setForm(toEditState(updated))
       setIpHistory(updated.ip_history ?? ipHistory)
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
+      devicesApi.getPingHistory(updated.id).then(setPingHistory).catch(() => {})
       devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
     } catch {
@@ -522,6 +525,44 @@ export default function DeviceDetail() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </Card>
+
+      {/* Ping history */}
+      <Card>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold text-text-muted">{t('ping_history')}</h2>
+          {pingHistory.length > 0 && (
+            <span className="text-xs text-text-subtle">
+              {t('ping_history_samples', { count: pingHistory.length })}
+            </span>
+          )}
+        </div>
+        {pingHistory.length === 0 ? (
+          <p className="text-sm text-text-subtle">{t('ping_history_empty')}</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex h-12 items-end gap-1 rounded-lg border border-border bg-surface2/30 p-2">
+              {[...pingHistory].reverse().slice(-48).map((sample) => (
+                <div
+                  key={sample.id}
+                  title={`${formatRelativeTime(sample.checked_at, lang)} · ${sample.success ? `${sample.latency_ms ?? 0} ms` : t('offline')}`}
+                  className={`flex-1 min-w-[3px] rounded-sm ${sample.success ? 'bg-success' : 'bg-danger'}`}
+                  style={{ height: sample.success ? `${Math.max(18, Math.min(100, sample.latency_ms ?? 18))}%` : '22%' }}
+                />
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              {pingHistory.slice(0, 6).map((sample) => (
+                <div key={sample.id} className="rounded-lg border border-border bg-surface2/40 p-2">
+                  <p className={sample.success ? 'text-success' : 'text-danger'}>
+                    {sample.success ? `${sample.latency_ms ?? '—'} ms` : t('offline')}
+                  </p>
+                  <p className="mt-1 text-text-subtle">{formatRelativeTime(sample.checked_at, lang)}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </Card>

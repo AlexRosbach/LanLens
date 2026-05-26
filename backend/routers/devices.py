@@ -14,9 +14,10 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DeviceView, Notification, PortScan, Segment, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PortScan, Segment, Setting, User
 from ..schemas import (
     DeviceIpHistoryResponse,
+    DevicePingSampleResponse,
     DeviceListResponse,
     DeviceChangeEventResponse,
     DeviceMaintenanceUpdate,
@@ -33,7 +34,7 @@ from ..schemas import (
 from ..services.idoit import build_object_url, get_config as get_idoit_config
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
-from ..services.scanner import _arp_scan, _get_hostname, record_device_ip_history
+from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -464,6 +465,27 @@ def get_device_ip_history(
     )
 
 
+@router.get("/{device_id}/ping-history", response_model=List[DevicePingSampleResponse])
+def get_device_ping_history(
+    device_id: int,
+    limit: int = 120,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    limit = max(1, min(limit, 500))
+    return (
+        db.query(DevicePingSample)
+        .filter(DevicePingSample.device_id == device_id)
+        .order_by(DevicePingSample.checked_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
 @router.get("/{device_id}/timeline", response_model=List[DeviceChangeEventResponse])
 def get_device_timeline(
     device_id: int,
@@ -794,6 +816,7 @@ async def refresh_device_status(
 
     if matched:
         seen_at = datetime.utcnow()
+        latency_ms = await asyncio.get_event_loop().run_in_executor(None, _ping_host, matched.ip)
         previous_ip = device.ip_address
         previous_online = device.is_online
         previous_hostname = device.hostname
@@ -805,6 +828,7 @@ async def refresh_device_status(
         if previous_online is not True:
             _record_change(db, device.id, "online_state_changed", "is_online", previous_online, True, source="refresh_status")
         record_device_ip_history(db, device, matched.ip, seen_at)
+        record_ping_sample(db, device.id, True, latency_ms, "refresh_status", seen_at)
         hostname = await asyncio.get_event_loop().run_in_executor(None, _get_hostname, matched.ip)
         if hostname:
             device.hostname = hostname
@@ -819,6 +843,7 @@ async def refresh_device_status(
     else:
         previous_online = device.is_online
         device.is_online = False
+        record_ping_sample(db, device.id, False, None, "refresh_status", datetime.utcnow())
         if previous_online is not False:
             _record_change(db, device.id, "online_state_changed", "is_online", previous_online, False, source="refresh_status")
 

@@ -3,6 +3,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -66,6 +67,8 @@ class Device(Base):
     segment_id = Column(Integer, ForeignKey("segments.id", ondelete="SET NULL"), nullable=True)
 
     port_scans = relationship("PortScan", back_populates="device", cascade="all, delete-orphan")
+    ping_samples = relationship("DevicePingSample", back_populates="device", cascade="all, delete-orphan",
+                                order_by="DevicePingSample.checked_at.desc()")
     notifications = relationship("Notification", back_populates="device")
     services = relationship("Service", back_populates="device", cascade="all, delete-orphan",
                             order_by="Service.sort_order")
@@ -124,6 +127,14 @@ class Service(Base):
     username_hint = Column(String(255), nullable=True)   # login username hint
     password_location = Column(String(512), nullable=True)
     notes = Column(Text, nullable=True)
+    tls_checked_at = Column(DateTime, nullable=True)
+    tls_status = Column(String(32), nullable=True)
+    tls_expires_at = Column(DateTime, nullable=True)
+    tls_issuer = Column(Text, nullable=True)
+    tls_subject = Column(Text, nullable=True)
+    tls_sans = Column(Text, nullable=True)
+    tls_self_signed = Column(Boolean, nullable=True)
+    tls_error = Column(Text, nullable=True)
 
     # ── Meta ───────────────────────────────────────────────────────────────────
     sort_order = Column(Integer, default=0)
@@ -175,6 +186,23 @@ class PortScan(Base):
     https_available = Column(Boolean, default=False)
 
     device = relationship("Device", back_populates="port_scans")
+
+
+class DevicePingSample(Base):
+    """Lightweight reachability history captured during discovery/status checks."""
+    __tablename__ = "device_ping_samples"
+    __table_args__ = (
+        Index("ix_device_ping_samples_device_time", "device_id", "checked_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    checked_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    success = Column(Boolean, default=False, nullable=False)
+    latency_ms = Column(Float, nullable=True)
+    source = Column(String(32), default="scan", nullable=False)
+
+    device = relationship("Device", back_populates="ping_samples")
 
 
 class ScanRun(Base):

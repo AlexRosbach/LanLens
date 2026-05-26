@@ -4,6 +4,7 @@ export type Lang = 'en' | 'de' | 'it' | 'zh'
 
 const SUPPORTED_LANGUAGES: Lang[] = ['en', 'de', 'it', 'zh']
 const LANGUAGE_STORAGE_KEY = 'lanlens.language'
+const LANGUAGE_COOKIE_KEY = 'lanlens_language'
 
 function isSupportedLang(value: string | null): value is Lang {
   return SUPPORTED_LANGUAGES.includes(value as Lang)
@@ -11,12 +12,18 @@ function isSupportedLang(value: string | null): value is Lang {
 
 function getInitialLang(): Lang {
   if (typeof window === 'undefined') return 'en'
+  let storedLang: string | null = null
   try {
-    const storedLang = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
-    return isSupportedLang(storedLang) ? storedLang : 'en'
+    storedLang = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
   } catch {
-    return 'en'
+    // Cookie fallback below covers browsers where localStorage is unavailable.
   }
+  if (isSupportedLang(storedLang)) return storedLang
+  const cookieLang = document.cookie
+    .split('; ')
+    .find((row) => row.startsWith(`${LANGUAGE_COOKIE_KEY}=`))
+    ?.split('=')[1]
+  return isSupportedLang(cookieLang ?? null) ? cookieLang as Lang : 'en'
 }
 
 const translations = {
@@ -156,6 +163,9 @@ const translations = {
     last_seen: 'Last Seen',
     ip_history: 'IP History',
     ip_history_empty: 'No IP history yet.',
+    ping_history: 'Ping history',
+    ping_history_empty: 'No reachability samples yet. Run discovery or re-check status to collect data.',
+    ping_history_samples: '{count} samples',
     seen_count: 'Seen',
     purpose: 'Purpose',
     description: 'Description',
@@ -721,6 +731,17 @@ const translations = {
     service_removed: 'Service removed',
     failed_to_remove_service: 'Failed to remove service',
     remove_service_confirm: 'Remove service "{name}"?',
+    tls_check: 'Check TLS certificate',
+    tls_check_complete: 'TLS certificate checked',
+    tls_check_failed: 'TLS certificate check failed',
+    tls_status: 'TLS status',
+    tls_status_valid: 'Valid',
+    tls_status_expiring_soon: 'Expiring soon',
+    tls_status_expired: 'Expired',
+    tls_status_unavailable: 'Unavailable',
+    tls_expires_at: 'Expires',
+    tls_issuer: 'Issuer',
+    tls_error: 'TLS error',
     no_services_documented: 'No services documented yet. Add one to start building your network documentation.',
     open: 'Open',
     collapse: 'Collapse',
@@ -966,6 +987,9 @@ const translations = {
     last_seen: 'Zuletzt gesehen',
     ip_history: 'IP-Verlauf',
     ip_history_empty: 'Noch kein IP-Verlauf vorhanden.',
+    ping_history: 'Ping-Verlauf',
+    ping_history_empty: 'Noch keine Erreichbarkeitswerte vorhanden. Starte Discovery oder prüfe den Status neu.',
+    ping_history_samples: '{count} Werte',
     seen_count: 'Gesehen',
     purpose: 'Zweck / Funktion',
     description: 'Beschreibung',
@@ -1531,6 +1555,17 @@ const translations = {
     service_removed: 'Service entfernt',
     failed_to_remove_service: 'Service konnte nicht entfernt werden',
     remove_service_confirm: 'Service "{name}" entfernen?',
+    tls_check: 'TLS-Zertifikat prüfen',
+    tls_check_complete: 'TLS-Zertifikat geprüft',
+    tls_check_failed: 'TLS-Zertifikatsprüfung fehlgeschlagen',
+    tls_status: 'TLS-Status',
+    tls_status_valid: 'Gültig',
+    tls_status_expiring_soon: 'Läuft bald ab',
+    tls_status_expired: 'Abgelaufen',
+    tls_status_unavailable: 'Nicht verfügbar',
+    tls_expires_at: 'Läuft ab',
+    tls_issuer: 'Aussteller',
+    tls_error: 'TLS-Fehler',
     no_services_documented: 'Noch keine Services dokumentiert. Füge einen hinzu, um deine Netzwerkdokumentation aufzubauen.',
     open: 'Öffnen',
     collapse: 'Einklappen',
@@ -1785,6 +1820,9 @@ const translations = {
     last_seen: 'Ultima visione',
     ip_history: 'Cronologia IP',
     ip_history_empty: 'Nessuna cronologia IP disponibile.',
+    ping_history: 'Cronologia ping',
+    ping_history_empty: 'Nessun campione di raggiungibilità disponibile. Avvia una discovery o ricontrolla lo stato.',
+    ping_history_samples: '{count} campioni',
     seen_count: 'Visto',
     purpose: 'Scopo / Funzione',
     description: 'Descrizione',
@@ -2341,6 +2379,17 @@ const translations = {
     service_removed: 'Servizio rimosso',
     failed_to_remove_service: 'Rimozione servizio non riuscita',
     remove_service_confirm: 'Rimuovere il servizio "{name}"?',
+    tls_check: 'Controlla certificato TLS',
+    tls_check_complete: 'Certificato TLS controllato',
+    tls_check_failed: 'Controllo certificato TLS non riuscito',
+    tls_status: 'Stato TLS',
+    tls_status_valid: 'Valido',
+    tls_status_expiring_soon: 'In scadenza',
+    tls_status_expired: 'Scaduto',
+    tls_status_unavailable: 'Non disponibile',
+    tls_expires_at: 'Scade',
+    tls_issuer: 'Emittente',
+    tls_error: 'Errore TLS',
     no_services_documented: 'Nessun servizio documentato. Aggiungine uno per iniziare la documentazione della rete.',
     open: 'Apri',
     collapse: 'Comprimi',
@@ -2595,6 +2644,9 @@ const translations = {
     last_seen: '最后发现',
     ip_history: 'IP 历史',
     ip_history_empty: '暂无 IP 历史。',
+    ping_history: 'Ping 历史',
+    ping_history_empty: '暂无可达性样本。运行发现或重新检查状态以收集数据。',
+    ping_history_samples: '{count} 个样本',
     seen_count: '发现次数',
     purpose: '用途',
     description: '描述',
@@ -3151,6 +3203,17 @@ const translations = {
     service_removed: '服务已移除',
     failed_to_remove_service: '移除服务失败',
     remove_service_confirm: '移除服务“{name}”？',
+    tls_check: '检查 TLS 证书',
+    tls_check_complete: 'TLS 证书已检查',
+    tls_check_failed: 'TLS 证书检查失败',
+    tls_status: 'TLS 状态',
+    tls_status_valid: '有效',
+    tls_status_expiring_soon: '即将过期',
+    tls_status_expired: '已过期',
+    tls_status_unavailable: '不可用',
+    tls_expires_at: '过期时间',
+    tls_issuer: '颁发者',
+    tls_error: 'TLS 错误',
     no_services_documented: '尚未记录任何服务。添加一个服务，开始构建你的网络文档。',
     open: '打开',
     collapse: '折叠',
@@ -3281,10 +3344,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLang = useCallback((l: Lang) => {
     setLangState(l)
+    document.documentElement.lang = l
     try {
       window.localStorage.setItem(LANGUAGE_STORAGE_KEY, l)
     } catch {
       // Keep the in-memory language change even if browser storage is unavailable.
+    }
+    try {
+      document.cookie = `${LANGUAGE_COOKIE_KEY}=${l}; path=/; max-age=31536000; SameSite=Lax`
+    } catch {
+      // Cookie fallback is best effort.
     }
   }, [])
 
