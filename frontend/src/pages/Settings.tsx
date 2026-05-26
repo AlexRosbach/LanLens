@@ -1501,6 +1501,7 @@ export default function Settings() {
                     <th className="px-3 py-2 font-medium">{t('name')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_host')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_sys_name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('vendor')}</th>
                     <th className="px-3 py-2 font-medium">{t('interfaces')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_macs')}</th>
                     <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
@@ -1509,7 +1510,7 @@ export default function Settings() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {snmpSwitches.length === 0 ? (
-                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={7}>{t('snmp_no_switches')}</td></tr>
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={8}>{t('snmp_no_switches')}</td></tr>
                   ) : snmpSwitches.map((item) => (
                     <tr key={item.id}>
                       <td className="px-3 py-2 font-medium text-text-base">
@@ -1518,6 +1519,10 @@ export default function Settings() {
                       </td>
                       <td className="px-3 py-2 text-text-muted">{item.host}</td>
                       <td className="px-3 py-2 text-text-muted">{item.sys_name || '—'}</td>
+                      <td className="px-3 py-2 text-text-muted">
+                        <div>{item.vendor || '—'}</div>
+                        {item.vendor_notes && <div className="mt-1 max-w-xs text-[11px] text-text-subtle">{item.vendor_notes}</div>}
+                      </td>
                       <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.mac_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.last_poll_at ? formatDateTime(item.last_poll_at) : '—'}</td>

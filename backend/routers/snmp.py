@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch, User
-from ..services.snmp import identity_for_device, poll_switch
+from ..services.snmp import detect_vendor, identity_for_device, poll_switch
 
 router = APIRouter(prefix="/api/snmp", tags=["snmp"])
 
@@ -62,6 +62,7 @@ def _profile_response(profile: SnmpProfile) -> dict:
 
 
 def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, mac_count: Optional[int] = None) -> dict:
+    vendor = detect_vendor(switch.sys_descr or "", switch.sys_object_id or "")
     return {
         "id": switch.id,
         "name": switch.name,
@@ -72,6 +73,9 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
         "sys_name": switch.sys_name,
         "sys_descr": switch.sys_descr,
         "sys_object_id": switch.sys_object_id,
+        "vendor": vendor.label,
+        "vendor_key": vendor.key,
+        "vendor_notes": vendor.notes,
         "last_poll_at": switch.last_poll_at,
         "last_error": switch.last_error,
         "interface_count": interface_count if interface_count is not None else len(switch.interfaces or []),

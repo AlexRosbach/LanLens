@@ -183,11 +183,13 @@ By default the node scans its local IPv4 interface CIDR. Set `LANLENS_SCAN_TARGE
 
 ### SNMP switch topology foundation
 
-In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v1, v2c and v3 profiles, register switches and poll interface plus bridge forwarding tables. The first implementation focuses on identity quality rather than full network visualization:
+In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v1, v2c and v3 profiles, register Cisco, Sophos, UniFi/Ubiquiti or generic SNMP devices, and poll interface plus bridge forwarding tables. The first implementation focuses on identity quality rather than full network visualization:
 
 - MAC addresses learned from switches are matched back to known LanLens devices
 - device topology data can show the switch and interface context when available
 - the i-doit CSV export includes `SNMP-Switch`, `SNMP-Port` and `Identity Confidence`
+
+LanLens detects the vendor from `sysObjectID`/`sysDescr` and uses standard IF-MIB, BRIDGE-MIB and Q-BRIDGE-MIB fallbacks. Routers and firewalls such as UniFi gateways or Sophos appliances may expose interface inventory without a switch MAC table; those polls complete with a clear warning instead of failing the whole poll.
 
 SNMP community strings and SNMPv3 credentials are stored in the LanLens database and masked in API responses. Treat the database and `/data` volume as sensitive application data. LLDP/CDP and richer graph visualization are planned follow-ups.
 

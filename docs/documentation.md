@@ -786,11 +786,14 @@ These fields make reconciliation easier in prefilled CMDB environments because a
 
 ## SNMP Switch Topology Foundation
 
-LanLens can register SNMP v1, v2c and v3 switch profiles and poll switch inventory from the container using `snmpwalk`. The foundation release stores:
+LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiquiti and generic SNMP devices, then poll inventory from the container using `snmpwalk`. The foundation release stores:
 
 - switch system name, description and object ID
 - interface index, name, description, alias, status, speed and physical address
-- bridge forwarding table entries, mapped back from MAC address to interface index where the switch exposes the bridge-port mapping
+- bridge forwarding table entries, mapped back from MAC address to interface index where the switch exposes BRIDGE-MIB or Q-BRIDGE-MIB mappings
+- detected vendor context from `sysObjectID` and `sysDescr`
+
+Routers and firewalls may expose IF-MIB without a switch MAC table. In that case LanLens keeps the interface inventory, returns a completed poll, and records a clear warning instead of turning the whole poll into a generic failure.
 
 The API surface is available under `/api/snmp`:
 
@@ -803,7 +806,7 @@ The API surface is available under `/api/snmp`:
 - `GET /api/snmp/topology/endpoints`
 - `GET /api/snmp/devices/{device_id}/identity`
 
-SNMP community strings and SNMPv3 credentials are stored in the application database and masked in API responses. Protect the database volume accordingly. LLDP/CDP, VLAN-specific bridge tables and a richer topology graph are intentionally left for later increments.
+SNMP community strings and SNMPv3 credentials are stored in the application database and masked in API responses. Protect the database volume accordingly. LLDP/CDP and a richer topology graph are intentionally left for later increments.
 
 ---
 

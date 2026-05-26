@@ -38,6 +38,10 @@ export interface SnmpSwitch {
   enabled: boolean
   sys_name?: string | null
   sys_descr?: string | null
+  sys_object_id?: string | null
+  vendor?: string | null
+  vendor_key?: string | null
+  vendor_notes?: string | null
   last_poll_at?: string | null
   last_error?: string | null
   interface_count: number

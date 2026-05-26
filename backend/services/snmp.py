@@ -23,6 +23,8 @@ OID_IF_NAME = "1.3.6.1.2.1.31.1.1.1.1"
 OID_IF_ALIAS = "1.3.6.1.2.1.31.1.1.1.18"
 OID_DOT1D_TP_FDB_PORT = "1.3.6.1.2.1.17.4.3.1.2"
 OID_DOT1D_BASE_PORT_IF_INDEX = "1.3.6.1.2.1.17.1.4.1.2"
+OID_DOT1Q_TP_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"
+OID_DOT1Q_BASE_PORT_IF_INDEX = "1.3.6.1.2.1.17.7.1.4.5.1.1"
 
 STATUS_LABELS = {
     "1": "up",
@@ -39,6 +41,48 @@ STATUS_LABELS = {
 class PollResult:
     interfaces: int
     mac_entries: int
+
+
+@dataclass(frozen=True)
+class VendorSupport:
+    key: str
+    label: str
+    notes: str
+
+
+VENDOR_SUPPORT = {
+    "cisco": VendorSupport(
+        key="cisco",
+        label="Cisco",
+        notes="Cisco switching platforms normally expose IF-MIB plus BRIDGE-MIB or Q-BRIDGE-MIB.",
+    ),
+    "sophos": VendorSupport(
+        key="sophos",
+        label="Sophos",
+        notes="Sophos firewall/router platforms usually expose IF-MIB; MAC-table endpoint mapping depends on bridge support.",
+    ),
+    "unifi": VendorSupport(
+        key="unifi",
+        label="UniFi / Ubiquiti",
+        notes="UniFi switches normally expose IF-MIB plus bridge tables; UniFi gateways may expose interfaces but no switch MAC table.",
+    ),
+    "generic": VendorSupport(
+        key="generic",
+        label="Generic SNMP",
+        notes="Generic SNMP device using standard IF-MIB, BRIDGE-MIB and Q-BRIDGE-MIB where available.",
+    ),
+}
+
+
+def detect_vendor(sys_descr: str = "", sys_object_id: str = "") -> VendorSupport:
+    text = f"{sys_descr} {sys_object_id}".lower()
+    if "1.3.6.1.4.1.9." in sys_object_id or "cisco" in text:
+        return VENDOR_SUPPORT["cisco"]
+    if "1.3.6.1.4.1.41112." in sys_object_id or "ubiquiti" in text or "unifi" in text:
+        return VENDOR_SUPPORT["unifi"]
+    if "1.3.6.1.4.1.2604." in sys_object_id or "sophos" in text or "sfos" in text or "astaro" in text:
+        return VENDOR_SUPPORT["sophos"]
+    return VENDOR_SUPPORT["generic"]
 
 
 def _clean_snmp_value(raw: str) -> str:
@@ -119,6 +163,13 @@ def _snmpwalk(profile: SnmpProfile, host: str, oid: str, port: int = 161, timeou
     return values
 
 
+def _optional_snmpwalk(profile: SnmpProfile, host: str, oid: str, port: int = 161) -> dict[str, str]:
+    try:
+        return _snmpwalk(profile, host, oid, port)
+    except RuntimeError:
+        return {}
+
+
 def _snmpget(profile: SnmpProfile, host: str, oid: str, port: int = 161) -> str:
     values = _snmpwalk(profile, host, oid, port=port)
     return next(iter(values.values()), "")
@@ -134,6 +185,15 @@ def _parse_mac_suffix(suffix: str) -> Optional[str]:
         return None
 
 
+def _parse_q_bridge_suffix(suffix: str) -> tuple[Optional[str], Optional[str]]:
+    parts = suffix.split(".")
+    if len(parts) < 7:
+        return None, None
+    vlan = parts[-7]
+    mac = _parse_mac_suffix(".".join(parts[-6:]))
+    return (vlan if vlan.isdigit() else None), mac
+
+
 def _parse_bridge_port_map(raw: dict[str, str]) -> dict[int, int]:
     port_map: dict[int, int] = {}
     for suffix, value in raw.items():
@@ -143,6 +203,13 @@ def _parse_bridge_port_map(raw: dict[str, str]) -> dict[int, int]:
         if match:
             port_map[int(suffix)] = int(match.group(0))
     return port_map
+
+
+def _merge_port_maps(*maps: dict[int, int]) -> dict[int, int]:
+    merged: dict[int, int] = {}
+    for port_map in maps:
+        merged.update(port_map)
+    return merged
 
 
 def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: dict[str, dict[str, str]], now: datetime) -> None:
@@ -165,21 +232,53 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
     row.last_seen_at = now
 
 
-def _upsert_mac_entry(db: Session, switch: SnmpSwitch, mac: str, if_index: Optional[int], now: datetime) -> None:
-    row = (
-        db.query(SnmpMacTableEntry)
-        .filter(
-            SnmpMacTableEntry.switch_id == switch.id,
-            SnmpMacTableEntry.mac_address == mac,
-            SnmpMacTableEntry.vlan.is_(None),
-        )
-        .first()
+def _upsert_mac_entry(
+    db: Session,
+    switch: SnmpSwitch,
+    mac: str,
+    if_index: Optional[int],
+    now: datetime,
+    vlan: Optional[str] = None,
+) -> None:
+    query = db.query(SnmpMacTableEntry).filter(
+        SnmpMacTableEntry.switch_id == switch.id,
+        SnmpMacTableEntry.mac_address == mac,
     )
+    query = query.filter(SnmpMacTableEntry.vlan == vlan) if vlan else query.filter(SnmpMacTableEntry.vlan.is_(None))
+    row = query.first()
     if row is None:
-        row = SnmpMacTableEntry(switch_id=switch.id, mac_address=mac, vlan=None, learned_at=now)
+        row = SnmpMacTableEntry(switch_id=switch.id, mac_address=mac, vlan=vlan, learned_at=now)
         db.add(row)
     row.if_index = if_index
     row.last_seen_at = now
+
+
+def _poll_mac_tables(db: Session, switch: SnmpSwitch, profile: SnmpProfile, port: int, now: datetime) -> int:
+    bridge_ports = _merge_port_maps(
+        _parse_bridge_port_map(_optional_snmpwalk(profile, switch.host, OID_DOT1D_BASE_PORT_IF_INDEX, port)),
+        _parse_bridge_port_map(_optional_snmpwalk(profile, switch.host, OID_DOT1Q_BASE_PORT_IF_INDEX, port)),
+    )
+    mac_count = 0
+
+    for suffix, bridge_port_value in _optional_snmpwalk(profile, switch.host, OID_DOT1D_TP_FDB_PORT, port).items():
+        mac = _parse_mac_suffix(suffix)
+        bridge_match = re.search(r"\d+", bridge_port_value)
+        if not mac or not bridge_match:
+            continue
+        if_index = bridge_ports.get(int(bridge_match.group(0)))
+        _upsert_mac_entry(db, switch, mac, if_index, now)
+        mac_count += 1
+
+    for suffix, bridge_port_value in _optional_snmpwalk(profile, switch.host, OID_DOT1Q_TP_FDB_PORT, port).items():
+        vlan, mac = _parse_q_bridge_suffix(suffix)
+        bridge_match = re.search(r"\d+", bridge_port_value)
+        if not mac or not bridge_match:
+            continue
+        if_index = bridge_ports.get(int(bridge_match.group(0)))
+        _upsert_mac_entry(db, switch, mac, if_index, now, vlan=vlan)
+        mac_count += 1
+
+    return mac_count
 
 
 def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
@@ -195,6 +294,7 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     switch.sys_descr = _snmpget(profile, switch.host, OID_SYS_DESCR, port)
     switch.sys_object_id = _snmpget(profile, switch.host, OID_SYS_OBJECT_ID, port)
     switch.sys_name = _snmpget(profile, switch.host, OID_SYS_NAME, port)
+    vendor = detect_vendor(switch.sys_descr or "", switch.sys_object_id or "")
 
     values = {
         "descr": _snmpwalk(profile, switch.host, OID_IF_DESCR, port),
@@ -209,20 +309,14 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     for if_index in indexes:
         _upsert_interface(db, switch, if_index, values, now)
 
-    bridge_ports = _parse_bridge_port_map(_snmpwalk(profile, switch.host, OID_DOT1D_BASE_PORT_IF_INDEX, port))
-    mac_raw = _snmpwalk(profile, switch.host, OID_DOT1D_TP_FDB_PORT, port)
-    mac_count = 0
-    for suffix, bridge_port_value in mac_raw.items():
-        mac = _parse_mac_suffix(suffix)
-        bridge_match = re.search(r"\d+", bridge_port_value)
-        if not mac or not bridge_match:
-            continue
-        if_index = bridge_ports.get(int(bridge_match.group(0)))
-        _upsert_mac_entry(db, switch, mac, if_index, now)
-        mac_count += 1
+    mac_count = _poll_mac_tables(db, switch, profile, port, now)
 
     switch.last_poll_at = now
-    switch.last_error = None
+    switch.last_error = (
+        None
+        if mac_count
+        else f"{vendor.label} detected. Interface inventory updated, but no BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available."
+    )
     switch.updated_at = now
     return PollResult(interfaces=len(indexes), mac_entries=mac_count)
 

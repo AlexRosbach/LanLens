@@ -6,7 +6,14 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
 from backend.models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
-from backend.services.snmp import _parse_bridge_port_map, _parse_mac_suffix, _snmp_command, identity_for_device
+from backend.services.snmp import (
+    _parse_bridge_port_map,
+    _parse_mac_suffix,
+    _parse_q_bridge_suffix,
+    _snmp_command,
+    detect_vendor,
+    identity_for_device,
+)
 
 
 class SnmpIdentityTests(unittest.TestCase):
@@ -27,6 +34,17 @@ class SnmpIdentityTests(unittest.TestCase):
             _parse_bridge_port_map({"1": "INTEGER: 10001", "2": "INTEGER: 10002", "x": "INTEGER: 3"}),
             {1: 10001, 2: 10002},
         )
+
+    def test_parses_q_bridge_vlan_mac_suffix(self):
+        self.assertEqual(_parse_q_bridge_suffix("20.0.17.34.51.68.85"), ("20", "00:11:22:33:44:55"))
+        self.assertEqual(_parse_q_bridge_suffix("x.0.17.34.51.68.85"), (None, "00:11:22:33:44:55"))
+        self.assertEqual(_parse_q_bridge_suffix("short"), (None, None))
+
+    def test_detects_supported_snmp_vendors(self):
+        self.assertEqual(detect_vendor("Cisco IOS Software", "1.3.6.1.4.1.9.1.516").key, "cisco")
+        self.assertEqual(detect_vendor("UniFi Switch", "1.3.6.1.4.1.41112.1.6").key, "unifi")
+        self.assertEqual(detect_vendor("SFOS Sophos Firewall", "1.3.6.1.4.1.2604.5").key, "sophos")
+        self.assertEqual(detect_vendor("Other", "1.3.6.1.4.1.999").key, "generic")
 
     def test_builds_snmp_v2c_command(self):
         profile = SnmpProfile(version="2c", community="public")
