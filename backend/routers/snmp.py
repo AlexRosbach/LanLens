@@ -14,12 +14,22 @@ from ..services.snmp import identity_for_device, poll_switch
 router = APIRouter(prefix="/api/snmp", tags=["snmp"])
 
 MASK = "••••••••"
+SNMP_VERSIONS = {"1", "2c", "3"}
+SNMP_V3_SECURITY_LEVELS = {"noAuthNoPriv", "authNoPriv", "authPriv"}
+SNMP_AUTH_PROTOCOLS = {"MD5", "SHA"}
+SNMP_PRIVACY_PROTOCOLS = {"DES", "AES"}
 
 
 class SnmpProfilePayload(BaseModel):
     name: str = Field(..., min_length=2, max_length=128)
     version: str = "2c"
-    community: str = Field(..., min_length=1, max_length=255)
+    community: str = Field(default="", max_length=255)
+    username: str = Field(default="", max_length=255)
+    security_level: str = "noAuthNoPriv"
+    auth_protocol: str = Field(default="SHA", max_length=32)
+    auth_password: str = Field(default="", max_length=255)
+    privacy_protocol: str = Field(default="AES", max_length=32)
+    privacy_password: str = Field(default="", max_length=255)
     port: int = Field(default=161, ge=1, le=65535)
     enabled: bool = True
 
@@ -38,6 +48,12 @@ def _profile_response(profile: SnmpProfile) -> dict:
         "name": profile.name,
         "version": profile.version,
         "community": MASK if profile.community else "",
+        "username": profile.username or "",
+        "security_level": profile.security_level or "noAuthNoPriv",
+        "auth_protocol": profile.auth_protocol or "",
+        "auth_password": MASK if profile.auth_password else "",
+        "privacy_protocol": profile.privacy_protocol or "",
+        "privacy_password": MASK if profile.privacy_password else "",
         "port": profile.port,
         "enabled": profile.enabled,
         "created_at": profile.created_at,
@@ -70,14 +86,41 @@ def list_profiles(db: Session = Depends(get_db), _: User = Depends(get_current_u
 
 @router.post("/profiles")
 def create_profile(payload: SnmpProfilePayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    if payload.version != "2c":
-        raise HTTPException(status_code=400, detail="Only SNMP v2c profiles are supported in this foundation release")
+    version = payload.version.strip()
+    security_level = payload.security_level.strip() or "noAuthNoPriv"
+    auth_protocol = payload.auth_protocol.strip().upper() or "SHA"
+    privacy_protocol = payload.privacy_protocol.strip().upper() or "AES"
+    if version not in SNMP_VERSIONS:
+        raise HTTPException(status_code=400, detail="SNMP version must be 1, 2c, or 3")
+    if version in {"1", "2c"} and not payload.community.strip():
+        raise HTTPException(status_code=400, detail="SNMP community is required for v1/v2c profiles")
+    if version == "3":
+        if not payload.username.strip():
+            raise HTTPException(status_code=400, detail="SNMPv3 username is required")
+        if security_level not in SNMP_V3_SECURITY_LEVELS:
+            raise HTTPException(status_code=400, detail="Invalid SNMPv3 security level")
+        if security_level in {"authNoPriv", "authPriv"}:
+            if auth_protocol not in SNMP_AUTH_PROTOCOLS:
+                raise HTTPException(status_code=400, detail="Invalid SNMPv3 auth protocol")
+            if not payload.auth_password.strip():
+                raise HTTPException(status_code=400, detail="SNMPv3 auth password is required")
+        if security_level == "authPriv":
+            if privacy_protocol not in SNMP_PRIVACY_PROTOCOLS:
+                raise HTTPException(status_code=400, detail="Invalid SNMPv3 privacy protocol")
+            if not payload.privacy_password.strip():
+                raise HTTPException(status_code=400, detail="SNMPv3 privacy password is required")
     if db.query(SnmpProfile).filter(SnmpProfile.name == payload.name.strip()).first():
         raise HTTPException(status_code=409, detail="SNMP profile name already exists")
     profile = SnmpProfile(
         name=payload.name.strip(),
-        version=payload.version,
+        version=version,
         community=payload.community.strip(),
+        username=payload.username.strip() or None,
+        security_level=security_level if version == "3" else None,
+        auth_protocol=auth_protocol if version == "3" and security_level in {"authNoPriv", "authPriv"} else None,
+        auth_password=payload.auth_password.strip() if version == "3" and security_level in {"authNoPriv", "authPriv"} else None,
+        privacy_protocol=privacy_protocol if version == "3" and security_level == "authPriv" else None,
+        privacy_password=payload.privacy_password.strip() if version == "3" and security_level == "authPriv" else None,
         port=payload.port,
         enabled=payload.enabled,
     )

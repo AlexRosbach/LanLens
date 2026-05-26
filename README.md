@@ -43,7 +43,7 @@ Thanks to everyone helping shape LanLens, including community contributions that
 - **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
 - **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
 - **Auto deep scan** — per-device scheduled scanning with configurable interval
-- **SNMP switch identity foundation** — poll SNMP v2c switches, map MAC addresses to switch ports, and enrich i-doit export rows with switch/port context
+- **SNMP switch identity foundation** — poll SNMP v1, v2c and v3 switches, map MAC addresses to switch ports, and enrich i-doit export rows with switch/port context
 - **Inventory tools in Settings** — per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, backup and restore helpers
 - Telegram notifications for new devices and updates
 - English, German, Italian, and Simplified Chinese UI
@@ -183,13 +183,13 @@ By default the node scans its local IPv4 interface CIDR. Set `LANLENS_SCAN_TARGE
 
 ### SNMP switch topology foundation
 
-In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v2c profiles, register switches and poll interface plus bridge forwarding tables. The first implementation focuses on identity quality rather than full network visualization:
+In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v1, v2c and v3 profiles, register switches and poll interface plus bridge forwarding tables. The first implementation focuses on identity quality rather than full network visualization:
 
 - MAC addresses learned from switches are matched back to known LanLens devices
 - device topology data can show the switch and interface context when available
 - the i-doit CSV export includes `SNMP-Switch`, `SNMP-Port` and `Identity Confidence`
 
-SNMP community strings are stored in the LanLens database and masked in API responses. Treat the database and `/data` volume as sensitive application data. SNMPv3, LLDP/CDP and richer graph visualization are planned follow-ups.
+SNMP community strings and SNMPv3 credentials are stored in the LanLens database and masked in API responses. Treat the database and `/data` volume as sensitive application data. LLDP/CDP and richer graph visualization are planned follow-ups.
 
 ### Optional navigation pages
 

@@ -8,7 +8,7 @@ import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
-import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpSwitch } from '../api/snmp'
+import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -298,7 +298,14 @@ export default function Settings() {
   const [snmpEndpoints, setSnmpEndpoints] = useState<SnmpEndpoint[]>([])
   const [snmpLoading, setSnmpLoading] = useState(false)
   const [snmpProfileName, setSnmpProfileName] = useState('')
+  const [snmpVersion, setSnmpVersion] = useState<SnmpProfileCreate['version']>('2c')
   const [snmpCommunity, setSnmpCommunity] = useState('')
+  const [snmpUsername, setSnmpUsername] = useState('')
+  const [snmpSecurityLevel, setSnmpSecurityLevel] = useState<SnmpProfileCreate['security_level']>('authPriv')
+  const [snmpAuthProtocol, setSnmpAuthProtocol] = useState<SnmpProfileCreate['auth_protocol']>('SHA')
+  const [snmpAuthPassword, setSnmpAuthPassword] = useState('')
+  const [snmpPrivacyProtocol, setSnmpPrivacyProtocol] = useState<SnmpProfileCreate['privacy_protocol']>('AES')
+  const [snmpPrivacyPassword, setSnmpPrivacyPassword] = useState('')
   const [snmpSwitchName, setSnmpSwitchName] = useState('')
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
@@ -410,12 +417,36 @@ export default function Settings() {
   }
 
   async function createSnmpProfile() {
-    if (!snmpProfileName.trim() || !snmpCommunity.trim()) return
+    const needsCommunity = snmpVersion !== '3'
+    const needsAuth = snmpVersion === '3' && ['authNoPriv', 'authPriv'].includes(snmpSecurityLevel)
+    const needsPrivacy = snmpVersion === '3' && snmpSecurityLevel === 'authPriv'
+    if (
+      !snmpProfileName.trim()
+      || (needsCommunity && !snmpCommunity.trim())
+      || (snmpVersion === '3' && !snmpUsername.trim())
+      || (needsAuth && !snmpAuthPassword.trim())
+      || (needsPrivacy && !snmpPrivacyPassword.trim())
+    ) return
     setSnmpLoading(true)
     try {
-      await snmpApi.createProfile({ name: snmpProfileName.trim(), community: snmpCommunity.trim(), port: 161, enabled: true })
+      await snmpApi.createProfile({
+        name: snmpProfileName.trim(),
+        version: snmpVersion,
+        community: snmpCommunity.trim(),
+        username: snmpUsername.trim(),
+        security_level: snmpSecurityLevel,
+        auth_protocol: snmpAuthProtocol,
+        auth_password: snmpAuthPassword.trim(),
+        privacy_protocol: snmpPrivacyProtocol,
+        privacy_password: snmpPrivacyPassword.trim(),
+        port: 161,
+        enabled: true,
+      })
       setSnmpProfileName('')
       setSnmpCommunity('')
+      setSnmpUsername('')
+      setSnmpAuthPassword('')
+      setSnmpPrivacyPassword('')
       await loadSnmp()
       toast.success(t('snmp_profile_saved'))
     } catch {
@@ -1350,9 +1381,43 @@ export default function Settings() {
               <Button variant="outline" onClick={loadSnmp} loading={snmpLoading}>{t('refresh')}</Button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-4">
               <Input placeholder={t('snmp_profile_name')} value={snmpProfileName} onChange={(e) => setSnmpProfileName(e.target.value)} />
-              <Input placeholder={t('snmp_community')} type="password" value={snmpCommunity} onChange={(e) => setSnmpCommunity(e.target.value)} />
+              <select className="input-field" value={snmpVersion} onChange={(e) => setSnmpVersion(e.target.value as SnmpProfileCreate['version'])}>
+                <option value="1">{t('snmp_version_1')}</option>
+                <option value="2c">{t('snmp_version_2c')}</option>
+                <option value="3">{t('snmp_version_3')}</option>
+              </select>
+              {snmpVersion === '3' ? (
+                <>
+                  <Input placeholder={t('snmp_username')} value={snmpUsername} onChange={(e) => setSnmpUsername(e.target.value)} />
+                  <select className="input-field" value={snmpSecurityLevel} onChange={(e) => setSnmpSecurityLevel(e.target.value as SnmpProfileCreate['security_level'])}>
+                    <option value="noAuthNoPriv">{t('snmp_security_noauth')}</option>
+                    <option value="authNoPriv">{t('snmp_security_auth')}</option>
+                    <option value="authPriv">{t('snmp_security_authpriv')}</option>
+                  </select>
+                  {snmpSecurityLevel !== 'noAuthNoPriv' && (
+                    <>
+                      <select className="input-field" value={snmpAuthProtocol} onChange={(e) => setSnmpAuthProtocol(e.target.value as SnmpProfileCreate['auth_protocol'])}>
+                        <option value="SHA">{t('snmp_auth_sha')}</option>
+                        <option value="MD5">{t('snmp_auth_md5')}</option>
+                      </select>
+                      <Input placeholder={t('snmp_auth_password')} type="password" value={snmpAuthPassword} onChange={(e) => setSnmpAuthPassword(e.target.value)} />
+                    </>
+                  )}
+                  {snmpSecurityLevel === 'authPriv' && (
+                    <>
+                      <select className="input-field" value={snmpPrivacyProtocol} onChange={(e) => setSnmpPrivacyProtocol(e.target.value as SnmpProfileCreate['privacy_protocol'])}>
+                        <option value="AES">{t('snmp_privacy_aes')}</option>
+                        <option value="DES">{t('snmp_privacy_des')}</option>
+                      </select>
+                      <Input placeholder={t('snmp_privacy_password')} type="password" value={snmpPrivacyPassword} onChange={(e) => setSnmpPrivacyPassword(e.target.value)} />
+                    </>
+                  )}
+                </>
+              ) : (
+                <Input placeholder={t('snmp_community')} type="password" value={snmpCommunity} onChange={(e) => setSnmpCommunity(e.target.value)} />
+              )}
               <Button onClick={createSnmpProfile} loading={snmpLoading}>{t('snmp_add_profile')}</Button>
             </div>
 

@@ -5,8 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import Device, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
-from backend.services.snmp import _parse_bridge_port_map, _parse_mac_suffix, identity_for_device
+from backend.models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from backend.services.snmp import _parse_bridge_port_map, _parse_mac_suffix, _snmp_command, identity_for_device
 
 
 class SnmpIdentityTests(unittest.TestCase):
@@ -26,6 +26,64 @@ class SnmpIdentityTests(unittest.TestCase):
         self.assertEqual(
             _parse_bridge_port_map({"1": "INTEGER: 10001", "2": "INTEGER: 10002", "x": "INTEGER: 3"}),
             {1: 10001, 2: 10002},
+        )
+
+    def test_builds_snmp_v2c_command(self):
+        profile = SnmpProfile(version="2c", community="public")
+
+        self.assertEqual(
+            _snmp_command(profile, "192.0.2.1", "1.3.6.1.2.1.1.5.0", 161),
+            [
+                "snmpwalk",
+                "-On",
+                "-t",
+                "2",
+                "-r",
+                "1",
+                "-v2c",
+                "-c",
+                "public",
+                "192.0.2.1:161",
+                "1.3.6.1.2.1.1.5.0",
+            ],
+        )
+
+    def test_builds_snmp_v3_auth_priv_command(self):
+        profile = SnmpProfile(
+            version="3",
+            username="lanlens",
+            security_level="authPriv",
+            auth_protocol="SHA",
+            auth_password="authpass",
+            privacy_protocol="AES",
+            privacy_password="privpass",
+        )
+
+        self.assertEqual(
+            _snmp_command(profile, "192.0.2.1", "1.3.6.1.2.1.1.5.0", 161),
+            [
+                "snmpwalk",
+                "-On",
+                "-t",
+                "2",
+                "-r",
+                "1",
+                "-v3",
+                "-l",
+                "authPriv",
+                "-u",
+                "lanlens",
+                "-a",
+                "SHA",
+                "-A",
+                "authpass",
+                "-x",
+                "AES",
+                "-X",
+                "privpass",
+                "192.0.2.1:161",
+                "1.3.6.1.2.1.1.5.0",
+            ],
         )
 
     def test_identity_uses_latest_snmp_mac_entry(self):

@@ -3,8 +3,28 @@ import apiClient from './client'
 export interface SnmpProfile {
   id: number
   name: string
-  version: string
+  version: '1' | '2c' | '3'
   community: string
+  username?: string
+  security_level?: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv'
+  auth_protocol?: 'MD5' | 'SHA' | ''
+  auth_password?: string
+  privacy_protocol?: 'DES' | 'AES' | ''
+  privacy_password?: string
+  port: number
+  enabled: boolean
+}
+
+export type SnmpProfileCreate = {
+  name: string
+  version: '1' | '2c' | '3'
+  community: string
+  username: string
+  security_level: 'noAuthNoPriv' | 'authNoPriv' | 'authPriv'
+  auth_protocol: 'MD5' | 'SHA'
+  auth_password: string
+  privacy_protocol: 'DES' | 'AES'
+  privacy_password: string
   port: number
   enabled: boolean
 }
@@ -39,8 +59,8 @@ export interface SnmpEndpoint {
 
 export const snmpApi = {
   listProfiles: () => apiClient.get<SnmpProfile[]>('/snmp/profiles').then((r) => r.data),
-  createProfile: (data: { name: string; community: string; port: number; enabled: boolean }) =>
-    apiClient.post<SnmpProfile>('/snmp/profiles', { ...data, version: '2c' }).then((r) => r.data),
+  createProfile: (data: SnmpProfileCreate) =>
+    apiClient.post<SnmpProfile>('/snmp/profiles', data).then((r) => r.data),
   listSwitches: () => apiClient.get<SnmpSwitch[]>('/snmp/switches').then((r) => r.data),
   createSwitch: (data: { name: string; host: string; profile_id: number; device_id?: number | null; enabled: boolean }) =>
     apiClient.post<SnmpSwitch>('/snmp/switches', data).then((r) => r.data),

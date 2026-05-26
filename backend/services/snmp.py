@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
 from .mac_vendor import normalize_mac
 
 OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
@@ -52,20 +52,53 @@ def _clean_snmp_value(raw: str) -> str:
     return value.strip()
 
 
-def _snmpwalk(host: str, community: str, oid: str, port: int = 161, timeout: int = 8) -> dict[str, str]:
-    cmd = [
+def _snmp_command(profile: SnmpProfile, host: str, oid: str, port: int = 161) -> list[str]:
+    target = f"{host}:{port}"
+    base = [
         "snmpwalk",
-        "-v2c",
-        "-c",
-        community,
         "-On",
         "-t",
         "2",
         "-r",
         "1",
-        f"{host}:{port}",
-        oid,
     ]
+    if profile.version in {"1", "2c"}:
+        return [
+            *base,
+            f"-v{profile.version}",
+            "-c",
+            profile.community or "",
+            target,
+            oid,
+        ]
+    if profile.version == "3":
+        cmd = [
+            *base,
+            "-v3",
+            "-l",
+            profile.security_level or "noAuthNoPriv",
+            "-u",
+            profile.username or "",
+        ]
+        if profile.security_level in {"authNoPriv", "authPriv"}:
+            cmd.extend(["-a", profile.auth_protocol or "SHA", "-A", profile.auth_password or ""])
+        if profile.security_level == "authPriv":
+            cmd.extend(["-x", profile.privacy_protocol or "AES", "-X", profile.privacy_password or ""])
+        cmd.extend([
+            target,
+            oid,
+        ])
+        return cmd
+    raise RuntimeError(f"Unsupported SNMP version: {profile.version}")
+
+
+def _snmpwalk(profile: SnmpProfile, host: str, oid: str, port: int = 161, timeout: int = 8) -> dict[str, str]:
+    cmd = _snmp_command(
+        profile,
+        host,
+        oid,
+        port,
+    )
     try:
         completed = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as exc:
@@ -86,8 +119,8 @@ def _snmpwalk(host: str, community: str, oid: str, port: int = 161, timeout: int
     return values
 
 
-def _snmpget(host: str, community: str, oid: str, port: int = 161) -> str:
-    values = _snmpwalk(host, community, oid, port=port)
+def _snmpget(profile: SnmpProfile, host: str, oid: str, port: int = 161) -> str:
+    values = _snmpwalk(profile, host, oid, port=port)
     return next(iter(values.values()), "")
 
 
@@ -152,32 +185,32 @@ def _upsert_mac_entry(db: Session, switch: SnmpSwitch, mac: str, if_index: Optio
 def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     if not switch.profile:
         raise RuntimeError("SNMP switch has no profile assigned")
-    if switch.profile.version != "2c":
-        raise RuntimeError("Only SNMP v2c polling is supported in this foundation release")
+    if switch.profile.version not in {"1", "2c", "3"}:
+        raise RuntimeError(f"Unsupported SNMP version: {switch.profile.version}")
 
-    community = switch.profile.community
+    profile = switch.profile
     port = switch.profile.port or 161
     now = datetime.utcnow()
 
-    switch.sys_descr = _snmpget(switch.host, community, OID_SYS_DESCR, port)
-    switch.sys_object_id = _snmpget(switch.host, community, OID_SYS_OBJECT_ID, port)
-    switch.sys_name = _snmpget(switch.host, community, OID_SYS_NAME, port)
+    switch.sys_descr = _snmpget(profile, switch.host, OID_SYS_DESCR, port)
+    switch.sys_object_id = _snmpget(profile, switch.host, OID_SYS_OBJECT_ID, port)
+    switch.sys_name = _snmpget(profile, switch.host, OID_SYS_NAME, port)
 
     values = {
-        "descr": _snmpwalk(switch.host, community, OID_IF_DESCR, port),
-        "speed": _snmpwalk(switch.host, community, OID_IF_SPEED, port),
-        "phys": _snmpwalk(switch.host, community, OID_IF_PHYS_ADDRESS, port),
-        "admin": _snmpwalk(switch.host, community, OID_IF_ADMIN_STATUS, port),
-        "oper": _snmpwalk(switch.host, community, OID_IF_OPER_STATUS, port),
-        "names": _snmpwalk(switch.host, community, OID_IF_NAME, port),
-        "alias": _snmpwalk(switch.host, community, OID_IF_ALIAS, port),
+        "descr": _snmpwalk(profile, switch.host, OID_IF_DESCR, port),
+        "speed": _snmpwalk(profile, switch.host, OID_IF_SPEED, port),
+        "phys": _snmpwalk(profile, switch.host, OID_IF_PHYS_ADDRESS, port),
+        "admin": _snmpwalk(profile, switch.host, OID_IF_ADMIN_STATUS, port),
+        "oper": _snmpwalk(profile, switch.host, OID_IF_OPER_STATUS, port),
+        "names": _snmpwalk(profile, switch.host, OID_IF_NAME, port),
+        "alias": _snmpwalk(profile, switch.host, OID_IF_ALIAS, port),
     }
     indexes = sorted({int(key) for group in values.values() for key in group.keys() if key.isdigit()})
     for if_index in indexes:
         _upsert_interface(db, switch, if_index, values, now)
 
-    bridge_ports = _parse_bridge_port_map(_snmpwalk(switch.host, community, OID_DOT1D_BASE_PORT_IF_INDEX, port))
-    mac_raw = _snmpwalk(switch.host, community, OID_DOT1D_TP_FDB_PORT, port)
+    bridge_ports = _parse_bridge_port_map(_snmpwalk(profile, switch.host, OID_DOT1D_BASE_PORT_IF_INDEX, port))
+    mac_raw = _snmpwalk(profile, switch.host, OID_DOT1D_TP_FDB_PORT, port)
     mac_count = 0
     for suffix, bridge_port_value in mac_raw.items():
         mac = _parse_mac_suffix(suffix)

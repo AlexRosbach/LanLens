@@ -516,6 +516,21 @@ def migrate():
         else:
             print("Migration: snmp_profiles already exists — skipped")
 
+        for column, ddl in {
+            "username": "ALTER TABLE snmp_profiles ADD COLUMN username VARCHAR(255)",
+            "security_level": "ALTER TABLE snmp_profiles ADD COLUMN security_level VARCHAR(32)",
+            "auth_protocol": "ALTER TABLE snmp_profiles ADD COLUMN auth_protocol VARCHAR(32)",
+            "auth_password": "ALTER TABLE snmp_profiles ADD COLUMN auth_password VARCHAR(255)",
+            "privacy_protocol": "ALTER TABLE snmp_profiles ADD COLUMN privacy_protocol VARCHAR(32)",
+            "privacy_password": "ALTER TABLE snmp_profiles ADD COLUMN privacy_password VARCHAR(255)",
+        }.items():
+            if _table_exists(conn, "snmp_profiles") and not _column_exists(conn, "snmp_profiles", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added snmp_profiles.{column}")
+            elif _table_exists(conn, "snmp_profiles"):
+                print(f"Migration: snmp_profiles.{column} already exists — skipped")
+
         if IS_SQLITE and not _table_exists(conn, "snmp_switches"):
             conn.execute(text(
                 "CREATE TABLE snmp_switches ("
