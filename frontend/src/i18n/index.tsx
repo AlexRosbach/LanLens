@@ -20,7 +20,8 @@ function getInitialLang(): Lang {
   }
   if (isSupportedLang(storedLang)) return storedLang
   const cookieLang = document.cookie
-    .split('; ')
+    .split(';')
+    .map((row) => row.trim())
     .find((row) => row.startsWith(`${LANGUAGE_COOKIE_KEY}=`))
     ?.split('=')[1]
   return isSupportedLang(cookieLang ?? null) ? cookieLang as Lang : 'en'

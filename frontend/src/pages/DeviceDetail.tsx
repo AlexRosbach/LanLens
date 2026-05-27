@@ -547,7 +547,7 @@ export default function DeviceDetail() {
               {[...pingHistory].reverse().slice(-48).map((sample) => (
                 <div
                   key={sample.id}
-                  title={`${formatRelativeTime(sample.checked_at, lang)} · ${sample.success ? `${sample.latency_ms ?? 0} ms` : t('offline')}`}
+                  title={`${formatRelativeTime(sample.checked_at, lang)} · ${sample.success ? (sample.latency_ms == null ? '—' : `${sample.latency_ms} ms`) : t('offline')}`}
                   className={`flex-1 min-w-[3px] rounded-sm ${sample.success ? 'bg-success' : 'bg-danger'}`}
                   style={{ height: sample.success ? `${Math.max(18, Math.min(100, sample.latency_ms ?? 18))}%` : '22%' }}
                 />

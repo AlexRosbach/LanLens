@@ -5,6 +5,7 @@ import Button from '../ui/Button'
 import ServiceIcon, { ServiceTypeTag } from './ServiceIcon'
 import AddServiceModal from './AddServiceModal'
 import { useI18n } from '../../i18n'
+import { formatDateTime } from '../../utils/formatters'
 
 interface Props {
   deviceId: number
@@ -263,7 +264,7 @@ function ServiceCard({
           {service.tls_expires_at && (
             <div>
               <p className="text-text-subtle mb-0.5">{t('tls_expires_at')}</p>
-              <p className="text-text-muted">{new Date(service.tls_expires_at).toLocaleString()}</p>
+              <p className="text-text-muted">{formatDateTime(service.tls_expires_at)}</p>
             </div>
           )}
           {service.tls_issuer && (

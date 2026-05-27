@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import ipaddress
 import logging
+import re
 import socket
 import subprocess
 import xml.etree.ElementTree as ET
@@ -44,6 +45,7 @@ MIN_OFFLINE_GRACE_MINUTES = 15
 MISSED_SCAN_MULTIPLIER = 3
 NOTIFICATION_RETRY_BACKOFF_MINUTES = 5
 NOTIFICATION_RETRY_SETTING = "notification_delivery_last_failure_at"
+PING_SAMPLE_RETENTION_PER_DEVICE = 500
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -194,7 +196,7 @@ def _ping_host(ip: str, timeout_seconds: int = 1) -> Optional[float]:
         return None
     if completed.returncode != 0:
         return None
-    match = __import__("re").search(r"time[=<]([0-9.]+)\s*ms", completed.stdout)
+    match = re.search(r"time[=<]([0-9.]+)\s*ms", completed.stdout)
     if not match:
         return None
     try:
@@ -218,6 +220,19 @@ def record_ping_sample(
         latency_ms=latency_ms,
         source=source,
     ))
+    db.flush()
+
+    old_ids = [
+        row.id for row in (
+            db.query(DevicePingSample.id)
+            .filter(DevicePingSample.device_id == device_id)
+            .order_by(DevicePingSample.checked_at.desc(), DevicePingSample.id.desc())
+            .offset(PING_SAMPLE_RETENTION_PER_DEVICE)
+            .all()
+        )
+    ]
+    if old_ids:
+        db.query(DevicePingSample).filter(DevicePingSample.id.in_(old_ids)).delete(synchronize_session=False)
 
 
 def _detect_host_network() -> Optional[ipaddress.IPv4Network]:

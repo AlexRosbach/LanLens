@@ -11,6 +11,7 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Device, Service, ServiceGroup, User
 from ..schemas import MessageResponse, ServiceCreate, ServiceGroupCreate, ServiceGroupResponse, ServiceGroupUpdate, ServiceResponse, ServiceUpdate
+from ..services.notification import _blocked_webhook_address
 
 router = APIRouter(prefix="/api/devices/{device_id}/services", tags=["services"])
 global_router = APIRouter(prefix="/api/services", tags=["services"])
@@ -24,17 +25,17 @@ def _get_device_or_404(device_id: int, db: Session) -> Device:
     return device
 
 
-def _cert_name_to_string(value) -> str:
-    parts: list[str] = []
-    for rdn in value or []:
-        for key, item in rdn:
-            parts.append(f"{key}={item}")
-    return ", ".join(parts)
+def _normalize_tls_expiry(value) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _service_tls_target(device: Device, service: Service) -> tuple[str, int, str]:
     if service.url:
         parsed = urlsplit(service.url)
+        if parsed.scheme and parsed.scheme != "https":
+            raise HTTPException(status_code=400, detail="TLS checks require an HTTPS service URL")
         if parsed.hostname:
             port = parsed.port or (443 if parsed.scheme == "https" else service.port or 443)
             return parsed.hostname, port, parsed.hostname
@@ -43,14 +44,47 @@ def _service_tls_target(device: Device, service: Service) -> tuple[str, int, str
     raise HTTPException(status_code=400, detail="Service has no URL and device has no IP address")
 
 
+def _resolve_safe_tls_addresses(host: str, port: int) -> list[str]:
+    hostname = (host or "").strip().lower().rstrip(".")
+    if not hostname:
+        raise HTTPException(status_code=400, detail="TLS target host is empty")
+    if hostname in {"localhost", "localhost.localdomain"}:
+        raise HTTPException(status_code=400, detail="TLS target must not be localhost")
+    if port < 1 or port > 65535:
+        raise HTTPException(status_code=400, detail="TLS target port is invalid")
+
+    try:
+        resolved = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError:
+        raise HTTPException(status_code=400, detail="TLS target host could not be resolved")
+
+    addresses = sorted({info[4][0] for info in resolved}, key=lambda item: (":" in item, item))
+    if not addresses:
+        raise HTTPException(status_code=400, detail="TLS target host could not be resolved")
+    for address in addresses:
+        blocked, reason = _blocked_webhook_address(address, "TLS target")
+        if blocked:
+            raise HTTPException(status_code=400, detail=reason)
+    return addresses
+
+
 def _inspect_tls_certificate(host: str, port: int, server_hostname: str) -> dict:
+    addresses = _resolve_safe_tls_addresses(host, port)
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
+    last_error = ""
     try:
-        with socket.create_connection((host, port), timeout=5) as sock:
-            with context.wrap_socket(sock, server_hostname=server_hostname) as tls_sock:
-                cert_der = tls_sock.getpeercert(binary_form=True)
+        for address in addresses:
+            try:
+                with socket.create_connection((address, port), timeout=5) as sock:
+                    with context.wrap_socket(sock, server_hostname=server_hostname) as tls_sock:
+                        cert_der = tls_sock.getpeercert(binary_form=True)
+                        break
+            except Exception as exc:
+                last_error = str(exc)
+        else:
+            raise RuntimeError(last_error or "TLS target did not return a certificate")
     except Exception as exc:
         return {
             "status": "unavailable",
@@ -60,10 +94,9 @@ def _inspect_tls_certificate(host: str, port: int, server_hostname: str) -> dict
 
     try:
         from cryptography import x509
-        from cryptography.hazmat.backends import default_backend
 
-        cert = x509.load_der_x509_certificate(cert_der, default_backend())
-        expires_at = cert.not_valid_after_utc.replace(tzinfo=None)
+        cert = x509.load_der_x509_certificate(cert_der)
+        expires_at = _normalize_tls_expiry(cert.not_valid_after)
         subject = cert.subject.rfc4514_string()
         issuer = cert.issuer.rfc4514_string()
         try:
