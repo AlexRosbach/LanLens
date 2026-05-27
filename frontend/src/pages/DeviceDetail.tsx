@@ -304,6 +304,7 @@ export default function DeviceDetail() {
     showCmdbIntegrations && device.idoit_enabled,
   ].filter(Boolean).length
   const showSectionNav = activeFeatureCount >= 2
+  const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-5">
       {/* Header */}
@@ -379,7 +380,7 @@ export default function DeviceDetail() {
       )}
 
       {/* Identity & Documentation */}
-      <Card id="device-documentation">
+      <Card id="device-documentation" className={sectionAnchorClass}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-text-muted">{t('documentation')}</h2>
           {!editing ? (
@@ -579,7 +580,7 @@ export default function DeviceDetail() {
       </Card>
 
       {/* IP History */}
-      <Card id="device-ip-history">
+      <Card id="device-ip-history" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('ip_history')}</h2>
         {ipHistory.length === 0 ? (
           <p className="text-sm text-text-subtle">{t('ip_history_empty')}</p>
@@ -611,7 +612,7 @@ export default function DeviceDetail() {
 
       {/* Ping history */}
       {showPingHistory && (
-      <Card id="device-ping-history">
+      <Card id="device-ping-history" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3">
           <h2 className="text-sm font-semibold text-text-muted">{t('ping_history')}</h2>
           {pingHistory.length > 0 && (
@@ -651,7 +652,7 @@ export default function DeviceDetail() {
 
       {/* TLS certificates */}
       {showTlsChecks && (
-      <Card id="device-tls">
+      <Card id="device-tls" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3">
           <h2 className="text-sm font-semibold text-text-muted">{t('tls_certificates')}</h2>
           <span className="text-xs text-text-subtle">{t('tls_service_count', { count: tlsServices.length })}</span>
@@ -716,7 +717,7 @@ export default function DeviceDetail() {
 
       {/* Services */}
       {advancedViewEnabled && (
-      <Card id="device-services">
+      <Card id="device-services" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('services')}</h2>
         <ServicesList
           deviceId={device.id}
@@ -735,13 +736,13 @@ export default function DeviceDetail() {
       )}
 
       {/* Deep Scan */}
-      <Card id="device-deep-scan">
+      <Card id="device-deep-scan" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('deep_scan')}</h2>
         <DeepScanPanel deviceId={device.id} />
       </Card>
 
       {/* Open Ports */}
-      <Card id="device-open-ports">
+      <Card id="device-open-ports" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
           <h2 className="text-sm font-semibold text-text-muted">
             {t('open_ports')}
@@ -836,7 +837,7 @@ export default function DeviceDetail() {
 
 
 
-      <Card id="device-timeline">
+      <Card id="device-timeline" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('change_timeline')}</h2>
         {timeline.length === 0 ? (
           <p className="text-sm text-text-subtle">{t('no_changes_recorded')}</p>
