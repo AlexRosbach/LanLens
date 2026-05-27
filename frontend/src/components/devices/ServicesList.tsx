@@ -6,6 +6,7 @@ import ServiceIcon, { ServiceTypeTag } from './ServiceIcon'
 import AddServiceModal from './AddServiceModal'
 import { useI18n } from '../../i18n'
 import { formatDateTime } from '../../utils/formatters'
+import { useUiSettingsStore } from '../../store/uiSettingsStore'
 
 interface Props {
   deviceId: number
@@ -19,6 +20,7 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
   const [editService, setEditService] = useState<Service | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [checkingTlsId, setCheckingTlsId] = useState<number | null>(null)
+  const showTlsChecks = useUiSettingsStore((state) => state.showTlsChecks)
 
   function handleSaved(saved: Service) {
     const existing = services.find((s) => s.id === saved.id)
@@ -74,6 +76,7 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
             onCheckTls={() => handleCheckTls(svc)}
             deleting={deletingId === svc.id}
             checkingTls={checkingTlsId === svc.id}
+            showTlsChecks={showTlsChecks}
           />
         ))}
 
@@ -113,6 +116,7 @@ function ServiceCard({
   onCheckTls,
   deleting,
   checkingTls,
+  showTlsChecks,
 }: {
   service: Service
   onEdit: () => void
@@ -120,6 +124,7 @@ function ServiceCard({
   onCheckTls: () => void
   deleting: boolean
   checkingTls: boolean
+  showTlsChecks: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const { t } = useI18n()
@@ -192,7 +197,7 @@ function ServiceCard({
             </button>
           )}
 
-          {(service.protocol === 'https' || service.url?.startsWith('https://') || service.port === 443) && (
+          {showTlsChecks && (service.protocol === 'https' || service.url?.startsWith('https://') || service.port === 443) && (
             <button
               onClick={onCheckTls}
               disabled={checkingTls}

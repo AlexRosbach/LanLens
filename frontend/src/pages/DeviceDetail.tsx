@@ -72,6 +72,7 @@ export default function DeviceDetail() {
   const { t, lang } = useI18n()
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showCmdbIntegrations = useUiSettingsStore((state) => state.showCmdbIntegrations)
+  const showPingHistory = useUiSettingsStore((state) => state.showPingHistory)
   const [device, setDevice] = useState<Device | null>(null)
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
   const [pingHistory, setPingHistory] = useState<DevicePingSample[]>([])
@@ -104,10 +105,12 @@ export default function DeviceDetail() {
       setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
       devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
-      devicesApi.getPingHistory(currentDevice.id).then(setPingHistory).catch(() => {})
+      if (showPingHistory) {
+        devicesApi.getPingHistory(currentDevice.id).then(setPingHistory).catch(() => {})
+      }
       devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
-  }, [id])
+  }, [id, showPingHistory])
 
   useEffect(() => {
     if (!portScanRunning || !device?.id) return
@@ -195,7 +198,9 @@ export default function DeviceDetail() {
       setForm(toEditState(updated))
       setIpHistory(updated.ip_history ?? ipHistory)
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
-      devicesApi.getPingHistory(updated.id).then(setPingHistory).catch(() => {})
+      if (showPingHistory) {
+        devicesApi.getPingHistory(updated.id).then(setPingHistory).catch(() => {})
+      }
       devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
     } catch {
@@ -293,10 +298,12 @@ export default function DeviceDetail() {
 
 
       {/* Connect */}
+      {showPingHistory && (
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
         <ConnectButtons device={device} />
       </Card>
+      )}
 
       {/* Identity & Documentation */}
       <Card>

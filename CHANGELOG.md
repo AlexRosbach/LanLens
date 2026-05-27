@@ -8,9 +8,12 @@ All notable changes to this project should be documented in this file.
 - Added lightweight reachability history samples for devices, captured during discovery and manual status checks.
 - Added a compact ping-history view on device detail pages.
 - Added per-service TLS certificate checks for HTTPS services, including status, expiration, issuer, SANs and errors.
+- Added feature categories in Settings so new expert functions can stay opt-in unless promoted to the base experience.
+- Exposed TLS certificate findings in i-doit/CMDB export and mapping data alongside the full LanLens inventory snapshot.
 
 ### Fixes / Hardening
 - Hardened language persistence with a cookie fallback so the selected UI language survives refreshes even when browser local storage is unavailable.
+- Gated TLS checks and ping history behind Feature settings.
 - Bumped backend, frontend and image metadata to 1.5.3.
 
 ## v1.5.2 — Editable i-doit export, HTTPS, SNMP identity and build metadata

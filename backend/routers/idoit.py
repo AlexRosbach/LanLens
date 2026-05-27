@@ -74,6 +74,7 @@ class IdoitExportRow(BaseModel):
     notes: str = ""
     snmp_switch: str = ""
     snmp_port: str = ""
+    tls_certificates: str = ""
     identity_confidence: str = ""
     lanlens_id: str = ""
 

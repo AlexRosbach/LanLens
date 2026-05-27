@@ -51,6 +51,7 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'disks', labelKey: 'idoit_field_disks', placeholder: 'C__CATG__DRIVE.title' },
   { key: 'open_ports', labelKey: 'idoit_field_open_ports', placeholder: '' },
   { key: 'services', labelKey: 'idoit_field_services', placeholder: '' },
+  { key: 'tls_certificates', labelKey: 'idoit_field_tls_certificates', placeholder: '' },
   { key: 'containers', labelKey: 'idoit_field_containers', placeholder: '' },
   { key: 'hypervisor', labelKey: 'idoit_field_hypervisor', placeholder: '' },
   { key: 'licenses', labelKey: 'idoit_field_licenses', placeholder: '' },
@@ -76,6 +77,7 @@ const IDOIT_EXPORT_EDIT_FIELDS = [
   { key: 'notes', labelKey: 'idoit_field_notes', wide: true },
   { key: 'snmp_switch', labelKey: 'idoit_export_snmp_switch' },
   { key: 'snmp_port', labelKey: 'idoit_export_snmp_port' },
+  { key: 'tls_certificates', labelKey: 'idoit_field_tls_certificates', wide: true },
   { key: 'identity_confidence', labelKey: 'idoit_export_identity_confidence' },
 ] as const
 
@@ -358,6 +360,8 @@ export default function Settings() {
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const setShowTlsChecks = useUiSettingsStore((state) => state.setShowTlsChecks)
+  const setShowPingHistory = useUiSettingsStore((state) => state.setShowPingHistory)
   const setShowBuildInfo = useUiSettingsStore((state) => state.setShowBuildInfo)
   const idoitMappingState = useMemo(
     () => parseIdoitMapping(idoitConfig?.idoit_mapping_raw || '{}'),
@@ -373,6 +377,8 @@ export default function Settings() {
       setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+      setShowTlsChecks(data.advanced_view_enabled && data.show_tls_checks)
+      setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
       setShowBuildInfo(data.show_build_info)
       setTelegramTokenDirty(false)
     }).catch(() => {
@@ -862,8 +868,11 @@ export default function Settings() {
       settingsApi.get().then((data) => {
         setSettings(data)
         setAdvancedViewEnabled(data.advanced_view_enabled)
+        setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+        setShowTlsChecks(data.advanced_view_enabled && data.show_tls_checks)
+        setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
         setShowBuildInfo(data.show_build_info)
       })
     } catch {
@@ -1079,12 +1088,16 @@ export default function Settings() {
         current.show_cmdb_integrations,
         current.show_services_nav,
         current.show_dhcp_monitor_nav,
+        current.show_tls_checks,
+        current.show_ping_history,
         current.show_build_info,
       )
       setAdvancedViewEnabled(current.advanced_view_enabled)
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
+      setShowTlsChecks(current.advanced_view_enabled && current.show_tls_checks)
+      setShowPingHistory(current.advanced_view_enabled && current.show_ping_history)
       setShowBuildInfo(current.show_build_info)
       toast.success(t('ui_settings_saved'))
     } catch {
@@ -1103,6 +1116,89 @@ export default function Settings() {
     { key: 'inventory' as const, label: t('inventory_tools_title') },
     { key: 'backup' as const, label: t('backup_restore') },
     ...(current.advanced_view_enabled && current.show_cmdb_integrations ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
+  ]
+
+  const featureGroups = [
+    {
+      title: t('feature_category_core'),
+      description: t('feature_category_core_hint'),
+      items: [
+        {
+          key: 'advanced',
+          checked: current.advanced_view_enabled,
+          label: t('advanced_view_enabled'),
+          description: t('advanced_view_enabled_hint'),
+          onChange: (checked: boolean) => setSettings({
+            ...current,
+            advanced_view_enabled: checked,
+            show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
+            show_services_nav: checked ? current.show_services_nav : false,
+            show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
+            show_tls_checks: checked ? current.show_tls_checks : false,
+            show_ping_history: checked ? current.show_ping_history : false,
+          }),
+        },
+        {
+          key: 'build-info',
+          checked: current.show_build_info,
+          label: t('show_build_info'),
+          description: t('show_build_info_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_build_info: checked }),
+        },
+      ],
+    },
+    {
+      title: t('feature_category_monitoring'),
+      description: t('feature_category_monitoring_hint'),
+      items: [
+        {
+          key: 'tls',
+          checked: current.show_tls_checks,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_tls_checks'),
+          description: t('show_tls_checks_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_tls_checks: checked }),
+        },
+        {
+          key: 'ping-history',
+          checked: current.show_ping_history,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_ping_history'),
+          description: t('show_ping_history_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_ping_history: checked }),
+        },
+        {
+          key: 'dhcp-monitor',
+          checked: current.show_dhcp_monitor_nav,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_dhcp_monitor_nav'),
+          description: t('show_dhcp_monitor_nav_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_dhcp_monitor_nav: checked }),
+        },
+      ],
+    },
+    {
+      title: t('feature_category_inventory'),
+      description: t('feature_category_inventory_hint'),
+      items: [
+        {
+          key: 'services',
+          checked: current.show_services_nav,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_services_nav'),
+          description: t('show_services_nav_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_services_nav: checked }),
+        },
+        {
+          key: 'cmdb',
+          checked: current.show_cmdb_integrations,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_cmdb_integrations'),
+          description: t('show_cmdb_integrations_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_cmdb_integrations: checked }),
+        },
+      ],
+    },
   ]
 
   return (
@@ -1260,54 +1356,33 @@ export default function Settings() {
           {t('feature_visibility_tab')}
         </h2>
         <div className="space-y-4">
-          <Card>
+          <div>
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('feature_visibility_title')}</h2>
-            <p className="text-sm text-text-subtle mb-4">{t('feature_visibility_description')}</p>
-            <div className="space-y-3">
-              <ToggleSwitch
-                checked={current.advanced_view_enabled}
-                label={t('advanced_view_enabled')}
-                description={t('advanced_view_enabled_hint')}
-                onChange={(checked) => setSettings({
-                  ...current,
-                  advanced_view_enabled: checked,
-                  show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
-                  show_services_nav: checked ? current.show_services_nav : false,
-                  show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
-                })}
-              />
-              <ToggleSwitch
-                checked={current.show_cmdb_integrations}
-                disabled={!current.advanced_view_enabled}
-                label={t('show_cmdb_integrations')}
-                description={t('show_cmdb_integrations_hint')}
-                onChange={(checked) => setSettings({ ...current, show_cmdb_integrations: checked })}
-              />
-              <ToggleSwitch
-                checked={current.show_services_nav}
-                disabled={!current.advanced_view_enabled}
-                label={t('show_services_nav')}
-                description={t('show_services_nav_hint')}
-                onChange={(checked) => setSettings({ ...current, show_services_nav: checked })}
-              />
-              <ToggleSwitch
-                checked={current.show_dhcp_monitor_nav}
-                disabled={!current.advanced_view_enabled}
-                label={t('show_dhcp_monitor_nav')}
-                description={t('show_dhcp_monitor_nav_hint')}
-                onChange={(checked) => setSettings({ ...current, show_dhcp_monitor_nav: checked })}
-              />
-              <ToggleSwitch
-                checked={current.show_build_info}
-                label={t('show_build_info')}
-                description={t('show_build_info_hint')}
-                onChange={(checked) => setSettings({ ...current, show_build_info: checked })}
-              />
-            </div>
-            <div className="mt-4">
-              <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
-            </div>
-          </Card>
+            <p className="text-sm text-text-subtle">{t('feature_visibility_description')}</p>
+          </div>
+          {featureGroups.map((group) => (
+            <Card key={group.title}>
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-text-base">{group.title}</h3>
+                <p className="mt-1 text-xs text-text-subtle">{group.description}</p>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {group.items.map((item) => (
+                  <ToggleSwitch
+                    key={item.key}
+                    checked={item.checked}
+                    disabled={'disabled' in item ? item.disabled : false}
+                    label={item.label}
+                    description={item.description}
+                    onChange={item.onChange}
+                  />
+                ))}
+              </div>
+            </Card>
+          ))}
+          <div className="flex justify-end">
+            <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
+          </div>
         </div>
       </div>
       )}

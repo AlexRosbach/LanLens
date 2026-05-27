@@ -6,6 +6,8 @@ interface UiSettingsState {
   showCmdbIntegrations: boolean
   showServicesNav: boolean
   showDhcpMonitorNav: boolean
+  showTlsChecks: boolean
+  showPingHistory: boolean
   showBuildInfo: boolean
   appVersion: string
   buildCode: string
@@ -17,6 +19,8 @@ interface UiSettingsState {
   setShowCmdbIntegrations: (showCmdbIntegrations: boolean) => void
   setShowServicesNav: (showServicesNav: boolean) => void
   setShowDhcpMonitorNav: (showDhcpMonitorNav: boolean) => void
+  setShowTlsChecks: (showTlsChecks: boolean) => void
+  setShowPingHistory: (showPingHistory: boolean) => void
   setShowBuildInfo: (showBuildInfo: boolean) => void
   fetchUiSettings: () => Promise<void>
 }
@@ -26,6 +30,8 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   showCmdbIntegrations: false,
   showServicesNav: false,
   showDhcpMonitorNav: false,
+  showTlsChecks: false,
+  showPingHistory: false,
   showBuildInfo: false,
   appVersion: '',
   buildCode: '',
@@ -38,6 +44,8 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   setShowCmdbIntegrations: (showCmdbIntegrations) => set({ showCmdbIntegrations }),
   setShowServicesNav: (showServicesNav) => set({ showServicesNav }),
   setShowDhcpMonitorNav: (showDhcpMonitorNav) => set({ showDhcpMonitorNav }),
+  setShowTlsChecks: (showTlsChecks) => set({ showTlsChecks }),
+  setShowPingHistory: (showPingHistory) => set({ showPingHistory }),
   setShowBuildInfo: (showBuildInfo) => set({ showBuildInfo }),
 
   fetchUiSettings: async () => {
@@ -49,6 +57,8 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
         showCmdbIntegrations: settings.advanced_view_enabled && settings.show_cmdb_integrations,
         showServicesNav: settings.advanced_view_enabled && settings.show_services_nav,
         showDhcpMonitorNav: settings.advanced_view_enabled && settings.show_dhcp_monitor_nav,
+        showTlsChecks: settings.advanced_view_enabled && settings.show_tls_checks,
+        showPingHistory: settings.advanced_view_enabled && settings.show_ping_history,
         showBuildInfo: settings.show_build_info,
         appVersion: settings.app_version,
         buildCode: settings.build_code,

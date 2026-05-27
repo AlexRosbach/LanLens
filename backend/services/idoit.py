@@ -42,7 +42,7 @@ def _safe_csv_cell(value: Any) -> Any:
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 8,
+    "version": 9,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -86,6 +86,7 @@ DEFAULT_MAPPING = {
         "disks": "C__CATG__DRIVE.title",
         "open_ports": "",
         "services": "",
+        "tls_certificates": "",
         "containers": "",
         "hypervisor": "",
         "licenses": "",
@@ -320,6 +321,7 @@ def _allowed_device_mapping_fields() -> set[str]:
         "disks",
         "open_ports",
         "services",
+        "tls_certificates",
         "containers",
         "hypervisor",
         "licenses",
@@ -452,6 +454,7 @@ IDOIT_EXPORT_COLUMNS = [
     "Notizen",
     "SNMP-Switch",
     "SNMP-Port",
+    "TLS-Zertifikate",
     "Identity Confidence",
     "LanLens-ID",
 ]
@@ -504,6 +507,7 @@ def build_export_row(
         "notes": "\n\n".join(notes_parts),
         "snmp_switch": snmp_identity.get("switch_name", ""),
         "snmp_port": str(snmp_identity.get("interface_name") or snmp_identity.get("if_index") or ""),
+        "tls_certificates": _tls_certificates_summary(device) or "",
         "identity_confidence": snmp_identity.get("confidence", "base"),
         "lanlens_id": str(device.id),
     }
@@ -553,6 +557,7 @@ def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:
             _safe_csv_cell(row.get("notes", "")),
             _safe_csv_cell(row.get("snmp_switch", "")),
             _safe_csv_cell(row.get("snmp_port", "")),
+            _safe_csv_cell(row.get("tls_certificates", "")),
             _safe_csv_cell(row.get("identity_confidence", "")),
             _safe_csv_cell(row.get("lanlens_id", "")),
         ])
@@ -974,10 +979,42 @@ def _services_summary(device: Device) -> Optional[str]:
             parts.append(endpoint)
         if service.version:
             parts.append(f"version={service.version}")
+        if service.tls_status:
+            parts.append(f"tls={service.tls_status}")
+        if service.tls_expires_at:
+            parts.append(f"tls_expires={service.tls_expires_at.isoformat()}")
         if service.description:
             parts.append(service.description[:180])
         lines.append("- " + " | ".join(str(part) for part in parts if part))
     return "\n".join(lines)[:4000]
+
+
+def _tls_certificates_summary(device: Device) -> Optional[str]:
+    services = [
+        service for service in list(device.services or [])
+        if service.tls_status or service.tls_expires_at or service.tls_issuer or service.tls_subject or service.tls_sans or service.tls_error
+    ]
+    if not services:
+        return None
+    lines = ["LanLens TLS certificates:"]
+    for service in sorted(services, key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
+        endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
+        lines.append(f"- {service.name or 'Service'}{f' ({endpoint})' if endpoint else ''}")
+        if service.tls_status:
+            lines.append(f"  status: {service.tls_status}")
+        if service.tls_expires_at:
+            lines.append(f"  expires: {service.tls_expires_at.isoformat()}")
+        if service.tls_issuer:
+            lines.append(f"  issuer: {service.tls_issuer}")
+        if service.tls_subject:
+            lines.append(f"  subject: {service.tls_subject}")
+        if service.tls_sans:
+            lines.append(f"  SAN: {service.tls_sans}")
+        if service.tls_self_signed is not None:
+            lines.append(f"  self_signed: {'yes' if service.tls_self_signed else 'no'}")
+        if service.tls_error:
+            lines.append(f"  error: {service.tls_error}")
+    return "\n".join(lines)[:6000]
 
 
 def _relationships_summary(db: Optional[Session], device: Device) -> Optional[str]:
@@ -1032,6 +1069,7 @@ def _lanlens_inventory_summary(device: Device, findings: dict[str, dict[str, Any
         ("Documentation", "\n".join(part for part in [device.purpose, device.description, device.notes] if part)),
         ("Open ports", _latest_open_ports(db, device) or ""),
         ("Services", _services_summary(device) or ""),
+        ("TLS certificates", _tls_certificates_summary(device) or ""),
         ("Relationships", _relationships_summary(db, device) or ""),
         ("Deep scan", _deep_scan_summary(findings) or ""),
     ):
@@ -1115,6 +1153,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "disks": _drive_entries(disks),
         "open_ports": _latest_open_ports(db, device),
         "services": _services_summary(device),
+        "tls_certificates": _tls_certificates_summary(device),
         "containers": containers,
         "hypervisor": hypervisor,
         "licenses": licenses,

@@ -455,6 +455,8 @@ class UiSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_tls_checks: bool = False
+    show_ping_history: bool = False
     show_build_info: bool = False
 
 
@@ -504,6 +506,8 @@ class AllSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_tls_checks: bool = False
+    show_ping_history: bool = False
     show_build_info: bool = False
     app_version: str = ""
     build_code: str = ""
