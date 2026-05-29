@@ -19,7 +19,7 @@ from ..services.passive_discovery import (
     observation_to_response,
     try_begin_capture,
 )
-from ..services.plugin_registry import get_plugin, is_plugin_enabled, list_plugins
+from ..services.plugin_registry import get_plugin, list_plugins
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 passive_router = APIRouter(prefix="/api/passive-discovery", tags=["passive-discovery"])
@@ -73,13 +73,14 @@ def start_passive_capture(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    if not is_plugin_enabled(db, "passive-discovery"):
+    plugins = {plugin["key"]: plugin for plugin in list_plugins(db)}
+    if not plugins.get("passive-discovery", {}).get("enabled"):
         raise HTTPException(status_code=403, detail="Passive discovery is disabled")
 
     enabled_protocols: set[str] = {"multicast"}
-    if is_plugin_enabled(db, "mdns-discovery"):
+    if plugins.get("mdns-discovery", {}).get("enabled"):
         enabled_protocols.add("mdns")
-    if is_plugin_enabled(db, "ssdp-discovery"):
+    if plugins.get("ssdp-discovery", {}).get("enabled"):
         enabled_protocols.add("ssdp")
 
     if not try_begin_capture():

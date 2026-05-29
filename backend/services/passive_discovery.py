@@ -81,6 +81,27 @@ def _summary_from_metadata(protocol: str, metadata: dict[str, Any]) -> str:
     return metadata.get("packet_type") or f"{protocol.upper()} packet observed"
 
 
+def _iter_dns_section(first_item: Any, expected_type: type, max_count: int) -> list[Any]:
+    items: list[Any] = []
+    current = first_item
+    for _ in range(max(0, max_count)):
+        if not current or not isinstance(current, expected_type):
+            break
+        items.append(current)
+        current = getattr(current, "payload", None)
+    return items
+
+
+def _mdns_service_type(name: str | None) -> str | None:
+    if not name:
+        return None
+    labels = name.rstrip(".").split(".")
+    for index, label in enumerate(labels):
+        if label in {"_tcp", "_udp"} and index > 0:
+            return ".".join(labels[index - 1:index + 1])
+    return None
+
+
 def parse_mdns_packet(packet: Any) -> PassiveDiscoveryObservation | None:
     try:
         from scapy.layers.dns import DNS, DNSQR, DNSRR
@@ -92,22 +113,21 @@ def parse_mdns_packet(packet: Any) -> PassiveDiscoveryObservation | None:
     source_ip, source_mac, destination_ip = _packet_addrs(packet)
     questions = []
     answers = []
-    for index in range(int(getattr(dns, "qdcount", 0) or 0)):
-        item = dns.qd[index] if int(getattr(dns, "qdcount", 0) or 0) > 1 else dns.qd
-        if item and isinstance(item, DNSQR):
-            questions.append({"name": _json_safe(item.qname).rstrip("."), "type": int(item.qtype)})
-    for index in range(int(getattr(dns, "ancount", 0) or 0)):
-        item = dns.an[index] if int(getattr(dns, "ancount", 0) or 0) > 1 else dns.an
-        if item and isinstance(item, DNSRR):
-            answers.append({
-                "name": _json_safe(item.rrname).rstrip("."),
-                "type": int(item.type),
-                "ttl": int(item.ttl),
-                "data": _json_safe(item.rdata),
-            })
+    for item in _iter_dns_section(dns.qd, DNSQR, int(getattr(dns, "qdcount", 0) or 0)):
+        questions.append({"name": _json_safe(item.qname).rstrip("."), "type": int(item.qtype)})
+    for item in _iter_dns_section(dns.an, DNSRR, int(getattr(dns, "ancount", 0) or 0)):
+        answers.append({
+            "name": _json_safe(item.rrname).rstrip("."),
+            "type": int(item.type),
+            "ttl": int(item.ttl),
+            "data": _json_safe(item.rdata),
+        })
     metadata = {"questions": questions, "answers": answers}
     service_name = next((item["name"] for item in answers + questions if item.get("name")), None)
-    service_type = next((name for name in [service_name] if name and "._tcp" in name or name and "._udp" in name), None)
+    service_type = next(
+        (parsed for parsed in (_mdns_service_type(item.get("name")) for item in answers + questions) if parsed),
+        None,
+    )
     return PassiveDiscoveryObservation(
         protocol="mdns",
         source_ip=source_ip,
