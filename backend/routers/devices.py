@@ -35,6 +35,7 @@ from ..services.idoit import build_object_url, get_config as get_idoit_config
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
+from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -472,6 +473,9 @@ def get_device_ping_history(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    if not is_advanced_feature_enabled(db, "show_ping_history"):
+        raise HTTPException(status_code=403, detail="Ping history is disabled")
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")

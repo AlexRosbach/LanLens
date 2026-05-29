@@ -44,6 +44,7 @@ COPY backend/requirements.txt /tmp/requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     nmap \
+    iputils-ping \
     snmp \
     libpcap-dev \
     libpcap0.8 \

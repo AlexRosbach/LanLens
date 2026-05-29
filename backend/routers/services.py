@@ -12,6 +12,7 @@ from ..database import get_db
 from ..models import Device, Service, ServiceGroup, User
 from ..schemas import MessageResponse, ServiceCreate, ServiceGroupCreate, ServiceGroupResponse, ServiceGroupUpdate, ServiceResponse, ServiceUpdate
 from ..services.notification import _blocked_webhook_address
+from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/devices/{device_id}/services", tags=["services"])
 global_router = APIRouter(prefix="/api/services", tags=["services"])
@@ -34,10 +35,16 @@ def _normalize_tls_expiry(value) -> datetime:
 def _service_tls_target(device: Device, service: Service) -> tuple[str, int, str]:
     if service.url:
         parsed = urlsplit(service.url)
-        if parsed.scheme and parsed.scheme != "https":
+        scheme = (parsed.scheme or "").lower()
+        if scheme and scheme != "https":
             raise HTTPException(status_code=400, detail="TLS checks require an HTTPS service URL")
-        if parsed.hostname:
-            port = parsed.port or (443 if parsed.scheme == "https" else service.port or 443)
+        if scheme == "https":
+            if not parsed.hostname:
+                raise HTTPException(status_code=400, detail="HTTPS service URL must include a host")
+            try:
+                port = parsed.port or 443
+            except ValueError:
+                raise HTTPException(status_code=400, detail="TLS target port is invalid")
             return parsed.hostname, port, parsed.hostname
     if device.ip_address:
         return device.ip_address, service.port or 443, device.hostname or device.ip_address
@@ -216,6 +223,9 @@ def check_service_tls(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    if not is_advanced_feature_enabled(db, "show_tls_checks"):
+        raise HTTPException(status_code=403, detail="TLS certificate checks are disabled")
+
     device = _get_device_or_404(device_id, db)
     service = db.query(Service).filter(
         Service.id == service_id, Service.device_id == device_id

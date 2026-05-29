@@ -10,9 +10,10 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-service-tls-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, DevicePingSample
-from backend.routers.services import _normalize_tls_expiry, _resolve_safe_tls_addresses
+from backend.models import Device, DevicePingSample, Service, Setting
+from backend.routers.services import _normalize_tls_expiry, _resolve_safe_tls_addresses, _service_tls_target
 from backend.services.scanner import PING_SAMPLE_RETENTION_PER_DEVICE, record_ping_sample
+from backend.services.settings_helpers import is_advanced_feature_enabled
 
 
 class ServiceTlsAndPingTests(unittest.TestCase):
@@ -44,6 +45,47 @@ class ServiceTlsAndPingTests(unittest.TestCase):
     def test_tls_expiry_is_normalized_to_naive_utc(self):
         expiry = datetime(2026, 5, 27, 12, 30, tzinfo=timezone.utc)
         self.assertEqual(_normalize_tls_expiry(expiry), datetime(2026, 5, 27, 12, 30))
+
+    def test_tls_target_rejects_invalid_https_port_cleanly(self):
+        device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10")
+        service = Service(device=device, name="Bad HTTPS", url="https://example.test:99999")
+
+        with self.assertRaises(HTTPException) as ctx:
+            _service_tls_target(device, service)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("port", ctx.exception.detail)
+
+    def test_tls_target_rejects_https_url_without_host(self):
+        device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10")
+        service = Service(device=device, name="Bad HTTPS", url="https:///status")
+
+        with self.assertRaises(HTTPException) as ctx:
+            _service_tls_target(device, service)
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("host", ctx.exception.detail)
+
+    def test_advanced_feature_requires_global_and_specific_switch(self):
+        db = self.Session()
+        try:
+            db.add_all([
+                Setting(key="advanced_view_enabled", value="true"),
+                Setting(key="show_tls_checks", value="false"),
+            ])
+            db.commit()
+
+            self.assertFalse(is_advanced_feature_enabled(db, "show_tls_checks"))
+
+            db.query(Setting).filter(Setting.key == "show_tls_checks").one().value = "true"
+            db.commit()
+            self.assertTrue(is_advanced_feature_enabled(db, "show_tls_checks"))
+
+            db.query(Setting).filter(Setting.key == "advanced_view_enabled").one().value = "false"
+            db.commit()
+            self.assertFalse(is_advanced_feature_enabled(db, "show_tls_checks"))
+        finally:
+            db.close()
 
     def test_ping_sample_retention_keeps_latest_samples_per_device(self):
         db = self.Session()
