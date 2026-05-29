@@ -52,6 +52,12 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _bounded_text(value: Any, max_length: int) -> str | None:
+    if value is None:
+        return None
+    return str(value)[:max_length]
+
+
 def _packet_addrs(packet: Any) -> tuple[str | None, str | None, str | None]:
     source_ip = destination_ip = source_mac = None
     try:
@@ -133,8 +139,8 @@ def parse_mdns_packet(packet: Any) -> PassiveDiscoveryObservation | None:
         source_ip=source_ip,
         source_mac=source_mac,
         destination_ip=destination_ip,
-        service_name=service_name,
-        service_type=service_type,
+        service_name=_bounded_text(service_name, 255),
+        service_type=_bounded_text(service_type, 128),
         summary=_summary_from_metadata("mdns", metadata),
         metadata_json=json.dumps(metadata, default=str, sort_keys=True),
         observed_at=datetime.utcnow(),
@@ -165,8 +171,8 @@ def parse_ssdp_payload(payload: bytes | str, source_ip: str | None = None, sourc
         source_ip=source_ip,
         source_mac=source_mac,
         destination_ip=destination_ip,
-        service_name=str(service_name) if service_name else None,
-        service_type=str(service_type) if service_type else None,
+        service_name=_bounded_text(service_name, 255),
+        service_type=_bounded_text(service_type, 128),
         summary=_summary_from_metadata("ssdp", metadata),
         metadata_json=json.dumps(metadata, default=str, sort_keys=True),
         observed_at=datetime.utcnow(),
