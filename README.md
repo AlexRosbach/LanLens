@@ -11,66 +11,53 @@
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
 
-LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, and connect to them.
+LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, monitor, and connect to them.
 
-Project updates, release notes, and occasional build notes are posted on [X / @itneedtoknow](https://x.com/itneedtoknow).
-
-> [!IMPORTANT]
-> LanLens is intended exclusively for use in your own network or in networks where you have explicit permission to scan and monitor devices.
-> Features such as network discovery and port scanning can be misused against third-party systems. You are responsible for complying with applicable laws, policies, and authorization requirements. The project maintainer cannot be held liable for misuse or unauthorized scanning performed with this tool.
-
-### Contributors
-
-Thanks to everyone helping shape LanLens, including community contributions that improved translations, UX consistency, and release polish.
+[Documentation](docs/documentation.md) · [Knowledge Base](docs/knowledgebase.md) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens)
 
 </div>
 
 ---
 
-## Features
+## What LanLens Does
 
+LanLens is built for small self-hosted, homelab, and lightweight IT environments where you want network discovery plus practical documentation without a full enterprise discovery suite.
 
-- Automatic LAN discovery via ARP scan
-- Device classification, custom device classes, and offline MAC vendor lookup
-- DHCP badge detection
-- Segments with colour, range, and IP usage
-- Per-device documentation fields, IP history, and manual offline-device status re-checks
-- Service inventory per device, plus optional Services directory page with user-managed segments, drag-and-drop grouping, explicit segment dropdown assignment, and custom icon URLs
-- Optional DHCP Monitor page that probes visible DHCP servers and shows announced DHCP options
-- One-click connect actions (SSH, RDP, HTTP, HTTPS)
-- Port scanning via nmap
-- **Deep scan** via SSH (Linux) and WinRM (Windows) — hardware, OS, services, containers, hypervisor inventory
-- **Encrypted credential vault** for SSH and WinRM access (Fernet, key derived from `SECRET_KEY`)
-- **Hypervisor intelligence** — detects Proxmox, KVM, and Hyper-V hosts; enumerates guests; maps VMs to known devices
-- **Auto deep scan** — per-device scheduled scanning with configurable interval
-- **SNMP switch identity foundation** — poll SNMP v1, v2c and v3 switches, map MAC addresses to switch ports, and enrich i-doit export rows with switch/port context
-- **Inventory tools in Settings** — per-device change timeline, maintenance/mute controls, ignore rules, duplicate merge preview/action, sanitized documentation reports, backup and restore helpers
-- Telegram notifications for new devices and updates
-- English, German, Italian, and Simplified Chinese UI
-- Responsive dashboard for desktop and mobile
+- Discover devices on the local Layer-2 network with ARP scanning
+- Track online/offline state, DHCP range membership, IP history, and open services
+- Document devices with owner, location, purpose, OS, asset tag, notes, and CMDB ID
+- Group networks into segments and keep device lists readable
+- Connect quickly through SSH, RDP, HTTP, and HTTPS shortcuts
+- Enable optional expert modules only when needed through **Settings → Features**
+- Maintain a clickable Services directory for self-hosted apps and device services
+- Enrich selected devices through SSH/WinRM deep scans
+- Prepare CMDB/i-doit exports and sync workflows, including reviewed CSV export
+- Send Telegram, webhook, or Gotify notifications for relevant device events
+
+> [!IMPORTANT]
+> Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
 
 ---
 
 ## Screenshots
 
-> IP and MAC addresses in the screenshots were anonymized for privacy.
+The screenshots below use sanitized demo data with documentation IP ranges and example names.
 
 | Dashboard | Device detail |
 |---|---|
-| ![Dashboard](docs/screenshots/lanlens_04_dashboard.png) | ![Device Detail](docs/screenshots/lanlens_03_unifi.png) |
+| ![LanLens dashboard](docs/screenshots/lanlens-dashboard.png) | ![LanLens device detail](docs/screenshots/lanlens-device-detail.png) |
 
-| Segments | Device documentation |
+| Segments | Services directory |
 |---|---|
-| ![Segments](docs/screenshots/lanlens_02_segments.png) | ![Device Detail 2](docs/screenshots/lanlens_01_homeassistant.png) |
+| ![LanLens segments](docs/screenshots/lanlens-segments.png) | ![LanLens services directory](docs/screenshots/lanlens-services.png) |
 
----
+| Feature visibility |
+|---|
+| ![LanLens feature visibility settings](docs/screenshots/lanlens-settings-features.png) |
 
-## Documentation
-
-- [Knowledge Base / FAQ](docs/knowledgebase.md)
-- [Extended documentation](docs/documentation.md)
-
-Use the Knowledge Base for setup errors, i-doit/CMDB troubleshooting, duplicate-prevention guidance, and Scan Node deployment notes. Use the extended documentation for architecture, API details, scanning behaviour, and configuration references.
+| CMDB / i-doit settings | Editable i-doit CSV export |
+|---|---|
+| ![LanLens CMDB and i-doit settings](docs/screenshots/lanlens-idoit-settings.png) | ![LanLens editable i-doit CSV export](docs/screenshots/lanlens-idoit-export.png) |
 
 ---
 
@@ -78,10 +65,11 @@ Use the Knowledge Base for setup errors, i-doit/CMDB troubleshooting, duplicate-
 
 ### Requirements
 
-- Docker 20.10+ with `docker compose`
-- Linux host recommended for raw ARP scanning (`network_mode: host`)
+- Docker 20.10+
+- Docker Compose v2
+- Linux host recommended for direct ARP scanning
 
-### 1. Get the compose file
+### 1. Download the compose file
 
 ```bash
 curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
@@ -95,456 +83,77 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml` with the generated value.
 
-### 3. Optional: choose the HTTP/HTTPS port
-
-In `docker-compose.yml` you can change:
-
-```yaml
-- LANLENS_PORT=7765
-```
-
-Examples:
-- `LANLENS_PORT=80` for direct port 80 in host mode
-- `LANLENS_PORT=8080` for port 8080
-
-LanLens can also terminate HTTPS itself for host-network deployments. In **Settings → System → HTTPS Settings**, upload a certificate and private key, choose the HTTPS port, and enable HTTPS. Certificate files are stored in the persistent `/data/tls` volume path. External reverse proxies such as Traefik, Caddy, or Nginx Proxy Manager remain the preferred option when LanLens runs behind a central proxy.
-
-### Optional advanced view
-
-LanLens keeps expert-oriented areas hidden by default for simpler home-network installations. Use **Settings → Features** to enable Advanced View and then turn on the modules this deployment actually needs, such as CMDB/i-doit, Services, DHCP Monitor and build metadata. Existing feature settings are preserved while Advanced View is disabled, but the related UI surfaces stay hidden.
-
-### 4. Start LanLens
+### 3. Start LanLens
 
 ```bash
 docker compose up -d
 ```
 
-### 5. Open the UI
-
 Open:
 
 ```text
-http://<your-host-ip>:<LANLENS_PORT>
+http://<your-host-ip>:7765
 ```
 
-Default credentials:
+Default first-run credentials:
 
 ```text
 admin / admin
 ```
 
-You will be forced to change the password on first login.
+LanLens forces a password change after the first login.
 
 ---
 
-## Configuration
+## Deployment Notes
 
-### Environment variables
+LanLens uses `network_mode: host` by default because local ARP discovery needs raw network access on the host interface. Bridge mode can serve the UI, but direct ARP/MAC discovery will not work the same way.
 
-| Variable | Default | Description |
+Core runtime settings:
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `SECRET_KEY` | — | Required, at least 32 random characters |
-| `DEFAULT_ADMIN_PASSWORD` | `admin` | Initial admin password |
-| `LANLENS_PORT` | `7765` | HTTP port exposed by nginx, also usable in host mode |
+| `SECRET_KEY` | required | Encryption/signing key; set a strong random value |
+| `DEFAULT_ADMIN_PASSWORD` | `admin` | Initial admin password when no user exists |
+| `LANLENS_PORT` | `7765` | HTTP port exposed by nginx |
 | `BACKEND_PORT` | `17765` | Internal FastAPI port behind nginx |
 | `DB_PATH` | `/data/lanlens.db` | SQLite database path |
 | `TZ` | `UTC` | Container timezone |
 
-### DHCP tagging and scan range
-
-In **Settings → Network** LanLens now keeps these concerns separate:
-
-- **DHCP range**: used for DHCP tagging / classification only
-- **Scan range**: used for the active ARP network scan on the directly reachable Layer-2 network
-- **Additional routed scan targets**: optional IPv4 CIDRs/addresses scanned with `nmap -sn` for other routed subnets
-- **Scan interval**: controls the schedule
-
-Notes:
-- LanLens auto-detects the host subnet as the default scan range when no explicit scan range was saved yet.
-- The configured `scan start` and `scan end` define the actual IPv4 scan range, so larger ranges inside the directly reachable local network are supported.
-- ARP scanning works directly only on the locally reachable Layer-2 network. Use **Additional routed scan targets** for other subnets, for example `192.168.10.0/24`.
-- Routed subnet discovery uses nmap ping scan. Across routed networks, MAC addresses and vendor information are often unavailable; LanLens tracks those hosts as IP-only discoveries.
-- Enterprise/VLAN deployments should either configure reachable routed CIDRs from a central LanLens instance or run one LanLens scanner per site/VLAN and consolidate through CMDB/i-doit. ARP/MAC discovery is only reliable inside the same broadcast domain; routed discovery is useful for reachability and IP/hostname inventory, not for guaranteed MAC/vendor identity.
-
-### Optional Scan Nodes
-
-> [!WARNING]
-> Scan Nodes are currently an untested/experimental deployment option. The generated one-line Docker command, token registration and central ingest API are available for validation, but this should be tested in a controlled VLAN/site before relying on it in production.
-
-For segmented environments, LanLens can register optional **Scan Nodes**. A Scan Node is a small Docker container placed inside a VLAN/site. It scans locally with `nmap -sn` and reports results outbound to the central LanLens instance; the central instance keeps the database, UI, deduplication and i-doit sync.
-
-In **Settings -> Network -> Scan Nodes**, create a node and copy the generated one-line Docker command. The command contains the central URL, node name and a one-time token:
-
-```bash
-docker run -d --name lanlens-scan-node-vlan20 --restart unless-stopped --network host --cap-add NET_RAW --cap-add NET_ADMIN -e LANLENS_CENTRAL_URL=https://lanlens.example.com -e LANLENS_NODE_TOKEN=... -e LANLENS_NODE_NAME=vlan20 alexrosbach/lanlens:scan-node-latest
-```
-
-By default the node scans its local IPv4 interface CIDR. Set `LANLENS_SCAN_TARGETS` to override targets, for example `10.10.20.0/24,10.10.21.0/24`. Nodes need no inbound firewall rule; they only need outbound HTTPS to Central.
-
-### SNMP switch topology foundation
-
-In **Settings -> Network -> SNMP switch topology**, LanLens can store SNMP v1, v2c and v3 profiles, register Cisco, Sophos, UniFi/Ubiquiti or generic SNMP devices, and poll interface plus bridge forwarding tables. The first implementation focuses on identity quality rather than full network visualization:
-
-- MAC addresses learned from switches are matched back to known LanLens devices
-- device topology data can show the switch and interface context when available
-- the i-doit CSV export includes `SNMP-Switch`, `SNMP-Port` and `Identity Confidence`
-- SNMP profiles and switch targets can be removed again from the same settings view
-
-LanLens detects the vendor from `sysObjectID`/`sysDescr` and uses standard IF-MIB, BRIDGE-MIB and Q-BRIDGE-MIB fallbacks. Routers and firewalls such as UniFi gateways or Sophos appliances may expose interface inventory without a switch MAC table; those polls complete with a clear warning instead of failing the whole poll.
-
-SNMP community strings and SNMPv3 credentials are stored in the LanLens database and masked in API responses. Treat the database and `/data` volume as sensitive application data. LLDP/CDP and richer graph visualization are planned follow-ups.
-
-### Optional feature visibility
-
-In **Settings -> Features**, optional modules can be enabled or hidden:
-
-- **CMDB/i-doit**: shows the CMDB settings tab and i-doit sync details on device pages.
-- **Services**: shows the global Services directory.
-- **DHCP Monitor**: shows a DHCP server/options monitor. It is not a full DHCP process timeline; it actively sends a DHCP Discover probe from the LanLens host/container and displays which DHCP server answers with which options.
-- **Build information**: shows internal build metadata in the sidebar footer.
-
-The DHCP Monitor requires host networking and raw packet permissions so LanLens can send a DHCP Discover and receive DHCP replies. Renewing a lease on another workstation may not be visible on a normal switched network because DHCP renewal ACKs are often unicast directly to that client.
-
-### Telegram
-
-Configure Telegram in **Settings → Notifications**:
-- bot token
-- chat ID
-- optional test message
-
-### Webhook / Gotify
-
-LanLens can also send new-device notifications to a generic JSON webhook, including Gotify.
-
-Configure this in **Settings → Notifications → Webhook / Gotify**:
-- enable webhook notifications
-- enter the full webhook URL
-- send a test webhook
-
-For Gotify, use the complete message endpoint including the app token, for example:
-
-```text
-https://gotify.example.com/message?token=YOUR_APP_TOKEN
-```
-
-LanLens sends JSON with `title`, `message`, `priority`, `event_type`, `device_id`, and `source` fields.
-
-Security notes:
-- the stored webhook URL is treated as a secret in the settings API because Gotify-style URLs often contain tokens
-- outbound webhook, i-doit and generic CMDB REST URLs are validated server-side before use
-- private LAN targets are allowed for self-hosted deployments, while loopback, link-local, multicast, reserved, unspecified and cloud metadata addresses are rejected
-- outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI to reduce DNS-rebinding risk
-- redirects are not followed for generic CMDB REST calls
+For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [technical documentation](docs/documentation.md).
 
 ---
 
-## Using MariaDB / External Database
+## Documentation Map
 
-By default LanLens uses **SQLite** stored in `/data/lanlens.db`. For production environments or when you need shared database access, you can switch to **MariaDB** or **MySQL**.
-
-### Requirements
-
-Install the `PyMySQL` driver in the container:
-
-```dockerfile
-RUN pip install PyMySQL
-```
-
-Or add to `requirements.txt`:
-```
-PyMySQL>=1.1.0
-```
-
-### docker-compose Configuration
-
-```yaml
-services:
-  lanlens:
-    image: alexrosbach/lanlens:latest
-    environment:
-      DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens
-      SECRET_KEY: your-secret-key-here
-    depends_on:
-      - mariadb
-
-  mariadb:
-    image: mariadb:11
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: lanlens
-      MYSQL_USER: lanlens
-      MYSQL_PASSWORD: yourpassword
-    volumes:
-      - mariadb_data:/var/lib/mysql
-
-volumes:
-  mariadb_data:
-```
-
-### Connection String Formats
-
-| Database   | Format |
-|------------|--------|
-| MariaDB/MySQL | `mysql+pymysql://user:pass@host:3306/dbname` |
-| PostgreSQL | `postgresql+psycopg2://user:pass@host:5432/dbname` |
-| SQLite (default) | set via `DB_PATH` env var, not `DATABASE_URL` |
-
-### Backup
-
-When using MariaDB, use `mysqldump` for backups:
-
-```bash
-mysqldump -u lanlens -p lanlens > lanlens-backup.sql
-```
-
-Restore:
-```bash
-mysql -u lanlens -p lanlens < lanlens-backup.sql
-```
-
-> **Note:** The SQLite database export button in Settings is not available when using MariaDB. Use your database's native backup tools instead.
+- [Technical documentation](docs/documentation.md): architecture, deployment, configuration, API, scanning behavior, deep scan, CMDB/i-doit, SNMP, external databases, and development notes
+- [Knowledge Base / FAQ](docs/knowledgebase.md): common setup errors, scanning behavior, i-doit/CMDB troubleshooting, and Scan Node notes
+- [Changelog](CHANGELOG.md): release history and migration notes
+- [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 
 ---
-
-## Deep Scan — Required Permissions
-
-The deep scan connects to devices via SSH (Linux) or WinRM (Windows) and runs read-only commands.
-No data is written to the target system.
-
-### Linux SSH
-
-A **dedicated, non-root user** is recommended. The user needs read access to the relevant system files and commands:
-
-```bash
-# Create a dedicated scan user on the target Linux system
-sudo useradd -m -s /bin/bash lanlens-scan
-sudo passwd lanlens-scan
-
-# Grant read-only sudo access to the required commands (add to /etc/sudoers.d/lanlens)
-cat <<'EOF' | sudo tee /etc/sudoers.d/lanlens
-lanlens-scan ALL=(ALL) NOPASSWD: /usr/bin/lscpu, /usr/bin/free, /usr/bin/lsblk, \
-  /usr/bin/systemctl, /usr/bin/docker, /usr/bin/podman, \
-  /usr/sbin/virsh, /usr/sbin/qm, /usr/sbin/pct, /usr/bin/k3s
-EOF
-```
-
-> Most commands work without `sudo` on typical server installations. If you use root access, set username to `root` and store the password in the credential vault.
-
-**Minimum requirements per profile:**
-
-| Profile | Minimum required |
-|---|---|
-| `hardware_only` | Read access to `/sys/class/dmi/id/` and `/proc` |
-| `os_services` | + `systemctl` read access |
-| `linux_container_host` | + `docker ps` / `podman ps` |
-| `hypervisor_inventory` | + `virsh list`, `qm list`, `pct list`, `qm config`, `pct config` |
-| `full` | All of the above |
-
-For **Proxmox** hosts, the scan user must be a member of the `kvm` group (or root):
-
-```bash
-sudo usermod -aG kvm lanlens-scan
-```
-
-### Windows WinRM
-
-WinRM (Windows Remote Management) must be enabled on the target:
-
-```powershell
-# Run as Administrator on the target Windows system
-Enable-PSRemoting -Force
-# Allow connection from the LanLens host (replace with your LanLens server IP)
-Set-Item WSMan:\localhost\Client\TrustedHosts -Value "YOUR_LANLENS_IP" -Force
-```
-
-**Recommended account:** A member of the local **Administrators** group or **Remote Management Users** group.
-For domain environments, a domain account with local admin rights on the target is sufficient.
-
-```powershell
-# Add user to Remote Management Users (less privileged than full Admin)
-Add-LocalGroupMember -Group "Remote Management Users" -Member "lanlens-scan"
-# Some WMI queries (licensing, features) require local Admin
-Add-LocalGroupMember -Group "Administrators" -Member "lanlens-scan"
-```
-
-> For the `windows_audit` profile (Windows Features, licensing, AD, DHCP), the account needs local Administrator rights on the target.
-
----
-
-## Updating
-
-> **⚠ Upgrading to v1.4.0**
->
-> This release adds new database tables (credential vault, deep scan runs, findings, host/guest relationships).
-> The migration runs automatically on container start and is non-destructive — existing data is preserved.
-> **A database backup before updating is strongly recommended:**
->
-> ```bash
-> docker cp lanlens:/data/lanlens.db ./lanlens_backup_$(date +%Y%m%d).db
-> ```
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-For local builds:
-
-```bash
-docker compose up -d --build
-```
-
-Database migrations run automatically on container start.
 
 ## Releases
 
-- Docker images are published on Docker Hub at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens)
-- Pull `alexrosbach/lanlens:latest` for the newest build, or pin `alexrosbach/lanlens:1.5.3` for this release.
-- GitHub releases should be maintained for release-based update checks and Telegram update notifications
-- Detailed project history lives in [CHANGELOG.md](CHANGELOG.md)
-
----
-
-## i-doit / CMDB Sync (v1.5.0)
-
-LanLens 1.5.0 adds a one-way i-doit integration. LanLens is intended to be the source of truth and i-doit the target: registered devices can be matched to existing i-doit objects or created, then selected categories are updated from the configured mapping. Every manual or automatic sync writes an audit log entry that includes the LanLens device name and a direct link back to the device detail page in the UI.
-
-1. Configure the i-doit base URL, JSON-RPC path, portal URL and API key in the `/api/idoit/config` API.
-2. Choose the writable i-doit field used for LanLens sync/reference/status metadata (`idoit_sync_status_field`).
-3. Import or edit the mapping JSON. `objectType` is only the fallback; `objectTypeByDeviceClass` can route routers, switches, printers, firewalls, etc. into non-server i-doit object types.
-4. Run `POST /api/idoit/test-connection`.
-5. Run `POST /api/idoit/test-mapping` for local JSON structure validation. This does not verify remote i-doit object types/categories/fields yet.
-6. Run `POST /api/idoit/devices/{device_id}/dry-run` to inspect the generated payload.
-7. Use `POST /api/idoit/devices/{device_id}/sync` or **Sync now** in the device detail page to create/update the linked i-doit object.
-
-The i-doit API access model is the same for i-doit Cloud and on-prem installations for this use case: LanLens talks to the i-doit JSON-RPC API using a configurable URL, JSON-RPC path and API key. On-prem deployments can keep the default `/src/jsonrpc.php` path or set a custom reverse-proxy path; Cloud installations may differ in URL, enabled modules, token creation flow, and user permissions. The portal URL is stored separately so device detail pages can link directly to matched i-doit objects (`?objID=...`) without assuming that the JSON-RPC endpoint is also the browser entry point.
-
-Recommended i-doit permissions: create/update only the object types and categories you want LanLens to manage. Avoid administrator-wide tokens for routine sync.
-
-Default mapping uses conservative i-doit standard categories where they are broadly available:
-
-| LanLens field | Default i-doit target |
-| --- | --- |
-| Hostname | `C__CATG__IP.hostname` |
-| IP address | `C__CATG__IP.ipv4_address` |
-| MAC address | `C__CATG__NETWORK_PORT.mac` |
-| Vendor | `C__CATG__MODEL.manufacturer` |
-| Asset tag / CMDB ID | `C__CATG__ACCOUNTING.inventory_no` |
-| Purpose | `C__CATG__GLOBAL.purpose` |
-| OS info | `C__CATG__OPERATING_SYSTEM.assigned_version` |
-| CPU | `C__CATG__CPU.title` plus derived standard CPU details when accepted |
-| Model | `C__CATG__MODEL.title` |
-| Memory | `C__CATG__MEMORY.title` plus derived standard memory details when accepted |
-| Disks | `C__CATG__DRIVE.title` plus derived standard drive details when accepted |
-
-Fields such as notes, services, containers, hypervisor data, licenses, relationships and full LanLens inventory are left unmapped by default. Map them only after choosing a writable standard or custom field in your i-doit schema; LanLens deliberately does not dump these into generic global descriptions.
-
-Matching strategy for environments where i-doit already contains objects:
-
-1. Use an existing i-doit object ID when a LanLens device is already linked.
-2. Prefer a stable LanLens/CMDB external reference field (`cmdb_id` / configured `externalIdField`).
-3. Fall back to exact MAC address matches.
-4. Fall back to hostname/IP only as warning-level candidates, not automatic writes.
-5. In the default `match_only` create policy, skip sync when no confident match exists instead of creating a duplicate.
-6. Create a new object only when `idoit_create_policy=create_missing` is explicitly enabled.
-
-This keeps the scan enrichment one-way and predictable: LanLens colors/enriches discovered devices locally, prepares the mapped i-doit payload, links to existing objects when confidently matched, and skips unmatched devices by default so prefilled i-doit environments are not polluted with duplicates.
-
-Enterprise rollout for prefilled i-doit environments:
-
-1. Start with `idoit_create_policy=match_only` and automatic sync disabled.
-2. Configure all VLANs/subnets as routed scan targets or deploy one scanner per routed site/VLAN.
-3. Import or set stable references first: i-doit object ID, `cmdb_id`, asset tag, MAC address or another agreed external reference.
-4. Run dry-runs and manual syncs; unmatched devices should become `match_required`, not new i-doit objects.
-5. Enable automatic sync after the match rate is clean.
-6. Enable `create_missing` only for greenfield segments where LanLens is allowed to create new CMDB objects.
-
-Troubleshooting checklist:
-
-- Authentication failed: verify API key/token and JSON-RPC endpoint URL.
-- `api.authenticated-users-only` error: configure HTTP Basic username/password for an i-doit user allowed to use the API, or disable that i-doit policy if appropriate for your environment.
-- HTTP 404: the JSON-RPC path is usually wrong; try `/src/jsonrpc.php`.
-- HTTP 401/403: check Basic Auth credentials, reverse proxy authentication, user permissions and API access policy.
-- Timeout/network error: verify DNS, firewall/proxy rules, TLS interception and that the i-doit URL is reachable from the LanLens container/host.
-- Object type/category/field not found: adjust the mapping JSON to your i-doit schema.
-- Selected sync status field is not writable: choose another writable custom/status/reference field.
-- Duplicate or uncertain match: prefer LanLens `cmdb_id` as the primary external reference, then MAC, then hostname/IP only with warning.
-- Prefilled i-doit tenant: keep `idoit_create_policy=match_only`; unmatched devices are skipped with `match_required` until linked or given a stable external reference.
-
-### Editable i-doit CSV Export (v1.5.2)
-
-LanLens 1.5.2 adds a CSV-based i-doit export workflow in **Settings → CMDB → i-doit**. It is separate from the live JSON-RPC sync: LanLens builds an export preview from registered devices, deep-scan hardware findings, open ports and documentation fields, then lets operators review the rows before writing a file.
-
-- load registered devices into an editable review table
-- include or exclude individual rows before export
-- adjust object type, title, network fields, hardware fields, inventory number, CMDB ID, location, responsible person and notes directly in the browser
-- review SNMP-derived switch, port and identity-confidence fields before importing
-- download an Excel-friendly UTF-8 BOM / semicolon CSV for i-doit import
-
-The export does not write to i-doit. It is intended for controlled review/import workflows and for environments where CSV reconciliation is preferred over live sync.
-
-### Generic CMDB REST API (v1.5.0)
-
-LanLens also exposes a connector-neutral CMDB REST foundation for tools that are not i-doit. This is meant for bidirectional CMDB workflows where LanLens can be queried as a discovery/inventory source and can explicitly push mapped device payloads to another REST-capable CMDB.
-
-Jira Service Management Assets and ServiceNow CMDB are planned connector targets for this generic foundation, but they are **not tested or supported as native integrations yet**. Existing market tools such as Atlassian Assets Discovery, ServiceNow Discovery, Lansweeper, Device42 and similar ITAM/CMDB discovery products already cover broad enterprise discovery scenarios. LanLens' intended niche is smaller self-hosted and homelab-style environments where lightweight network discovery, local documentation, and explicit CMDB export/sync are more useful than a full enterprise discovery suite.
-
-Available endpoints:
-
-- `GET /api/cmdb/devices` — authenticated, paginated device inventory export with filters for `changed_since`, `segment_id`, `online`, `registered`, and `device_class`.
-- `GET /api/cmdb/config` / `PUT /api/cmdb/config` — generic REST connector configuration. Secrets are stored in settings but only reported as configured/not configured.
-- `POST /api/cmdb/test-connection` — validates the configured REST endpoint reachability.
-- `POST /api/cmdb/test-mapping` — validates the local LanLens-field to CMDB-field mapping JSON.
-- `POST /api/cmdb/devices/{device_id}/dry-run` — previews the outbound payload without writing externally.
-- `POST /api/cmdb/devices/{device_id}/push` — explicitly sends one mapped device payload to the configured CMDB REST target.
-- `POST /api/cmdb/import/preview` — fetches external CMDB data and returns a sample only; no LanLens write is performed in this foundation slice.
-- `GET /api/cmdb/logs` — audit log for generic CMDB REST actions.
-
-Supported outbound auth modes are `none`, bearer token, basic auth, and a custom header token. Supported write methods are `POST`, `PUT`, and `PATCH`. Import conflict strategies are stored as configuration (`fill_empty`, `cmdb_wins`, `lanlens_wins`, `manual_review`) so later live import/write behavior can use the same settings safely.
-
-Security notes:
-
-- CMDB REST URLs are server-side validated with the same SSRF guard used for webhook/i-doit URLs.
-- Secrets are never returned by config endpoints, logs, dry-runs, or exports.
-- Pull/export endpoints require the normal LanLens API authentication.
-- Import currently has preview-only behavior; it does not mutate LanLens devices.
-
-### Inventory operations (v1.5.0)
-
-LanLens 1.5.0 also starts the inventory-operations foundation requested in issues #60–#65:
-
-- **Network map**: `/network-map` and `GET /api/inventory/topology` expose a read-only segment-grouped topology with host/guest relationships where known.
-- **Change timeline**: device edits, status refreshes, IP/hostname/online-state changes and merge actions are written to `device_change_events` and shown on the device detail page.
-- **Maintenance/noise control**: devices can be ignored, muted, or placed in maintenance until a timestamp; Telegram/webhook notifications skip muted/ignored/active-maintenance devices.
-- **Ignore rules**: `/inventory-tools` and `/api/ignore-rules` provide the first rule-management surface for noisy devices/patterns. Discovery-side enforcement is intentionally conservative in this first slice.
-- **Duplicate handling**: `/inventory-tools` can preview and run a manual device merge using a safe fill-empty strategy while moving related child records where possible.
-- **Reports**: `GET /api/inventory/report?format=markdown|csv|json` exports sanitized network documentation without secrets.
-- **Selective backup**: `GET /api/backups/selective` exports settings/documentation/segments/services/ignore rules without secrets. Import is preview-only via `POST /api/backups/selective/import-preview` in this slice.
-
-These features are included in the 1.5.0 PR as practical MVP foundations. Some advanced behavior, such as graphical drag-layout persistence, full discovery-side ignore enforcement, encrypted secret export, and automatic merge suggestions, is intentionally left for later hardening.
-
----
-
-## Password Reset
+Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens).
 
 ```bash
-docker exec -it lanlens reset-password
+docker pull alexrosbach/lanlens:1.5.3
 ```
 
-Or non-interactive:
+Use release tags for reproducible deployments. `latest` tracks the newest published build.
 
-```bash
-docker exec -it lanlens reset-password --password "MyNewPassword123"
-```
+Project updates, release notes, and occasional build notes are posted on [X / @itneedtoknow](https://x.com/itneedtoknow).
 
 ---
 
 ## Development
 
-### Backend
+Backend:
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r backend/requirements.txt
 
 export SECRET_KEY=dev-secret-key-at-least-32-chars-long
@@ -556,7 +165,7 @@ python backend/cli/init_admin.py
 uvicorn backend.main:app --reload --port 8000
 ```
 
-### Frontend
+Frontend:
 
 ```bash
 cd frontend
@@ -566,37 +175,8 @@ npm run dev
 
 ---
 
-## Architecture
-
-- **Backend:** FastAPI, SQLAlchemy, SQLite, APScheduler
-- **Frontend:** React, TypeScript, Tailwind, Vite
-- **Scanning:** scapy and nmap
-- **Notifications:** Telegram Bot API
-- **Serving:** nginx + uvicorn in one container
-
----
-
-## Versioning and Changelog
-
-LanLens follows **Semantic Versioning**.
-
-- Current app version is shown in the UI and via `GET /api/health`
-- Project history is maintained in [CHANGELOG.md](CHANGELOG.md)
-- Release-based update checks and Telegram update notifications rely on populated GitHub Releases
-
----
-
-## Security Notes
-
-- `SECRET_KEY` must be strong and unique
-- `NET_RAW` is required for ARP scan support
-- For HTTPS, place LanLens behind a reverse proxy
-- Session handling is server-side via HTTP-only cookie flow, not browser storage
-
----
-
 ## License
 
 MIT License, see [LICENSE](LICENSE).
 
-> Dependency note: this project uses `scapy` and `python-nmap`. Check their licenses when redistributing bundled builds.
+Dependency note: LanLens uses `scapy` and `python-nmap`. Check their licenses when redistributing bundled builds.

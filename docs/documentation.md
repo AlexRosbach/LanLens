@@ -3,20 +3,24 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Architecture](#architecture)
-3. [Database Schema](#database-schema)
-4. [API Reference](#api-reference)
-5. [Scanning Logic](#scanning-logic)
-6. [Authentication](#authentication)
-7. [Telegram Integration](#telegram-integration)
-8. [Connection Launch](#connection-launch)
-9. [Docker Details](#docker-details)
-10. [CLI Tools](#cli-tools)
-11. [Frontend Structure](#frontend-structure)
-12. [Configuration Reference](#configuration-reference)
-13. [Deep Scan](#deep-scan)
-14. [Scan Nodes](#scan-nodes-experimental)
-15. [Troubleshooting](#troubleshooting)
+2. [Quick Start](#quick-start)
+3. [Architecture](#architecture)
+4. [Database Schema](#database-schema)
+5. [API Reference](#api-reference)
+6. [Scanning Logic](#scanning-logic)
+7. [Authentication](#authentication)
+8. [Telegram Integration](#telegram-integration)
+9. [Connection Launch](#connection-launch)
+10. [Docker Details](#docker-details)
+11. [CLI Tools](#cli-tools)
+12. [Frontend Structure](#frontend-structure)
+13. [Configuration Reference](#configuration-reference)
+14. [Deep Scan](#deep-scan)
+15. [Scan Nodes](#scan-nodes-experimental)
+16. [CMDB / i-doit Integrations](#cmdb--i-doit-integrations-v150)
+17. [External Database](#external-database-mariadb--postgresql)
+18. [Development Notes](#development-notes)
+19. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -32,6 +36,65 @@ LanLens is a single-container Docker application that:
 - Documents device services and groups them in the optional Services directory via drag-and-drop or explicit segment selection
 - Sends Telegram notifications for newly discovered devices
 - Supports SSH link, RDP file download, and web browser connection
+
+---
+
+## Quick Start
+
+### Requirements
+
+- Docker 20.10+ with Docker Compose v2
+- Linux host recommended for direct ARP scanning
+- `network_mode: host` and `NET_RAW`/`NET_ADMIN` capabilities for full local MAC/vendor discovery
+
+### Minimal compose flow
+
+Download the compose file:
+
+```bash
+curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
+```
+
+Generate a secret key:
+
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml`, then start LanLens:
+
+```bash
+docker compose up -d
+```
+
+Open the UI:
+
+```text
+http://<your-host-ip>:7765
+```
+
+Default first-run login:
+
+```text
+admin / admin
+```
+
+LanLens forces a password change after the first login.
+
+### Optional HTTP/HTTPS port
+
+Set `LANLENS_PORT` in `docker-compose.yml` when the UI should use another port:
+
+```yaml
+environment:
+  LANLENS_PORT: "8080"
+```
+
+For built-in HTTPS in host-network deployments, open **Settings → System → HTTPS Settings**, upload certificate material, choose the HTTPS port, and enable HTTPS. A central reverse proxy remains the preferred TLS model when the deployment can use one.
+
+### Optional Advanced View
+
+LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, or build metadata.
 
 ---
 
@@ -532,7 +595,7 @@ LanLens images are published on Docker Hub:
 
 ```text
 alexrosbach/lanlens:latest
-alexrosbach/lanlens:1.4.5
+alexrosbach/lanlens:1.5.3
 ```
 
 Use `latest` for the newest build or pin the release tag for reproducible deployments.
@@ -612,11 +675,44 @@ Deep scan is an **opt-in, credential-based** enrichment mode that collects detai
 - A user account with at least read access to `/etc/os-release`, `lscpu`, `free`, `lsblk`, and `systemctl`
 - For hypervisor inventory: `virsh`, `qm`, or `pct` installed and accessible to the scan user
 
+A dedicated non-root scan user is recommended:
+
+```bash
+sudo useradd -m -s /bin/bash lanlens-scan
+sudo passwd lanlens-scan
+```
+
+For commands that require elevated read access, grant only the required commands:
+
+```bash
+cat <<'EOF' | sudo tee /etc/sudoers.d/lanlens
+lanlens-scan ALL=(ALL) NOPASSWD: /usr/bin/lscpu, /usr/bin/free, /usr/bin/lsblk, \
+  /usr/bin/systemctl, /usr/bin/docker, /usr/bin/podman, \
+  /usr/sbin/virsh, /usr/sbin/qm, /usr/sbin/pct, /usr/bin/k3s
+EOF
+```
+
+For Proxmox hosts, the scan user must usually be a member of the `kvm` group, or the scan must run as root:
+
+```bash
+sudo usermod -aG kvm lanlens-scan
+```
+
 **Windows targets:**
 - WinRM (Windows Remote Management) enabled: `Enable-PSRemoting -Force`
 - NTLM authentication allowed (default)
 - Port 5985 (HTTP) reachable from LanLens host
 - For server roles/features: PowerShell with `Get-WindowsFeature` available (Windows Server)
+
+Recommended Windows setup:
+
+```powershell
+Enable-PSRemoting -Force
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "YOUR_LANLENS_IP" -Force
+Add-LocalGroupMember -Group "Remote Management Users" -Member "lanlens-scan"
+```
+
+The `windows_audit` profile needs local Administrator rights for Windows Features, licensing, AD, DHCP, IIS, SQL Server, and Hyper-V inventory.
 
 ### Credential vault
 
@@ -751,7 +847,7 @@ Operational notes:
 See also:
 
 - [Knowledge Base / FAQ](knowledgebase.md)
-- [README Scan Nodes section](../README.md#optional-scan-nodes)
+- [Quick Start](#quick-start)
 
 ---
 
@@ -770,9 +866,9 @@ Security and operational boundaries:
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
 
-### Editable i-doit CSV Export (v1.5.1)
+### Editable i-doit CSV Export (v1.5.2)
 
-LanLens 1.5.1 adds a reviewed CSV export for i-doit. In **Settings → CMDB → i-doit**, use **Load export preview** to build rows from the current inventory, adjust fields in the table, untick rows that should not be included, and download the CSV.
+LanLens 1.5.2 adds a reviewed CSV export for i-doit. In **Settings → CMDB → i-doit**, use **Load export preview** to build rows from the current inventory, adjust fields in the table, untick rows that should not be included, and download the CSV.
 
 This workflow is deliberately file-based and does not call i-doit JSON-RPC. It is useful when operators want an AutoDoku-style review step before import, or when the i-doit environment expects CSV reconciliation instead of automated writes.
 
@@ -821,12 +917,46 @@ environment:
   DATABASE_URL: "mysql+pymysql://user:password@host:3306/lanlens"
 ```
 
+Example MariaDB compose setup:
+
+```yaml
+services:
+  lanlens:
+    image: alexrosbach/lanlens:1.5.3
+    environment:
+      SECRET_KEY: your-secret-key-here
+      DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens
+    depends_on:
+      - mariadb
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: lanlens
+      MYSQL_USER: lanlens
+      MYSQL_PASSWORD: yourpassword
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+volumes:
+  mariadb_data:
+```
+
+Connection string formats:
+
+| Database | Format |
+|---|---|
+| MariaDB/MySQL | `mysql+pymysql://user:pass@host:3306/dbname` |
+| PostgreSQL | `postgresql+psycopg2://user:pass@host:5432/dbname` |
+| SQLite | Use `DB_PATH`, not `DATABASE_URL` |
+
 When `DATABASE_URL` is set:
 - SQLite-specific migrations are skipped; `Base.metadata.create_all()` generates dialect-correct DDL.
 - The database export endpoint returns HTTP 400 (SQLite-only feature).
 - All incremental `ALTER TABLE` migrations are dialect-compatible and run on both SQLite and MariaDB.
 
-See README for a full docker-compose example and connection string reference.
+Use the database engine's native backup tooling for external databases, for example `mysqldump` for MariaDB.
 
 ---
 
@@ -867,3 +997,43 @@ The frontend supports four languages, switchable via the TopBar toggle or the Se
 | Import Settings | `POST /api/admin/import/settings` | Uploads a previously exported settings JSON |
 
 All admin endpoints require a fully set-up account (`force_password_change = false`).
+
+---
+
+## Development Notes
+
+### Backend
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+
+export SECRET_KEY=dev-secret-key-at-least-32-chars-long
+export DB_PATH=./data/lanlens.db
+mkdir -p data
+
+python backend/cli/init_db.py
+python backend/cli/init_admin.py
+uvicorn backend.main:app --reload --port 8000
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Build
+
+```bash
+docker compose up -d --build
+```
+
+The Docker build compiles the React frontend, installs backend dependencies, renders nginx configuration at startup, applies database migrations, and starts nginx plus FastAPI in one container.
+
+### Versioning
+
+LanLens follows Semantic Versioning. The app version is shown in the UI and via `GET /api/health`. Detailed release history lives in [CHANGELOG.md](../CHANGELOG.md), and release-based update checks depend on populated GitHub Releases.
