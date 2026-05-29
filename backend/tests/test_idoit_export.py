@@ -1,12 +1,13 @@
 import csv
 import io
 import unittest
+from datetime import datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import Device, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.models import Device, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
 from backend.services.idoit import get_config, build_export_rows, rows_to_export_csv
 
 
@@ -42,6 +43,7 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertEqual(rows[0]["Bezeichnung"], "included")
         self.assertEqual(rows[0]["IP-Adresse"], "192.0.2.10")
         self.assertIn("SNMP-Switch", rows[0])
+        self.assertIn("TLS-Zertifikate", rows[0])
         self.assertNotIn("SNMP-VLAN", rows[0])
         self.assertIn("Identity Confidence", rows[0])
 
@@ -124,6 +126,42 @@ class IdoitExportCsvTest(unittest.TestCase):
 
             self.assertEqual(rows[0]["snmp_port"], "12")
             self.assertIsInstance(rows[0]["snmp_port"], str)
+        finally:
+            db.close()
+
+    def test_build_export_rows_includes_tls_certificate_summary(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            db.add(Service(
+                device_id=device.id,
+                name="Admin UI",
+                service_type="web",
+                protocol="https",
+                url="https://client-01.example.test",
+                tls_checked_at=datetime.utcnow(),
+                tls_status="expiring_soon",
+                tls_expires_at=datetime(2026, 6, 15, 12, 0),
+                tls_issuer="CN=Example CA",
+                tls_subject="CN=client-01.example.test",
+                tls_sans="client-01.example.test",
+                tls_self_signed=False,
+            ))
+            db.commit()
+
+            rows = build_export_rows(db, [device], get_config(db))
+
+            self.assertIn("Admin UI", rows[0]["tls_certificates"])
+            self.assertIn("expiring_soon", rows[0]["tls_certificates"])
+            self.assertIn("CN=Example CA", rows[0]["tls_certificates"])
         finally:
             db.close()
 

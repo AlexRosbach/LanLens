@@ -53,6 +53,10 @@ def _index_exists(conn, index: str) -> bool:
         return False
 
 
+def _timestamp_type() -> str:
+    return "TIMESTAMP" if engine.dialect.name == "postgresql" else "DATETIME"
+
+
 def _has_unique_device_views_constraint(conn) -> bool:
     """Returns True if the unique index on device_views(user_id, device_id) exists.
     Non-SQLite: always returns True — SQLAlchemy create_all() handles this via metadata."""
@@ -667,6 +671,44 @@ def migrate():
             print("Migration: device_ignore_rules — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: device_ignore_rules already exists — skipped")
+
+        # ── v1.5.3 ── TLS metadata and ping history ───────────────────────
+        timestamp_type = _timestamp_type()
+        for column, ddl in {
+            "tls_checked_at": f"ALTER TABLE services ADD COLUMN tls_checked_at {timestamp_type}",
+            "tls_status": "ALTER TABLE services ADD COLUMN tls_status VARCHAR(32)",
+            "tls_expires_at": f"ALTER TABLE services ADD COLUMN tls_expires_at {timestamp_type}",
+            "tls_issuer": "ALTER TABLE services ADD COLUMN tls_issuer TEXT",
+            "tls_subject": "ALTER TABLE services ADD COLUMN tls_subject TEXT",
+            "tls_sans": "ALTER TABLE services ADD COLUMN tls_sans TEXT",
+            "tls_self_signed": "ALTER TABLE services ADD COLUMN tls_self_signed BOOLEAN",
+            "tls_error": "ALTER TABLE services ADD COLUMN tls_error TEXT",
+        }.items():
+            if _table_exists(conn, "services") and not _column_exists(conn, "services", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added services.{column}")
+            elif _table_exists(conn, "services"):
+                print(f"Migration: services.{column} already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "device_ping_samples"):
+            conn.execute(text(
+                "CREATE TABLE device_ping_samples ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "success BOOLEAN NOT NULL DEFAULT FALSE, "
+                "latency_ms FLOAT, "
+                "source VARCHAR(32) NOT NULL DEFAULT 'scan'"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_device_ping_samples_device_time ON device_ping_samples(device_id, checked_at)"))
+            conn.commit()
+            print("Migration: created device_ping_samples")
+        elif not IS_SQLITE:
+            print("Migration: device_ping_samples — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: device_ping_samples already exists — skipped")
 
         conn.commit()
 

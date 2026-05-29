@@ -19,3 +19,11 @@ def get_scan_interval_minutes(db: Session) -> int:
     except (TypeError, ValueError):
         return DEFAULT_SCAN_INTERVAL_MINUTES
     return max(1, interval)
+
+
+def is_advanced_feature_enabled(db: Session, key: str) -> bool:
+    """Return true only when the advanced view and the requested feature are enabled."""
+    return (
+        get_setting_value(db, "advanced_view_enabled", "false") == "true"
+        and get_setting_value(db, key, "false") == "true"
+    )

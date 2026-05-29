@@ -1,9 +1,10 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
 
 export type Lang = 'en' | 'de' | 'it' | 'zh'
 
 const SUPPORTED_LANGUAGES: Lang[] = ['en', 'de', 'it', 'zh']
 const LANGUAGE_STORAGE_KEY = 'lanlens.language'
+const LANGUAGE_COOKIE_KEY = 'lanlens_language'
 
 function isSupportedLang(value: string | null): value is Lang {
   return SUPPORTED_LANGUAGES.includes(value as Lang)
@@ -11,12 +12,19 @@ function isSupportedLang(value: string | null): value is Lang {
 
 function getInitialLang(): Lang {
   if (typeof window === 'undefined') return 'en'
+  let storedLang: string | null = null
   try {
-    const storedLang = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
-    return isSupportedLang(storedLang) ? storedLang : 'en'
+    storedLang = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
   } catch {
-    return 'en'
+    // Cookie fallback below covers browsers where localStorage is unavailable.
   }
+  if (isSupportedLang(storedLang)) return storedLang
+  const cookieLang = document.cookie
+    .split(';')
+    .map((row) => row.trim())
+    .find((row) => row.startsWith(`${LANGUAGE_COOKIE_KEY}=`))
+    ?.split('=')[1]
+  return isSupportedLang(cookieLang ?? null) ? cookieLang as Lang : 'en'
 }
 
 const translations = {
@@ -52,6 +60,12 @@ const translations = {
     feature_visibility_tab: 'Features',
     feature_visibility_title: 'Feature visibility',
     feature_visibility_description: 'Start with a clean LanLens surface and turn on expert modules when the installation needs them.',
+    feature_category_core: 'Core surface',
+    feature_category_core_hint: 'Controls the base UI and diagnostic metadata.',
+    feature_category_monitoring: 'Monitoring',
+    feature_category_monitoring_hint: 'Optional checks and history views for ongoing network state.',
+    feature_category_inventory: 'Inventory and CMDB',
+    feature_category_inventory_hint: 'Documentation surfaces and external inventory integrations.',
     advanced_view_enabled: 'Enable advanced view',
     advanced_view_enabled_hint: 'Shows expert areas such as CMDB/i-doit, SNMP, Scan Nodes, Services, DHCP Monitor, and detailed port-scan settings.',
     advanced_view_required: 'Enable Advanced View in Settings to use this expert area.',
@@ -61,6 +75,10 @@ const translations = {
     show_services_nav_hint: 'Adds the Services view for manually maintained links and self-hosted apps.',
     show_dhcp_monitor_nav: 'Show DHCP Monitor in sidebar',
     show_dhcp_monitor_nav_hint: 'Adds DHCP lease observation and conflict checks to the sidebar.',
+    show_tls_checks: 'Enable TLS certificate checks',
+    show_tls_checks_hint: 'Adds manual TLS certificate checks for HTTPS services and stores the collected certificate metadata.',
+    show_ping_history: 'Show ping history',
+    show_ping_history_hint: 'Shows lightweight reachability history on device detail pages.',
     show_build_info: 'Show build information',
     show_build_info_hint: 'Shows the internal build code, branch, commit and build time in the sidebar footer.',
     refresh: 'Refresh',
@@ -156,6 +174,16 @@ const translations = {
     last_seen: 'Last Seen',
     ip_history: 'IP History',
     ip_history_empty: 'No IP history yet.',
+    ping_history: 'Ping history',
+    ping_history_empty: 'No reachability samples yet. Run discovery or re-check status to collect data.',
+    ping_history_samples: '{count} samples',
+    tls_certificates: 'TLS certificates',
+    tls_certificates_empty: 'No TLS-enabled services or certificate findings yet.',
+    tls_service_count: '{count} TLS services',
+    tls_subject: 'Subject',
+    tls_sans: 'SANs',
+    tls_checked_at: 'Last checked',
+    tls_self_signed: 'Self-signed',
     seen_count: 'Seen',
     purpose: 'Purpose',
     description: 'Description',
@@ -398,6 +426,7 @@ const translations = {
     idoit_field_disks: 'Disks',
     idoit_field_open_ports: 'Open ports',
     idoit_field_services: 'Services',
+    idoit_field_tls_certificates: 'TLS certificates',
     idoit_field_containers: 'Containers',
     idoit_field_hypervisor: 'Hypervisor',
     idoit_field_licenses: 'Licenses',
@@ -618,6 +647,14 @@ const translations = {
     generate: 'Generate',
     device_updated: 'Device updated',
     change_timeline: 'Change timeline',
+    device_section_documentation: 'Documentation',
+    device_section_ip_history: 'IP history',
+    device_section_ping_history: 'Ping history',
+    device_section_tls: 'TLS',
+    device_section_services: 'Services',
+    device_section_deep_scan: 'Deep Scan',
+    device_section_open_ports: 'Ports',
+    device_section_timeline: 'Timeline',
     no_changes_recorded: 'No changes recorded yet.',
     refresh_status: 'Re-check status',
     device_status_online: 'Device is online again',
@@ -649,6 +686,8 @@ const translations = {
     deep_scan_profiles_description: 'Overview of all available scan profiles and what they collect.',
     auto_scan_rules_description: 'Global rules: All matching devices are scanned automatically after the interval elapses, independent of per-device settings.',
     disabled: 'Disabled',
+    yes: 'Yes',
+    no: 'No',
     profile: 'Profile',
     credential: 'Credential',
     interval: 'Interval',
@@ -721,6 +760,17 @@ const translations = {
     service_removed: 'Service removed',
     failed_to_remove_service: 'Failed to remove service',
     remove_service_confirm: 'Remove service "{name}"?',
+    tls_check: 'Check TLS certificate',
+    tls_check_complete: 'TLS certificate checked',
+    tls_check_failed: 'TLS certificate check failed',
+    tls_status: 'TLS status',
+    tls_status_valid: 'Valid',
+    tls_status_expiring_soon: 'Expiring soon',
+    tls_status_expired: 'Expired',
+    tls_status_unavailable: 'Unavailable',
+    tls_expires_at: 'Expires',
+    tls_issuer: 'Issuer',
+    tls_error: 'TLS error',
     no_services_documented: 'No services documented yet. Add one to start building your network documentation.',
     open: 'Open',
     collapse: 'Collapse',
@@ -862,6 +912,12 @@ const translations = {
     feature_visibility_tab: 'Funktionen',
     feature_visibility_title: 'Funktionssichtbarkeit',
     feature_visibility_description: 'LanLens startet bewusst schlank. Profi-Module werden erst sichtbar, wenn diese Installation sie wirklich braucht.',
+    feature_category_core: 'Basisoberflaeche',
+    feature_category_core_hint: 'Steuert die Grundansicht und Diagnose-Metadaten.',
+    feature_category_monitoring: 'Monitoring',
+    feature_category_monitoring_hint: 'Optionale Pruefungen und Verlaufsansichten fuer den laufenden Netzwerkzustand.',
+    feature_category_inventory: 'Inventar und CMDB',
+    feature_category_inventory_hint: 'Dokumentationsflaechen und externe Inventar-Integrationen.',
     advanced_view_enabled: 'Erweiterte Ansicht aktivieren',
     advanced_view_enabled_hint: 'Zeigt Profi-Bereiche wie CMDB/i-doit, SNMP, Scan Nodes, Services, DHCP-Monitor und detaillierte Portscan-Einstellungen.',
     advanced_view_required: 'Aktiviere die Erweiterte Ansicht in den Einstellungen, um diesen Profi-Bereich zu nutzen.',
@@ -871,6 +927,10 @@ const translations = {
     show_services_nav_hint: 'Blendet die Service-Ansicht für gepflegte Links und Selfhosted-Apps ein.',
     show_dhcp_monitor_nav: 'DHCP-Monitor in der Seitenleiste anzeigen',
     show_dhcp_monitor_nav_hint: 'Blendet DHCP-Lease-Beobachtung und Konfliktprüfung in der Seitenleiste ein.',
+    show_tls_checks: 'TLS-Zertifikatschecks aktivieren',
+    show_tls_checks_hint: 'Ermoeglicht manuelle TLS-Zertifikatschecks fuer HTTPS-Services und speichert die gesammelten Zertifikatsdaten.',
+    show_ping_history: 'Ping-Verlauf anzeigen',
+    show_ping_history_hint: 'Zeigt leichte Erreichbarkeitsverlaeufe auf Geraetedetailseiten.',
     show_build_info: 'Build-Informationen anzeigen',
     show_build_info_hint: 'Zeigt internen Build-Code, Branch, Commit und Build-Zeit unten in der Seitenleiste.',
     refresh: 'Aktualisieren',
@@ -966,6 +1026,16 @@ const translations = {
     last_seen: 'Zuletzt gesehen',
     ip_history: 'IP-Verlauf',
     ip_history_empty: 'Noch kein IP-Verlauf vorhanden.',
+    ping_history: 'Ping-Verlauf',
+    ping_history_empty: 'Noch keine Erreichbarkeitswerte vorhanden. Starte Discovery oder prüfe den Status neu.',
+    ping_history_samples: '{count} Werte',
+    tls_certificates: 'TLS-Zertifikate',
+    tls_certificates_empty: 'Noch keine TLS-faehigen Services oder Zertifikatsdaten vorhanden.',
+    tls_service_count: '{count} TLS-Services',
+    tls_subject: 'Subject',
+    tls_sans: 'SANs',
+    tls_checked_at: 'Zuletzt geprueft',
+    tls_self_signed: 'Selbstsigniert',
     seen_count: 'Gesehen',
     purpose: 'Zweck / Funktion',
     description: 'Beschreibung',
@@ -1208,6 +1278,7 @@ const translations = {
     idoit_field_disks: 'Datenträger',
     idoit_field_open_ports: 'Offene Ports',
     idoit_field_services: 'Services',
+    idoit_field_tls_certificates: 'TLS-Zertifikate',
     idoit_field_containers: 'Container',
     idoit_field_hypervisor: 'Hypervisor',
     idoit_field_licenses: 'Lizenzen',
@@ -1428,6 +1499,14 @@ const translations = {
     generate: 'Generieren',
     device_updated: 'Gerät aktualisiert',
     change_timeline: 'Änderungsverlauf',
+    device_section_documentation: 'Doku',
+    device_section_ip_history: 'IP-Verlauf',
+    device_section_ping_history: 'Ping',
+    device_section_tls: 'TLS',
+    device_section_services: 'Services',
+    device_section_deep_scan: 'Tiefenanalyse',
+    device_section_open_ports: 'Ports',
+    device_section_timeline: 'Verlauf',
     no_changes_recorded: 'Noch keine Änderungen aufgezeichnet.',
     refresh_status: 'Status erneut prüfen',
     device_status_online: 'Gerät ist wieder online',
@@ -1459,6 +1538,8 @@ const translations = {
     deep_scan_profiles_description: 'Übersicht aller verfügbaren Scan-Profile und was sie erfassen.',
     auto_scan_rules_description: 'Globale Regeln: Alle passenden Geräte werden automatisch nach Ablauf des Intervalls gescannt, unabhängig von gerätespezifischen Einstellungen.',
     disabled: 'Deaktiviert',
+    yes: 'Ja',
+    no: 'Nein',
     profile: 'Profil',
     credential: 'Zugangsdaten',
     interval: 'Intervall',
@@ -1531,6 +1612,17 @@ const translations = {
     service_removed: 'Service entfernt',
     failed_to_remove_service: 'Service konnte nicht entfernt werden',
     remove_service_confirm: 'Service "{name}" entfernen?',
+    tls_check: 'TLS-Zertifikat prüfen',
+    tls_check_complete: 'TLS-Zertifikat geprüft',
+    tls_check_failed: 'TLS-Zertifikatsprüfung fehlgeschlagen',
+    tls_status: 'TLS-Status',
+    tls_status_valid: 'Gültig',
+    tls_status_expiring_soon: 'Läuft bald ab',
+    tls_status_expired: 'Abgelaufen',
+    tls_status_unavailable: 'Nicht verfügbar',
+    tls_expires_at: 'Läuft ab',
+    tls_issuer: 'Aussteller',
+    tls_error: 'TLS-Fehler',
     no_services_documented: 'Noch keine Services dokumentiert. Füge einen hinzu, um deine Netzwerkdokumentation aufzubauen.',
     open: 'Öffnen',
     collapse: 'Einklappen',
@@ -1687,6 +1779,12 @@ const translations = {
     feature_visibility_tab: 'Funzioni',
     feature_visibility_title: 'Visibilita funzioni',
     feature_visibility_description: 'LanLens parte pulito e mostra i moduli esperti solo quando servono.',
+    feature_category_core: 'Superficie base',
+    feature_category_core_hint: 'Controlla UI di base e metadati diagnostici.',
+    feature_category_monitoring: 'Monitoraggio',
+    feature_category_monitoring_hint: 'Controlli opzionali e viste cronologiche per lo stato della rete.',
+    feature_category_inventory: 'Inventario e CMDB',
+    feature_category_inventory_hint: 'Superfici di documentazione e integrazioni inventario esterne.',
     advanced_view_enabled: 'Abilita vista avanzata',
     advanced_view_enabled_hint: 'Mostra aree esperte come CMDB/i-doit, SNMP, Scan Node, Servizi, Monitor DHCP e impostazioni dettagliate di scansione porte.',
     advanced_view_required: 'Abilita la vista avanzata nelle impostazioni per usare questa area esperta.',
@@ -1696,6 +1794,10 @@ const translations = {
     show_services_nav_hint: 'Mostra la vista Servizi per link gestiti e app self-hosted.',
     show_dhcp_monitor_nav: 'Mostra Monitor DHCP nella barra laterale',
     show_dhcp_monitor_nav_hint: 'Mostra osservazione lease DHCP e controlli conflitti nella barra laterale.',
+    show_tls_checks: 'Abilita controlli certificati TLS',
+    show_tls_checks_hint: 'Aggiunge controlli manuali dei certificati TLS per servizi HTTPS e salva i metadati raccolti.',
+    show_ping_history: 'Mostra cronologia ping',
+    show_ping_history_hint: 'Mostra una cronologia leggera di raggiungibilita nelle pagine dettaglio dispositivo.',
     show_build_info: 'Mostra informazioni build',
     show_build_info_hint: 'Mostra codice build interno, branch, commit e ora di build nel footer della barra laterale.',
     refresh: 'Aggiorna',
@@ -1785,6 +1887,16 @@ const translations = {
     last_seen: 'Ultima visione',
     ip_history: 'Cronologia IP',
     ip_history_empty: 'Nessuna cronologia IP disponibile.',
+    ping_history: 'Cronologia ping',
+    ping_history_empty: 'Nessun campione di raggiungibilità disponibile. Avvia una discovery o ricontrolla lo stato.',
+    ping_history_samples: '{count} campioni',
+    tls_certificates: 'Certificati TLS',
+    tls_certificates_empty: 'Nessun servizio TLS o dato certificato disponibile.',
+    tls_service_count: '{count} servizi TLS',
+    tls_subject: 'Subject',
+    tls_sans: 'SAN',
+    tls_checked_at: 'Ultimo controllo',
+    tls_self_signed: 'Self-signed',
     seen_count: 'Visto',
     purpose: 'Scopo / Funzione',
     description: 'Descrizione',
@@ -2027,6 +2139,7 @@ const translations = {
     idoit_field_disks: 'Dischi',
     idoit_field_open_ports: 'Porte aperte',
     idoit_field_services: 'Servizi',
+    idoit_field_tls_certificates: 'Certificati TLS',
     idoit_field_containers: 'Container',
     idoit_field_hypervisor: 'Hypervisor',
     idoit_field_licenses: 'Licenze',
@@ -2238,6 +2351,14 @@ const translations = {
     generate: 'Genera',
     device_updated: 'Dispositivo aggiornato',
     change_timeline: 'Cronologia modifiche',
+    device_section_documentation: 'Documentazione',
+    device_section_ip_history: 'Storico IP',
+    device_section_ping_history: 'Ping',
+    device_section_tls: 'TLS',
+    device_section_services: 'Servizi',
+    device_section_deep_scan: 'Deep Scan',
+    device_section_open_ports: 'Porte',
+    device_section_timeline: 'Cronologia',
     no_changes_recorded: 'Nessuna modifica registrata.',
     refresh_status: 'Ricontrolla stato',
     device_status_online: 'Il dispositivo è di nuovo online',
@@ -2269,6 +2390,8 @@ const translations = {
     deep_scan_profiles_description: 'Panoramica di tutti i profili di scansione disponibili e dei dati raccolti.',
     auto_scan_rules_description: "Regole globali: tutti i dispositivi corrispondenti vengono analizzati automaticamente allo scadere dell'intervallo, indipendentemente dalle impostazioni del singolo dispositivo.",
     disabled: 'Disabilitato',
+    yes: 'Si',
+    no: 'No',
     profile: 'Profilo',
     credential: 'Credenziale',
     interval: 'Intervallo',
@@ -2341,6 +2464,17 @@ const translations = {
     service_removed: 'Servizio rimosso',
     failed_to_remove_service: 'Rimozione servizio non riuscita',
     remove_service_confirm: 'Rimuovere il servizio "{name}"?',
+    tls_check: 'Controlla certificato TLS',
+    tls_check_complete: 'Certificato TLS controllato',
+    tls_check_failed: 'Controllo certificato TLS non riuscito',
+    tls_status: 'Stato TLS',
+    tls_status_valid: 'Valido',
+    tls_status_expiring_soon: 'In scadenza',
+    tls_status_expired: 'Scaduto',
+    tls_status_unavailable: 'Non disponibile',
+    tls_expires_at: 'Scade',
+    tls_issuer: 'Emittente',
+    tls_error: 'Errore TLS',
     no_services_documented: 'Nessun servizio documentato. Aggiungine uno per iniziare la documentazione della rete.',
     open: 'Apri',
     collapse: 'Comprimi',
@@ -2497,6 +2631,12 @@ const translations = {
     feature_visibility_tab: '功能',
     feature_visibility_title: '功能可见性',
     feature_visibility_description: 'LanLens starts clean and shows expert modules only when this installation needs them.',
+    feature_category_core: 'Core surface',
+    feature_category_core_hint: 'Controls the base UI and diagnostic metadata.',
+    feature_category_monitoring: 'Monitoring',
+    feature_category_monitoring_hint: 'Optional checks and history views for ongoing network state.',
+    feature_category_inventory: 'Inventory and CMDB',
+    feature_category_inventory_hint: 'Documentation surfaces and external inventory integrations.',
     advanced_view_enabled: '启用高级视图',
     advanced_view_enabled_hint: '显示 CMDB/i-doit、SNMP、扫描节点、服务、DHCP 监控和详细端口扫描设置等专家区域。',
     advanced_view_required: '请在设置中启用高级视图以使用此专家区域。',
@@ -2506,6 +2646,10 @@ const translations = {
     show_services_nav_hint: 'Shows the Services view for managed links and self-hosted apps.',
     show_dhcp_monitor_nav: '在侧边栏显示 DHCP 监控',
     show_dhcp_monitor_nav_hint: 'Shows DHCP lease observation and conflict checks in the sidebar.',
+    show_tls_checks: 'Enable TLS certificate checks',
+    show_tls_checks_hint: 'Adds manual TLS certificate checks for HTTPS services and stores the collected certificate metadata.',
+    show_ping_history: 'Show ping history',
+    show_ping_history_hint: 'Shows lightweight reachability history on device detail pages.',
     show_build_info: '显示构建信息',
     show_build_info_hint: '在侧边栏底部显示内部构建代码、分支、提交和构建时间。',
     refresh: '刷新',
@@ -2595,6 +2739,16 @@ const translations = {
     last_seen: '最后发现',
     ip_history: 'IP 历史',
     ip_history_empty: '暂无 IP 历史。',
+    ping_history: 'Ping 历史',
+    ping_history_empty: '暂无可达性样本。运行发现或重新检查状态以收集数据。',
+    ping_history_samples: '{count} 个样本',
+    tls_certificates: 'TLS 证书',
+    tls_certificates_empty: '还没有 TLS 服务或证书数据。',
+    tls_service_count: '{count} 个 TLS 服务',
+    tls_subject: 'Subject',
+    tls_sans: 'SAN',
+    tls_checked_at: '上次检查',
+    tls_self_signed: '自签名',
     seen_count: '发现次数',
     purpose: '用途',
     description: '描述',
@@ -2837,6 +2991,7 @@ const translations = {
     idoit_field_disks: '磁盘',
     idoit_field_open_ports: '开放端口',
     idoit_field_services: '服务',
+    idoit_field_tls_certificates: 'TLS certificates',
     idoit_field_containers: '容器',
     idoit_field_hypervisor: '虚拟化主机',
     idoit_field_licenses: '许可证',
@@ -3048,6 +3203,14 @@ const translations = {
     generate: '生成',
     device_updated: '设备已更新',
     change_timeline: '变更时间线',
+    device_section_documentation: '文档',
+    device_section_ip_history: 'IP 历史',
+    device_section_ping_history: 'Ping',
+    device_section_tls: 'TLS',
+    device_section_services: '服务',
+    device_section_deep_scan: '深度扫描',
+    device_section_open_ports: '端口',
+    device_section_timeline: '时间线',
     no_changes_recorded: '尚无变更记录。',
     refresh_status: '重新检查状态',
     device_status_online: '设备重新在线',
@@ -3079,6 +3242,8 @@ const translations = {
     deep_scan_profiles_description: '所有可用扫描配置文件及其收集内容的概览。',
     auto_scan_rules_description: '全局规则：所有匹配设备会在间隔结束后自动扫描，不受单设备设置影响。',
     disabled: '已禁用',
+    yes: '是',
+    no: '否',
     profile: '配置文件',
     credential: '凭据',
     interval: '间隔',
@@ -3151,6 +3316,17 @@ const translations = {
     service_removed: '服务已移除',
     failed_to_remove_service: '移除服务失败',
     remove_service_confirm: '移除服务“{name}”？',
+    tls_check: '检查 TLS 证书',
+    tls_check_complete: 'TLS 证书已检查',
+    tls_check_failed: 'TLS 证书检查失败',
+    tls_status: 'TLS 状态',
+    tls_status_valid: '有效',
+    tls_status_expiring_soon: '即将过期',
+    tls_status_expired: '已过期',
+    tls_status_unavailable: '不可用',
+    tls_expires_at: '过期时间',
+    tls_issuer: '颁发者',
+    tls_error: 'TLS 错误',
     no_services_documented: '尚未记录任何服务。添加一个服务，开始构建你的网络文档。',
     open: '打开',
     collapse: '折叠',
@@ -3279,12 +3455,21 @@ const I18nContext = createContext<I18nContextType>({
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(getInitialLang)
 
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+
   const setLang = useCallback((l: Lang) => {
     setLangState(l)
     try {
       window.localStorage.setItem(LANGUAGE_STORAGE_KEY, l)
     } catch {
       // Keep the in-memory language change even if browser storage is unavailable.
+    }
+    try {
+      document.cookie = `${LANGUAGE_COOKIE_KEY}=${l}; path=/; max-age=31536000; SameSite=Lax`
+    } catch {
+      // Cookie fallback is best effort.
     }
   }, [])
 

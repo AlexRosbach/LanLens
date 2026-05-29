@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Device, DeviceIpHistoryEntry, devicesApi } from '../api/devices'
+import { Device, DeviceIpHistoryEntry, DevicePingSample, devicesApi } from '../api/devices'
 import { idoitApi } from '../api/idoit'
 import type { ChangeEvent } from '../api/inventory'
+import { servicesApi } from '../api/services'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -40,6 +41,19 @@ function idoitStatusVariant(status?: string | null): 'success' | 'danger' | 'war
   return 'muted'
 }
 
+function tlsStatusLabelKey(status?: string | null) {
+  switch (status) {
+    case 'valid':
+      return 'tls_status_valid'
+    case 'expiring_soon':
+      return 'tls_status_expiring_soon'
+    case 'expired':
+      return 'tls_status_expired'
+    default:
+      return 'tls_status_unavailable'
+  }
+}
+
 function toEditState(d: Device): EditState {
   return {
     label: d.label ?? '',
@@ -72,8 +86,11 @@ export default function DeviceDetail() {
   const { t, lang } = useI18n()
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showCmdbIntegrations = useUiSettingsStore((state) => state.showCmdbIntegrations)
+  const showTlsChecks = useUiSettingsStore((state) => state.showTlsChecks)
+  const showPingHistory = useUiSettingsStore((state) => state.showPingHistory)
   const [device, setDevice] = useState<Device | null>(null)
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
+  const [pingHistory, setPingHistory] = useState<DevicePingSample[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState | null>(null)
@@ -86,6 +103,7 @@ export default function DeviceDetail() {
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
   const [idoitSyncing, setIdoitSyncing] = useState(false)
+  const [tlsCheckingIds, setTlsCheckingIds] = useState<number[]>([])
 
   useEffect(() => {
     if (!id) return
@@ -103,9 +121,12 @@ export default function DeviceDetail() {
       setIpHistory(currentDevice.ip_history ?? [])
       setForm(toEditState(currentDevice))
       devicesApi.getIpHistory(currentDevice.id).then(setIpHistory).catch(() => {})
+      if (showPingHistory) {
+        devicesApi.getPingHistory(currentDevice.id).then(setPingHistory).catch(() => {})
+      }
       devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
-  }, [id])
+  }, [id, showPingHistory])
 
   useEffect(() => {
     if (!portScanRunning || !device?.id) return
@@ -193,6 +214,9 @@ export default function DeviceDetail() {
       setForm(toEditState(updated))
       setIpHistory(updated.ip_history ?? ipHistory)
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
+      if (showPingHistory) {
+        devicesApi.getPingHistory(updated.id).then(setPingHistory).catch(() => {})
+      }
       devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
     } catch {
@@ -233,11 +257,54 @@ export default function DeviceDetail() {
     }
   }
 
+  async function handleCheckServiceTls(serviceId: number) {
+    if (!device) return
+    setTlsCheckingIds((ids) => [...ids, serviceId])
+    try {
+      const updatedService = await servicesApi.checkTls(device.id, serviceId)
+      setDevice({
+        ...device,
+        services: device.services.map((service) => service.id === serviceId ? updatedService : service),
+      })
+      toast.success(t('tls_check_complete'))
+    } catch {
+      toast.error(t('tls_check_failed'))
+    } finally {
+      setTlsCheckingIds((ids) => ids.filter((id) => id !== serviceId))
+    }
+  }
+
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
   const hasDocumentation = device.purpose || device.description || device.location ||
     device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
+  const tlsServices = device.services.filter((service) =>
+    service.protocol === 'https' ||
+    service.url?.toLowerCase().startsWith('https://') ||
+    service.tls_checked_at ||
+    service.tls_status ||
+    service.tls_expires_at ||
+    service.tls_error
+  )
+  const navSections = [
+    { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
+    { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
+    { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
+    { id: 'device-tls', label: t('device_section_tls'), visible: showTlsChecks },
+    { id: 'device-services', label: t('device_section_services'), visible: advancedViewEnabled },
+    { id: 'device-deep-scan', label: t('device_section_deep_scan'), visible: true },
+    { id: 'device-open-ports', label: t('device_section_open_ports'), visible: true },
+    { id: 'device-timeline', label: t('device_section_timeline'), visible: true },
+  ].filter((section) => section.visible)
+  const activeFeatureCount = [
+    showPingHistory,
+    showTlsChecks,
+    advancedViewEnabled,
+    showCmdbIntegrations && device.idoit_enabled,
+  ].filter(Boolean).length
+  const showSectionNav = activeFeatureCount >= 2
+  const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-5">
       {/* Header */}
@@ -287,7 +354,22 @@ export default function DeviceDetail() {
         </div>
       </div>
 
-
+      {showSectionNav && (
+        <div className="sticky top-0 z-10 -mx-1 overflow-x-auto border-b border-border bg-background/95 px-1 py-2 backdrop-blur">
+          <div className="flex gap-2">
+            {navSections.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                className="shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-primary hover:text-primary"
+              >
+                {section.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Connect */}
       <Card>
@@ -296,7 +378,7 @@ export default function DeviceDetail() {
       </Card>
 
       {/* Identity & Documentation */}
-      <Card>
+      <Card id="device-documentation" className={sectionAnchorClass}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-text-muted">{t('documentation')}</h2>
           {!editing ? (
@@ -496,7 +578,7 @@ export default function DeviceDetail() {
       </Card>
 
       {/* IP History */}
-      <Card>
+      <Card id="device-ip-history" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('ip_history')}</h2>
         {ipHistory.length === 0 ? (
           <p className="text-sm text-text-subtle">{t('ip_history_empty')}</p>
@@ -526,9 +608,114 @@ export default function DeviceDetail() {
         )}
       </Card>
 
+      {/* Ping history */}
+      {showPingHistory && (
+      <Card id="device-ping-history" className={sectionAnchorClass}>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold text-text-muted">{t('ping_history')}</h2>
+          {pingHistory.length > 0 && (
+            <span className="text-xs text-text-subtle">
+              {t('ping_history_samples', { count: pingHistory.length })}
+            </span>
+          )}
+        </div>
+        {pingHistory.length === 0 ? (
+          <p className="text-sm text-text-subtle">{t('ping_history_empty')}</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex h-12 items-end gap-1 rounded-lg border border-border bg-surface2/30 p-2">
+              {[...pingHistory].reverse().slice(-48).map((sample) => (
+                <div
+                  key={sample.id}
+                  title={`${formatRelativeTime(sample.checked_at, lang)} · ${sample.success ? (sample.latency_ms == null ? '—' : `${sample.latency_ms} ms`) : t('offline')}`}
+                  className={`flex-1 min-w-[3px] rounded-sm ${sample.success ? 'bg-success' : 'bg-danger'}`}
+                  style={{ height: sample.success ? `${Math.max(18, Math.min(100, sample.latency_ms ?? 18))}%` : '22%' }}
+                />
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              {pingHistory.slice(0, 6).map((sample) => (
+                <div key={sample.id} className="rounded-lg border border-border bg-surface2/40 p-2">
+                  <p className={sample.success ? 'text-success' : 'text-danger'}>
+                    {sample.success ? `${sample.latency_ms ?? '—'} ms` : t('offline')}
+                  </p>
+                  <p className="mt-1 text-text-subtle">{formatRelativeTime(sample.checked_at, lang)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+      )}
+
+      {/* TLS certificates */}
+      {showTlsChecks && (
+      <Card id="device-tls" className={sectionAnchorClass}>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold text-text-muted">{t('tls_certificates')}</h2>
+          <span className="text-xs text-text-subtle">{t('tls_service_count', { count: tlsServices.length })}</span>
+        </div>
+        {tlsServices.length === 0 ? (
+          <p className="text-sm text-text-subtle">{t('tls_certificates_empty')}</p>
+        ) : (
+          <div className="space-y-3">
+            {tlsServices.map((service) => (
+              <div key={service.id} className="rounded-lg border border-border bg-surface2/40 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-text-base">{service.name}</p>
+                    <p className="text-xs text-text-subtle">
+                      {service.url || `${service.protocol}://${device.ip_address ?? t('no_ip')}${service.port ? `:${service.port}` : ''}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {service.tls_status && (
+                      <Badge variant={
+                        service.tls_status === 'valid'
+                          ? 'success'
+                          : service.tls_status === 'expired' || service.tls_status === 'unavailable'
+                            ? 'danger'
+                            : 'warning'
+                      }>
+                        {t(tlsStatusLabelKey(service.tls_status))}
+                      </Badge>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      loading={tlsCheckingIds.includes(service.id)}
+                      onClick={() => handleCheckServiceTls(service.id)}
+                    >
+                      {t('tls_check')}
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                  <InfoRow label={t('tls_expires_at')} value={service.tls_expires_at ? formatDateTime(service.tls_expires_at) : null} />
+                  <InfoRow label={t('tls_issuer')} value={service.tls_issuer} />
+                  <InfoRow label={t('tls_subject')} value={service.tls_subject} />
+                  <InfoRow label={t('tls_sans')} value={service.tls_sans} />
+                  <InfoRow label={t('tls_checked_at')} value={service.tls_checked_at ? formatRelativeTime(service.tls_checked_at, lang) : null} />
+                  {service.tls_self_signed !== null && service.tls_self_signed !== undefined && (
+                    <InfoRow label={t('tls_self_signed')} value={service.tls_self_signed ? t('yes') : t('no')} />
+                  )}
+                  {service.tls_error && (
+                    <div className="col-span-2">
+                      <p className="text-text-subtle text-xs mb-0.5">{t('tls_error')}</p>
+                      <p className="text-danger text-xs whitespace-pre-wrap">{service.tls_error}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      )}
+
       {/* Services */}
       {advancedViewEnabled && (
-      <Card>
+      <Card id="device-services" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('services')}</h2>
         <ServicesList
           deviceId={device.id}
@@ -547,13 +734,13 @@ export default function DeviceDetail() {
       )}
 
       {/* Deep Scan */}
-      <Card>
+      <Card id="device-deep-scan" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('deep_scan')}</h2>
         <DeepScanPanel deviceId={device.id} />
       </Card>
 
       {/* Open Ports */}
-      <Card>
+      <Card id="device-open-ports" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
           <h2 className="text-sm font-semibold text-text-muted">
             {t('open_ports')}
@@ -648,7 +835,7 @@ export default function DeviceDetail() {
 
 
 
-      <Card>
+      <Card id="device-timeline" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('change_timeline')}</h2>
         {timeline.length === 0 ? (
           <p className="text-sm text-text-subtle">{t('no_changes_recorded')}</p>

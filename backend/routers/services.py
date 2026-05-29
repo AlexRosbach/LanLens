@@ -1,4 +1,8 @@
+import socket
+import ssl
+from datetime import datetime, timezone
 from typing import List
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -7,9 +11,12 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Device, Service, ServiceGroup, User
 from ..schemas import MessageResponse, ServiceCreate, ServiceGroupCreate, ServiceGroupResponse, ServiceGroupUpdate, ServiceResponse, ServiceUpdate
+from ..services.notification import _blocked_webhook_address
+from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/devices/{device_id}/services", tags=["services"])
 global_router = APIRouter(prefix="/api/services", tags=["services"])
+TLS_EXPIRING_SOON_DAYS = 30
 
 
 def _get_device_or_404(device_id: int, db: Session) -> Device:
@@ -17,6 +24,129 @@ def _get_device_or_404(device_id: int, db: Session) -> Device:
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     return device
+
+
+def _normalize_tls_expiry(value) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _service_tls_target(device: Device, service: Service) -> tuple[str, int, str]:
+    if service.url:
+        parsed = urlsplit(service.url)
+        scheme = (parsed.scheme or "").lower()
+        if scheme and scheme != "https":
+            raise HTTPException(status_code=400, detail="TLS checks require an HTTPS service URL")
+        if scheme == "https":
+            if not parsed.hostname:
+                raise HTTPException(status_code=400, detail="HTTPS service URL must include a host")
+            try:
+                port = parsed.port or 443
+            except ValueError:
+                raise HTTPException(status_code=400, detail="TLS target port is invalid")
+            return parsed.hostname, port, parsed.hostname
+    if device.ip_address:
+        return device.ip_address, service.port or 443, device.hostname or device.ip_address
+    raise HTTPException(status_code=400, detail="Service has no URL and device has no IP address")
+
+
+def _resolve_safe_tls_addresses(host: str, port: int) -> list[str]:
+    hostname = (host or "").strip().lower().rstrip(".")
+    if not hostname:
+        raise HTTPException(status_code=400, detail="TLS target host is empty")
+    if hostname in {"localhost", "localhost.localdomain"}:
+        raise HTTPException(status_code=400, detail="TLS target must not be localhost")
+    if port < 1 or port > 65535:
+        raise HTTPException(status_code=400, detail="TLS target port is invalid")
+
+    try:
+        resolved = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError:
+        raise HTTPException(status_code=400, detail="TLS target host could not be resolved")
+
+    addresses = sorted({info[4][0] for info in resolved}, key=lambda item: (":" in item, item))
+    if not addresses:
+        raise HTTPException(status_code=400, detail="TLS target host could not be resolved")
+    for address in addresses:
+        blocked, reason = _blocked_webhook_address(address, "TLS target")
+        if blocked:
+            raise HTTPException(status_code=400, detail=reason)
+    return addresses
+
+
+def _inspect_tls_certificate(host: str, port: int, server_hostname: str) -> dict:
+    addresses = _resolve_safe_tls_addresses(host, port)
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    last_error = ""
+    try:
+        for address in addresses:
+            try:
+                with socket.create_connection((address, port), timeout=5) as sock:
+                    with context.wrap_socket(sock, server_hostname=server_hostname) as tls_sock:
+                        cert_der = tls_sock.getpeercert(binary_form=True)
+                        break
+            except Exception as exc:
+                last_error = str(exc)
+        else:
+            raise RuntimeError(last_error or "TLS target did not return a certificate")
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "error": str(exc),
+            "checked_at": datetime.utcnow(),
+        }
+
+    try:
+        from cryptography import x509
+
+        cert = x509.load_der_x509_certificate(cert_der)
+        expires_at = _normalize_tls_expiry(cert.not_valid_after)
+        subject = cert.subject.rfc4514_string()
+        issuer = cert.issuer.rfc4514_string()
+        try:
+            san_ext = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+            sans = ", ".join(san_ext.value.get_values_for_type(x509.DNSName))
+        except x509.ExtensionNotFound:
+            sans = ""
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "error": f"Could not parse TLS certificate: {exc}",
+            "checked_at": datetime.utcnow(),
+        }
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if expires_at and expires_at < now:
+        status = "expired"
+    elif expires_at and (expires_at - now).days <= TLS_EXPIRING_SOON_DAYS:
+        status = "expiring_soon"
+    else:
+        status = "valid"
+
+    return {
+        "status": status,
+        "expires_at": expires_at,
+        "issuer": issuer,
+        "subject": subject,
+        "sans": sans,
+        "self_signed": bool(subject and issuer and subject == issuer),
+        "error": None,
+        "checked_at": datetime.utcnow(),
+    }
+
+
+def _apply_tls_result(service: Service, result: dict) -> None:
+    service.tls_checked_at = result.get("checked_at")
+    service.tls_status = result.get("status")
+    service.tls_expires_at = result.get("expires_at")
+    service.tls_issuer = result.get("issuer")
+    service.tls_subject = result.get("subject")
+    service.tls_sans = result.get("sans")
+    service.tls_self_signed = result.get("self_signed")
+    service.tls_error = result.get("error")
 
 
 @router.get("", response_model=List[ServiceResponse])
@@ -81,6 +211,31 @@ def update_service(
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(service, field, value)
 
+    db.commit()
+    db.refresh(service)
+    return service
+
+
+@router.post("/{service_id}/check-tls", response_model=ServiceResponse)
+def check_service_tls(
+    device_id: int,
+    service_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if not is_advanced_feature_enabled(db, "show_tls_checks"):
+        raise HTTPException(status_code=403, detail="TLS certificate checks are disabled")
+
+    device = _get_device_or_404(device_id, db)
+    service = db.query(Service).filter(
+        Service.id == service_id, Service.device_id == device_id
+    ).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    host, port, server_hostname = _service_tls_target(device, service)
+    result = _inspect_tls_certificate(host, port, server_hostname)
+    _apply_tls_result(service, result)
     db.commit()
     db.refresh(service)
     return service

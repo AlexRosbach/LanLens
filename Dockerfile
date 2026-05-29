@@ -32,7 +32,7 @@ ARG LANLENS_BUILD_CREATED=unknown
 
 LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version="1.5.2" \
+      org.opencontainers.image.version="1.5.3" \
       org.opencontainers.image.revision=$LANLENS_BUILD_COMMIT \
       org.opencontainers.image.created=$LANLENS_BUILD_CREATED \
       org.opencontainers.image.licenses="MIT" \
@@ -44,6 +44,7 @@ COPY backend/requirements.txt /tmp/requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     nmap \
+    iputils-ping \
     snmp \
     libpcap-dev \
     libpcap0.8 \

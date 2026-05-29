@@ -42,7 +42,8 @@ SETTING_KEYS = [
     "webhook_url", "webhook_enabled",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
-    "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav", "show_build_info",
+    "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav",
+    "show_tls_checks", "show_ping_history", "show_build_info",
 ]
 
 
@@ -162,6 +163,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         show_cmdb_integrations=_get(db, "show_cmdb_integrations", "false") == "true",
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
         show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
+        show_tls_checks=_get(db, "show_tls_checks", "false") == "true",
+        show_ping_history=_get(db, "show_ping_history", "false") == "true",
         show_build_info=_get(db, "show_build_info", "false") == "true",
         app_version=APP_VERSION,
         build_code=BUILD_CODE,
@@ -330,6 +333,8 @@ def update_ui_settings(
     _set(db, "show_cmdb_integrations", "true" if data.show_cmdb_integrations else "false")
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
     _set(db, "show_dhcp_monitor_nav", "true" if data.show_dhcp_monitor_nav else "false")
+    _set(db, "show_tls_checks", "true" if data.show_tls_checks else "false")
+    _set(db, "show_ping_history", "true" if data.show_ping_history else "false")
     _set(db, "show_build_info", "true" if data.show_build_info else "false")
     db.commit()
     return MessageResponse(message="UI settings updated")

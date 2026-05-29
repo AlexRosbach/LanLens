@@ -23,6 +23,15 @@ export interface DeviceIpHistoryEntry {
   seen_count: number
 }
 
+export interface DevicePingSample {
+  id: number
+  device_id: number
+  checked_at: string
+  success: boolean
+  latency_ms: number | null
+  source: string
+}
+
 export interface Device {
   id: number
   mac_address: string
@@ -118,6 +127,9 @@ export const devicesApi = {
 
   getIpHistory: (id: number) =>
     apiClient.get<DeviceIpHistoryEntry[]>(`/devices/${id}/ip-history`).then((r) => r.data),
+
+  getPingHistory: (id: number, limit = 120) =>
+    apiClient.get<DevicePingSample[]>(`/devices/${id}/ping-history`, { params: { limit } }).then((r) => r.data),
 
   getTimeline: (id: number) =>
     apiClient.get<ChangeEvent[]>(`/devices/${id}/timeline`).then((r) => r.data),

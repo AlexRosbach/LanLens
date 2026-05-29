@@ -5,6 +5,8 @@ import Button from '../ui/Button'
 import ServiceIcon, { ServiceTypeTag } from './ServiceIcon'
 import AddServiceModal from './AddServiceModal'
 import { useI18n } from '../../i18n'
+import { formatDateTime } from '../../utils/formatters'
+import { useUiSettingsStore } from '../../store/uiSettingsStore'
 
 interface Props {
   deviceId: number
@@ -17,6 +19,8 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
   const [showAdd, setShowAdd] = useState(false)
   const [editService, setEditService] = useState<Service | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [checkingTlsId, setCheckingTlsId] = useState<number | null>(null)
+  const showTlsChecks = useUiSettingsStore((state) => state.showTlsChecks)
 
   function handleSaved(saved: Service) {
     const existing = services.find((s) => s.id === saved.id)
@@ -41,6 +45,19 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
     }
   }
 
+  async function handleCheckTls(service: Service) {
+    setCheckingTlsId(service.id)
+    try {
+      const updated = await servicesApi.checkTls(deviceId, service.id)
+      onChange(services.map((s) => (s.id === updated.id ? updated : s)))
+      toast.success(t('tls_check_complete'))
+    } catch {
+      toast.error(t('tls_check_failed'))
+    } finally {
+      setCheckingTlsId(null)
+    }
+  }
+
   return (
     <>
       <div className="flex flex-col gap-2">
@@ -56,7 +73,10 @@ export default function ServicesList({ deviceId, services, onChange }: Props) {
             service={svc}
             onEdit={() => setEditService(svc)}
             onDelete={() => handleDelete(svc)}
+            onCheckTls={() => handleCheckTls(svc)}
             deleting={deletingId === svc.id}
+            checkingTls={checkingTlsId === svc.id}
+            showTlsChecks={showTlsChecks}
           />
         ))}
 
@@ -93,12 +113,18 @@ function ServiceCard({
   service,
   onEdit,
   onDelete,
+  onCheckTls,
   deleting,
+  checkingTls,
+  showTlsChecks,
 }: {
   service: Service
   onEdit: () => void
   onDelete: () => void
+  onCheckTls: () => void
   deleting: boolean
+  checkingTls: boolean
+  showTlsChecks: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const { t } = useI18n()
@@ -106,9 +132,21 @@ function ServiceCard({
   const hasDetails =
     service.description ||
     service.version ||
+    service.tls_status ||
+    service.tls_error ||
     service.username_hint ||
     service.password_location ||
     service.notes
+  const tlsStatusLabel = service.tls_status === 'valid'
+    ? t('tls_status_valid')
+    : service.tls_status === 'expiring_soon'
+      ? t('tls_status_expiring_soon')
+      : service.tls_status === 'expired'
+        ? t('tls_status_expired')
+        : service.tls_status === 'unavailable'
+          ? t('tls_status_unavailable')
+          : service.tls_status
+  const isHttpsService = service.protocol === 'https' || service.url?.toLowerCase().startsWith('https://') || service.port === 443
 
   return (
     <div className="border border-border rounded-xl bg-surface2/40 overflow-hidden">
@@ -160,6 +198,19 @@ function ServiceCard({
             </button>
           )}
 
+          {showTlsChecks && isHttpsService && (
+            <button
+              onClick={onCheckTls}
+              disabled={checkingTls}
+              className="p-1.5 rounded-lg text-text-subtle hover:text-primary hover:bg-primary-dim transition-colors disabled:opacity-50"
+              title={t('tls_check')}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3l7 4v5c0 4.418-2.986 8.166-7 9-4.014-.834-7-4.582-7-9V7l7-4z" />
+              </svg>
+            </button>
+          )}
+
           <button
             onClick={onEdit}
             className="p-1.5 rounded-lg text-text-subtle hover:text-text-muted hover:bg-surface2 transition-colors"
@@ -202,6 +253,42 @@ function ServiceCard({
             <div>
               <p className="text-text-subtle mb-0.5">{t('version')}</p>
               <p className="text-text-muted">{service.version}</p>
+            </div>
+          )}
+          {service.tls_status && (
+            <div>
+              <p className="text-text-subtle mb-0.5">{t('tls_status')}</p>
+              <p className={`font-medium ${
+                service.tls_status === 'valid' ? 'text-success' :
+                  service.tls_status === 'expiring_soon' ? 'text-warning' :
+                    service.tls_status === 'expired' ? 'text-danger' : 'text-text-muted'
+              }`}>
+                {tlsStatusLabel}
+              </p>
+            </div>
+          )}
+          {service.tls_expires_at && (
+            <div>
+              <p className="text-text-subtle mb-0.5">{t('tls_expires_at')}</p>
+              <p className="text-text-muted">{formatDateTime(service.tls_expires_at)}</p>
+            </div>
+          )}
+          {service.tls_issuer && (
+            <div className="col-span-2">
+              <p className="text-text-subtle mb-0.5">{t('tls_issuer')}</p>
+              <p className="text-text-muted break-all">{service.tls_issuer}</p>
+            </div>
+          )}
+          {service.tls_sans && (
+            <div className="col-span-2">
+              <p className="text-text-subtle mb-0.5">{t('tls_sans')}</p>
+              <p className="text-text-muted break-all">{service.tls_sans}</p>
+            </div>
+          )}
+          {service.tls_error && (
+            <div className="col-span-2">
+              <p className="text-text-subtle mb-0.5">{t('tls_error')}</p>
+              <p className="text-danger break-all">{service.tls_error}</p>
             </div>
           )}
           {service.username_hint && (

@@ -86,6 +86,14 @@ class ServiceResponse(BaseModel):
     username_hint: Optional[str]
     password_location: Optional[str]
     notes: Optional[str]
+    tls_checked_at: Optional[datetime] = None
+    tls_status: Optional[str] = None
+    tls_expires_at: Optional[datetime] = None
+    tls_issuer: Optional[str] = None
+    tls_subject: Optional[str] = None
+    tls_sans: Optional[str] = None
+    tls_self_signed: Optional[bool] = None
+    tls_error: Optional[str] = None
     sort_order: int
     created_at: datetime
     updated_at: datetime
@@ -230,6 +238,18 @@ class DeviceIpHistoryResponse(BaseModel):
     first_seen: datetime
     last_seen: datetime
     seen_count: int
+
+    class Config:
+        from_attributes = True
+
+
+class DevicePingSampleResponse(BaseModel):
+    id: int
+    device_id: int
+    checked_at: datetime
+    success: bool
+    latency_ms: Optional[float] = None
+    source: str
 
     class Config:
         from_attributes = True
@@ -435,6 +455,8 @@ class UiSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_tls_checks: bool = False
+    show_ping_history: bool = False
     show_build_info: bool = False
 
 
@@ -484,6 +506,8 @@ class AllSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_tls_checks: bool = False
+    show_ping_history: bool = False
     show_build_info: bool = False
     app_version: str = ""
     build_code: str = ""
