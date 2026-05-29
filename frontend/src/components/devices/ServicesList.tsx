@@ -146,6 +146,7 @@ function ServiceCard({
         : service.tls_status === 'unavailable'
           ? t('tls_status_unavailable')
           : service.tls_status
+  const isHttpsService = service.protocol === 'https' || service.url?.toLowerCase().startsWith('https://') || service.port === 443
 
   return (
     <div className="border border-border rounded-xl bg-surface2/40 overflow-hidden">
@@ -197,7 +198,7 @@ function ServiceCard({
             </button>
           )}
 
-          {showTlsChecks && (service.protocol === 'https' || service.url?.startsWith('https://') || service.port === 443) && (
+          {showTlsChecks && isHttpsService && (
             <button
               onClick={onCheckTls}
               disabled={checkingTls}
@@ -280,7 +281,7 @@ function ServiceCard({
           )}
           {service.tls_sans && (
             <div className="col-span-2">
-              <p className="text-text-subtle mb-0.5">SAN</p>
+              <p className="text-text-subtle mb-0.5">{t('tls_sans')}</p>
               <p className="text-text-muted break-all">{service.tls_sans}</p>
             </div>
           )}

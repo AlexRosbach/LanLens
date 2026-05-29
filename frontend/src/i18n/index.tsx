@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
 
 export type Lang = 'en' | 'de' | 'it' | 'zh'
 
@@ -3455,9 +3455,12 @@ const I18nContext = createContext<I18nContextType>({
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(getInitialLang)
 
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+
   const setLang = useCallback((l: Lang) => {
     setLangState(l)
-    document.documentElement.lang = l
     try {
       window.localStorage.setItem(LANGUAGE_STORAGE_KEY, l)
     } catch {

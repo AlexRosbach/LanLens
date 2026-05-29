@@ -1120,6 +1120,7 @@ export default function Settings() {
 
   const featureGroups = [
     {
+      id: 'core',
       title: t('feature_category_core'),
       description: t('feature_category_core_hint'),
       items: [
@@ -1148,6 +1149,7 @@ export default function Settings() {
       ],
     },
     {
+      id: 'monitoring',
       title: t('feature_category_monitoring'),
       description: t('feature_category_monitoring_hint'),
       items: [
@@ -1178,6 +1180,7 @@ export default function Settings() {
       ],
     },
     {
+      id: 'inventory',
       title: t('feature_category_inventory'),
       description: t('feature_category_inventory_hint'),
       items: [
@@ -1361,7 +1364,7 @@ export default function Settings() {
             <p className="text-sm text-text-subtle">{t('feature_visibility_description')}</p>
           </div>
           {featureGroups.map((group) => (
-            <Card key={group.title}>
+            <Card key={group.id}>
               <div className="mb-4">
                 <h3 className="text-sm font-semibold text-text-base">{group.title}</h3>
                 <p className="mt-1 text-xs text-text-subtle">{group.description}</p>

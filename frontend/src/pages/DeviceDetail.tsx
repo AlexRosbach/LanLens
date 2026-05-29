@@ -372,12 +372,10 @@ export default function DeviceDetail() {
       )}
 
       {/* Connect */}
-      {showPingHistory && (
       <Card>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
         <ConnectButtons device={device} />
       </Card>
-      )}
 
       {/* Identity & Documentation */}
       <Card id="device-documentation" className={sectionAnchorClass}>
