@@ -360,6 +360,10 @@ export default function Settings() {
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const setShowPluginApi = useUiSettingsStore((state) => state.setShowPluginApi)
+  const setShowPassiveDiscovery = useUiSettingsStore((state) => state.setShowPassiveDiscovery)
+  const setShowMdnsDiscovery = useUiSettingsStore((state) => state.setShowMdnsDiscovery)
+  const setShowSsdpDiscovery = useUiSettingsStore((state) => state.setShowSsdpDiscovery)
   const setShowTlsChecks = useUiSettingsStore((state) => state.setShowTlsChecks)
   const setShowPingHistory = useUiSettingsStore((state) => state.setShowPingHistory)
   const setShowBuildInfo = useUiSettingsStore((state) => state.setShowBuildInfo)
@@ -377,6 +381,10 @@ export default function Settings() {
       setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+      setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
+      setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
+      setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
+      setShowSsdpDiscovery(data.advanced_view_enabled && data.show_ssdp_discovery)
       setShowTlsChecks(data.advanced_view_enabled && data.show_tls_checks)
       setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
       setShowBuildInfo(data.show_build_info)
@@ -871,6 +879,10 @@ export default function Settings() {
         setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+        setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
+        setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
+        setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
+        setShowSsdpDiscovery(data.advanced_view_enabled && data.show_ssdp_discovery)
         setShowTlsChecks(data.advanced_view_enabled && data.show_tls_checks)
         setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
         setShowBuildInfo(data.show_build_info)
@@ -1088,6 +1100,10 @@ export default function Settings() {
         current.show_cmdb_integrations,
         current.show_services_nav,
         current.show_dhcp_monitor_nav,
+        current.show_plugin_api,
+        current.show_passive_discovery,
+        current.show_mdns_discovery,
+        current.show_ssdp_discovery,
         current.show_tls_checks,
         current.show_ping_history,
         current.show_build_info,
@@ -1096,6 +1112,10 @@ export default function Settings() {
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
+      setShowPluginApi(current.advanced_view_enabled && current.show_plugin_api)
+      setShowPassiveDiscovery(current.advanced_view_enabled && current.show_passive_discovery)
+      setShowMdnsDiscovery(current.advanced_view_enabled && current.show_mdns_discovery)
+      setShowSsdpDiscovery(current.advanced_view_enabled && current.show_ssdp_discovery)
       setShowTlsChecks(current.advanced_view_enabled && current.show_tls_checks)
       setShowPingHistory(current.advanced_view_enabled && current.show_ping_history)
       setShowBuildInfo(current.show_build_info)
@@ -1135,6 +1155,10 @@ export default function Settings() {
             show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
             show_services_nav: checked ? current.show_services_nav : false,
             show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
+            show_plugin_api: checked ? current.show_plugin_api : false,
+            show_passive_discovery: checked ? current.show_passive_discovery : false,
+            show_mdns_discovery: checked ? current.show_mdns_discovery : false,
+            show_ssdp_discovery: checked ? current.show_ssdp_discovery : false,
             show_tls_checks: checked ? current.show_tls_checks : false,
             show_ping_history: checked ? current.show_ping_history : false,
           }),
@@ -1176,6 +1200,56 @@ export default function Settings() {
           label: t('show_dhcp_monitor_nav'),
           description: t('show_dhcp_monitor_nav_hint'),
           onChange: (checked: boolean) => setSettings({ ...current, show_dhcp_monitor_nav: checked }),
+        },
+      ],
+    },
+    {
+      id: 'extensions',
+      title: t('feature_category_extensions'),
+      description: t('feature_category_extensions_hint'),
+      items: [
+        {
+          key: 'plugin-api',
+          checked: current.show_plugin_api,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_plugin_api'),
+          description: t('show_plugin_api_hint'),
+          onChange: (checked: boolean) => setSettings({
+            ...current,
+            show_plugin_api: checked,
+            show_passive_discovery: checked ? current.show_passive_discovery : false,
+            show_mdns_discovery: checked ? current.show_mdns_discovery : false,
+            show_ssdp_discovery: checked ? current.show_ssdp_discovery : false,
+          }),
+        },
+        {
+          key: 'passive-discovery',
+          checked: current.show_passive_discovery,
+          disabled: !current.advanced_view_enabled || !current.show_plugin_api,
+          label: t('show_passive_discovery'),
+          description: t('show_passive_discovery_hint'),
+          onChange: (checked: boolean) => setSettings({
+            ...current,
+            show_passive_discovery: checked,
+            show_mdns_discovery: checked ? current.show_mdns_discovery : false,
+            show_ssdp_discovery: checked ? current.show_ssdp_discovery : false,
+          }),
+        },
+        {
+          key: 'mdns-discovery',
+          checked: current.show_mdns_discovery,
+          disabled: !current.advanced_view_enabled || !current.show_plugin_api || !current.show_passive_discovery,
+          label: t('show_mdns_discovery'),
+          description: t('show_mdns_discovery_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_mdns_discovery: checked }),
+        },
+        {
+          key: 'ssdp-discovery',
+          checked: current.show_ssdp_discovery,
+          disabled: !current.advanced_view_enabled || !current.show_plugin_api || !current.show_passive_discovery,
+          label: t('show_ssdp_discovery'),
+          description: t('show_ssdp_discovery_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_ssdp_discovery: checked }),
         },
       ],
     },

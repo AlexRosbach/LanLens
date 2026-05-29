@@ -6,6 +6,10 @@ interface UiSettingsState {
   showCmdbIntegrations: boolean
   showServicesNav: boolean
   showDhcpMonitorNav: boolean
+  showPluginApi: boolean
+  showPassiveDiscovery: boolean
+  showMdnsDiscovery: boolean
+  showSsdpDiscovery: boolean
   showTlsChecks: boolean
   showPingHistory: boolean
   showBuildInfo: boolean
@@ -19,6 +23,10 @@ interface UiSettingsState {
   setShowCmdbIntegrations: (showCmdbIntegrations: boolean) => void
   setShowServicesNav: (showServicesNav: boolean) => void
   setShowDhcpMonitorNav: (showDhcpMonitorNav: boolean) => void
+  setShowPluginApi: (showPluginApi: boolean) => void
+  setShowPassiveDiscovery: (showPassiveDiscovery: boolean) => void
+  setShowMdnsDiscovery: (showMdnsDiscovery: boolean) => void
+  setShowSsdpDiscovery: (showSsdpDiscovery: boolean) => void
   setShowTlsChecks: (showTlsChecks: boolean) => void
   setShowPingHistory: (showPingHistory: boolean) => void
   setShowBuildInfo: (showBuildInfo: boolean) => void
@@ -30,6 +38,10 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   showCmdbIntegrations: false,
   showServicesNav: false,
   showDhcpMonitorNav: false,
+  showPluginApi: false,
+  showPassiveDiscovery: false,
+  showMdnsDiscovery: false,
+  showSsdpDiscovery: false,
   showTlsChecks: false,
   showPingHistory: false,
   showBuildInfo: false,
@@ -44,6 +56,10 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   setShowCmdbIntegrations: (showCmdbIntegrations) => set({ showCmdbIntegrations }),
   setShowServicesNav: (showServicesNav) => set({ showServicesNav }),
   setShowDhcpMonitorNav: (showDhcpMonitorNav) => set({ showDhcpMonitorNav }),
+  setShowPluginApi: (showPluginApi) => set({ showPluginApi }),
+  setShowPassiveDiscovery: (showPassiveDiscovery) => set({ showPassiveDiscovery }),
+  setShowMdnsDiscovery: (showMdnsDiscovery) => set({ showMdnsDiscovery }),
+  setShowSsdpDiscovery: (showSsdpDiscovery) => set({ showSsdpDiscovery }),
   setShowTlsChecks: (showTlsChecks) => set({ showTlsChecks }),
   setShowPingHistory: (showPingHistory) => set({ showPingHistory }),
   setShowBuildInfo: (showBuildInfo) => set({ showBuildInfo }),
@@ -57,6 +73,10 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
         showCmdbIntegrations: settings.advanced_view_enabled && settings.show_cmdb_integrations,
         showServicesNav: settings.advanced_view_enabled && settings.show_services_nav,
         showDhcpMonitorNav: settings.advanced_view_enabled && settings.show_dhcp_monitor_nav,
+        showPluginApi: settings.advanced_view_enabled && settings.show_plugin_api,
+        showPassiveDiscovery: settings.advanced_view_enabled && settings.show_passive_discovery,
+        showMdnsDiscovery: settings.advanced_view_enabled && settings.show_mdns_discovery,
+        showSsdpDiscovery: settings.advanced_view_enabled && settings.show_ssdp_discovery,
         showTlsChecks: settings.advanced_view_enabled && settings.show_tls_checks,
         showPingHistory: settings.advanced_view_enabled && settings.show_ping_history,
         showBuildInfo: settings.show_build_info,

@@ -146,6 +146,40 @@ class DhcpMonitorStatusResponse(BaseModel):
     is_capturing: bool
 
 
+class PluginManifestResponse(BaseModel):
+    key: str
+    name: str
+    category: str
+    description: str
+    enabled: bool
+    status: str
+    setting_key: str
+    dependencies: List[str] = []
+    related_issues: List[int] = []
+    config_hint: Optional[str] = None
+
+
+class PluginToggleRequest(BaseModel):
+    enabled: bool
+
+
+class PassiveDiscoveryStatusResponse(BaseModel):
+    is_capturing: bool
+
+
+class PassiveDiscoveryObservationResponse(BaseModel):
+    id: int
+    protocol: str
+    source_ip: Optional[str]
+    source_mac: Optional[str]
+    destination_ip: Optional[str]
+    service_name: Optional[str]
+    service_type: Optional[str]
+    summary: Optional[str]
+    metadata: dict[str, Any]
+    observed_at: datetime
+
+
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [
@@ -455,6 +489,10 @@ class UiSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_plugin_api: bool = False
+    show_passive_discovery: bool = False
+    show_mdns_discovery: bool = False
+    show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False
@@ -506,6 +544,10 @@ class AllSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_plugin_api: bool = False
+    show_passive_discovery: bool = False
+    show_mdns_discovery: bool = False
+    show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False

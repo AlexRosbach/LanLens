@@ -34,6 +34,10 @@ export interface AllSettings {
   show_cmdb_integrations: boolean
   show_services_nav: boolean
   show_dhcp_monitor_nav: boolean
+  show_plugin_api: boolean
+  show_passive_discovery: boolean
+  show_mdns_discovery: boolean
+  show_ssdp_discovery: boolean
   show_tls_checks: boolean
   show_ping_history: boolean
   show_build_info: boolean
@@ -113,6 +117,10 @@ export const settingsApi = {
     show_cmdb_integrations: boolean,
     show_services_nav: boolean,
     show_dhcp_monitor_nav: boolean,
+    show_plugin_api: boolean,
+    show_passive_discovery: boolean,
+    show_mdns_discovery: boolean,
+    show_ssdp_discovery: boolean,
     show_tls_checks: boolean,
     show_ping_history: boolean,
     show_build_info: boolean,
@@ -122,6 +130,10 @@ export const settingsApi = {
       show_cmdb_integrations,
       show_services_nav,
       show_dhcp_monitor_nav,
+      show_plugin_api,
+      show_passive_discovery,
+      show_mdns_discovery,
+      show_ssdp_discovery,
       show_tls_checks,
       show_ping_history,
       show_build_info,

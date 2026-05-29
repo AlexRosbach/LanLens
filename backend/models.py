@@ -460,6 +460,26 @@ class DhcpObservation(Base):
     observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class PassiveDiscoveryObservation(Base):
+    """Observed optional multicast/service-discovery packet metadata."""
+    __tablename__ = "passive_discovery_observations"
+    __table_args__ = (
+        Index("ix_passive_discovery_protocol_time", "protocol", "observed_at"),
+        Index("ix_passive_discovery_source_ip", "source_ip"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    protocol = Column(String(32), nullable=False)
+    source_ip = Column(String(45), nullable=True)
+    source_mac = Column(String(17), nullable=True)
+    destination_ip = Column(String(45), nullable=True)
+    service_name = Column(String(255), nullable=True)
+    service_type = Column(String(128), nullable=True)
+    summary = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class TokenBlacklist(Base):
     __tablename__ = "token_blacklist"
 

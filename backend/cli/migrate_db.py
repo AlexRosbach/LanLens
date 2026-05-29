@@ -710,6 +710,37 @@ def migrate():
         else:
             print("Migration: device_ping_samples already exists — skipped")
 
+        # ── v1.5.4 ── Optional plugin/passive-discovery observations ───────
+        if IS_SQLITE and not _table_exists(conn, "passive_discovery_observations"):
+            conn.execute(text(
+                "CREATE TABLE passive_discovery_observations ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "protocol VARCHAR(32) NOT NULL, "
+                "source_ip VARCHAR(45), "
+                "source_mac VARCHAR(17), "
+                "destination_ip VARCHAR(45), "
+                "service_name VARCHAR(255), "
+                "service_type VARCHAR(128), "
+                "summary TEXT, "
+                "metadata_json TEXT NOT NULL DEFAULT '{}', "
+                "observed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_passive_discovery_protocol_time "
+                "ON passive_discovery_observations(protocol, observed_at)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_passive_discovery_source_ip "
+                "ON passive_discovery_observations(source_ip)"
+            ))
+            conn.commit()
+            print("Migration: created passive_discovery_observations")
+        elif not IS_SQLITE:
+            print("Migration: passive_discovery_observations — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: passive_discovery_observations already exists — skipped")
+
         conn.commit()
 
 
