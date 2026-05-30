@@ -153,19 +153,60 @@ class ServiceTlsAndPingTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_https_port_scan_does_not_check_tls_when_feature_disabled(self):
+    def test_https_port_scan_checks_tls_independent_of_feature_visibility(self):
         db = self.Session()
         try:
-            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10")
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10", hostname="server.local")
             db.add(device)
             db.commit()
             db.refresh(device)
 
-            with patch("backend.routers.devices._inspect_tls_certificate") as inspect:
+            with patch("backend.routers.devices._inspect_tls_certificate", return_value={
+                "status": "valid",
+                "expires_at": datetime.utcnow() + timedelta(days=90),
+                "issuer": "CN=Test CA",
+                "subject": "CN=server.local",
+                "sans": "server.local",
+                "self_signed": False,
+                "error": None,
+                "checked_at": datetime.utcnow(),
+            }) as inspect:
                 _auto_check_https_certificate(db, device.id, [{"port": 443, "protocol": "tcp", "service": "https"}])
+                db.commit()
 
-            self.assertEqual(db.query(Service).count(), 0)
-            inspect.assert_not_called()
+            service = db.query(Service).filter(Service.device_id == device.id, Service.port == 443).one()
+            self.assertEqual(service.tls_status, "valid")
+            inspect.assert_called_once_with("192.0.2.10", 443, "server.local")
+        finally:
+            db.close()
+
+    def test_https_alt_port_scan_creates_port_specific_tls_service(self):
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10", hostname="server.local")
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            with patch("backend.routers.devices._inspect_tls_certificate", return_value={
+                "status": "valid",
+                "expires_at": datetime.utcnow() + timedelta(days=90),
+                "issuer": "CN=Test CA",
+                "subject": "CN=server.local",
+                "sans": "server.local",
+                "self_signed": False,
+                "error": None,
+                "checked_at": datetime.utcnow(),
+            }) as inspect:
+                _auto_check_https_certificate(db, device.id, [{"port": 8443, "protocol": "tcp", "service": "https-alt"}])
+                db.commit()
+
+            service = db.query(Service).filter(Service.device_id == device.id, Service.port == 8443).one()
+            self.assertEqual(service.name, "HTTPS 8443")
+            self.assertEqual(service.protocol, "https")
+            self.assertEqual(service.url, "https://192.0.2.10:8443")
+            self.assertEqual(service.tls_status, "valid")
+            inspect.assert_called_once_with("192.0.2.10", 8443, "server.local")
         finally:
             db.close()
 

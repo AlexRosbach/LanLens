@@ -58,30 +58,46 @@ def _parse_ports(raw: str) -> List[PortInfo]:
         return []
 
 
-def _port_list_has_https(open_ports: list[dict]) -> bool:
-    return any(int(port.get("port") or 0) == 443 for port in open_ports)
+HTTPS_PORTS = {443, 8443, 9443, 9444, 10443}
 
 
-def _ensure_https_service(db: Session, device: Device) -> Service:
+def _https_port_entries(open_ports: list[dict]) -> list[dict]:
+    entries: list[dict] = []
+    for entry in open_ports:
+        try:
+            port = int(entry.get("port") or 0)
+        except (TypeError, ValueError):
+            continue
+        service = str(entry.get("service") or "").lower()
+        if port in HTTPS_PORTS or "https" in service or "ssl" in service:
+            entries.append({**entry, "port": port})
+    return entries
+
+
+def _ensure_https_service(db: Session, device: Device, port: int) -> Service:
     service = (
         db.query(Service)
-        .filter(Service.device_id == device.id, Service.port == 443)
+        .filter(Service.device_id == device.id, Service.port == port)
         .order_by(Service.id.asc())
         .first()
     )
     if service:
-        if not service.protocol:
+        if not service.protocol or service.protocol == "http":
             service.protocol = "https"
         if not service.name:
-            service.name = "HTTPS"
+            service.name = "HTTPS" if port == 443 else f"HTTPS {port}"
+        if not service.url and device.ip_address:
+            suffix = "" if port == 443 else f":{port}"
+            service.url = f"https://{device.ip_address}{suffix}"
         return service
 
+    suffix = "" if port == 443 else f":{port}"
     service = Service(
         device_id=device.id,
-        name="HTTPS",
+        name="HTTPS" if port == 443 else f"HTTPS {port}",
         protocol="https",
-        port=443,
-        url=f"https://{device.ip_address}" if device.ip_address else None,
+        port=port,
+        url=f"https://{device.ip_address}{suffix}" if device.ip_address else None,
     )
     db.add(service)
     db.flush()
@@ -89,22 +105,27 @@ def _ensure_https_service(db: Session, device: Device) -> Service:
 
 
 def _auto_check_https_certificate(db: Session, device_id: int, open_ports: list[dict]) -> None:
-    if not _port_list_has_https(open_ports):
-        return
-    if not is_advanced_feature_enabled(db, "show_tls_checks"):
+    https_entries = _https_port_entries(open_ports)
+    if not https_entries:
         return
 
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device or not device.ip_address:
         return
 
-    service = _ensure_https_service(db, device)
-    try:
-        result = _inspect_tls_certificate(device.ip_address, 443, device.hostname or device.ip_address)
-    except Exception as exc:
-        logger.warning("Automatic TLS check failed for device %s: %s", device_id, exc)
-        return
-    _apply_tls_result(service, result)
+    for entry in https_entries:
+        port = int(entry["port"])
+        service = _ensure_https_service(db, device, port)
+        try:
+            result = _inspect_tls_certificate(device.ip_address, port, device.hostname or device.ip_address)
+        except Exception as exc:
+            logger.warning("Automatic TLS check failed for device %s port %s: %s", device_id, port, exc)
+            result = {
+                "status": "unavailable",
+                "error": str(exc),
+                "checked_at": datetime.utcnow(),
+            }
+        _apply_tls_result(service, result)
 
 
 def _get_dhcp_range(db: Session):
@@ -1157,7 +1178,7 @@ async def _do_single_port_scan(device_id: int, ip: str, port: int) -> None:
                     existing.rdp_available = True
                 elif p["port"] == 80:
                     existing.http_available = True
-                elif p["port"] == 443:
+                elif p["port"] in HTTPS_PORTS or "https" in str(p.get("service") or "").lower() or "ssl" in str(p.get("service") or "").lower():
                     existing.https_available = True
         else:
             # No prior scan — create a new PortScan record

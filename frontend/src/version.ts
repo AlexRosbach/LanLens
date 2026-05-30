@@ -1,6 +1,6 @@
 export const APP_VERSION = '1.5.4'
 export const GITHUB_REPO = 'AlexRosbach/LanLens'
-export const BUILD_CODE = import.meta.env.VITE_LANLENS_BUILD_CODE || '1.5.4-20260530.3'
+export const BUILD_CODE = import.meta.env.VITE_LANLENS_BUILD_CODE || '1.5.4-20260530.4'
 export const BUILD_COMMIT = import.meta.env.VITE_LANLENS_BUILD_COMMIT || 'source'
 export const BUILD_BRANCH = import.meta.env.VITE_LANLENS_BUILD_BRANCH || 'codex/1.5.4-plugin-api-discovery'
 export const BUILD_CREATED = import.meta.env.VITE_LANLENS_BUILD_CREATED || '2026-05-30T20:13:02Z'
