@@ -207,9 +207,15 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
     elif destination_ip == "224.0.0.2":
         protocol = "hsrp"
         packet_type = "HSRP multicast candidate"
+    metadata: dict[str, Any]
     if not protocol:
-        return None
-    metadata = {"packet_type": packet_type, "destination_ip": destination_ip}
+        if not _is_ipv4_multicast(destination_ip):
+            return None
+        protocol = "multicast"
+        packet_type = "IPv4 multicast packet"
+        metadata = _generic_multicast_metadata(packet, destination_ip)
+    else:
+        metadata = {"packet_type": packet_type, "destination_ip": destination_ip}
     return PassiveDiscoveryObservation(
         protocol=protocol,
         source_ip=source_ip,
@@ -219,6 +225,31 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
         metadata_json=json.dumps(metadata, sort_keys=True),
         observed_at=datetime.utcnow(),
     )
+
+
+def _is_ipv4_multicast(address: str) -> bool:
+    try:
+        first_octet = int(address.split(".", 1)[0])
+    except (TypeError, ValueError):
+        return False
+    return 224 <= first_octet <= 239
+
+
+def _generic_multicast_metadata(packet: Any, destination_ip: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "packet_type": "IPv4 multicast packet",
+        "destination_ip": destination_ip,
+    }
+    try:
+        from scapy.layers.inet import UDP
+
+        if packet.haslayer(UDP):
+            metadata["transport"] = "udp"
+            metadata["source_port"] = int(packet[UDP].sport)
+            metadata["destination_port"] = int(packet[UDP].dport)
+    except Exception:
+        pass
+    return metadata
 
 
 def parse_packet(packet: Any, enabled_protocols: set[str]) -> PassiveDiscoveryObservation | None:

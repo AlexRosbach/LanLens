@@ -3,7 +3,7 @@ import unittest
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345")
 
-from backend.services.passive_discovery import parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload
+from backend.services.passive_discovery import parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload
 
 try:
     from scapy.layers.dns import DNS, DNSQR, DNSRR
@@ -106,6 +106,25 @@ class PassiveDiscoveryTests(unittest.TestCase):
         self.assertEqual(observation.service_name, "uuid:device-1::upnp:rootdevice")
         self.assertEqual(observation.service_type, "upnp:rootdevice")
         self.assertEqual(observation.summary, "HTTP/1.1 200 OK upnp:rootdevice")
+
+    @unittest.skipIf(Raw is None, "scapy is not installed")
+    def test_generic_multicast_packet_is_stored_with_group_and_ports(self):
+        packet = (
+            Ether(src="66:77:88:99:AA:BB")
+            / IP(src="192.0.2.50", dst="239.192.0.1")
+            / UDP(sport=5353, dport=5353)
+            / Raw(load=b"opaque multicast payload")
+        )
+
+        observation = parse_control_plane_packet(packet)
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.protocol, "multicast")
+        self.assertEqual(observation.source_ip, "192.0.2.50")
+        self.assertEqual(observation.source_mac, "66:77:88:99:AA:BB")
+        self.assertEqual(observation.destination_ip, "239.192.0.1")
+        self.assertEqual(observation.summary, "IPv4 multicast packet")
+        self.assertIn('"destination_port": 5353', observation.metadata_json)
 
 
 if __name__ == "__main__":

@@ -522,10 +522,18 @@ External reverse proxies remain the better central TLS option when the deploymen
 
 The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
 
+### Passive Multicast Discovery
+
+Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a 30-second capture or schedule background captures.
+
+LanLens stores visible mDNS, SSDP/UPnP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. Per-device discovery tables show observations that can be linked to the device's current IP or MAC address.
+
+Docker deployments need host networking and raw packet permissions for live capture. If the container runs in bridge mode or without `NET_RAW`, the capture endpoint can start but may not observe LAN multicast traffic.
+
 ### Capabilities
 
 - `NET_ADMIN`: Required for interface configuration
-- `NET_RAW`: Required for raw socket creation (ARP)
+- `NET_RAW`: Required for raw socket creation (ARP and passive multicast capture)
 
 ### Volume
 
