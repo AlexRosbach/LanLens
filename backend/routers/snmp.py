@@ -90,6 +90,57 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
     }
 
 
+def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
+    interfaces = (
+        db.query(SnmpInterface)
+        .filter(SnmpInterface.switch_id == switch.id)
+        .order_by(SnmpInterface.if_index.asc())
+        .all()
+    )
+    mac_entries = (
+        db.query(SnmpMacTableEntry, Device)
+        .outerjoin(Device, SnmpMacTableEntry.mac_address == Device.mac_address)
+        .filter(SnmpMacTableEntry.switch_id == switch.id)
+        .order_by(SnmpMacTableEntry.last_seen_at.desc())
+        .all()
+    )
+
+    endpoints_by_if_index: dict[int, list[dict]] = {}
+    for entry, device in mac_entries:
+        if entry.if_index is None:
+            continue
+        endpoints_by_if_index.setdefault(entry.if_index, []).append({
+            "mac_address": entry.mac_address,
+            "vlan": entry.vlan or "",
+            "device_id": device.id if device else None,
+            "device_label": (device.label or device.hostname or device.ip_address or device.mac_address) if device else "",
+            "last_seen_at": entry.last_seen_at,
+        })
+
+    ports = []
+    for iface in interfaces:
+        endpoints = endpoints_by_if_index.get(iface.if_index, [])
+        is_active = iface.oper_status == "up" or bool(endpoints)
+        ports.append({
+            "if_index": iface.if_index,
+            "name": iface.name or "",
+            "description": iface.description or "",
+            "alias": iface.alias or "",
+            "admin_status": iface.admin_status or "",
+            "oper_status": iface.oper_status or "",
+            "speed_bps": iface.speed_bps,
+            "is_active": is_active,
+            "endpoints": endpoints,
+            "last_seen_at": iface.last_seen_at,
+        })
+
+    return {
+        "switch": _switch_response(switch, interface_count=len(interfaces), mac_count=len(mac_entries)),
+        "has_visualization": bool(interfaces and mac_entries),
+        "ports": ports,
+    }
+
+
 @router.get("/profiles")
 def list_profiles(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_snmp_enabled(db)
@@ -273,6 +324,15 @@ def list_switch_interfaces(switch_id: int, db: Session = Depends(get_db), _: Use
         }
         for row in rows
     ]
+
+
+@router.get("/devices/{device_id}/ports")
+def get_device_switch_ports(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    switch = db.query(SnmpSwitch).filter(SnmpSwitch.device_id == device_id).first()
+    if not switch:
+        return {"switch": None, "has_visualization": False, "ports": []}
+    return _build_switch_port_visualization(db, switch)
 
 
 @router.get("/topology/endpoints")

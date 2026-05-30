@@ -866,6 +866,18 @@ Security and operational boundaries:
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
 
+Default i-doit JSON-RPC field mapping writes the LanLens values that have reliable standard-category targets:
+
+- hostname and IP address -> `C__CATG__IP`
+- MAC address -> `C__CATG__NETWORK_PORT`
+- vendor, model and serial number -> `C__CATG__MODEL`
+- inventory number / CMDB ID -> `C__CATG__ACCOUNTING.inventory_no`
+- purpose, description and notes -> `C__CATG__GLOBAL`
+- operating system text -> `C__CATG__OPERATING_SYSTEM.description`
+- CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
+
+Some i-doit fields such as responsible person or location are object references in standard i-doit data models, not plain text. LanLens does not guess those object IDs automatically; operators can still add explicit custom mapping entries once the target i-doit field is known.
+
 ### Editable i-doit CSV Export (v1.5.2)
 
 LanLens 1.5.2 adds a reviewed CSV export for i-doit. In **Settings → CMDB → i-doit**, use **Load export preview** to build rows from the current inventory, adjust fields in the table, untick rows that should not be included, and download the CSV.
@@ -893,6 +905,10 @@ Routers and firewalls may expose IF-MIB without a switch MAC table. In that case
 
 SNMP data is most useful when the router or switch exposes bridge forwarding tables. For a UniFi router, expect the first poll to show system identity, vendor detection and interface inventory. If the UniFi device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the router and interfaces, but endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
 
+![SNMP switch port visualization](screenshots/lanlens-snmp-switch-ports.svg)
+
+When an SNMP target is linked to a LanLens device and the poll returns both interfaces and MAC/VLAN table entries, the device detail page shows a switch-port visualization. Each discovered interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, learned device/MAC and VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. SNMP routers, firewalls or incomplete switch polls that only expose IF-MIB interfaces do not show the visualization, which avoids a misleading empty port map.
+
 The API surface is available under `/api/snmp`:
 
 - `GET /api/snmp/profiles`
@@ -903,6 +919,7 @@ The API surface is available under `/api/snmp`:
 - `DELETE /api/snmp/switches/{switch_id}`
 - `POST /api/snmp/switches/{switch_id}/poll`
 - `GET /api/snmp/switches/{switch_id}/interfaces`
+- `GET /api/snmp/devices/{device_id}/ports`
 - `GET /api/snmp/topology/endpoints`
 - `GET /api/snmp/devices/{device_id}/identity`
 

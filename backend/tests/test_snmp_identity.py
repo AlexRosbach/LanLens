@@ -9,7 +9,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-123
 
 from backend.database import Base
 from backend.models import Device, Setting, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
-from backend.routers.snmp import _require_snmp_enabled, delete_profile, delete_switch
+from backend.routers.snmp import _build_switch_port_visualization, _require_snmp_enabled, delete_profile, delete_switch
 from backend.services.snmp import (
     _parse_bridge_port_map,
     _parse_mac_suffix,
@@ -210,6 +210,71 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertIsNone(db.query(SnmpSwitch).filter(SnmpSwitch.id == switch.id).first())
             self.assertEqual(db.query(SnmpInterface).count(), 0)
             self.assertEqual(db.query(SnmpMacTableEntry).count(), 0)
+        finally:
+            db.close()
+
+    def test_switch_port_visualization_requires_mac_table_and_links_devices(self):
+        db = self.Session()
+        try:
+            switch_device = Device(
+                mac_address="00:aa:bb:cc:dd:ee",
+                ip_address="192.0.2.2",
+                hostname="core-switch",
+                is_registered=True,
+            )
+            client_device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+                is_registered=True,
+            )
+            db.add_all([switch_device, client_device])
+            db.commit()
+
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.2", device_id=switch_device.id)
+            db.add(switch)
+            db.commit()
+            db.refresh(switch)
+
+            db.add_all([
+                SnmpInterface(
+                    switch_id=switch.id,
+                    if_index=1,
+                    name="Gi1/0/1",
+                    oper_status="up",
+                    last_seen_at=datetime.utcnow(),
+                ),
+                SnmpInterface(
+                    switch_id=switch.id,
+                    if_index=2,
+                    name="Gi1/0/2",
+                    oper_status="down",
+                    last_seen_at=datetime.utcnow(),
+                ),
+            ])
+            db.commit()
+
+            empty_result = _build_switch_port_visualization(db, switch)
+            self.assertFalse(empty_result["has_visualization"])
+            self.assertEqual(len(empty_result["ports"]), 2)
+
+            db.add(SnmpMacTableEntry(
+                switch_id=switch.id,
+                mac_address=client_device.mac_address,
+                if_index=1,
+                vlan="20",
+                last_seen_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            result = _build_switch_port_visualization(db, switch)
+
+            self.assertTrue(result["has_visualization"])
+            self.assertEqual(len(result["ports"]), 2)
+            self.assertTrue(result["ports"][0]["is_active"])
+            self.assertFalse(result["ports"][1]["is_active"])
+            self.assertEqual(result["ports"][0]["endpoints"][0]["device_id"], client_device.id)
+            self.assertEqual(result["ports"][0]["endpoints"][0]["vlan"], "20")
         finally:
             db.close()
 

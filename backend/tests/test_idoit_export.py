@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
 from backend.models import Device, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
-from backend.services.idoit import get_config, build_export_rows, rows_to_export_csv
+from backend.services.idoit import DEFAULT_MAPPING, device_payload, get_config, build_export_rows, rows_to_export_csv
 
 
 class IdoitExportCsvTest(unittest.TestCase):
@@ -162,6 +162,31 @@ class IdoitExportCsvTest(unittest.TestCase):
             self.assertIn("Admin UI", rows[0]["tls_certificates"])
             self.assertIn("expiring_soon", rows[0]["tls_certificates"])
             self.assertIn("CN=Example CA", rows[0]["tls_certificates"])
+        finally:
+            db.close()
+
+    def test_default_idoit_payload_maps_notes_and_os_to_standard_text_fields(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+                description="Runs the workshop dashboard",
+                notes="Rack shelf 2, patch planned",
+                os_info="Ubuntu 24.04 LTS",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            payload = device_payload(device, get_config(db), db)
+            fields = payload["fields"]
+
+            self.assertEqual(fields["C__CATG__OPERATING_SYSTEM.description"], "Ubuntu 24.04 LTS")
+            self.assertIn("Runs the workshop dashboard", fields["C__CATG__GLOBAL.description"])
+            self.assertIn("Rack shelf 2, patch planned", fields["C__CATG__GLOBAL.description"])
+            self.assertEqual(DEFAULT_MAPPING["fields"]["notes"], "C__CATG__GLOBAL.description")
         finally:
             db.close()
 

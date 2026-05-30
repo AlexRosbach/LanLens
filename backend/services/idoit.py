@@ -42,7 +42,7 @@ def _safe_csv_cell(value: Any) -> Any:
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 9,
+    "version": 10,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -77,11 +77,12 @@ DEFAULT_MAPPING = {
         "asset_tag": "C__CATG__ACCOUNTING.inventory_no",
         "cmdb_id": "C__CATG__ACCOUNTING.inventory_no",
         "purpose": "C__CATG__GLOBAL.purpose",
-        "notes": "",
-        "os_info": "C__CATG__OPERATING_SYSTEM.assigned_version",
+        "description": "C__CATG__GLOBAL.description",
+        "notes": "C__CATG__GLOBAL.description",
+        "os_info": "C__CATG__OPERATING_SYSTEM.description",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
-        "serial": "",
+        "serial": "C__CATG__MODEL.serial",
         "memory": "C__CATG__MEMORY.title",
         "disks": "C__CATG__DRIVE.title",
         "open_ports": "",
@@ -275,7 +276,7 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
         fields.get(field) == "C__CATG__GLOBAL.description"
         for field in description_dump_fields
     ) and version < 4
-    global_description_dump = any(value == "C__CATG__GLOBAL.description" for value in fields.values())
+    global_description_dump = version < 10 and any(value == "C__CATG__GLOBAL.description" for value in fields.values())
     return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description or global_description_dump
 
 
@@ -1145,6 +1146,10 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "asset_tag": device.asset_tag,
         "location": device.location,
         "responsible": device.responsible,
+        "purpose": device.purpose,
+        "description": device.description,
+        "notes": device.notes,
+        "password_location": device.password_location,
         "os_info": _os_assigned_version(os_info),
         "cpu": _cpu_title(cpu_raw),
         "memory": _memory_entries(memory),

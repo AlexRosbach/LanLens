@@ -12,6 +12,8 @@ All notable changes to this project should be documented in this file.
 - Added visible passive-discovery capture and per-device mDNS/SSDP/multicast observations.
 - Added a reachable network map page with SNMP switch-port topology mappings.
 - Added SNMP switch, port and VLAN identity to device detail pages.
+- Added a device-detail SNMP switch-port visualization for switches with interface plus MAC/VLAN table data, including active/inactive port state, hover endpoint context and click-through to learned devices.
+- Expanded the default i-doit sync mapping so notes and descriptions write to the global description, operating-system text writes to the OS description, and serial numbers write to the model category.
 
 ### Fixes / Hardening
 - Enforced feature switches in the backend as well as the UI, so disabled expert modules reject API access and background jobs instead of only disappearing from navigation.

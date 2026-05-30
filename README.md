@@ -61,6 +61,10 @@ Feature switches hide optional expert modules and enforce the same state in the 
 |---|---|
 | ![LanLens CMDB and i-doit settings](docs/screenshots/lanlens-idoit-settings.png) | ![LanLens editable i-doit CSV export](docs/screenshots/lanlens-idoit-export.png) |
 
+| SNMP switch port visualization |
+|---|
+| ![LanLens SNMP switch port visualization](docs/screenshots/lanlens-snmp-switch-ports.svg) |
+
 ---
 
 ## Quick Start

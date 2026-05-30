@@ -5,6 +5,7 @@ import { Device, DeviceIpHistoryEntry, DevicePingSample, PassiveDiscoveryObserva
 import { idoitApi } from '../api/idoit'
 import type { ChangeEvent } from '../api/inventory'
 import { servicesApi } from '../api/services'
+import { SnmpSwitchPort, SnmpSwitchPortsResponse, snmpApi } from '../api/snmp'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -96,6 +97,10 @@ function DetailMetric({ label, value, tone = 'default' }: { label: string; value
   )
 }
 
+function portDisplayName(port: SnmpSwitchPort) {
+  return port.alias || port.name || port.description || `ifIndex ${port.if_index}`
+}
+
 export default function DeviceDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -109,6 +114,7 @@ export default function DeviceDetail() {
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
   const [pingHistory, setPingHistory] = useState<DevicePingSample[]>([])
   const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
+  const [switchPorts, setSwitchPorts] = useState<SnmpSwitchPortsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState | null>(null)
@@ -146,9 +152,14 @@ export default function DeviceDetail() {
       if (showPassiveDiscovery) {
         devicesApi.getPassiveDiscovery(currentDevice.id).then(setPassiveObservations).catch(() => {})
       }
+      if (advancedViewEnabled) {
+        snmpApi.getDevicePorts(currentDevice.id).then(setSwitchPorts).catch(() => setSwitchPorts(null))
+      } else {
+        setSwitchPorts(null)
+      }
       devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
-  }, [id, showPassiveDiscovery, showPingHistory])
+  }, [advancedViewEnabled, id, showPassiveDiscovery, showPingHistory])
 
   useEffect(() => {
     if (!portScanRunning || !device?.id) return
@@ -334,6 +345,7 @@ export default function DeviceDetail() {
   )
   const navSections = [
     { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
+    { id: 'device-switch-ports', label: t('device_section_switch_ports'), visible: !!switchPorts?.has_visualization },
     { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery },
     { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
     { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
@@ -353,6 +365,7 @@ export default function DeviceDetail() {
   const showSectionNav = activeFeatureCount >= 2
   const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
   const openPortCount = device.latest_scan?.open_ports.length ?? 0
+  const visibleSwitchPorts = switchPorts?.has_visualization ? switchPorts.ports : []
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -649,6 +662,65 @@ export default function DeviceDetail() {
           </div>
         )}
       </Card>
+
+      {visibleSwitchPorts.length > 0 && switchPorts?.switch && (
+        <Card id="device-switch-ports" className={sectionAnchorClass}>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-text-muted">{t('switch_port_visualization')}</h2>
+              <p className="mt-1 text-xs text-text-subtle">
+                {t('switch_port_visualization_hint', {
+                  switch: switchPorts.switch.name,
+                  count: visibleSwitchPorts.length,
+                })}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-text-subtle">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-success" />{t('active')}</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-surface2" />{t('inactive')}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-12">
+            {visibleSwitchPorts.map((port) => {
+              const linkedEndpoint = port.endpoints.find((endpoint) => endpoint.device_id)
+              const titleLines = [
+                portDisplayName(port),
+                port.oper_status ? `${t('col_status')}: ${port.oper_status}` : '',
+                port.endpoints.length > 0
+                  ? port.endpoints.map((endpoint) => {
+                    const endpointLabel = endpoint.device_label || endpoint.mac_address
+                    const vlan = endpoint.vlan ? `VLAN ${endpoint.vlan}` : ''
+                    return [endpointLabel, endpoint.mac_address, vlan].filter(Boolean).join(' · ')
+                  }).join('\n')
+                  : t('switch_port_no_endpoint'),
+              ].filter(Boolean)
+              return (
+                <button
+                  key={port.if_index}
+                  type="button"
+                  title={titleLines.join('\n')}
+                  disabled={!linkedEndpoint?.device_id}
+                  onClick={() => linkedEndpoint?.device_id && navigate(`/devices/${linkedEndpoint.device_id}`)}
+                  className={`min-h-20 rounded-lg border px-2 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                    port.is_active
+                      ? 'border-success/40 bg-success/10 hover:border-success'
+                      : 'border-border bg-surface2/40 hover:border-text-subtle'
+                  } ${linkedEndpoint?.device_id ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <span className={`mb-1 block h-2 rounded-full ${port.is_active ? 'bg-success' : 'bg-surface2'}`} />
+                  <span className="block truncate text-xs font-semibold text-text-base">{port.name || `#${port.if_index}`}</span>
+                  <span className="mt-1 block truncate text-[11px] text-text-subtle">{port.alias || port.description || `ifIndex ${port.if_index}`}</span>
+                  <span className="mt-2 block truncate text-[11px] text-text-muted">
+                    {port.endpoints.length > 0
+                      ? t('switch_port_endpoint_count', { count: port.endpoints.length })
+                      : t('switch_port_empty')}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* IP History */}
       <Card id="device-ip-history" className={sectionAnchorClass}>
