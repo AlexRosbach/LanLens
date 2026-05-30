@@ -47,6 +47,7 @@ NOTIFICATION_RETRY_BACKOFF_MINUTES = 5
 NOTIFICATION_RETRY_SETTING = "notification_delivery_last_failure_at"
 PING_SAMPLE_RETENTION_PER_DEVICE = 500
 PING_LATENCY_SAMPLE_LIMIT = 256
+PING_MONITOR_SAMPLE_LIMIT = 512
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -246,6 +247,49 @@ async def _measure_scan_latencies(results: List[DiscoveryResult]) -> Dict[str, O
     for ip, value in zip(unique_ips, values):
         latencies[ip] = value if isinstance(value, (int, float)) else None
     return latencies
+
+
+async def monitor_known_device_pings(source: str = "monitor") -> int:
+    """Record reachability samples for known devices, independent of discovery."""
+    db = SessionLocal()
+    try:
+        devices = (
+            db.query(Device)
+            .filter(Device.ip_address.isnot(None), Device.ignored == False)
+            .order_by(Device.id.asc())
+            .limit(PING_MONITOR_SAMPLE_LIMIT)
+            .all()
+        )
+        if not devices:
+            return 0
+
+        checked_at = datetime.utcnow()
+        loop = asyncio.get_event_loop()
+        tasks = [loop.run_in_executor(None, _ping_host, device.ip_address, 1) for device in devices]
+        values = await asyncio.gather(*tasks, return_exceptions=True)
+
+        recorded = 0
+        for device, value in zip(devices, values):
+            latency = value if isinstance(value, (int, float)) else None
+            success = latency is not None
+            previous_online = device.is_online
+            device.is_online = success
+            if success:
+                device.last_seen = checked_at
+                record_device_ip_history(db, device, device.ip_address, checked_at)
+            if previous_online != success:
+                _record_change(db, device.id, "online_state_changed", "is_online", previous_online, success, source)
+            record_ping_sample(db, device.id, success, latency, source, checked_at)
+            recorded += 1
+
+        db.commit()
+        return recorded
+    except Exception:
+        db.rollback()
+        logger.exception("Ping monitor failed")
+        return 0
+    finally:
+        db.close()
 
 
 def _detect_host_network() -> Optional[ipaddress.IPv4Network]:

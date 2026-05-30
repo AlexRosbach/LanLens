@@ -10,6 +10,8 @@ export interface AllSettings {
   passive_discovery_background_enabled: boolean
   passive_discovery_interval_minutes: number
   passive_discovery_capture_seconds: number
+  ping_monitor_enabled: boolean
+  ping_monitor_interval_minutes: number
   port_scan_range: string
   telegram_bot_token: string
   telegram_chat_id: string
@@ -79,6 +81,11 @@ export const settingsApi = {
     passive_discovery_interval_minutes: number
     passive_discovery_capture_seconds: number
   }) => apiClient.put('/settings/passive-discovery', data).then((r) => r.data),
+
+  updatePingMonitor: (data: {
+    ping_monitor_enabled: boolean
+    ping_monitor_interval_minutes: number
+  }) => apiClient.put('/settings/ping-monitor', data).then((r) => r.data),
 
   updateTelegram: (data: {
     telegram_bot_token: string

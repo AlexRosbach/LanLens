@@ -719,6 +719,21 @@ export default function Settings() {
     }
   }
 
+  async function savePingMonitorSchedule() {
+    setSaving(true)
+    try {
+      await settingsApi.updatePingMonitor({
+        ping_monitor_enabled: current.ping_monitor_enabled,
+        ping_monitor_interval_minutes: current.ping_monitor_interval_minutes,
+      })
+      toast.success(t('ping_monitor_saved'))
+    } catch {
+      toast.error(t('ping_monitor_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function savePortScanSettings() {
     setSaving(true)
     try {
@@ -1527,6 +1542,10 @@ export default function Settings() {
           {t('network_discovery')}
         </h2>
         <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_ranges')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_ranges_hint')}</p>
+          </div>
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-2">{t('dhcp_range_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
@@ -1576,6 +1595,50 @@ export default function Settings() {
               <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_monitoring')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_monitoring_hint')}</p>
+          </div>
+
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('ping_monitor_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('ping_monitor_description')}</p>
+              </div>
+              <label className="flex items-start gap-3 rounded-lg border border-border bg-surface2/35 p-3">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={current.ping_monitor_enabled}
+                  onChange={(e) => setSettings({ ...current, ping_monitor_enabled: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-text-base">{t('ping_monitor_background')}</span>
+                  <span className="block text-xs text-text-subtle">{t('ping_monitor_background_hint')}</span>
+                </span>
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('ping_monitor_interval')}</label>
+                  <Input
+                    type="number"
+                    value={String(current.ping_monitor_interval_minutes)}
+                    onChange={(e) => setSettings({ ...current, ping_monitor_interval_minutes: Number(e.target.value) || 5 })}
+                  />
+                </div>
+              </div>
+              <div>
+                <Button onClick={savePingMonitorSchedule} loading={saving}>{t('ping_monitor_save')}</Button>
+              </div>
+            </div>
+          </Card>
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_multicast')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_multicast_hint')}</p>
+          </div>
 
           {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
           <Card>
@@ -1657,6 +1720,11 @@ export default function Settings() {
             </div>
           </Card>
           )}
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_remote')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_remote_hint')}</p>
+          </div>
 
           {current.advanced_view_enabled && (
           <Card>
@@ -1888,6 +1956,11 @@ export default function Settings() {
             </div>
           </Card>
           )}
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_scan_cadence')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_scan_cadence_hint')}</p>
+          </div>
 
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">{t('scan_schedule_title')}</h2>
