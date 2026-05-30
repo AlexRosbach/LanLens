@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PortScan, Segment, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PortScan, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIpHistoryResponse,
     DevicePingSampleResponse,
@@ -36,6 +36,7 @@ from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
 from ..services.settings_helpers import is_advanced_feature_enabled
+from .services import _apply_tls_result, _inspect_tls_certificate
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -51,6 +52,55 @@ def _parse_ports(raw: str) -> List[PortInfo]:
         return [PortInfo(**p) for p in json.loads(raw or "[]")]
     except Exception:
         return []
+
+
+def _port_list_has_https(open_ports: list[dict]) -> bool:
+    return any(int(port.get("port") or 0) == 443 for port in open_ports)
+
+
+def _ensure_https_service(db: Session, device: Device) -> Service:
+    service = (
+        db.query(Service)
+        .filter(Service.device_id == device.id, Service.port == 443)
+        .order_by(Service.id.asc())
+        .first()
+    )
+    if service:
+        if not service.protocol:
+            service.protocol = "https"
+        if not service.name:
+            service.name = "HTTPS"
+        return service
+
+    service = Service(
+        device_id=device.id,
+        name="HTTPS",
+        protocol="https",
+        port=443,
+        url=f"https://{device.ip_address}" if device.ip_address else None,
+    )
+    db.add(service)
+    db.flush()
+    return service
+
+
+def _auto_check_https_certificate(db: Session, device_id: int, open_ports: list[dict]) -> None:
+    if not _port_list_has_https(open_ports):
+        return
+    if not is_advanced_feature_enabled(db, "show_tls_checks"):
+        return
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device or not device.ip_address:
+        return
+
+    service = _ensure_https_service(db, device)
+    try:
+        result = _inspect_tls_certificate(device.ip_address, 443, device.hostname or device.ip_address)
+    except Exception as exc:
+        logger.warning("Automatic TLS check failed for device %s: %s", device_id, exc)
+        return
+    _apply_tls_result(service, result)
 
 
 def _get_dhcp_range(db: Session):
@@ -967,6 +1017,7 @@ async def _do_port_scan(device_id: int, ip: str, port_spec: str = "top:1000") ->
             https_available=result["https_available"],
         )
         db.add(scan)
+        _auto_check_https_certificate(db, device_id, result["open_ports"])
         db.commit()
     finally:
         db.close()
@@ -1079,6 +1130,7 @@ async def _do_single_port_scan(device_id: int, ip: str, port: int) -> None:
             )
             db.add(existing)
 
+        _auto_check_https_certificate(db, device_id, result["open_ports"])
         db.commit()
     finally:
         db.close()
