@@ -80,6 +80,22 @@ function InfoRow({ label, value, mono = false }: { label: string; value?: string
   )
 }
 
+function DetailMetric({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'success' | 'danger' | 'primary' }) {
+  const toneClass = {
+    default: 'text-text-base',
+    success: 'text-success',
+    danger: 'text-danger',
+    primary: 'text-primary',
+  }[tone]
+
+  return (
+    <div className="rounded-lg border border-border bg-surface2/45 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-text-subtle">{label}</p>
+      <p className={`mt-1 truncate text-sm font-semibold ${toneClass}`}>{value}</p>
+    </div>
+  )
+}
+
 export default function DeviceDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -305,54 +321,79 @@ export default function DeviceDetail() {
   ].filter(Boolean).length
   const showSectionNav = activeFeatureCount >= 2
   const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
+  const openPortCount = device.latest_scan?.open_ports.length ?? 0
+
   return (
-    <div className="max-w-3xl mx-auto flex flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button onClick={() => navigate('/')} className="text-text-subtle hover:text-text-base transition-colors flex-shrink-0">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div className="w-10 h-10 rounded-xl bg-surface2 border border-border flex items-center justify-center flex-shrink-0">
-            <DeviceClassIcon deviceClass={device.device_class} className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-bold text-text-base">{formatDeviceLabel(device, t('ip_only_host'))}</h1>
-              {device.is_dhcp && (
-                <span className="text-xs bg-primary-dim text-primary border border-primary/20 px-1.5 py-0.5 rounded-full">
-                  {t('badge_dhcp')}
-                </span>
-              )}
-              {device.segment_name && (
-                <span
-                  className="text-xs px-1.5 py-0.5 rounded-full font-medium"
-                  style={{
-                    backgroundColor: (device.segment_color ?? '#6366f1') + '22',
-                    color: device.segment_color ?? '#6366f1',
-                    border: `1px solid ${(device.segment_color ?? '#6366f1')}44`,
-                  }}
-                >
-                  {device.segment_name}
-                </span>
-              )}
+      <Card className="p-0 overflow-hidden">
+        <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="flex min-w-0 flex-col gap-5 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-4">
+                <button onClick={() => navigate('/')} className="mt-3 text-text-subtle hover:text-text-base transition-colors flex-shrink-0">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-surface2">
+                  <DeviceClassIcon deviceClass={device.device_class} className="w-7 h-7" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="break-words text-2xl font-bold text-text-base">{formatDeviceLabel(device, t('ip_only_host'))}</h1>
+                    {device.is_dhcp && (
+                      <span className="text-xs bg-primary-dim text-primary border border-primary/20 px-1.5 py-0.5 rounded-full">
+                        {t('badge_dhcp')}
+                      </span>
+                    )}
+                    {device.segment_name && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                        style={{
+                          backgroundColor: (device.segment_color ?? '#6366f1') + '22',
+                          color: device.segment_color ?? '#6366f1',
+                          border: `1px solid ${(device.segment_color ?? '#6366f1')}44`,
+                        }}
+                      >
+                        {device.segment_name}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm text-text-muted">{device.device_class} · {device.vendor ?? t('vendor_unknown')}</p>
+                </div>
+              </div>
+              <div className="flex flex-shrink-0 flex-col items-end gap-2">
+                <Badge variant={device.is_online ? 'success' : 'danger'} dot>
+                  {device.is_online ? t('badge_online') : t('badge_offline')}
+                </Badge>
+                {!device.is_online && (
+                  <Button variant="ghost" size="sm" loading={refreshStatusLoading} onClick={handleRefreshStatus}>
+                    {t('refresh_status')}
+                  </Button>
+                )}
+              </div>
             </div>
-            <p className="text-sm text-text-muted">{device.device_class} · {device.vendor ?? t('vendor_unknown')}</p>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <DetailMetric label={t('ip_address')} value={device.ip_address || t('no_ip')} tone="primary" />
+              <DetailMetric label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} />
+              <DetailMetric label={t('last_seen')} value={formatRelativeTime(device.last_seen, lang)} tone={device.is_online ? 'success' : 'danger'} />
+              <DetailMetric label={t('open_ports')} value={openPortCount} tone={openPortCount > 0 ? 'primary' : 'default'} />
+            </div>
+          </div>
+          <div className="border-t border-border bg-surface2/25 p-5 lg:border-l lg:border-t-0">
+            <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
+            <ConnectButtons device={device} />
+            <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm">
+              <InfoRow label={t('hostname')} value={device.hostname} mono />
+              <InfoRow label={t('vendor')} value={device.vendor} />
+              <InfoRow label={t('first_seen')} value={formatDateTime(device.first_seen)} />
+              <InfoRow label={t('last_seen')} value={formatDateTime(device.last_seen)} />
+            </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <Badge variant={device.is_online ? 'success' : 'danger'} dot>
-            {device.is_online ? t('badge_online') : t('badge_offline')}
-          </Badge>
-          {!device.is_online && (
-            <Button variant="ghost" size="sm" loading={refreshStatusLoading} onClick={handleRefreshStatus}>
-              {t('refresh_status')}
-            </Button>
-          )}
-        </div>
-      </div>
+      </Card>
 
       {showSectionNav && (
         <div className="sticky top-0 z-10 -mx-1 overflow-x-auto border-b border-border bg-background/95 px-1 py-2 backdrop-blur">
@@ -370,12 +411,6 @@ export default function DeviceDetail() {
           </div>
         </div>
       )}
-
-      {/* Connect */}
-      <Card>
-        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
-        <ConnectButtons device={device} />
-      </Card>
 
       {/* Identity & Documentation */}
       <Card id="device-documentation" className={sectionAnchorClass}>
