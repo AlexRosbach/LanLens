@@ -22,11 +22,17 @@ from ..services.cmdb import (
     validate_mapping,
 )
 from ..services.notification import validate_webhook_url
+from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/cmdb", tags=["cmdb"])
 
 TOKEN_MASK = "••••••••"
 URL_SECRET_QUERY_PARTS = ("token", "password", "secret", "api_key", "apikey", "key", "credential")
+
+
+def _require_cmdb_enabled(db: Session) -> None:
+    if not is_advanced_feature_enabled(db, "show_cmdb_integrations"):
+        raise HTTPException(status_code=403, detail="CMDB integrations are disabled")
 
 
 def _to_naive_utc(value: datetime) -> datetime:
@@ -120,11 +126,13 @@ def _config_response(db: Session) -> dict[str, Any]:
 
 @router.get("/config")
 def read_config(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     return _config_response(db)
 
 
 @router.put("/config")
 async def save_config(payload: CmdbConfigPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     data = payload.model_dump(exclude_unset=True)
     for key in ("cmdb_rest_target_url", "cmdb_rest_import_url"):
         url = (data.get(key) or "").strip()
@@ -139,6 +147,7 @@ async def save_config(payload: CmdbConfigPayload, db: Session = Depends(get_db),
 
 @router.post("/test-connection")
 async def test_rest_connection(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     cfg = get_config(db)
     url = cfg.target_url or cfg.import_url
     if url:
@@ -150,6 +159,7 @@ async def test_rest_connection(db: Session = Depends(get_db), _: User = Depends(
 
 @router.post("/test-mapping")
 def test_mapping(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     cfg = get_config(db)
     fields = cfg.mapping.get("fields") if isinstance(cfg.mapping, dict) else {}
     fields = fields if isinstance(fields, dict) else {}
@@ -174,6 +184,7 @@ def export_devices(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_cmdb_enabled(db)
     query = db.query(Device).options(joinedload(Device.segment))
     if changed_since:
         changed_since_utc = _to_naive_utc(changed_since)
@@ -207,6 +218,7 @@ def export_devices(
 
 @router.post("/devices/{device_id}/dry-run")
 def dry_run_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     device = db.query(Device).options(joinedload(Device.segment)).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -222,6 +234,7 @@ def dry_run_device(device_id: int, db: Session = Depends(get_db), _: User = Depe
 
 @router.post("/devices/{device_id}/push")
 async def push_rest_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     device = db.query(Device).options(joinedload(Device.segment)).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -235,6 +248,7 @@ async def push_rest_device(device_id: int, db: Session = Depends(get_db), _: Use
 
 @router.post("/import/preview")
 async def preview_import(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     cfg = get_config(db)
     url = cfg.import_url or cfg.target_url
     if url:
@@ -249,6 +263,7 @@ async def preview_import(limit: int = Query(20, ge=1, le=100), db: Session = Dep
 
 @router.get("/logs")
 def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_cmdb_enabled(db)
     rows = (
         db.query(CmdbSyncLog, Device)
         .outerjoin(Device, CmdbSyncLog.device_id == Device.id)

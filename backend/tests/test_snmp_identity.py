@@ -8,8 +8,8 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
-from backend.routers.snmp import delete_profile, delete_switch
+from backend.models import Device, Setting, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from backend.routers.snmp import _require_snmp_enabled, delete_profile, delete_switch
 from backend.services.snmp import (
     _parse_bridge_port_map,
     _parse_mac_suffix,
@@ -29,6 +29,10 @@ class SnmpIdentityTests(unittest.TestCase):
 
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
+
+    def _enable_advanced_view(self, db):
+        db.add(Setting(key="advanced_view_enabled", value="true"))
+        db.commit()
 
     def test_parses_snmp_mac_suffix(self):
         self.assertEqual(_parse_mac_suffix("0.17.34.51.68.85"), "00:11:22:33:44:55")
@@ -160,6 +164,7 @@ class SnmpIdentityTests(unittest.TestCase):
     def test_delete_profile_detaches_assigned_switches(self):
         db = self.Session()
         try:
+            self._enable_advanced_view(db)
             profile = SnmpProfile(name="default", version="2c", community="public")
             switch = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile)
             db.add_all([profile, switch])
@@ -179,6 +184,7 @@ class SnmpIdentityTests(unittest.TestCase):
     def test_delete_switch_removes_learned_snmp_data(self):
         db = self.Session()
         try:
+            self._enable_advanced_view(db)
             switch = SnmpSwitch(name="core-switch", host="192.0.2.1")
             db.add(switch)
             db.commit()
@@ -204,6 +210,19 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertIsNone(db.query(SnmpSwitch).filter(SnmpSwitch.id == switch.id).first())
             self.assertEqual(db.query(SnmpInterface).count(), 0)
             self.assertEqual(db.query(SnmpMacTableEntry).count(), 0)
+        finally:
+            db.close()
+
+    def test_snmp_router_requires_advanced_view(self):
+        db = self.Session()
+        try:
+            with self.assertRaises(Exception) as ctx:
+                _require_snmp_enabled(db)
+
+            self.assertEqual(ctx.exception.status_code, 403)
+
+            self._enable_advanced_view(db)
+            _require_snmp_enabled(db)
         finally:
             db.close()
 

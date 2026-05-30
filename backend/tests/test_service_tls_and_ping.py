@@ -14,7 +14,8 @@ from backend.models import Device, DevicePingSample, Service, Setting
 from backend.routers.devices import _auto_check_https_certificate
 from backend.routers.services import _normalize_tls_expiry, _resolve_safe_tls_addresses, _service_tls_target
 from backend.services.scanner import PING_SAMPLE_RETENTION_PER_DEVICE, record_ping_sample
-from backend.services.settings_helpers import is_advanced_feature_enabled
+from backend.services.scheduler import get_ping_monitor_schedule
+from backend.services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
 
 
 class ServiceTlsAndPingTests(unittest.TestCase):
@@ -85,6 +86,26 @@ class ServiceTlsAndPingTests(unittest.TestCase):
             db.query(Setting).filter(Setting.key == "advanced_view_enabled").one().value = "false"
             db.commit()
             self.assertFalse(is_advanced_feature_enabled(db, "show_tls_checks"))
+            self.assertFalse(is_advanced_view_enabled(db))
+        finally:
+            db.close()
+
+    def test_ping_monitor_requires_history_feature_visibility(self):
+        db = self.Session()
+        try:
+            db.add_all([
+                Setting(key="ping_monitor_enabled", value="true"),
+                Setting(key="ping_monitor_interval_minutes", value="5"),
+                Setting(key="advanced_view_enabled", value="true"),
+                Setting(key="show_ping_history", value="false"),
+            ])
+            db.commit()
+
+            self.assertFalse(get_ping_monitor_schedule(db)["enabled"])
+
+            db.query(Setting).filter(Setting.key == "show_ping_history").one().value = "true"
+            db.commit()
+            self.assertTrue(get_ping_monitor_schedule(db)["enabled"])
         finally:
             db.close()
 
@@ -153,7 +174,7 @@ class ServiceTlsAndPingTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_https_port_scan_checks_tls_independent_of_feature_visibility(self):
+    def test_https_port_scan_skips_tls_when_feature_is_disabled(self):
         db = self.Session()
         try:
             device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10", hostname="server.local")
@@ -174,15 +195,18 @@ class ServiceTlsAndPingTests(unittest.TestCase):
                 _auto_check_https_certificate(db, device.id, [{"port": 443, "protocol": "tcp", "service": "https"}])
                 db.commit()
 
-            service = db.query(Service).filter(Service.device_id == device.id, Service.port == 443).one()
-            self.assertEqual(service.tls_status, "valid")
-            inspect.assert_called_once_with("192.0.2.10", 443, "server.local")
+            self.assertEqual(db.query(Service).filter(Service.device_id == device.id, Service.port == 443).count(), 0)
+            inspect.assert_not_called()
         finally:
             db.close()
 
     def test_https_alt_port_scan_creates_port_specific_tls_service(self):
         db = self.Session()
         try:
+            db.add_all([
+                Setting(key="advanced_view_enabled", value="true"),
+                Setting(key="show_tls_checks", value="true"),
+            ])
             device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10", hostname="server.local")
             db.add(device)
             db.commit()

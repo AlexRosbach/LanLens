@@ -14,6 +14,7 @@ All notable changes to this project should be documented in this file.
 - Added SNMP switch, port and VLAN identity to device detail pages.
 
 ### Fixes / Hardening
+- Enforced feature switches in the backend as well as the UI, so disabled expert modules reject API access and background jobs instead of only disappearing from navigation.
 - Bounded passive discovery service identifiers before persistence so long SSDP/UPnP locations cannot exceed database column limits.
 - Fixed mDNS DNS-section parsing for Scapy packet-list sections so service names and service types are extracted correctly.
 - Added focused parser coverage for mDNS packets, UPnP/SSDP M-SEARCH payloads and UPnP/SSDP response packets.

@@ -37,7 +37,7 @@ from ..services.idoit import build_object_url, get_config as get_idoit_config
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
-from ..services.settings_helpers import is_advanced_feature_enabled
+from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
 from ..services.passive_discovery import observation_to_response
 from ..services.snmp import identity_for_device
 from .services import _apply_tls_result, _inspect_tls_certificate
@@ -105,6 +105,9 @@ def _ensure_https_service(db: Session, device: Device, port: int) -> Service:
 
 
 def _auto_check_https_certificate(db: Session, device_id: int, open_ports: list[dict]) -> None:
+    if not is_advanced_feature_enabled(db, "show_tls_checks"):
+        return
+
     https_entries = _https_port_entries(open_ports)
     if not https_entries:
         return
@@ -292,7 +295,7 @@ def _device_to_response(
         idoit_enabled = cfg.enabled
     idoit_object_id = device.idoit_sync.idoit_object_id if device.idoit_sync else None
 
-    snmp_identity = identity_for_device(db, device) if db is not None else None
+    snmp_identity = identity_for_device(db, device) if db is not None and is_advanced_view_enabled(db) else None
 
     return DeviceResponse(
         id=device.id,
@@ -1015,6 +1018,9 @@ def regenerate_cmdb_id(
     current_user: User = Depends(get_current_user),
 ):
     """Generate or regenerate a CMDB ID for this device."""
+    if not is_advanced_feature_enabled(db, "show_cmdb_integrations"):
+        raise HTTPException(status_code=403, detail="CMDB integrations are disabled")
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")

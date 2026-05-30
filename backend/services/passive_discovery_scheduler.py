@@ -87,11 +87,12 @@ def update_passive_discovery_schedule() -> None:
     db = SessionLocal()
     try:
         schedule = get_passive_discovery_schedule(db)
+        protocols = _enabled_protocols(db) if schedule["enabled"] else set()
     finally:
         db.close()
 
     interval = int(schedule["interval_minutes"])
-    if not schedule["enabled"]:
+    if not schedule["enabled"] or not protocols:
         if _scheduler.get_job(_job_id):
             _scheduler.remove_job(_job_id)
             logger.info("Passive discovery background capture disabled")

@@ -20,6 +20,7 @@ from ..services.passive_discovery import (
     try_begin_capture,
 )
 from ..services.plugin_registry import get_plugin, list_plugins
+from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 passive_router = APIRouter(prefix="/api/passive-discovery", tags=["passive-discovery"])
@@ -33,8 +34,19 @@ def _set(db: Session, key: str, value: str) -> None:
         db.add(Setting(key=key, value=value))
 
 
+def _require_plugin_api_enabled(db: Session) -> None:
+    if not is_advanced_feature_enabled(db, "show_plugin_api"):
+        raise HTTPException(status_code=403, detail="Plugin API is disabled")
+
+
+def _require_passive_discovery_enabled(db: Session) -> None:
+    if not is_advanced_feature_enabled(db, "show_passive_discovery"):
+        raise HTTPException(status_code=403, detail="Passive discovery is disabled")
+
+
 @router.get("", response_model=list[PluginManifestResponse])
 def get_plugins(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_plugin_api_enabled(db)
     return list_plugins(db)
 
 
@@ -45,6 +57,7 @@ def set_plugin_enabled(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_plugin_api_enabled(db)
     plugin = get_plugin(plugin_key)
     if not plugin:
         raise HTTPException(status_code=404, detail="Unknown plugin")
@@ -60,6 +73,7 @@ def list_passive_observations(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_passive_discovery_enabled(db)
     query = db.query(PassiveDiscoveryObservation)
     if protocol:
         query = query.filter(PassiveDiscoveryObservation.protocol == protocol)
@@ -73,6 +87,7 @@ def start_passive_capture(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_passive_discovery_enabled(db)
     plugins = {plugin["key"]: plugin for plugin in list_plugins(db)}
     if not plugins.get("passive-discovery", {}).get("enabled"):
         raise HTTPException(status_code=403, detail="Passive discovery is disabled")
@@ -96,5 +111,6 @@ def start_passive_capture(
 
 
 @passive_router.get("/status", response_model=PassiveDiscoveryStatusResponse)
-def get_passive_status(_: User = Depends(get_current_user)):
+def get_passive_status(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_passive_discovery_enabled(db)
     return PassiveDiscoveryStatusResponse(is_capturing=is_capture_running())

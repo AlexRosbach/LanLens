@@ -55,6 +55,8 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 |---|
 | ![LanLens feature visibility settings](docs/screenshots/lanlens-settings-features.png) |
 
+Feature switches hide optional expert modules and enforce the same state in the backend, including related authenticated APIs and background jobs.
+
 | CMDB / i-doit settings | Editable i-doit CSV export |
 |---|---|
 | ![LanLens CMDB and i-doit settings](docs/screenshots/lanlens-idoit-settings.png) | ![LanLens editable i-doit CSV export](docs/screenshots/lanlens-idoit-export.png) |

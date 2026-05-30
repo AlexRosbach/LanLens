@@ -386,6 +386,8 @@ def update_ui_settings(
     _set(db, "show_ping_history", "true" if data.show_ping_history else "false")
     _set(db, "show_build_info", "true" if data.show_build_info else "false")
     db.commit()
+    update_passive_discovery_schedule()
+    update_ping_monitor_schedule()
     return MessageResponse(message="UI settings updated")
 
 

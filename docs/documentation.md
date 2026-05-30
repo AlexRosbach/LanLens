@@ -520,7 +520,7 @@ External reverse proxies remain the better central TLS option when the deploymen
 
 ### Advanced View
 
-The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor and internal build metadata visibility. When disabled, LanLens hides the related UI surfaces but keeps the stored settings intact.
+The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
 
 ### Capabilities
 
@@ -890,6 +890,8 @@ LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiqu
 - detected vendor context from `sysObjectID` and `sysDescr`
 
 Routers and firewalls may expose IF-MIB without a switch MAC table. In that case LanLens keeps the interface inventory, returns a completed poll, and records a clear warning instead of turning the whole poll into a generic failure.
+
+SNMP data is most useful when the router or switch exposes bridge forwarding tables. For a UniFi router, expect the first poll to show system identity, vendor detection and interface inventory. If the UniFi device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the router and interfaces, but endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
 
 The API surface is available under `/api/snmp`:
 

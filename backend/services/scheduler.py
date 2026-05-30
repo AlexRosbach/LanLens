@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from ..database import SessionLocal
-from .settings_helpers import get_setting_value
+from .settings_helpers import get_setting_value, is_advanced_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,10 @@ def _int_setting(raw_value: str | None, default: int, minimum: int, maximum: int
 
 def get_ping_monitor_schedule(db) -> dict[str, int | bool]:
     return {
-        "enabled": get_setting_value(db, "ping_monitor_enabled", "false") == "true",
+        "enabled": (
+            get_setting_value(db, "ping_monitor_enabled", "false") == "true"
+            and is_advanced_feature_enabled(db, "show_ping_history")
+        ),
         "interval_minutes": _int_setting(
             get_setting_value(db, "ping_monitor_interval_minutes", str(DEFAULT_PING_MONITOR_INTERVAL_MINUTES)),
             DEFAULT_PING_MONITOR_INTERVAL_MINUTES,

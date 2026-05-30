@@ -24,8 +24,14 @@ from ..services.idoit import (
 )
 from ..services.notification import validate_webhook_url
 from ..services.idoit_scheduler import get_idoit_scheduler_status, update_idoit_interval
+from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/idoit", tags=["idoit"])
+
+
+def _require_idoit_enabled(db: Session) -> None:
+    if not is_advanced_feature_enabled(db, "show_cmdb_integrations"):
+        raise HTTPException(status_code=403, detail="i-doit integrations are disabled")
 
 
 def _device_display_name(device: Optional[Device], fallback_id: Optional[int]) -> str:
@@ -156,11 +162,13 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
 
 @router.get("/config")
 def read_config(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     return _config_response(db)
 
 
 @router.put("/config")
 async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     data = payload.model_dump(exclude_unset=True)
     if "idoit_api_key" in data and data["idoit_api_key"] == "••••••••":
         data.pop("idoit_api_key")
@@ -194,6 +202,7 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
 
 @router.post("/test-connection")
 async def test_connection(payload: Optional[IdoitConfigPayload] = None, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     cfg = get_config(db)
     if payload:
         data = payload.model_dump(exclude_unset=True)
@@ -218,6 +227,7 @@ async def test_connection(payload: Optional[IdoitConfigPayload] = None, db: Sess
 
 @router.post("/test-mapping")
 def test_mapping(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     cfg = get_config(db)
     errors = validate_mapping(cfg.mapping, cfg.sync_status_field, cfg.default_object_type, cfg.mapping_error)
     mapping = cfg.mapping if isinstance(cfg.mapping, dict) else {}
@@ -241,6 +251,7 @@ def preview_export(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_idoit_enabled(db)
     query = db.query(Device).options(
         joinedload(Device.segment),
         joinedload(Device.idoit_sync),
@@ -260,7 +271,8 @@ def preview_export(
 
 
 @router.post("/export/csv")
-def export_csv(payload: IdoitExportPayload, _: User = Depends(get_current_user)):
+def export_csv(payload: IdoitExportPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     csv_body = rows_to_export_csv([row.model_dump() for row in payload.rows])
     return Response(
         csv_body,
@@ -271,6 +283,7 @@ def export_csv(payload: IdoitExportPayload, _: User = Depends(get_current_user))
 
 @router.post("/devices/{device_id}/dry-run")
 def dry_run_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -279,6 +292,7 @@ def dry_run_device(device_id: int, db: Session = Depends(get_db), _: User = Depe
 
 @router.post("/devices/{device_id}/sync")
 async def sync_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -292,6 +306,7 @@ async def sync_device(device_id: int, db: Session = Depends(get_db), _: User = D
 
 @router.post("/sync-all")
 async def sync_all_devices(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     result = await sync_all_registered_devices_to_idoit(db, mode="manual", skip_unchanged=False)
     if result["total"] > 0 and result["success"] == 0 and result["failure"] > 0:
         first_error = next((entry.get("error") for entry in result["results"] if isinstance(entry, dict) and entry.get("error")), None)
@@ -301,6 +316,7 @@ async def sync_all_devices(db: Session = Depends(get_db), _: User = Depends(get_
 
 @router.post("/devices/enable-sync-all")
 def enable_sync_for_all_registered_devices(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     query = db.query(Device).filter(Device.is_registered == True)  # noqa: E712
     total = query.count()
     updated = query.filter(Device.idoit_sync_enabled == False).update(  # noqa: E712
@@ -313,6 +329,7 @@ def enable_sync_for_all_registered_devices(db: Session = Depends(get_db), _: Use
 
 @router.get("/logs")
 def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
     rows = (
         db.query(IdoitSyncLog, Device)
         .outerjoin(Device, IdoitSyncLog.device_id == Device.id)
