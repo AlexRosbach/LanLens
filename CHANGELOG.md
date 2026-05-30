@@ -2,6 +2,20 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.4 — Plugin discovery foundation
+
+### New Features
+- Added an optional plugin registry foundation for advanced LanLens modules.
+- Added opt-in settings for plugin API visibility, passive discovery, mDNS analysis and SSDP/UPnP discovery.
+- Added backend plugin status endpoints that report available plugin modules and enabled discovery protocols.
+- Added passive multicast discovery storage for observed protocol metadata.
+
+### Fixes / Hardening
+- Bounded passive discovery service identifiers before persistence so long SSDP/UPnP locations cannot exceed database column limits.
+- Fixed mDNS DNS-section parsing for Scapy packet-list sections so service names and service types are extracted correctly.
+- Added focused parser coverage for mDNS packets, UPnP/SSDP M-SEARCH payloads and UPnP/SSDP response packets.
+- Bumped backend, frontend and image metadata to 1.5.4.
+
 ## v1.5.3 — Language persistence, TLS checks and ping history
 
 ### New Features

@@ -32,7 +32,7 @@ ARG LANLENS_BUILD_CREATED=unknown
 
 LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version="1.5.3" \
+      org.opencontainers.image.version="1.5.4" \
       org.opencontainers.image.revision=$LANLENS_BUILD_COMMIT \
       org.opencontainers.image.created=$LANLENS_BUILD_CREATED \
       org.opencontainers.image.licenses="MIT" \
