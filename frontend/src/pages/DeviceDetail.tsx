@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, DeviceIpHistoryEntry, DevicePingSample, PassiveDiscoveryObservation, devicesApi } from '../api/devices'
@@ -122,6 +122,7 @@ export default function DeviceDetail() {
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
   const [idoitSyncing, setIdoitSyncing] = useState(false)
   const [tlsCheckingIds, setTlsCheckingIds] = useState<number[]>([])
+  const sectionNavRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -298,6 +299,26 @@ export default function DeviceDetail() {
     }
   }
 
+  function scrollToDeviceSection(sectionId: string) {
+    const target = document.getElementById(sectionId)
+    if (!target) return
+
+    const scroller = target.closest('main')
+    const navHeight = sectionNavRef.current?.getBoundingClientRect().height ?? 0
+    const gap = 18
+
+    if (scroller) {
+      const scrollerRect = scroller.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      const nextTop = scroller.scrollTop + targetRect.top - scrollerRect.top - navHeight - gap
+      scroller.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
+      return
+    }
+
+    const targetTop = window.scrollY + target.getBoundingClientRect().top - navHeight - gap
+    window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+  }
+
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
@@ -313,7 +334,7 @@ export default function DeviceDetail() {
   )
   const navSections = [
     { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
-    { id: 'device-passive-discovery', label: 'Discovery', visible: showPassiveDiscovery },
+    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery },
     { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
     { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
     { id: 'device-tls', label: t('device_section_tls'), visible: showTlsChecks },
@@ -406,14 +427,17 @@ export default function DeviceDetail() {
       </Card>
 
       {showSectionNav && (
-        <div className="sticky top-0 z-10 -mx-1 overflow-x-auto border-b border-border bg-background/95 px-1 py-2 backdrop-blur">
-          <div className="flex gap-2">
+        <div
+          ref={sectionNavRef}
+          className="sticky top-0 z-20 -mx-1 rounded-xl border border-border bg-background/95 p-1.5 shadow-lg shadow-black/10 backdrop-blur"
+        >
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {navSections.map((section) => (
               <button
                 key={section.id}
                 type="button"
-                onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                className="shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-primary hover:text-primary"
+                onClick={() => scrollToDeviceSection(section.id)}
+                className="min-h-8 shrink-0 whitespace-nowrap rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium leading-5 text-text-muted transition-colors hover:border-primary hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 {section.label}
               </button>

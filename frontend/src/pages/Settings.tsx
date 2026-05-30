@@ -703,6 +703,22 @@ export default function Settings() {
     }
   }
 
+  async function savePassiveDiscoverySchedule() {
+    setSaving(true)
+    try {
+      await settingsApi.updatePassiveDiscovery({
+        passive_discovery_background_enabled: current.passive_discovery_background_enabled,
+        passive_discovery_interval_minutes: current.passive_discovery_interval_minutes,
+        passive_discovery_capture_seconds: current.passive_discovery_capture_seconds,
+      })
+      toast.success(t('multicast_discovery_saved'))
+    } catch {
+      toast.error(t('multicast_discovery_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function savePortScanSettings() {
     setSaving(true)
     try {
@@ -1562,6 +1578,66 @@ export default function Settings() {
           </Card>
 
           {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-text-base">{t('multicast_discovery_capture')}</h2>
+                  <p className="text-sm text-text-subtle">
+                    {t('multicast_discovery_capture_hint')}
+                  </p>
+                </div>
+                <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
+                  {t('multicast_discovery_capture_30s')}
+                </Button>
+              </div>
+              <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={current.passive_discovery_background_enabled}
+                    onChange={(e) => setSettings({ ...current, passive_discovery_background_enabled: e.target.checked })}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-text-base">{t('multicast_discovery_background')}</span>
+                    <span className="block text-xs text-text-subtle">
+                      {t('multicast_discovery_background_hint')}
+                    </span>
+                  </span>
+                </label>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
+                    <Input
+                      type="number"
+                      value={String(current.passive_discovery_interval_minutes)}
+                      onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
+                    <Input
+                      type="number"
+                      value={String(current.passive_discovery_capture_seconds)}
+                      onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
+                    />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
+                </div>
+              </div>
+              <div className="grid gap-2 text-xs text-text-subtle md:grid-cols-3">
+                <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_mdns_hint')}</div>
+                <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_ssdp_hint')}</div>
+                <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_control_hint')}</div>
+              </div>
+            </div>
+          </Card>
+          )}
+
+          {current.advanced_view_enabled && false && (
           <Card>
             <div className="flex items-start justify-between gap-4">
               <div>

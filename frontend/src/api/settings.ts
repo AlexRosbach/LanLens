@@ -7,6 +7,9 @@ export interface AllSettings {
   scan_end: string
   scan_additional_targets: string
   scan_interval_minutes: number
+  passive_discovery_background_enabled: boolean
+  passive_discovery_interval_minutes: number
+  passive_discovery_capture_seconds: number
   port_scan_range: string
   telegram_bot_token: string
   telegram_chat_id: string
@@ -70,6 +73,12 @@ export const settingsApi = {
 
   updateScanSchedule: (scan_interval_minutes: number) =>
     apiClient.put('/settings/scan-schedule', { scan_interval_minutes }).then((r) => r.data),
+
+  updatePassiveDiscovery: (data: {
+    passive_discovery_background_enabled: boolean
+    passive_discovery_interval_minutes: number
+    passive_discovery_capture_seconds: number
+  }) => apiClient.put('/settings/passive-discovery', data).then((r) => r.data),
 
   updateTelegram: (data: {
     telegram_bot_token: string

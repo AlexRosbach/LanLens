@@ -10,7 +10,7 @@ from .database import SessionLocal
 from .models import TokenBlacklist
 from .routers import admin, auth, auto_scan_rules, cmdb, connect, credentials, deep_scan, devices, dhcp_monitor, idoit, inventory, notifications, plugins, scan, scan_nodes, segments, services, snmp
 from .routers import settings as settings_router
-from .services import deep_scan_scheduler, idoit_scheduler, scheduler
+from .services import deep_scan_scheduler, idoit_scheduler, passive_discovery_scheduler, scheduler
 from .services.settings_helpers import get_scan_interval_minutes
 from .version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 
@@ -74,11 +74,13 @@ async def lifespan(app: FastAPI):
     scheduler.start_scheduler(interval)
     deep_scan_scheduler.start_deep_scan_scheduler()
     idoit_scheduler.start_idoit_scheduler(idoit_interval)
+    passive_discovery_scheduler.start_passive_discovery_scheduler()
     logger.info(f"LanLens started — scan interval: {interval} min")
     yield
     scheduler.stop_scheduler()
     deep_scan_scheduler.stop_deep_scan_scheduler()
     idoit_scheduler.stop_idoit_scheduler()
+    passive_discovery_scheduler.stop_passive_discovery_scheduler()
     logger.info("LanLens stopped")
 
 

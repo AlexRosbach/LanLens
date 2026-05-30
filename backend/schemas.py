@@ -473,6 +473,12 @@ class ScanScheduleSettings(BaseModel):
     scan_interval_minutes: int
 
 
+class PassiveDiscoverySettings(BaseModel):
+    passive_discovery_background_enabled: bool = False
+    passive_discovery_interval_minutes: int = 15
+    passive_discovery_capture_seconds: int = 30
+
+
 class TelegramSettings(BaseModel):
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: str
@@ -523,6 +529,9 @@ class AllSettings(BaseModel):
     scan_end: Optional[str] = "192.168.1.254"
     scan_additional_targets: Optional[str] = ""
     scan_interval_minutes: int = 5
+    passive_discovery_background_enabled: bool = False
+    passive_discovery_interval_minutes: int = 15
+    passive_discovery_capture_seconds: int = 30
     port_scan_range: str = "top:1000"
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""

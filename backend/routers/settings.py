@@ -14,6 +14,7 @@ from ..schemas import (
     AllSettings,
     DhcpSettings,
     MessageResponse,
+    PassiveDiscoverySettings,
     PortScanSettings,
     ScanRangeSettings,
     ScanScheduleSettings,
@@ -25,6 +26,7 @@ from ..schemas import (
 )
 from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message, validate_webhook_url
 from ..services.https_config import apply_nginx_config, load_https_config, save_https_config
+from ..services.passive_discovery_scheduler import update_passive_discovery_schedule
 from ..services.scheduler import update_interval
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
@@ -36,6 +38,7 @@ TOKEN_MASK = "••••••••"
 
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
+    "passive_discovery_background_enabled", "passive_discovery_interval_minutes", "passive_discovery_capture_seconds",
     "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
@@ -137,6 +140,9 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         scan_end=effective_scan_end,
         scan_additional_targets=_get(db, "scan_additional_targets", "") or "",
         scan_interval_minutes=interval_minutes,
+        passive_discovery_background_enabled=_get(db, "passive_discovery_background_enabled", "false") == "true",
+        passive_discovery_interval_minutes=int(_get(db, "passive_discovery_interval_minutes", "15") or "15"),
+        passive_discovery_capture_seconds=int(_get(db, "passive_discovery_capture_seconds", "30") or "30"),
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
         telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
@@ -245,6 +251,22 @@ def update_scan_schedule(
     db.commit()
     update_interval(data.scan_interval_minutes)
     return MessageResponse(message="Scan schedule updated")
+
+
+@router.put("/passive-discovery", response_model=MessageResponse)
+def update_passive_discovery(
+    data: PassiveDiscoverySettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    interval = max(1, min(1440, int(data.passive_discovery_interval_minutes or 15)))
+    seconds = max(3, min(120, int(data.passive_discovery_capture_seconds or 30)))
+    _set(db, "passive_discovery_background_enabled", "true" if data.passive_discovery_background_enabled else "false")
+    _set(db, "passive_discovery_interval_minutes", str(interval))
+    _set(db, "passive_discovery_capture_seconds", str(seconds))
+    db.commit()
+    update_passive_discovery_schedule()
+    return MessageResponse(message="Passive discovery schedule updated")
 
 
 @router.put("/port-scan", response_model=MessageResponse)
