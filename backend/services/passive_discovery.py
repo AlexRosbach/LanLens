@@ -89,6 +89,8 @@ def _summary_from_metadata(protocol: str, metadata: dict[str, Any]) -> str:
 
 def _iter_dns_section(first_item: Any, expected_type: type, max_count: int) -> list[Any]:
     items: list[Any] = []
+    if isinstance(first_item, (list, tuple)):
+        return [item for item in first_item[:max(0, max_count)] if isinstance(item, expected_type)]
     current = first_item
     for _ in range(max(0, max_count)):
         if not current or not isinstance(current, expected_type):
