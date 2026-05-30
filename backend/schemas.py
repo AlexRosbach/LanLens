@@ -355,6 +355,12 @@ class DeviceResponse(BaseModel):
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
     ip_history: List[DeviceIpHistoryResponse] = []
+    snmp_switch: Optional[str] = None
+    snmp_switch_host: Optional[str] = None
+    snmp_interface: Optional[str] = None
+    snmp_interface_alias: Optional[str] = None
+    snmp_vlan: Optional[str] = None
+    snmp_last_seen_at: Optional[str] = None
 
     class Config:
         from_attributes = True

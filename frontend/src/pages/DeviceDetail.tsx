@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Device, DeviceIpHistoryEntry, DevicePingSample, devicesApi } from '../api/devices'
+import { Device, DeviceIpHistoryEntry, DevicePingSample, PassiveDiscoveryObservation, devicesApi } from '../api/devices'
 import { idoitApi } from '../api/idoit'
 import type { ChangeEvent } from '../api/inventory'
 import { servicesApi } from '../api/services'
@@ -102,11 +102,13 @@ export default function DeviceDetail() {
   const { t, lang } = useI18n()
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showCmdbIntegrations = useUiSettingsStore((state) => state.showCmdbIntegrations)
+  const showPassiveDiscovery = useUiSettingsStore((state) => state.showPassiveDiscovery)
   const showTlsChecks = useUiSettingsStore((state) => state.showTlsChecks)
   const showPingHistory = useUiSettingsStore((state) => state.showPingHistory)
   const [device, setDevice] = useState<Device | null>(null)
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
   const [pingHistory, setPingHistory] = useState<DevicePingSample[]>([])
+  const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState | null>(null)
@@ -140,9 +142,12 @@ export default function DeviceDetail() {
       if (showPingHistory) {
         devicesApi.getPingHistory(currentDevice.id).then(setPingHistory).catch(() => {})
       }
+      if (showPassiveDiscovery) {
+        devicesApi.getPassiveDiscovery(currentDevice.id).then(setPassiveObservations).catch(() => {})
+      }
       devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
-  }, [id, showPingHistory])
+  }, [id, showPassiveDiscovery, showPingHistory])
 
   useEffect(() => {
     if (!portScanRunning || !device?.id) return
@@ -233,6 +238,9 @@ export default function DeviceDetail() {
       if (showPingHistory) {
         devicesApi.getPingHistory(updated.id).then(setPingHistory).catch(() => {})
       }
+      if (showPassiveDiscovery) {
+        devicesApi.getPassiveDiscovery(updated.id).then(setPassiveObservations).catch(() => {})
+      }
       devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
     } catch {
@@ -305,6 +313,7 @@ export default function DeviceDetail() {
   )
   const navSections = [
     { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
+    { id: 'device-passive-discovery', label: 'Discovery', visible: showPassiveDiscovery },
     { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
     { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
     { id: 'device-tls', label: t('device_section_tls'), visible: showTlsChecks },
@@ -314,6 +323,7 @@ export default function DeviceDetail() {
     { id: 'device-timeline', label: t('device_section_timeline'), visible: true },
   ].filter((section) => section.visible)
   const activeFeatureCount = [
+    showPassiveDiscovery,
     showPingHistory,
     showTlsChecks,
     advancedViewEnabled,
@@ -523,6 +533,10 @@ export default function DeviceDetail() {
               <InfoRow label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} mono />
               <InfoRow label={t('hostname')} value={device.hostname} mono />
               <InfoRow label={t('vendor')} value={device.vendor} />
+              <InfoRow label="SNMP switch" value={device.snmp_switch} />
+              <InfoRow label="SNMP port" value={device.snmp_interface || device.snmp_interface_alias} />
+              <InfoRow label="SNMP VLAN" value={device.snmp_vlan} />
+              <InfoRow label="SNMP last seen" value={device.snmp_last_seen_at ? formatRelativeTime(device.snmp_last_seen_at, lang) : null} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />
               <InfoRow label={t('os_info')} value={device.os_info} />
               {device.cmdb_id && (
@@ -642,6 +656,47 @@ export default function DeviceDetail() {
           </div>
         )}
       </Card>
+
+      {showPassiveDiscovery && (
+      <Card id="device-passive-discovery" className={sectionAnchorClass}>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold text-text-muted">Multicast discovery</h2>
+          {passiveObservations.length > 0 && (
+            <span className="text-xs text-text-subtle">{passiveObservations.length} observations</span>
+          )}
+        </div>
+        {passiveObservations.length === 0 ? (
+          <p className="text-sm text-text-subtle">
+            No mDNS, SSDP/UPnP or multicast observations are linked to this device yet. Enable the discovery modules in Settings and run a passive capture while the device is active.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
+                  <th className="py-2 pr-3 text-left font-medium">Protocol</th>
+                  <th className="py-2 pr-3 text-left font-medium">Service</th>
+                  <th className="py-2 pr-3 text-left font-medium">Type</th>
+                  <th className="py-2 pr-3 text-left font-medium">Summary</th>
+                  <th className="py-2 text-left font-medium">Seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {passiveObservations.map((row) => (
+                  <tr key={row.id} className="border-b border-border last:border-0">
+                    <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol}</td>
+                    <td className="py-2 pr-3 text-text-muted">{row.service_name || '—'}</td>
+                    <td className="py-2 pr-3 text-text-subtle">{row.service_type || '—'}</td>
+                    <td className="py-2 pr-3 text-text-subtle">{row.summary || '—'}</td>
+                    <td className="py-2 text-text-subtle">{formatRelativeTime(row.observed_at, lang)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      )}
 
       {/* Ping history */}
       {showPingHistory && (

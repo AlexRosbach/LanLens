@@ -9,6 +9,7 @@ import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
+import { passiveDiscoveryApi } from '../api/plugins'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -355,6 +356,7 @@ export default function Settings() {
   const [snmpSwitchName, setSnmpSwitchName] = useState('')
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
+  const [passiveCaptureLoading, setPassiveCaptureLoading] = useState(false)
   const [activeSection, setActiveSection] = useState<'system' | 'features' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
@@ -473,6 +475,18 @@ export default function Settings() {
       toast.error(t('snmp_load_failed'))
     } finally {
       setSnmpLoading(false)
+    }
+  }
+
+  async function startPassiveDiscoveryCapture() {
+    setPassiveCaptureLoading(true)
+    try {
+      await passiveDiscoveryApi.capture(30)
+      toast.success('Passive discovery capture started')
+    } catch {
+      toast.error('Passive discovery capture failed')
+    } finally {
+      setPassiveCaptureLoading(false)
     }
   }
 
@@ -1546,6 +1560,27 @@ export default function Settings() {
               <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
+
+          {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
+          <Card>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">Multicast discovery capture</h2>
+                <p className="text-sm text-text-subtle">
+                  Captures visible mDNS, SSDP/UPnP and multicast control-plane packets for 30 seconds. Linked results appear on matching device detail pages.
+                </p>
+              </div>
+              <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
+                Capture 30s
+              </Button>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-text-subtle md:grid-cols-3">
+              <div className="rounded-lg border border-border bg-surface2/40 p-3">mDNS: UDP/5353 Bonjour names and services.</div>
+              <div className="rounded-lg border border-border bg-surface2/40 p-3">SSDP/UPnP: UDP/1900 device and service advertisements.</div>
+              <div className="rounded-lg border border-border bg-surface2/40 p-3">Multicast: OSPF, VRRP and HSRP control-plane hints.</div>
+            </div>
+          </Card>
+          )}
 
           {current.advanced_view_enabled && (
           <Card>

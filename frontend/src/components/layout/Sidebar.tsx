@@ -85,6 +85,16 @@ export default function Sidebar({ onClose }: Props) {
       ),
     },
     {
+      to: '/network-map',
+      label: t('nav_network_map'),
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+            d="M4 7a3 3 0 106 0 3 3 0 00-6 0zm10 10a3 3 0 106 0 3 3 0 00-6 0zM7 10v3a4 4 0 004 4h3m0 0l-2-2m2 2l-2 2" />
+        </svg>
+      ),
+    },
+    {
       to: '/deep-scan-settings',
       label: t('nav_deep_scan'),
       icon: (

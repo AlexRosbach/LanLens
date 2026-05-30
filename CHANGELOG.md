@@ -9,6 +9,9 @@ All notable changes to this project should be documented in this file.
 - Added opt-in settings for plugin API visibility, passive discovery, mDNS analysis and SSDP/UPnP discovery.
 - Added backend plugin status endpoints that report available plugin modules and enabled discovery protocols.
 - Added passive multicast discovery storage for observed protocol metadata.
+- Added visible passive-discovery capture and per-device mDNS/SSDP/multicast observations.
+- Added a reachable network map page with SNMP switch-port topology mappings.
+- Added SNMP switch, port and VLAN identity to device detail pages.
 
 ### Fixes / Hardening
 - Bounded passive discovery service identifiers before persistence so long SSDP/UPnP locations cannot exceed database column limits.

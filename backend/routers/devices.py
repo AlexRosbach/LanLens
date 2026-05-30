@@ -9,15 +9,17 @@ from typing import List, Optional, Set
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PortScan, Segment, Service, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIpHistoryResponse,
     DevicePingSampleResponse,
+    PassiveDiscoveryObservationResponse,
     DeviceListResponse,
     DeviceChangeEventResponse,
     DeviceMaintenanceUpdate,
@@ -36,6 +38,8 @@ from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
 from ..services.settings_helpers import is_advanced_feature_enabled
+from ..services.passive_discovery import observation_to_response
+from ..services.snmp import identity_for_device
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -267,6 +271,8 @@ def _device_to_response(
         idoit_enabled = cfg.enabled
     idoit_object_id = device.idoit_sync.idoit_object_id if device.idoit_sync else None
 
+    snmp_identity = identity_for_device(db, device) if db is not None else None
+
     return DeviceResponse(
         id=device.id,
         mac_address=device.mac_address,
@@ -311,6 +317,12 @@ def _device_to_response(
         latest_scan=_latest_scan_response(device),
         services=[ServiceResponse.model_validate(s) for s in device.services],
         ip_history=ip_history,
+        snmp_switch=(snmp_identity or {}).get("switch_name"),
+        snmp_switch_host=(snmp_identity or {}).get("switch_host"),
+        snmp_interface=(snmp_identity or {}).get("interface_name"),
+        snmp_interface_alias=(snmp_identity or {}).get("interface_alias"),
+        snmp_vlan=(snmp_identity or {}).get("vlan"),
+        snmp_last_seen_at=(snmp_identity or {}).get("last_seen_at"),
     )
 
 
@@ -538,6 +550,35 @@ def get_device_ping_history(
         .limit(limit)
         .all()
     )
+
+
+@router.get("/{device_id}/passive-discovery", response_model=List[PassiveDiscoveryObservationResponse])
+def get_device_passive_discovery(
+    device_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if not is_advanced_feature_enabled(db, "show_passive_discovery"):
+        raise HTTPException(status_code=403, detail="Passive discovery is disabled")
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    filters = []
+    if device.ip_address:
+        filters.append(PassiveDiscoveryObservation.source_ip == device.ip_address)
+    if device.mac_address and not device.mac_address.startswith("ip:"):
+        filters.append(PassiveDiscoveryObservation.source_mac == normalize_mac(device.mac_address))
+    if not filters:
+        return []
+
+    rows = db.query(PassiveDiscoveryObservation).filter(or_(*filters))
+    return [
+        observation_to_response(row)
+        for row in rows.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(max(1, min(limit, 200))).all()
+    ]
 
 
 @router.get("/{device_id}/timeline", response_model=List[DeviceChangeEventResponse])

@@ -32,6 +32,19 @@ export interface DevicePingSample {
   source: string
 }
 
+export interface PassiveDiscoveryObservation {
+  id: number
+  protocol: string
+  source_ip?: string | null
+  source_mac?: string | null
+  destination_ip?: string | null
+  service_name?: string | null
+  service_type?: string | null
+  summary?: string | null
+  metadata: Record<string, unknown>
+  observed_at: string
+}
+
 export interface Device {
   id: number
   mac_address: string
@@ -85,6 +98,12 @@ export interface Device {
   latest_scan: PortScanResult | null
   services: Service[]
   ip_history?: DeviceIpHistoryEntry[]
+  snmp_switch?: string | null
+  snmp_switch_host?: string | null
+  snmp_interface?: string | null
+  snmp_interface_alias?: string | null
+  snmp_vlan?: string | null
+  snmp_last_seen_at?: string | null
 }
 
 export interface DeviceListResponse {
@@ -130,6 +149,9 @@ export const devicesApi = {
 
   getPingHistory: (id: number, limit = 120) =>
     apiClient.get<DevicePingSample[]>(`/devices/${id}/ping-history`, { params: { limit } }).then((r) => r.data),
+
+  getPassiveDiscovery: (id: number, limit = 50) =>
+    apiClient.get<PassiveDiscoveryObservation[]>(`/devices/${id}/passive-discovery`, { params: { limit } }).then((r) => r.data),
 
   getTimeline: (id: number) =>
     apiClient.get<ChangeEvent[]>(`/devices/${id}/timeline`).then((r) => r.data),
