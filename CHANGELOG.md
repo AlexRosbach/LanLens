@@ -13,6 +13,7 @@ All notable changes to this project should be documented in this file.
 - Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, duplicates skipped, active filter, enabled protocols and capture errors.
 - Added passive-discovery device matching status and recent observation links in Settings so captured multicast packets can be traced directly to matching devices.
 - Added direct device links for new-device notifications in the app UI and external notification payloads.
+- Added mDNS, UPnP/SSDP and passive-discovery summaries to i-doit mapping sources and editable CSV exports.
 - Added reachable device-detail SNMP switch-port topology mappings.
 - Added SNMP switch, port and VLAN identity to device detail pages.
 - Added a device-detail SNMP switch-port visualization for switches with interface plus MAC/VLAN table data, including active/inactive port state, hover endpoint context and click-through to learned devices.

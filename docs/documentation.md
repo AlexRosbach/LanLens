@@ -888,6 +888,8 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - operating system text -> `C__CATG__OPERATING_SYSTEM.description`
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
 
+Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
+
 Some i-doit fields such as responsible person or location are object references in standard i-doit data models, not plain text. LanLens does not guess those object IDs automatically; operators can still add explicit custom mapping entries once the target i-doit field is known.
 
 ### Editable i-doit CSV Export (v1.5.2)
@@ -901,6 +903,8 @@ The export can include SNMP-derived identity context when switches have been pol
 - `SNMP-Switch`
 - `SNMP-Port`
 - `Identity Confidence`
+
+It also includes `mDNS`, `UPnP/SSDP` and `Passive Discovery` columns when passive-discovery observations match the device by current IP, historical IP or MAC address.
 
 These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
 

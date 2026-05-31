@@ -97,6 +97,9 @@ export interface IdoitExportRow {
   notes: string
   snmp_switch: string
   snmp_port: string
+  mdns_discovery: string
+  upnp_discovery: string
+  passive_discovery: string
   tls_certificates: string
   identity_confidence: string
   lanlens_id: string

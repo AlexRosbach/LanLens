@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import Device, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.models import Device, PassiveDiscoveryObservation, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
 from backend.services.idoit import DEFAULT_MAPPING, device_payload, get_config, build_export_rows, rows_to_export_csv
 
 
@@ -44,6 +44,9 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertEqual(rows[0]["IP-Adresse"], "192.0.2.10")
         self.assertIn("SNMP-Switch", rows[0])
         self.assertIn("TLS-Zertifikate", rows[0])
+        self.assertIn("mDNS", rows[0])
+        self.assertIn("UPnP/SSDP", rows[0])
+        self.assertIn("Passive Discovery", rows[0])
         self.assertNotIn("SNMP-VLAN", rows[0])
         self.assertIn("Identity Confidence", rows[0])
 
@@ -162,6 +165,90 @@ class IdoitExportCsvTest(unittest.TestCase):
             self.assertIn("Admin UI", rows[0]["tls_certificates"])
             self.assertIn("expiring_soon", rows[0]["tls_certificates"])
             self.assertIn("CN=Example CA", rows[0]["tls_certificates"])
+        finally:
+            db.close()
+
+    def test_build_export_rows_includes_passive_discovery_summaries(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            db.add_all([
+                PassiveDiscoveryObservation(
+                    protocol="mdns",
+                    source_ip="192.0.2.10",
+                    source_mac="00:11:22:33:44:55",
+                    destination_ip="224.0.0.251",
+                    service_name="client-01._workstation._tcp.local.",
+                    service_type="_workstation._tcp.local.",
+                    summary="mDNS _workstation._tcp.local.",
+                    metadata_json='{"answer_count": 2}',
+                ),
+                PassiveDiscoveryObservation(
+                    protocol="ssdp",
+                    source_ip="192.0.2.10",
+                    source_mac="00:11:22:33:44:55",
+                    destination_ip="239.255.255.250",
+                    service_name="uuid:device-1::upnp:rootdevice",
+                    service_type="upnp:rootdevice",
+                    summary="HTTP/1.1 200 OK upnp:rootdevice",
+                    metadata_json='{"location": "http://192.0.2.10/device.xml"}',
+                ),
+            ])
+            db.commit()
+
+            rows = build_export_rows(db, [device], get_config(db))
+
+            self.assertIn("_workstation._tcp.local.", rows[0]["mdns_discovery"])
+            self.assertIn("upnp:rootdevice", rows[0]["upnp_discovery"])
+            self.assertIn("mDNS", rows[0]["passive_discovery"])
+            self.assertIn("SSDP", rows[0]["passive_discovery"])
+        finally:
+            db.close()
+
+    def test_idoit_payload_allows_mapping_passive_discovery_fields(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            db.add(PassiveDiscoveryObservation(
+                protocol="ssdp",
+                source_ip="192.0.2.10",
+                source_mac="00:11:22:33:44:55",
+                destination_ip="239.255.255.250",
+                service_name="uuid:device-1::upnp:rootdevice",
+                service_type="upnp:rootdevice",
+                summary="HTTP/1.1 200 OK upnp:rootdevice",
+                metadata_json="{}",
+            ))
+            db.commit()
+
+            config = get_config(db)
+            config.mapping = {
+                **DEFAULT_MAPPING,
+                "fields": {
+                    **DEFAULT_MAPPING["fields"],
+                    "upnp_discovery": "C__CATG__GLOBAL.description",
+                },
+            }
+
+            payload = device_payload(device, config, db)
+
+            self.assertIn("upnp:rootdevice", payload["fields"]["C__CATG__GLOBAL.description"])
         finally:
             db.close()
 
