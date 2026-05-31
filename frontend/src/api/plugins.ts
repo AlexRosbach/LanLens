@@ -24,6 +24,8 @@ export interface PassiveDiscoveryObservation {
   summary?: string | null
   metadata: Record<string, unknown>
   observed_at: string
+  linked_device_id?: number | null
+  linked_device_label?: string | null
 }
 
 export interface PassiveDiscoveryCaptureReport {
@@ -32,6 +34,7 @@ export interface PassiveDiscoveryCaptureReport {
   packets_seen: number
   packets_parsed: number
   observations_stored: number
+  observations_linked: number
   duplicates_skipped: number
   errors: string[]
 }

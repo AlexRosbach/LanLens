@@ -3,10 +3,13 @@ import apiClient from './client'
 export interface NotificationItem {
   id: number
   device_id: number | null
+  device_path?: string | null
+  device_url?: string | null
   event_type: string
   message: string
   is_read: boolean
   telegram_sent: boolean
+  webhook_sent: boolean
   created_at: string
 }
 

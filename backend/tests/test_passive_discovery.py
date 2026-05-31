@@ -5,7 +5,11 @@ from unittest.mock import patch
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345")
 
 import backend.services.passive_discovery as passive_discovery
-from backend.services.passive_discovery import capture_passive_discovery_report, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload
+from backend.database import Base
+from backend.models import Device, DeviceIpHistory, PassiveDiscoveryObservation
+from backend.services.passive_discovery import capture_passive_discovery_report, find_linked_device, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 try:
     from scapy.layers.dns import DNS, DNSQR, DNSRR
@@ -54,6 +58,7 @@ class PassiveDiscoveryTests(unittest.TestCase):
         self.assertEqual(report["packets_seen"], 2)
         self.assertEqual(report["packets_parsed"], 2)
         self.assertEqual(report["observations_stored"], 1)
+        self.assertEqual(report["observations_linked"], 0)
         self.assertEqual(report["duplicates_skipped"], 1)
         self.assertEqual(report["errors"], [])
 
@@ -167,6 +172,43 @@ class PassiveDiscoveryTests(unittest.TestCase):
         self.assertEqual(observation.destination_ip, "239.192.0.1")
         self.assertEqual(observation.summary, "IPv4 multicast packet")
         self.assertIn('"destination_port": 5353', observation.metadata_json)
+
+    def test_observation_response_links_current_device_by_source_ip(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.20", hostname="plug.local")
+            db.add(device)
+            db.commit()
+            observation = PassiveDiscoveryObservation(protocol="mdns", source_ip="192.0.2.20")
+
+            response = observation_to_response(observation, db)
+
+            self.assertEqual(response["linked_device_id"], device.id)
+            self.assertEqual(response["linked_device_label"], "plug.local")
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    def test_observation_matching_uses_ip_history_when_current_ip_changed(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.99")
+            db.add(device)
+            db.commit()
+            db.add(DeviceIpHistory(device_id=device.id, ip_address="192.0.2.20"))
+            db.commit()
+            observation = PassiveDiscoveryObservation(protocol="mdns", source_ip="192.0.2.20")
+
+            self.assertEqual(find_linked_device(db, observation).id, device.id)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
 
 
 if __name__ == "__main__":

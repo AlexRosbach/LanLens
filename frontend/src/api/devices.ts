@@ -43,6 +43,8 @@ export interface PassiveDiscoveryObservation {
   summary?: string | null
   metadata: Record<string, unknown>
   observed_at: string
+  linked_device_id?: number | null
+  linked_device_label?: string | null
 }
 
 export interface Device {

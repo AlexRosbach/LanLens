@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
+import { useNavigate } from 'react-router-dom'
 import { NotificationItem, notificationsApi } from '../api/notifications'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -10,6 +11,7 @@ import { formatRelativeTime } from '../utils/formatters'
 
 export default function Notifications() {
   const { t, lang } = useI18n()
+  const navigate = useNavigate()
   const { fetchUnreadCount, markAllRead: storeMarkAllRead, decrementUnread } = useNotificationStore()
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,9 +73,21 @@ export default function Notifications() {
         <div className="flex flex-col gap-2">
           {items.map((item) => {
             const meta = eventLabels[item.event_type] ?? { label: item.event_type, variant: 'muted' as const }
+            const devicePath = item.device_path || (item.device_id ? `/devices/${item.device_id}` : null)
             return (
               <div key={item.id}
+                role={devicePath ? 'button' : undefined}
+                tabIndex={devicePath ? 0 : undefined}
+                onClick={() => devicePath && navigate(devicePath)}
+                onKeyDown={(event) => {
+                  if (!devicePath) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    navigate(devicePath)
+                  }
+                }}
                 className={`flex items-start gap-3 p-4 rounded-xl border transition-colors
+                  ${devicePath ? 'cursor-pointer hover:border-primary/50 hover:bg-surface2' : ''}
                   ${item.is_read ? 'bg-surface border-border' : 'bg-surface border-primary/30'}`}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -82,11 +96,17 @@ export default function Notifications() {
                     {item.telegram_sent && (
                       <span className="text-xs text-text-subtle">Telegram ✓</span>
                     )}
+                    {item.webhook_sent && (
+                      <span className="text-xs text-text-subtle">Webhook ✓</span>
+                    )}
                   </div>
                   <p className="text-sm text-text-muted leading-relaxed">{item.message}</p>
                   <p className="text-xs text-text-subtle mt-1">{formatRelativeTime(item.created_at, lang)}</p>
                 </div>
-                <button onClick={() => deleteNotification(item.id, !item.is_read)}
+                <button onClick={(event) => {
+                  event.stopPropagation()
+                  deleteNotification(item.id, !item.is_read)
+                }}
                   className="text-text-subtle hover:text-danger transition-colors p-1 flex-shrink-0">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

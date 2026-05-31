@@ -173,6 +173,7 @@ class PassiveDiscoveryCaptureReportResponse(BaseModel):
     packets_seen: int
     packets_parsed: int
     observations_stored: int
+    observations_linked: int = 0
     duplicates_skipped: int
     errors: List[str] = []
 
@@ -188,6 +189,8 @@ class PassiveDiscoveryObservationResponse(BaseModel):
     summary: Optional[str]
     metadata: dict[str, Any]
     observed_at: datetime
+    linked_device_id: Optional[int] = None
+    linked_device_label: Optional[str] = None
 
 
 # ── Devices ───────────────────────────────────────────────────────────────────
@@ -610,6 +613,8 @@ class SmtpSettings(BaseModel):
 class NotificationResponse(BaseModel):
     id: int
     device_id: Optional[int]
+    device_path: Optional[str] = None
+    device_url: Optional[str] = None
     event_type: str
     message: str
     is_read: bool

@@ -600,7 +600,7 @@ def get_device_passive_discovery(
 
     rows = db.query(PassiveDiscoveryObservation).filter(or_(*filters))
     return [
-        observation_to_response(row)
+        observation_to_response(row, db)
         for row in rows.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(max(1, min(limit, 200))).all()
     ]
 

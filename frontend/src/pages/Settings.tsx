@@ -9,7 +9,7 @@ import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
-import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport } from '../api/plugins'
+import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryObservation } from '../api/plugins'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -359,6 +359,7 @@ export default function Settings() {
   const [passiveCaptureLoading, setPassiveCaptureLoading] = useState(false)
   const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
+  const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
   const [activeSection, setActiveSection] = useState<'system' | 'features' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
@@ -393,6 +394,9 @@ export default function Settings() {
       setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
       setShowBuildInfo(data.show_build_info)
       setTelegramTokenDirty(false)
+      if (data.advanced_view_enabled && data.show_passive_discovery) {
+        loadPassiveObservations().catch(() => {})
+      }
     }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
@@ -484,6 +488,7 @@ export default function Settings() {
     setPassiveCaptureLoading(true)
     try {
       await passiveDiscoveryApi.capture(30)
+      setTimeout(() => loadPassiveObservations().catch(() => {}), 32000)
       toast.success('Passive discovery capture started')
     } catch {
       toast.error('Passive discovery capture failed')
@@ -497,6 +502,7 @@ export default function Settings() {
     try {
       const report = await passiveDiscoveryApi.diagnostics(10)
       setPassiveCaptureReport(report)
+      loadPassiveObservations().catch(() => {})
       if (report.errors.length > 0) {
         toast.error(report.errors[0])
       } else if (report.packets_seen === 0) {
@@ -512,6 +518,10 @@ export default function Settings() {
     } finally {
       setPassiveDiagnosticLoading(false)
     }
+  }
+
+  async function loadPassiveObservations() {
+    setPassiveObservations(await passiveDiscoveryApi.observations())
   }
 
   async function createSnmpProfile() {
@@ -1690,6 +1700,7 @@ export default function Settings() {
                     <div>{t('multicast_discovery_packets_seen')}: <span className="text-text-base">{passiveCaptureReport.packets_seen}</span></div>
                     <div>{t('multicast_discovery_packets_parsed')}: <span className="text-text-base">{passiveCaptureReport.packets_parsed}</span></div>
                     <div>{t('multicast_discovery_observations_stored')}: <span className="text-text-base">{passiveCaptureReport.observations_stored}</span></div>
+                    <div>{t('multicast_discovery_observations_linked')}: <span className="text-text-base">{passiveCaptureReport.observations_linked}</span></div>
                     <div>{t('multicast_discovery_duplicates')}: <span className="text-text-base">{passiveCaptureReport.duplicates_skipped}</span></div>
                     <div>{t('multicast_discovery_protocols')}: <span className="text-text-base">{passiveCaptureReport.protocols.join(', ')}</span></div>
                     <div>{t('multicast_discovery_filter')}: <span className="text-text-base">{passiveCaptureReport.filter || '-'}</span></div>
@@ -1697,6 +1708,52 @@ export default function Settings() {
                   {passiveCaptureReport.errors.length > 0 && (
                     <div className="mt-2 text-danger">{passiveCaptureReport.errors.join(' · ')}</div>
                   )}
+                </div>
+              )}
+              {passiveObservations.length > 0 && (
+                <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-text-base">{t('multicast_discovery_recent_observations')}</div>
+                    <button
+                      type="button"
+                      className="text-xs text-accent hover:underline"
+                      onClick={() => loadPassiveObservations().catch(() => {})}
+                    >
+                      {t('refresh')}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
+                          <th className="py-2 pr-3 text-left font-medium">Protocol</th>
+                          <th className="py-2 pr-3 text-left font-medium">Source</th>
+                          <th className="py-2 pr-3 text-left font-medium">Service</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_linked_device')}</th>
+                          <th className="py-2 text-left font-medium">Seen</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {passiveObservations.slice(0, 12).map((row) => (
+                          <tr key={row.id} className="border-b border-border last:border-0">
+                            <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol}</td>
+                            <td className="py-2 pr-3 font-mono text-text-subtle">{row.source_ip || row.source_mac || '-'}</td>
+                            <td className="py-2 pr-3 text-text-subtle">{row.service_name || row.service_type || row.summary || '-'}</td>
+                            <td className="py-2 pr-3 text-text-subtle">
+                              {row.linked_device_id ? (
+                                <Link className="text-accent hover:underline" to={`/devices/${row.linked_device_id}`}>
+                                  {row.linked_device_label || `Device #${row.linked_device_id}`}
+                                </Link>
+                              ) : (
+                                <span>{t('multicast_discovery_unlinked')}</span>
+                              )}
+                            </td>
+                            <td className="py-2 text-text-subtle">{formatDateTime(row.observed_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
               <div className="rounded-lg border border-border bg-surface2/35 p-3">

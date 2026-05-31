@@ -526,9 +526,9 @@ The default UI is intended to stay approachable for home-network users. Advanced
 
 Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a 30-second capture or schedule background captures.
 
-LanLens stores visible mDNS, SSDP/UPnP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. Per-device discovery tables show observations that can be linked to the device's current IP or MAC address.
+LanLens stores visible mDNS, SSDP/UPnP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. Per-device discovery tables show observations that can be linked to the device's current IP, MAC address or recorded IP history.
 
-Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, duplicates skipped and capture errors. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. Per-device pages can still be empty when global observations are present but cannot be linked to that device's current IP or MAC.
+Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, linked observations, duplicates skipped and capture errors. The same card lists recent observations and links matched rows directly to device detail pages. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. If observations are stored but not linked, the source IP/MAC has not matched a known device or its IP history yet.
 
 Docker deployments need host networking and raw packet permissions for live capture. If the container runs in bridge mode or without `NET_RAW`, the capture endpoint can start but may not observe LAN multicast traffic.
 
@@ -607,7 +607,7 @@ LanLens images are published on Docker Hub:
 
 ```text
 alexrosbach/lanlens:latest
-alexrosbach/lanlens:1.5.3
+alexrosbach/lanlens:1.5.4
 ```
 
 Use `latest` for the newest build or pin the release tag for reproducible deployments.
@@ -1063,7 +1063,7 @@ npm run dev
 docker compose up -d --build
 ```
 
-The Docker build compiles the React frontend, installs backend dependencies, renders nginx configuration at startup, applies database migrations, and starts nginx plus FastAPI in one container.
+The Docker build compiles the React frontend, stamps build metadata into the frontend and backend app files, installs backend dependencies, renders nginx configuration at startup, applies database migrations, and starts nginx plus FastAPI in one container.
 
 ### Versioning
 

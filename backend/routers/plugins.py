@@ -80,7 +80,7 @@ def list_passive_observations(
     if protocol:
         query = query.filter(PassiveDiscoveryObservation.protocol == protocol)
     rows = query.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(limit).all()
-    return [observation_to_response(row) for row in rows]
+    return [observation_to_response(row, db) for row in rows]
 
 
 @passive_router.post("/capture", response_model=MessageResponse)

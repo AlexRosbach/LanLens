@@ -8,10 +8,11 @@ import threading
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import PassiveDiscoveryObservation
+from ..models import Device, DeviceIpHistory, PassiveDiscoveryObservation
 from .mac_vendor import normalize_mac
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
             "packets_seen": 0,
             "packets_parsed": 0,
             "observations_stored": 0,
+            "observations_linked": 0,
             "duplicates_skipped": 0,
             "errors": ["Passive discovery capture already running"],
         }
@@ -296,6 +298,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
         "packets_seen": 0,
         "packets_parsed": 0,
         "observations_stored": 0,
+        "observations_linked": 0,
         "duplicates_skipped": 0,
         "errors": [],
     }
@@ -316,6 +319,11 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
                 report["duplicates_skipped"] += 1
                 return
             seen.add(key)
+            try:
+                if find_linked_device(db, row):
+                    report["observations_linked"] += 1
+            except Exception as exc:
+                logger.debug("Passive discovery device matching failed: %s", exc)
             db.add(row)
             report["observations_stored"] += 1
 
@@ -348,11 +356,42 @@ def capture_passive_discovery(timeout_seconds: int = 30, packet_limit: int = 100
     return int(report.get("observations_stored") or 0)
 
 
-def observation_to_response(row: PassiveDiscoveryObservation) -> dict[str, Any]:
+def _device_label(device: Device) -> str:
+    return device.label or device.hostname or device.ip_address or device.mac_address or f"Device #{device.id}"
+
+
+def find_linked_device(db: Session, row: PassiveDiscoveryObservation) -> Device | None:
+    filters = []
+    source_ip = (row.source_ip or "").strip()
+    source_mac = normalize_mac(row.source_mac) if row.source_mac else None
+    if source_ip:
+        filters.append(Device.ip_address == source_ip)
+    if source_mac:
+        filters.append(Device.mac_address == source_mac)
+        filters.append(Device.mac_address == source_mac.lower())
+    if filters:
+        device = db.query(Device).filter(or_(*filters)).order_by(Device.last_seen.desc()).first()
+        if device:
+            return device
+    if source_ip:
+        history_match = (
+            db.query(Device)
+            .join(DeviceIpHistory, DeviceIpHistory.device_id == Device.id)
+            .filter(DeviceIpHistory.ip_address == source_ip)
+            .order_by(DeviceIpHistory.last_seen.desc())
+            .first()
+        )
+        if history_match:
+            return history_match
+    return None
+
+
+def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None = None) -> dict[str, Any]:
     try:
         metadata = json.loads(row.metadata_json or "{}")
     except Exception:
         metadata = {}
+    linked_device = find_linked_device(db, row) if db is not None else None
     return {
         "id": row.id,
         "protocol": row.protocol,
@@ -364,4 +403,6 @@ def observation_to_response(row: PassiveDiscoveryObservation) -> dict[str, Any]:
         "summary": row.summary,
         "metadata": metadata,
         "observed_at": row.observed_at,
+        "linked_device_id": linked_device.id if linked_device else None,
+        "linked_device_label": _device_label(linked_device) if linked_device else None,
     }
