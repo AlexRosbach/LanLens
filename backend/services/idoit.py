@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from ..models import Device, DeepScanFinding, DeviceHostRelationship, DeviceIpHistory, IdoitDeviceSync, IdoitSyncLog, PassiveDiscoveryObservation, PortScan, Setting
 from .mac_vendor import normalize_mac
 from .notification import request_json_via_validated_url
+from .passive_discovery import deduplicate_observations
 from .snmp import bulk_identities_for_devices, identity_for_device
 
 logger = logging.getLogger(__name__)
@@ -1073,11 +1074,12 @@ def _passive_discovery_rows(
     query = db.query(PassiveDiscoveryObservation).filter(or_(*filters))
     if protocols:
         query = query.filter(PassiveDiscoveryObservation.protocol.in_(sorted(protocols)))
-    return (
+    rows = (
         query.order_by(PassiveDiscoveryObservation.observed_at.desc())
-        .limit(max(1, min(limit, 100)))
+        .limit(max(1, min(limit * 5, 500)))
         .all()
     )
+    return deduplicate_observations(rows, max(1, min(limit, 100)))
 
 
 def _passive_row_line(row: PassiveDiscoveryObservation) -> str:

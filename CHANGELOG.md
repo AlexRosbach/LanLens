@@ -24,6 +24,7 @@ All notable changes to this project should be documented in this file.
 - Bounded passive discovery service identifiers before persistence so long SSDP/UPnP locations cannot exceed database column limits.
 - Fixed mDNS DNS-section parsing for Scapy packet-list sections so service names and service types are extracted correctly.
 - Matched passive-discovery observations against current device IPs, MAC addresses and device IP history so captures still link when a device address has changed.
+- Deduplicated repeated passive-discovery observations so recurring mDNS/UPnP/multicast packets update the latest seen time instead of flooding device detail lists and i-doit summaries.
 - Added focused parser and capture-report coverage for mDNS packets, UPnP/SSDP M-SEARCH payloads, UPnP/SSDP response packets and generic IPv4 multicast packets.
 - Moved build metadata into backend and frontend app constants, with Docker builds stamping the app files from build args instead of runtime environment variables.
 - Bumped backend, frontend and image metadata to 1.5.4.

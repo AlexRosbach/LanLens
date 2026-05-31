@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345")
@@ -7,7 +8,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345
 import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceIpHistory, PassiveDiscoveryObservation
-from backend.services.passive_discovery import capture_passive_discovery_report, find_linked_device, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload
+from backend.services.passive_discovery import capture_passive_discovery_report, deduplicate_observations, find_linked_device, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -33,6 +34,22 @@ class PassiveDiscoveryTests(unittest.TestCase):
         class FakeSession:
             def __init__(self):
                 self.rows = []
+
+            def query(self, _model):
+                class Query:
+                    def filter(self, *_args):
+                        return self
+
+                    def order_by(self, *_args):
+                        return self
+
+                    def limit(self, *_args):
+                        return self
+
+                    def all(self):
+                        return []
+
+                return Query()
 
             def add(self, row):
                 self.rows.append(row)
@@ -209,6 +226,68 @@ class PassiveDiscoveryTests(unittest.TestCase):
         finally:
             db.close()
             Base.metadata.drop_all(engine)
+
+    def test_passive_observation_upsert_updates_existing_last_seen(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            first = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                destination_ip="224.0.0.251",
+                source_mac="AA:BB:CC:DD:EE:FF",
+                service_name="_http._tcp.local",
+                service_type="_http._tcp",
+                summary="mDNS _http._tcp.local",
+            )
+            second = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                destination_ip="224.0.0.251",
+                source_mac="AA:BB:CC:DD:EE:FF",
+                service_name="_http._tcp.local",
+                service_type="_http._tcp",
+                summary="mDNS _http._tcp.local",
+            )
+
+            self.assertTrue(upsert_passive_observation(db, first))
+            db.commit()
+            self.assertFalse(upsert_passive_observation(db, second))
+            db.commit()
+
+            rows = db.query(PassiveDiscoveryObservation).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].id, first.id)
+            self.assertEqual(rows[0].observed_at, second.observed_at)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    def test_deduplicate_observations_keeps_latest_row(self):
+        older = PassiveDiscoveryObservation(
+            id=1,
+            protocol="ssdp",
+            source_ip="192.0.2.30",
+            destination_ip="239.255.255.250",
+            service_type="upnp:rootdevice",
+            summary="HTTP/1.1 200 OK upnp:rootdevice",
+        )
+        newer = PassiveDiscoveryObservation(
+            id=2,
+            protocol="ssdp",
+            source_ip="192.0.2.30",
+            destination_ip="239.255.255.250",
+            service_type="upnp:rootdevice",
+            summary="HTTP/1.1 200 OK upnp:rootdevice",
+        )
+        newer.observed_at = datetime.utcnow()
+        older.observed_at = newer.observed_at - timedelta(days=1)
+
+        rows = deduplicate_observations([older, newer], 20)
+
+        self.assertEqual([row.id for row in rows], [2])
 
 
 if __name__ == "__main__":

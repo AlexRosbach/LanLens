@@ -8,7 +8,7 @@ import threading
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
@@ -267,6 +267,80 @@ def parse_packet(packet: Any, enabled_protocols: set[str]) -> PassiveDiscoveryOb
     return None
 
 
+def _metadata_for(row: PassiveDiscoveryObservation) -> dict[str, Any]:
+    try:
+        value = json.loads(row.metadata_json or "{}")
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def observation_signature(row: PassiveDiscoveryObservation) -> tuple[Any, ...]:
+    metadata = _metadata_for(row)
+    return (
+        row.protocol,
+        row.source_ip,
+        normalize_mac(row.source_mac) if row.source_mac else None,
+        row.destination_ip,
+        row.service_name,
+        row.service_type,
+        row.summary,
+        metadata.get("source_port"),
+        metadata.get("destination_port"),
+        metadata.get("query"),
+        metadata.get("location"),
+    )
+
+
+def deduplicate_observations(rows: list[PassiveDiscoveryObservation], limit: int) -> list[PassiveDiscoveryObservation]:
+    unique: dict[tuple[Any, ...], PassiveDiscoveryObservation] = {}
+    for row in rows:
+        key = observation_signature(row)
+        existing = unique.get(key)
+        if existing is None or (row.observed_at and (not existing.observed_at or row.observed_at > existing.observed_at)):
+            unique[key] = row
+    return sorted(
+        unique.values(),
+        key=lambda row: row.observed_at or datetime.min,
+        reverse=True,
+    )[:max(1, limit)]
+
+
+def _column_matches(column: Any, value: Any) -> Any:
+    return column.is_(None) if value is None else column == value
+
+
+def upsert_passive_observation(db: Session, row: PassiveDiscoveryObservation) -> bool:
+    candidates = (
+        db.query(PassiveDiscoveryObservation)
+        .filter(
+            and_(
+                PassiveDiscoveryObservation.protocol == row.protocol,
+                _column_matches(PassiveDiscoveryObservation.source_ip, row.source_ip),
+                _column_matches(PassiveDiscoveryObservation.destination_ip, row.destination_ip),
+                _column_matches(PassiveDiscoveryObservation.service_name, row.service_name),
+                _column_matches(PassiveDiscoveryObservation.service_type, row.service_type),
+                _column_matches(PassiveDiscoveryObservation.summary, row.summary),
+            )
+        )
+        .order_by(PassiveDiscoveryObservation.observed_at.desc())
+        .limit(50)
+        .all()
+    )
+    key = observation_signature(row)
+    observed_at = row.observed_at or datetime.utcnow()
+    for existing in candidates:
+        if observation_signature(existing) != key:
+            continue
+        existing.observed_at = observed_at
+        existing.source_mac = row.source_mac or existing.source_mac
+        existing.metadata_json = row.metadata_json or existing.metadata_json
+        return False
+    row.observed_at = observed_at
+    db.add(row)
+    return True
+
+
 def _capture_filter(enabled_protocols: set[str]) -> str:
     parts = []
     if "mdns" in enabled_protocols:
@@ -306,7 +380,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
     try:
         from scapy.sendrecv import sniff
 
-        seen: set[tuple[str | None, str | None, str | None, str | None]] = set()
+        seen: set[tuple[Any, ...]] = set()
 
         def handle(packet: Any) -> None:
             report["packets_seen"] += 1
@@ -314,7 +388,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
             if not row:
                 return
             report["packets_parsed"] += 1
-            key = (row.protocol, row.source_ip, row.destination_ip, row.service_name)
+            key = observation_signature(row)
             if key in seen:
                 report["duplicates_skipped"] += 1
                 return
@@ -324,8 +398,10 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
                     report["observations_linked"] += 1
             except Exception as exc:
                 logger.debug("Passive discovery device matching failed: %s", exc)
-            db.add(row)
-            report["observations_stored"] += 1
+            if upsert_passive_observation(db, row):
+                report["observations_stored"] += 1
+            else:
+                report["duplicates_skipped"] += 1
 
         sniff(
             filter=capture_filter,

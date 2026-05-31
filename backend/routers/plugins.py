@@ -17,6 +17,7 @@ from ..schemas import (
 from ..services.passive_discovery import (
     capture_passive_discovery,
     capture_passive_discovery_report,
+    deduplicate_observations,
     is_capture_running,
     observation_to_response,
     try_begin_capture,
@@ -79,8 +80,8 @@ def list_passive_observations(
     query = db.query(PassiveDiscoveryObservation)
     if protocol:
         query = query.filter(PassiveDiscoveryObservation.protocol == protocol)
-    rows = query.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(limit).all()
-    return [observation_to_response(row, db) for row in rows]
+    rows = query.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(min(limit * 5, 1000)).all()
+    return [observation_to_response(row, db) for row in deduplicate_observations(rows, limit)]
 
 
 @passive_router.post("/capture", response_model=MessageResponse)

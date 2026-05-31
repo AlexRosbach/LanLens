@@ -758,7 +758,7 @@ export default function DeviceDetail() {
         <div className="flex items-center justify-between gap-3 mb-3">
           <h2 className="text-sm font-semibold text-text-muted">Multicast discovery</h2>
           {passiveObservations.length > 0 && (
-            <span className="text-xs text-text-subtle">{passiveObservations.length} observations</span>
+            <span className="text-xs text-text-subtle">{passiveObservations.length} unique observations</span>
           )}
         </div>
         {passiveObservations.length === 0 ? (
@@ -774,7 +774,7 @@ export default function DeviceDetail() {
                   <th className="py-2 pr-3 text-left font-medium">Service</th>
                   <th className="py-2 pr-3 text-left font-medium">Type</th>
                   <th className="py-2 pr-3 text-left font-medium">Summary</th>
-                  <th className="py-2 text-left font-medium">Seen</th>
+                  <th className="py-2 text-left font-medium">Last seen</th>
                 </tr>
               </thead>
               <tbody>

@@ -38,7 +38,7 @@ from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
 from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
-from ..services.passive_discovery import observation_to_response
+from ..services.passive_discovery import deduplicate_observations, observation_to_response
 from ..services.snmp import identity_for_device
 from .services import _apply_tls_result, _inspect_tls_certificate
 
@@ -598,10 +598,12 @@ def get_device_passive_discovery(
     if not filters:
         return []
 
+    requested_limit = max(1, min(limit, 200))
     rows = db.query(PassiveDiscoveryObservation).filter(or_(*filters))
+    observations = rows.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(min(requested_limit * 5, 1000)).all()
     return [
         observation_to_response(row, db)
-        for row in rows.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(max(1, min(limit, 200))).all()
+        for row in deduplicate_observations(observations, requested_limit)
     ]
 
 
