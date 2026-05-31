@@ -9,12 +9,14 @@ from ..models import PassiveDiscoveryObservation, Setting, User
 from ..schemas import (
     MessageResponse,
     PassiveDiscoveryObservationResponse,
+    PassiveDiscoveryCaptureReportResponse,
     PassiveDiscoveryStatusResponse,
     PluginManifestResponse,
     PluginToggleRequest,
 )
 from ..services.passive_discovery import (
     capture_passive_discovery,
+    capture_passive_discovery_report,
     is_capture_running,
     observation_to_response,
     try_begin_capture,
@@ -108,6 +110,26 @@ def start_passive_capture(
         daemon=True,
     ).start()
     return MessageResponse(message=f"Passive discovery capture started for {seconds} seconds")
+
+
+@passive_router.post("/capture/diagnostics", response_model=PassiveDiscoveryCaptureReportResponse)
+def run_passive_capture_diagnostics(
+    seconds: int = Query(10, ge=3, le=30),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _require_passive_discovery_enabled(db)
+    plugins = {plugin["key"]: plugin for plugin in list_plugins(db)}
+    if not plugins.get("passive-discovery", {}).get("enabled"):
+        raise HTTPException(status_code=403, detail="Passive discovery is disabled")
+
+    enabled_protocols: set[str] = {"multicast"}
+    if plugins.get("mdns-discovery", {}).get("enabled"):
+        enabled_protocols.add("mdns")
+    if plugins.get("ssdp-discovery", {}).get("enabled"):
+        enabled_protocols.add("ssdp")
+
+    return capture_passive_discovery_report(seconds, 250, enabled_protocols, False)
 
 
 @passive_router.get("/status", response_model=PassiveDiscoveryStatusResponse)

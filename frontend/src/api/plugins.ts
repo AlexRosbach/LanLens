@@ -26,6 +26,16 @@ export interface PassiveDiscoveryObservation {
   observed_at: string
 }
 
+export interface PassiveDiscoveryCaptureReport {
+  filter: string
+  protocols: string[]
+  packets_seen: number
+  packets_parsed: number
+  observations_stored: number
+  duplicates_skipped: number
+  errors: string[]
+}
+
 export const pluginsApi = {
   list: () => apiClient.get<PluginManifest[]>('/plugins').then((r) => r.data),
   setEnabled: (key: string, enabled: boolean) =>
@@ -37,5 +47,7 @@ export const passiveDiscoveryApi = {
     apiClient.get<PassiveDiscoveryObservation[]>('/passive-discovery/observations', { params: { protocol } }).then((r) => r.data),
   capture: (seconds = 30) =>
     apiClient.post('/passive-discovery/capture', null, { params: { seconds } }).then((r) => r.data),
+  diagnostics: (seconds = 10) =>
+    apiClient.post<PassiveDiscoveryCaptureReport>('/passive-discovery/capture/diagnostics', null, { params: { seconds } }).then((r) => r.data),
   status: () => apiClient.get<{ is_capturing: boolean }>('/passive-discovery/status').then((r) => r.data),
 }

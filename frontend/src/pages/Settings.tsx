@@ -9,7 +9,7 @@ import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
-import { passiveDiscoveryApi } from '../api/plugins'
+import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport } from '../api/plugins'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -357,6 +357,8 @@ export default function Settings() {
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
   const [passiveCaptureLoading, setPassiveCaptureLoading] = useState(false)
+  const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
+  const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
   const [activeSection, setActiveSection] = useState<'system' | 'features' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
@@ -487,6 +489,28 @@ export default function Settings() {
       toast.error('Passive discovery capture failed')
     } finally {
       setPassiveCaptureLoading(false)
+    }
+  }
+
+  async function runPassiveDiscoveryDiagnostics() {
+    setPassiveDiagnosticLoading(true)
+    try {
+      const report = await passiveDiscoveryApi.diagnostics(10)
+      setPassiveCaptureReport(report)
+      if (report.errors.length > 0) {
+        toast.error(report.errors[0])
+      } else if (report.packets_seen === 0) {
+        toast.error(t('multicast_discovery_no_packets'))
+      } else {
+        toast.success(t('multicast_discovery_diagnostic_result', {
+          packets: report.packets_seen,
+          stored: report.observations_stored,
+        }))
+      }
+    } catch {
+      toast.error(t('multicast_discovery_diagnostics_failed'))
+    } finally {
+      setPassiveDiagnosticLoading(false)
     }
   }
 
@@ -1650,10 +1674,31 @@ export default function Settings() {
                     {t('multicast_discovery_capture_hint')}
                   </p>
                 </div>
-                <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
-                  {t('multicast_discovery_capture_30s')}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={runPassiveDiscoveryDiagnostics} loading={passiveDiagnosticLoading}>
+                    {t('multicast_discovery_diagnostics_10s')}
+                  </Button>
+                  <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
+                    {t('multicast_discovery_capture_30s')}
+                  </Button>
+                </div>
               </div>
+              {passiveCaptureReport && (
+                <div className="rounded-lg border border-border bg-surface2/35 p-3 text-xs text-text-subtle">
+                  <div className="mb-2 font-medium text-text-muted">{t('multicast_discovery_last_diagnostic')}</div>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <div>{t('multicast_discovery_packets_seen')}: <span className="text-text-base">{passiveCaptureReport.packets_seen}</span></div>
+                    <div>{t('multicast_discovery_packets_parsed')}: <span className="text-text-base">{passiveCaptureReport.packets_parsed}</span></div>
+                    <div>{t('multicast_discovery_observations_stored')}: <span className="text-text-base">{passiveCaptureReport.observations_stored}</span></div>
+                    <div>{t('multicast_discovery_duplicates')}: <span className="text-text-base">{passiveCaptureReport.duplicates_skipped}</span></div>
+                    <div>{t('multicast_discovery_protocols')}: <span className="text-text-base">{passiveCaptureReport.protocols.join(', ')}</span></div>
+                    <div>{t('multicast_discovery_filter')}: <span className="text-text-base">{passiveCaptureReport.filter || '-'}</span></div>
+                  </div>
+                  {passiveCaptureReport.errors.length > 0 && (
+                    <div className="mt-2 text-danger">{passiveCaptureReport.errors.join(' · ')}</div>
+                  )}
+                </div>
+              )}
               <div className="rounded-lg border border-border bg-surface2/35 p-3">
                 <label className="flex items-start gap-3">
                   <input

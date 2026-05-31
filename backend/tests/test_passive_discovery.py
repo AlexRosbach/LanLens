@@ -1,9 +1,11 @@
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345")
 
-from backend.services.passive_discovery import parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload
+import backend.services.passive_discovery as passive_discovery
+from backend.services.passive_discovery import capture_passive_discovery_report, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload
 
 try:
     from scapy.layers.dns import DNS, DNSQR, DNSRR
@@ -15,6 +17,46 @@ except Exception:
 
 
 class PassiveDiscoveryTests(unittest.TestCase):
+    @unittest.skipIf(DNS is None, "scapy is not installed")
+    def test_capture_report_counts_seen_parsed_stored_and_duplicates(self):
+        packet = (
+            Ether(src="AA:BB:CC:DD:EE:FF")
+            / IP(src="192.0.2.20", dst="224.0.0.251")
+            / UDP(sport=5353, dport=5353)
+            / DNS(qdcount=1, qd=DNSQR(qname="_anker_power._udp.local.", qtype="PTR"))
+        )
+
+        class FakeSession:
+            def __init__(self):
+                self.rows = []
+
+            def add(self, row):
+                self.rows.append(row)
+
+            def commit(self):
+                pass
+
+            def rollback(self):
+                pass
+
+            def close(self):
+                pass
+
+        def fake_sniff(prn, **_kwargs):
+            prn(packet)
+            prn(packet)
+
+        with patch.object(passive_discovery, "SessionLocal", FakeSession), patch("scapy.sendrecv.sniff", fake_sniff):
+            report = capture_passive_discovery_report(3, 10, {"mdns"}, reserved=True)
+
+        self.assertEqual(report["filter"], "udp port 5353")
+        self.assertEqual(report["protocols"], ["mdns"])
+        self.assertEqual(report["packets_seen"], 2)
+        self.assertEqual(report["packets_parsed"], 2)
+        self.assertEqual(report["observations_stored"], 1)
+        self.assertEqual(report["duplicates_skipped"], 1)
+        self.assertEqual(report["errors"], [])
+
     @unittest.skipIf(DNS is None, "scapy is not installed")
     def test_mdns_packet_extracts_service_metadata_and_addresses(self):
         packet = (

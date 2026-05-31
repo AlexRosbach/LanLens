@@ -528,7 +528,11 @@ Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin
 
 LanLens stores visible mDNS, SSDP/UPnP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. Per-device discovery tables show observations that can be linked to the device's current IP or MAC address.
 
+Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, duplicates skipped and capture errors. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. Per-device pages can still be empty when global observations are present but cannot be linked to that device's current IP or MAC.
+
 Docker deployments need host networking and raw packet permissions for live capture. If the container runs in bridge mode or without `NET_RAW`, the capture endpoint can start but may not observe LAN multicast traffic.
+
+Passive discovery uses Scapy for packet capture and parsing. The currently installed Scapy package metadata reports `GPL-2.0-only`; keep that license in mind when redistributing LanLens images or changing packet-capture dependencies.
 
 ### Capabilities
 

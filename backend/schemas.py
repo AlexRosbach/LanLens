@@ -167,6 +167,16 @@ class PassiveDiscoveryStatusResponse(BaseModel):
     is_capturing: bool
 
 
+class PassiveDiscoveryCaptureReportResponse(BaseModel):
+    filter: str
+    protocols: List[str]
+    packets_seen: int
+    packets_parsed: int
+    observations_stored: int
+    duplicates_skipped: int
+    errors: List[str] = []
+
+
 class PassiveDiscoveryObservationResponse(BaseModel):
     id: int
     protocol: str

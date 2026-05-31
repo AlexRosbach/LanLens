@@ -277,49 +277,75 @@ def _capture_filter(enabled_protocols: set[str]) -> str:
     return " or ".join(parts) or "udp port 5353 or udp port 1900"
 
 
-def capture_passive_discovery(timeout_seconds: int = 30, packet_limit: int = 100, enabled_protocols: set[str] | None = None, reserved: bool = False) -> int:
+def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: int = 100, enabled_protocols: set[str] | None = None, reserved: bool = False) -> dict[str, Any]:
     if not reserved and not try_begin_capture():
-        return 0
+        return {
+            "filter": "",
+            "protocols": sorted(enabled_protocols or {"mdns", "ssdp", "multicast"}),
+            "packets_seen": 0,
+            "packets_parsed": 0,
+            "observations_stored": 0,
+            "duplicates_skipped": 0,
+            "errors": ["Passive discovery capture already running"],
+        }
     protocols = enabled_protocols or {"mdns", "ssdp", "multicast"}
+    capture_filter = _capture_filter(protocols)
+    report: dict[str, Any] = {
+        "filter": capture_filter,
+        "protocols": sorted(protocols),
+        "packets_seen": 0,
+        "packets_parsed": 0,
+        "observations_stored": 0,
+        "duplicates_skipped": 0,
+        "errors": [],
+    }
     db = SessionLocal()
-    stored = 0
     try:
         from scapy.sendrecv import sniff
 
         seen: set[tuple[str | None, str | None, str | None, str | None]] = set()
 
         def handle(packet: Any) -> None:
-            nonlocal stored
+            report["packets_seen"] += 1
             row = parse_packet(packet, protocols)
             if not row:
                 return
+            report["packets_parsed"] += 1
             key = (row.protocol, row.source_ip, row.destination_ip, row.service_name)
             if key in seen:
+                report["duplicates_skipped"] += 1
                 return
             seen.add(key)
             db.add(row)
-            stored += 1
+            report["observations_stored"] += 1
 
         sniff(
-            filter=_capture_filter(protocols),
+            filter=capture_filter,
             prn=handle,
             timeout=max(3, min(120, timeout_seconds)),
             count=max(1, min(500, packet_limit)),
             store=False,
         )
         db.commit()
-        return stored
+        return report
     except PermissionError as exc:
         logger.warning("Passive discovery needs packet capture permissions: %s", exc)
         db.rollback()
-        return 0
+        report["errors"].append(f"Packet capture permission error: {exc}")
+        return report
     except Exception as exc:
         logger.warning("Passive discovery capture failed: %s", exc)
         db.rollback()
-        return 0
+        report["errors"].append(f"Packet capture failed: {exc}")
+        return report
     finally:
         db.close()
         _end_capture()
+
+
+def capture_passive_discovery(timeout_seconds: int = 30, packet_limit: int = 100, enabled_protocols: set[str] | None = None, reserved: bool = False) -> int:
+    report = capture_passive_discovery_report(timeout_seconds, packet_limit, enabled_protocols, reserved)
+    return int(report.get("observations_stored") or 0)
 
 
 def observation_to_response(row: PassiveDiscoveryObservation) -> dict[str, Any]:
