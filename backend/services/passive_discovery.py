@@ -329,6 +329,7 @@ def upsert_passive_observation(db: Session, row: PassiveDiscoveryObservation) ->
     )
     key = observation_signature(row)
     observed_at = row.observed_at or datetime.utcnow()
+    row.observed_at = observed_at
     for existing in candidates:
         if observation_signature(existing) != key:
             continue
@@ -336,7 +337,6 @@ def upsert_passive_observation(db: Session, row: PassiveDiscoveryObservation) ->
         existing.source_mac = row.source_mac or existing.source_mac
         existing.metadata_json = row.metadata_json or existing.metadata_json
         return False
-    row.observed_at = observed_at
     db.add(row)
     return True
 
