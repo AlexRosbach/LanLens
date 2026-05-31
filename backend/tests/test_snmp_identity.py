@@ -262,6 +262,17 @@ class SnmpIdentityTests(unittest.TestCase):
                 switch_id=switch.id,
                 mac_address=client_device.mac_address,
                 if_index=1,
+                last_seen_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            interface_only_result = _build_switch_port_visualization(db, switch)
+            self.assertFalse(interface_only_result["has_visualization"])
+
+            db.add(SnmpMacTableEntry(
+                switch_id=switch.id,
+                mac_address=client_device.mac_address,
+                if_index=1,
                 vlan="20",
                 last_seen_at=datetime.utcnow(),
             ))

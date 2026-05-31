@@ -105,10 +105,13 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
         .all()
     )
 
+    has_mac_vlan_context = False
     endpoints_by_if_index: dict[int, list[dict]] = {}
     for entry, device in mac_entries:
         if entry.if_index is None:
             continue
+        if entry.vlan:
+            has_mac_vlan_context = True
         endpoints_by_if_index.setdefault(entry.if_index, []).append({
             "mac_address": entry.mac_address,
             "vlan": entry.vlan or "",
@@ -136,7 +139,7 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
 
     return {
         "switch": _switch_response(switch, interface_count=len(interfaces), mac_count=len(mac_entries)),
-        "has_visualization": bool(interfaces and mac_entries),
+        "has_visualization": bool(interfaces and has_mac_vlan_context),
         "ports": ports,
     }
 

@@ -10,7 +10,7 @@ All notable changes to this project should be documented in this file.
 - Added backend plugin status endpoints that report available plugin modules and enabled discovery protocols.
 - Added passive multicast discovery storage for observed protocol metadata, including generic IPv4 multicast packets in addition to recognized OSPF/VRRP/HSRP control-plane traffic.
 - Added visible passive-discovery capture and per-device mDNS/SSDP/multicast observations.
-- Added a reachable network map page with SNMP switch-port topology mappings.
+- Added reachable device-detail SNMP switch-port topology mappings.
 - Added SNMP switch, port and VLAN identity to device detail pages.
 - Added a device-detail SNMP switch-port visualization for switches with interface plus MAC/VLAN table data, including active/inactive port state, hover endpoint context and click-through to learned devices.
 - Expanded the default i-doit sync mapping so notes and descriptions write to the global description, operating-system text writes to the OS description, and serial numbers write to the model category.
