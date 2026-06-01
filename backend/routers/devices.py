@@ -7,17 +7,17 @@ from datetime import datetime, timezone
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-
-logger = logging.getLogger(__name__)
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PortScan, Segment, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIpHistoryResponse,
     DevicePingSampleResponse,
+    PassiveDiscoveryObservationResponse,
     DeviceListResponse,
     DeviceChangeEventResponse,
     DeviceMaintenanceUpdate,
@@ -35,7 +35,13 @@ from ..services.idoit import build_object_url, get_config as get_idoit_config
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
-from ..services.settings_helpers import is_advanced_feature_enabled
+from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
+from ..services.passive_discovery import deduplicate_observations, linked_devices_for_observations, observation_to_response
+from ..services.plugin_registry import is_plugin_enabled
+from ..services.snmp import bulk_identities_for_devices, identity_for_device
+from .services import _apply_tls_result, _inspect_tls_certificate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -51,6 +57,79 @@ def _parse_ports(raw: str) -> List[PortInfo]:
         return [PortInfo(**p) for p in json.loads(raw or "[]")]
     except Exception:
         return []
+
+
+HTTPS_PORTS = {443, 8443, 9443, 9444, 10443}
+
+
+def _https_port_entries(open_ports: list[dict]) -> list[dict]:
+    entries: list[dict] = []
+    for entry in open_ports:
+        try:
+            port = int(entry.get("port") or 0)
+        except (TypeError, ValueError):
+            continue
+        service = str(entry.get("service") or "").lower()
+        if port in HTTPS_PORTS or "https" in service or "ssl" in service:
+            entries.append({**entry, "port": port})
+    return entries
+
+
+def _ensure_https_service(db: Session, device: Device, port: int) -> Service:
+    service = (
+        db.query(Service)
+        .filter(Service.device_id == device.id, Service.port == port)
+        .order_by(Service.id.asc())
+        .first()
+    )
+    if service:
+        if not service.protocol or service.protocol == "http":
+            service.protocol = "https"
+        if not service.name:
+            service.name = "HTTPS" if port == 443 else f"HTTPS {port}"
+        if not service.url and device.ip_address:
+            suffix = "" if port == 443 else f":{port}"
+            service.url = f"https://{device.ip_address}{suffix}"
+        return service
+
+    suffix = "" if port == 443 else f":{port}"
+    service = Service(
+        device_id=device.id,
+        name="HTTPS" if port == 443 else f"HTTPS {port}",
+        protocol="https",
+        port=port,
+        url=f"https://{device.ip_address}{suffix}" if device.ip_address else None,
+    )
+    db.add(service)
+    db.flush()
+    return service
+
+
+def _auto_check_https_certificate(db: Session, device_id: int, open_ports: list[dict]) -> None:
+    if not is_advanced_feature_enabled(db, "show_tls_checks"):
+        return
+
+    https_entries = _https_port_entries(open_ports)
+    if not https_entries:
+        return
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device or not device.ip_address:
+        return
+
+    for entry in https_entries:
+        port = int(entry["port"])
+        service = _ensure_https_service(db, device, port)
+        try:
+            result = _inspect_tls_certificate(device.ip_address, port, device.hostname or device.ip_address)
+        except Exception as exc:
+            logger.warning("Automatic TLS check failed for device %s port %s: %s", device_id, port, exc)
+            result = {
+                "status": "unavailable",
+                "error": str(exc),
+                "checked_at": datetime.utcnow(),
+            }
+        _apply_tls_result(service, result)
 
 
 def _get_dhcp_range(db: Session):
@@ -175,6 +254,7 @@ def _count_new_devices(db: Session, current_user: User) -> int:
     viewed_subquery = db.query(DeviceView.device_id).filter(DeviceView.user_id == current_user.id)
     return (
         db.query(Device)
+        .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
         .filter(~Device.id.in_(viewed_subquery))
         .count()
@@ -192,6 +272,7 @@ def _device_to_response(
     db: Optional[Session] = None,
     idoit_portal_url: Optional[str] = None,
     idoit_enabled: bool = False,
+    snmp_identities: Optional[dict] = None,
 ) -> DeviceResponse:
     from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
@@ -216,6 +297,11 @@ def _device_to_response(
         idoit_portal_url = cfg.portal_url
         idoit_enabled = cfg.enabled
     idoit_object_id = device.idoit_sync.idoit_object_id if device.idoit_sync else None
+
+    if snmp_identities is not None:
+        snmp_identity = snmp_identities.get(device.id)
+    else:
+        snmp_identity = identity_for_device(db, device) if db is not None and is_advanced_view_enabled(db) else None
 
     return DeviceResponse(
         id=device.id,
@@ -249,6 +335,8 @@ def _device_to_response(
         notifications_muted=bool(device.notifications_muted),
         maintenance_until=device.maintenance_until,
         maintenance_note=device.maintenance_note,
+        is_archived=bool(device.is_archived),
+        archived_at=device.archived_at,
         idoit_enabled=idoit_enabled,
         idoit_sync_enabled=bool(device.idoit_sync_enabled),
         idoit_sync_status=device.idoit_sync.status if device.idoit_sync else "never_synced",
@@ -261,6 +349,12 @@ def _device_to_response(
         latest_scan=_latest_scan_response(device),
         services=[ServiceResponse.model_validate(s) for s in device.services],
         ip_history=ip_history,
+        snmp_switch=(snmp_identity or {}).get("switch_name"),
+        snmp_switch_host=(snmp_identity or {}).get("switch_host"),
+        snmp_interface=(snmp_identity or {}).get("interface_name"),
+        snmp_interface_alias=(snmp_identity or {}).get("interface_alias"),
+        snmp_vlan=(snmp_identity or {}).get("vlan"),
+        snmp_last_seen_at=(snmp_identity or {}).get("last_seen_at"),
     )
 
 
@@ -270,10 +364,16 @@ def list_devices(
     unregistered_only: Optional[bool] = None,
     device_class: Optional[str] = None,
     search: Optional[str] = None,
+    archived_only: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(Device).options(joinedload(Device.idoit_sync))
+
+    if archived_only is True:
+        query = query.filter(Device.is_archived == True)
+    else:
+        query = query.filter(Device.is_archived == False)
 
     if online_only is True:
         query = query.filter(Device.is_online == True)
@@ -299,12 +399,15 @@ def list_devices(
     all_devices = query.order_by(Device.last_seen.desc()).all()
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
 
-    total = db.query(Device).count()
-    online = db.query(Device).filter(Device.is_online == True).count()
+    active_query = db.query(Device).filter(Device.is_archived == False)
+    total = active_query.count()
+    online = active_query.filter(Device.is_online == True).count()
     unregistered = _count_new_devices(db, current_user)
+    archived = db.query(Device).filter(Device.is_archived == True).count()
     dhcp_range = _get_dhcp_range(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
+    snmp_identities = bulk_identities_for_devices(db, all_devices) if is_advanced_view_enabled(db) else {}
 
     # Batch-fetch hardware findings for device list display (cpu, memory, model)
     hardware_summaries: dict = {}
@@ -398,6 +501,7 @@ def list_devices(
                 segment_ranges,
                 idoit_portal_url=idoit_config.portal_url,
                 idoit_enabled=idoit_config.enabled,
+                snmp_identities=snmp_identities,
             )
             for d in all_devices
         ],
@@ -405,6 +509,7 @@ def list_devices(
         online=online,
         offline=total - online,
         unregistered=unregistered,
+        archived=archived,
     )
 
 
@@ -417,18 +522,22 @@ def get_new_devices(
     devices = (
         db.query(Device)
         .options(joinedload(Device.idoit_sync))
+        .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
         .filter(~Device.id.in_(viewed_subquery))
         .order_by(Device.last_seen.desc())
         .all()
     )
-    total = db.query(Device).count()
-    online = db.query(Device).filter(Device.is_online == True).count()
+    active_query = db.query(Device).filter(Device.is_archived == False)
+    total = active_query.count()
+    online = active_query.filter(Device.is_online == True).count()
     unregistered = _count_new_devices(db, current_user)
+    archived = db.query(Device).filter(Device.is_archived == True).count()
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
+    snmp_identities = bulk_identities_for_devices(db, devices) if is_advanced_view_enabled(db) else {}
     return DeviceListResponse(
         items=[
             _device_to_response(
@@ -438,6 +547,7 @@ def get_new_devices(
                 segment_ranges=segment_ranges,
                 idoit_portal_url=idoit_config.portal_url,
                 idoit_enabled=idoit_config.enabled,
+                snmp_identities=snmp_identities,
             )
             for d in devices
         ],
@@ -445,6 +555,7 @@ def get_new_devices(
         online=online,
         offline=total - online,
         unregistered=unregistered,
+        archived=archived,
     )
 
 
@@ -488,6 +599,45 @@ def get_device_ping_history(
         .limit(limit)
         .all()
     )
+
+
+@router.get("/{device_id}/passive-discovery", response_model=List[PassiveDiscoveryObservationResponse])
+def get_device_passive_discovery(
+    device_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if not is_plugin_enabled(db, "passive-discovery"):
+        raise HTTPException(status_code=403, detail="Passive discovery is disabled")
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    filters = []
+    device_ips = {
+        ip_address
+        for (ip_address,) in db.query(DeviceIpHistory.ip_address)
+        .filter(DeviceIpHistory.device_id == device_id)
+        .all()
+        if ip_address
+    }
+    if device.ip_address:
+        device_ips.add(device.ip_address)
+    if device_ips:
+        filters.append(PassiveDiscoveryObservation.source_ip.in_(device_ips))
+    if device.mac_address and not device.mac_address.startswith("ip:"):
+        filters.append(PassiveDiscoveryObservation.source_mac == normalize_mac(device.mac_address))
+    if not filters:
+        return []
+
+    requested_limit = max(1, min(limit, 200))
+    rows = db.query(PassiveDiscoveryObservation).filter(or_(*filters))
+    observations = rows.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(min(requested_limit * 5, 1000)).all()
+    deduped = deduplicate_observations(observations, requested_limit)
+    linked_devices = linked_devices_for_observations(db, deduped)
+    return [observation_to_response(row, linked_device=linked_devices.get(row.id)) for row in deduped]
 
 
 @router.get("/{device_id}/timeline", response_model=List[DeviceChangeEventResponse])
@@ -896,6 +1046,41 @@ def delete_device(
     return MessageResponse(message="Device deleted")
 
 
+@router.post("/{device_id}/archive", response_model=DeviceResponse)
+def archive_device(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if not device.is_archived:
+        device.is_archived = True
+        device.archived_at = datetime.utcnow()
+        device.is_online = False
+        _record_change(
+            db,
+            device.id,
+            "device_archived",
+            "is_archived",
+            False,
+            True,
+            source="user",
+            message="Archived manually from device danger zone",
+        )
+        db.commit()
+    else:
+        db.commit()
+
+    db.refresh(device)
+    dhcp_range = _get_dhcp_range(db)
+    viewed_device_ids = _get_viewed_device_ids(db, current_user)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
+
+
 @router.post("/{device_id}/generate-cmdb-id", response_model=DeviceResponse)
 def regenerate_cmdb_id(
     device_id: int,
@@ -903,6 +1088,9 @@ def regenerate_cmdb_id(
     current_user: User = Depends(get_current_user),
 ):
     """Generate or regenerate a CMDB ID for this device."""
+    if not is_advanced_feature_enabled(db, "show_cmdb_integrations"):
+        raise HTTPException(status_code=403, detail="CMDB integrations are disabled")
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -967,6 +1155,7 @@ async def _do_port_scan(device_id: int, ip: str, port_spec: str = "top:1000") ->
             https_available=result["https_available"],
         )
         db.add(scan)
+        _auto_check_https_certificate(db, device_id, result["open_ports"])
         db.commit()
     finally:
         db.close()
@@ -1065,7 +1254,7 @@ async def _do_single_port_scan(device_id: int, ip: str, port: int) -> None:
                     existing.rdp_available = True
                 elif p["port"] == 80:
                     existing.http_available = True
-                elif p["port"] == 443:
+                elif p["port"] in HTTPS_PORTS or "https" in str(p.get("service") or "").lower() or "ssl" in str(p.get("service") or "").lower():
                     existing.https_available = True
         else:
             # No prior scan — create a new PortScan record
@@ -1079,6 +1268,7 @@ async def _do_single_port_scan(device_id: int, ip: str, port: int) -> None:
             )
             db.add(existing)
 
+        _auto_check_https_certificate(db, device_id, result["open_ports"])
         db.commit()
     finally:
         db.close()

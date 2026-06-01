@@ -3,14 +3,11 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+ARG LANLENS_APP_VERSION=1.5.4
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
 ARG LANLENS_BUILD_CREATED=unknown
-ENV VITE_LANLENS_BUILD_CODE=$LANLENS_BUILD_CODE \
-    VITE_LANLENS_BUILD_COMMIT=$LANLENS_BUILD_COMMIT \
-    VITE_LANLENS_BUILD_BRANCH=$LANLENS_BUILD_BRANCH \
-    VITE_LANLENS_BUILD_CREATED=$LANLENS_BUILD_CREATED
 
 # Copy package files first for layer caching
 COPY frontend/package.json ./
@@ -20,11 +17,19 @@ COPY frontend/package-lock.json* ./
 RUN [ -f package-lock.json ] && npm ci --silent || npm install --silent
 
 COPY frontend/ ./
+RUN printf "export const APP_VERSION = '%s'\nexport const GITHUB_REPO = 'AlexRosbach/LanLens'\nexport const BUILD_CODE = '%s'\nexport const BUILD_COMMIT = '%s'\nexport const BUILD_BRANCH = '%s'\nexport const BUILD_CREATED = '%s'\n" \
+    "$LANLENS_APP_VERSION" \
+    "$LANLENS_BUILD_CODE" \
+    "$LANLENS_BUILD_COMMIT" \
+    "$LANLENS_BUILD_BRANCH" \
+    "$LANLENS_BUILD_CREATED" \
+    > src/version.ts
 RUN npm run build
 
 # ─── Stage 2: Runtime image ───────────────────────────────────────────────────
 FROM python:3.12-slim
 
+ARG LANLENS_APP_VERSION=1.5.4
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
@@ -32,10 +37,10 @@ ARG LANLENS_BUILD_CREATED=unknown
 
 LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version="1.5.3" \
+      org.opencontainers.image.version=$LANLENS_APP_VERSION \
       org.opencontainers.image.revision=$LANLENS_BUILD_COMMIT \
       org.opencontainers.image.created=$LANLENS_BUILD_CREATED \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="MIT AND GPL-2.0-only AND GPL-3.0-only AND LGPL-2.1-only AND Apache-2.0" \
       org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 
 # System dependencies + Python build tools (gcc needed for netifaces C extension).
@@ -66,6 +71,13 @@ COPY backend/requirements.txt /app/backend/requirements.txt
 
 # Copy backend source
 COPY backend/ /app/backend/
+RUN printf 'APP_VERSION = "%s"\nBUILD_CODE = "%s"\nBUILD_COMMIT = "%s"\nBUILD_BRANCH = "%s"\nBUILD_CREATED = "%s"\n' \
+    "$LANLENS_APP_VERSION" \
+    "$LANLENS_BUILD_CODE" \
+    "$LANLENS_BUILD_COMMIT" \
+    "$LANLENS_BUILD_BRANCH" \
+    "$LANLENS_BUILD_CREATED" \
+    > /app/backend/version.py
 
 # Copy built frontend from Stage 1
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
@@ -94,10 +106,6 @@ ENV DB_PATH=/data/lanlens.db \
     LANLENS_PORT=7765 \
     BACKEND_PORT=17765 \
     TZ=UTC \
-    LANLENS_BUILD_CODE=$LANLENS_BUILD_CODE \
-    LANLENS_BUILD_COMMIT=$LANLENS_BUILD_COMMIT \
-    LANLENS_BUILD_BRANCH=$LANLENS_BUILD_BRANCH \
-    LANLENS_BUILD_CREATED=$LANLENS_BUILD_CREATED \
     PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

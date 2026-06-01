@@ -24,20 +24,28 @@ SOFTWARE.
 
 THIRD-PARTY DEPENDENCY NOTICE
 
-This software uses the following GPL-licensed libraries. When distributing
-this software or a derivative work, you must comply with the terms of the
-GNU General Public License v2.0 for those dependencies:
+This software uses third-party libraries with their own licenses. When
+distributing this software, container images, packaged builds or derivative
+works, you must comply with the licenses of bundled dependencies as well as
+this MIT license.
 
-  - scapy (https://scapy.net/) — GPL-2.0
+Key non-MIT or copyleft dependencies currently include:
+
+  - scapy (https://scapy.net/) — GPL-2.0-only
     Used for: ARP network scanning
     Source: https://github.com/secdev/scapy
 
-  - python-nmap (https://pypi.org/project/python-nmap/) — GPL-2.0
+  - python-nmap (https://pypi.org/project/python-nmap/) — GPL-3.0
     Used for: Per-device port scanning
     Source: https://bitbucket.org/xael/python-nmap
 
-All other dependencies are licensed under permissive licenses (MIT, BSD,
-Apache 2.0) and do not impose additional distribution requirements.
+  - paramiko (https://www.paramiko.org/) — LGPL-2.1
+    Used for: SSH-related connectivity support
+    Source: https://github.com/paramiko/paramiko
 
-The full text of the GPL-2.0 license is available at:
-https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+  - manuf (https://pypi.org/project/manuf/) — Apache-2.0 or GPL-3.0
+    Used for: MAC vendor lookup data
+    Source: https://github.com/coolbho3k/manuf
+
+See THIRD_PARTY_NOTICES.md for the dependency license matrix and
+redistribution notes.

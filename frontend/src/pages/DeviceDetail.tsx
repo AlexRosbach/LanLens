@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Device, DeviceIpHistoryEntry, DevicePingSample, devicesApi } from '../api/devices'
+import { Device, DeviceIpHistoryEntry, DevicePingSample, PassiveDiscoveryObservation, devicesApi } from '../api/devices'
 import { idoitApi } from '../api/idoit'
 import type { ChangeEvent } from '../api/inventory'
 import { servicesApi } from '../api/services'
+import { SnmpSwitchPort, SnmpSwitchPortsResponse, snmpApi } from '../api/snmp'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
@@ -18,6 +19,7 @@ import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
+import { dedupePassiveObservations } from '../utils/passiveDiscovery'
 
 interface EditState {
   label: string
@@ -70,14 +72,51 @@ function toEditState(d: Device): EditState {
   }
 }
 
-function InfoRow({ label, value, mono = false }: { label: string; value?: string | null; mono?: boolean }) {
+function InfoRow({ label, value, mono = false, tone = 'default' }: { label: string; value?: string | null; mono?: boolean; tone?: 'default' | 'success' | 'warning' }) {
   if (!value) return null
+  const toneClass = tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : 'text-text-muted'
   return (
     <div>
       <p className="text-text-subtle text-xs mb-0.5">{label}</p>
-      <p className={`text-text-muted text-xs ${mono ? 'font-mono' : ''}`}>{value}</p>
+      <p className={`${toneClass} text-xs ${mono ? 'font-mono' : ''}`}>{value}</p>
     </div>
   )
+}
+
+function DetailMetric({ label, value, tone = 'default' }: { label: string; value: string | number; tone?: 'default' | 'success' | 'danger' | 'primary' }) {
+  const toneClass = {
+    default: 'text-text-base',
+    success: 'text-success',
+    danger: 'text-danger',
+    primary: 'text-primary',
+  }[tone]
+
+  return (
+    <div className="rounded-lg border border-border bg-surface2/45 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-text-subtle">{label}</p>
+      <p className={`mt-1 truncate text-sm font-semibold ${toneClass}`}>{value}</p>
+    </div>
+  )
+}
+
+function portDisplayName(port: SnmpSwitchPort) {
+  return port.alias || port.name || port.description || `ifIndex ${port.if_index}`
+}
+
+function passiveMetadataEntries(row: PassiveDiscoveryObservation) {
+  return Object.entries(row.metadata ?? {})
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)] as const)
+}
+
+function passiveRawPayload(row: PassiveDiscoveryObservation) {
+  return JSON.stringify(row, null, 2)
+}
+
+function passiveInferenceTone(confidence?: string | null) {
+  if (confidence === 'high') return 'text-success border-success/30 bg-success/10'
+  if (confidence === 'medium') return 'text-warning border-warning/30 bg-warning/10'
+  return 'text-text-muted border-border bg-surface2/40'
 }
 
 export default function DeviceDetail() {
@@ -86,15 +125,19 @@ export default function DeviceDetail() {
   const { t, lang } = useI18n()
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showCmdbIntegrations = useUiSettingsStore((state) => state.showCmdbIntegrations)
+  const showPassiveDiscovery = useUiSettingsStore((state) => state.showPassiveDiscovery)
   const showTlsChecks = useUiSettingsStore((state) => state.showTlsChecks)
   const showPingHistory = useUiSettingsStore((state) => state.showPingHistory)
   const [device, setDevice] = useState<Device | null>(null)
   const [ipHistory, setIpHistory] = useState<DeviceIpHistoryEntry[]>([])
   const [pingHistory, setPingHistory] = useState<DevicePingSample[]>([])
+  const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
+  const [switchPorts, setSwitchPorts] = useState<SnmpSwitchPortsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [refreshStatusLoading, setRefreshStatusLoading] = useState(false)
   const [portScanInput, setPortScanInput] = useState('')
@@ -104,6 +147,8 @@ export default function DeviceDetail() {
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
   const [idoitSyncing, setIdoitSyncing] = useState(false)
   const [tlsCheckingIds, setTlsCheckingIds] = useState<number[]>([])
+  const [selectedPassiveObservation, setSelectedPassiveObservation] = useState<PassiveDiscoveryObservation | null>(null)
+  const sectionNavRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -124,9 +169,17 @@ export default function DeviceDetail() {
       if (showPingHistory) {
         devicesApi.getPingHistory(currentDevice.id).then(setPingHistory).catch(() => {})
       }
+      if (showPassiveDiscovery) {
+        devicesApi.getPassiveDiscovery(currentDevice.id).then((rows) => setPassiveObservations(dedupePassiveObservations(rows))).catch(() => {})
+      }
+      if (advancedViewEnabled) {
+        snmpApi.getDevicePorts(currentDevice.id).then(setSwitchPorts).catch(() => setSwitchPorts(null))
+      } else {
+        setSwitchPorts(null)
+      }
       devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
-  }, [id, showPingHistory])
+  }, [advancedViewEnabled, id, showPassiveDiscovery, showPingHistory])
 
   useEffect(() => {
     if (!portScanRunning || !device?.id) return
@@ -205,6 +258,22 @@ export default function DeviceDetail() {
     }
   }
 
+  async function handleArchive() {
+    if (!device || device.is_archived || !confirm(t('device_archive_confirm'))) return
+    setArchiving(true)
+    try {
+      const updated = await devicesApi.archive(device.id)
+      setDevice(updated)
+      setForm(toEditState(updated))
+      setIpHistory(updated.ip_history ?? ipHistory)
+      toast.success(t('device_archived'))
+    } catch {
+      toast.error(t('device_archive_failed'))
+    } finally {
+      setArchiving(false)
+    }
+  }
+
   async function handleRefreshStatus() {
     if (!device) return
     setRefreshStatusLoading(true)
@@ -216,6 +285,9 @@ export default function DeviceDetail() {
       devicesApi.getIpHistory(updated.id).then(setIpHistory).catch(() => {})
       if (showPingHistory) {
         devicesApi.getPingHistory(updated.id).then(setPingHistory).catch(() => {})
+      }
+      if (showPassiveDiscovery) {
+        devicesApi.getPassiveDiscovery(updated.id).then((rows) => setPassiveObservations(dedupePassiveObservations(rows))).catch(() => {})
       }
       devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
@@ -274,6 +346,26 @@ export default function DeviceDetail() {
     }
   }
 
+  function scrollToDeviceSection(sectionId: string) {
+    const target = document.getElementById(sectionId)
+    if (!target) return
+
+    const scroller = target.closest('main')
+    const navHeight = sectionNavRef.current?.getBoundingClientRect().height ?? 0
+    const gap = 18
+
+    if (scroller) {
+      const scrollerRect = scroller.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      const nextTop = scroller.scrollTop + targetRect.top - scrollerRect.top - navHeight - gap
+      scroller.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
+      return
+    }
+
+    const targetTop = window.scrollY + target.getBoundingClientRect().top - navHeight - gap
+    window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' })
+  }
+
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
@@ -289,6 +381,8 @@ export default function DeviceDetail() {
   )
   const navSections = [
     { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
+    { id: 'device-switch-ports', label: t('device_section_switch_ports'), visible: !!switchPorts?.has_visualization },
+    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery },
     { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
     { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
     { id: 'device-tls', label: t('device_section_tls'), visible: showTlsChecks },
@@ -298,6 +392,7 @@ export default function DeviceDetail() {
     { id: 'device-timeline', label: t('device_section_timeline'), visible: true },
   ].filter((section) => section.visible)
   const activeFeatureCount = [
+    showPassiveDiscovery,
     showPingHistory,
     showTlsChecks,
     advancedViewEnabled,
@@ -305,64 +400,94 @@ export default function DeviceDetail() {
   ].filter(Boolean).length
   const showSectionNav = activeFeatureCount >= 2
   const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
+  const openPortCount = device.latest_scan?.open_ports.length ?? 0
+  const visibleSwitchPorts = switchPorts?.has_visualization ? switchPorts.ports : []
+  const selectedPassiveMetadata = selectedPassiveObservation ? passiveMetadataEntries(selectedPassiveObservation) : []
+
   return (
-    <div className="max-w-3xl mx-auto flex flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button onClick={() => navigate('/')} className="text-text-subtle hover:text-text-base transition-colors flex-shrink-0">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div className="w-10 h-10 rounded-xl bg-surface2 border border-border flex items-center justify-center flex-shrink-0">
-            <DeviceClassIcon deviceClass={device.device_class} className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-bold text-text-base">{formatDeviceLabel(device, t('ip_only_host'))}</h1>
-              {device.is_dhcp && (
-                <span className="text-xs bg-primary-dim text-primary border border-primary/20 px-1.5 py-0.5 rounded-full">
-                  {t('badge_dhcp')}
-                </span>
-              )}
-              {device.segment_name && (
-                <span
-                  className="text-xs px-1.5 py-0.5 rounded-full font-medium"
-                  style={{
-                    backgroundColor: (device.segment_color ?? '#6366f1') + '22',
-                    color: device.segment_color ?? '#6366f1',
-                    border: `1px solid ${(device.segment_color ?? '#6366f1')}44`,
-                  }}
-                >
-                  {device.segment_name}
-                </span>
-              )}
+      <Card className="p-0 overflow-hidden">
+        <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="flex min-w-0 flex-col gap-5 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-4">
+                <button onClick={() => navigate('/')} className="mt-3 text-text-subtle hover:text-text-base transition-colors flex-shrink-0">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl border border-border bg-surface2">
+                  <DeviceClassIcon deviceClass={device.device_class} className="w-7 h-7" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h1 className="break-words text-2xl font-bold text-text-base">{formatDeviceLabel(device, t('ip_only_host'))}</h1>
+                    {device.is_dhcp && (
+                      <span className="text-xs bg-primary-dim text-primary border border-primary/20 px-1.5 py-0.5 rounded-full">
+                        {t('badge_dhcp')}
+                      </span>
+                    )}
+                    {device.segment_name && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                        style={{
+                          backgroundColor: (device.segment_color ?? '#6366f1') + '22',
+                          color: device.segment_color ?? '#6366f1',
+                          border: `1px solid ${(device.segment_color ?? '#6366f1')}44`,
+                        }}
+                      >
+                        {device.segment_name}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm text-text-muted">{device.device_class} · {device.vendor ?? t('vendor_unknown')}</p>
+                </div>
+              </div>
+              <div className="flex flex-shrink-0 flex-col items-end gap-2">
+                <Badge variant={device.is_online ? 'success' : 'danger'} dot>
+                  {device.is_online ? t('badge_online') : t('badge_offline')}
+                </Badge>
+                {!device.is_online && (
+                  <Button variant="ghost" size="sm" loading={refreshStatusLoading} onClick={handleRefreshStatus}>
+                    {t('refresh_status')}
+                  </Button>
+                )}
+              </div>
             </div>
-            <p className="text-sm text-text-muted">{device.device_class} · {device.vendor ?? t('vendor_unknown')}</p>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <DetailMetric label={t('ip_address')} value={device.ip_address || t('no_ip')} tone="primary" />
+              <DetailMetric label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} />
+              <DetailMetric label={t('last_seen')} value={formatRelativeTime(device.last_seen, lang)} tone={device.is_online ? 'success' : 'danger'} />
+              <DetailMetric label={t('open_ports')} value={openPortCount} tone={openPortCount > 0 ? 'primary' : 'default'} />
+            </div>
+          </div>
+          <div className="border-t border-border bg-surface2/25 p-5 lg:border-l lg:border-t-0">
+            <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
+            <ConnectButtons device={device} />
+            <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm">
+              <InfoRow label={t('hostname')} value={device.hostname} mono />
+              <InfoRow label={t('vendor')} value={device.vendor} />
+              <InfoRow label={t('first_seen')} value={formatDateTime(device.first_seen)} />
+              <InfoRow label={t('last_seen')} value={formatDateTime(device.last_seen)} />
+            </div>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <Badge variant={device.is_online ? 'success' : 'danger'} dot>
-            {device.is_online ? t('badge_online') : t('badge_offline')}
-          </Badge>
-          {!device.is_online && (
-            <Button variant="ghost" size="sm" loading={refreshStatusLoading} onClick={handleRefreshStatus}>
-              {t('refresh_status')}
-            </Button>
-          )}
-        </div>
-      </div>
+      </Card>
 
       {showSectionNav && (
-        <div className="sticky top-0 z-10 -mx-1 overflow-x-auto border-b border-border bg-background/95 px-1 py-2 backdrop-blur">
-          <div className="flex gap-2">
+        <div
+          ref={sectionNavRef}
+          className="sticky top-0 z-20 -mx-1 rounded-xl border border-border bg-background/95 p-1.5 shadow-lg shadow-black/10 backdrop-blur"
+        >
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {navSections.map((section) => (
               <button
                 key={section.id}
                 type="button"
-                onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                className="shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-primary hover:text-primary"
+                onClick={() => scrollToDeviceSection(section.id)}
+                className="min-h-8 shrink-0 whitespace-nowrap rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium leading-5 text-text-muted transition-colors hover:border-primary hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 {section.label}
               </button>
@@ -370,12 +495,6 @@ export default function DeviceDetail() {
           </div>
         </div>
       )}
-
-      {/* Connect */}
-      <Card>
-        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('connection_info')}</h2>
-        <ConnectButtons device={device} />
-      </Card>
 
       {/* Identity & Documentation */}
       <Card id="device-documentation" className={sectionAnchorClass}>
@@ -488,6 +607,10 @@ export default function DeviceDetail() {
               <InfoRow label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} mono />
               <InfoRow label={t('hostname')} value={device.hostname} mono />
               <InfoRow label={t('vendor')} value={device.vendor} />
+              <InfoRow label={t('idoit_export_snmp_switch')} value={device.snmp_switch} />
+              <InfoRow label={t('idoit_export_snmp_port')} value={device.snmp_interface || device.snmp_interface_alias} />
+              <InfoRow label={t('idoit_export_snmp_vlan')} value={device.snmp_vlan} />
+              <InfoRow label={t('snmp_last_seen')} value={device.snmp_last_seen_at ? formatRelativeTime(device.snmp_last_seen_at, lang) : null} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />
               <InfoRow label={t('os_info')} value={device.os_info} />
               {device.cmdb_id && (
@@ -577,6 +700,65 @@ export default function DeviceDetail() {
         )}
       </Card>
 
+      {visibleSwitchPorts.length > 0 && switchPorts?.switch && (
+        <Card id="device-switch-ports" className={sectionAnchorClass}>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-text-muted">{t('switch_port_visualization')}</h2>
+              <p className="mt-1 text-xs text-text-subtle">
+                {t('switch_port_visualization_hint', {
+                  switch: switchPorts.switch.name,
+                  count: visibleSwitchPorts.length,
+                })}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-text-subtle">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-success" />{t('active')}</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-surface2" />{t('inactive')}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-12">
+            {visibleSwitchPorts.map((port) => {
+              const linkedEndpoint = port.endpoints.find((endpoint) => endpoint.device_id)
+              const titleLines = [
+                portDisplayName(port),
+                port.oper_status ? `${t('col_status')}: ${port.oper_status}` : '',
+                port.endpoints.length > 0
+                  ? port.endpoints.map((endpoint) => {
+                    const endpointLabel = endpoint.device_label || endpoint.mac_address
+                    const vlan = endpoint.vlan ? `VLAN ${endpoint.vlan}` : ''
+                    return [endpointLabel, endpoint.mac_address, vlan].filter(Boolean).join(' · ')
+                  }).join('\n')
+                  : t('switch_port_no_endpoint'),
+              ].filter(Boolean)
+              return (
+                <button
+                  key={port.if_index}
+                  type="button"
+                  title={titleLines.join('\n')}
+                  disabled={!linkedEndpoint?.device_id}
+                  onClick={() => linkedEndpoint?.device_id && navigate(`/devices/${linkedEndpoint.device_id}`)}
+                  className={`min-h-20 rounded-lg border px-2 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                    port.is_active
+                      ? 'border-success/40 bg-success/10 hover:border-success'
+                      : 'border-border bg-surface2/40 hover:border-text-subtle'
+                  } ${linkedEndpoint?.device_id ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  <span className={`mb-1 block h-2 rounded-full ${port.is_active ? 'bg-success' : 'bg-surface2'}`} />
+                  <span className="block truncate text-xs font-semibold text-text-base">{port.name || `#${port.if_index}`}</span>
+                  <span className="mt-1 block truncate text-[11px] text-text-subtle">{port.alias || port.description || `ifIndex ${port.if_index}`}</span>
+                  <span className="mt-2 block truncate text-[11px] text-text-muted">
+                    {port.endpoints.length > 0
+                      ? t('switch_port_endpoint_count', { count: port.endpoints.length })
+                      : t('switch_port_empty')}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+
       {/* IP History */}
       <Card id="device-ip-history" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('ip_history')}</h2>
@@ -607,6 +789,156 @@ export default function DeviceDetail() {
           </div>
         )}
       </Card>
+
+      {showPassiveDiscovery && (
+      <Card id="device-passive-discovery" className={sectionAnchorClass}>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-sm font-semibold text-text-muted">{t('multicast_discovery_title')}</h2>
+          {passiveObservations.length > 0 && (
+            <span className="text-xs text-text-subtle">
+              {t('multicast_discovery_unique_observations', { count: passiveObservations.length })}
+            </span>
+          )}
+        </div>
+        {passiveObservations.length === 0 ? (
+          <p className="text-sm text-text-subtle">
+            {t('multicast_discovery_empty_device')}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_protocol')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_service')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_type')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_inferred_class')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_summary')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('last_seen')}</th>
+                  <th className="py-2 text-right font-medium">{t('details')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {passiveObservations.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b border-border transition-colors last:border-0 hover:bg-surface2/55"
+                  >
+                    <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol}</td>
+                    <td className="py-2 pr-3 text-text-muted">{row.service_name || '—'}</td>
+                    <td className="py-2 pr-3 text-text-subtle">{row.service_type || '—'}</td>
+                    <td className="py-2 pr-3">
+                      {row.inferred_device_class ? (
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${passiveInferenceTone(row.inference_confidence)}`}>
+                          {row.inferred_device_class}
+                          {row.inference_confidence ? ` · ${row.inference_confidence}` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-text-subtle">—</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-text-subtle">{row.summary || '—'}</td>
+                    <td className="py-2 pr-3 text-text-subtle">{formatRelativeTime(row.observed_at, lang)}</td>
+                    <td className="py-2 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedPassiveObservation(row)}
+                        aria-label={t('multicast_discovery_show_details', { protocol: row.protocol })}
+                      >
+                        {t('details')}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      )}
+
+      {selectedPassiveObservation && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="passive-discovery-detail-title"
+          onClick={() => setSelectedPassiveObservation(null)}
+        >
+          <div
+            className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-text-subtle">{t('multicast_discovery_detail')}</p>
+                <h3 id="passive-discovery-detail-title" className="mt-1 text-lg font-semibold text-text-base">
+                  {t('multicast_discovery_observation_title', { protocol: selectedPassiveObservation.protocol.toUpperCase() })}
+                </h3>
+              </div>
+              <button
+                type="button"
+                aria-label={t('multicast_discovery_close_details')}
+                onClick={() => setSelectedPassiveObservation(null)}
+                className="rounded-lg border border-border bg-surface2 px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto p-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InfoRow label={t('multicast_discovery_protocol')} value={selectedPassiveObservation.protocol} mono />
+                <InfoRow label={t('last_seen')} value={formatDateTime(selectedPassiveObservation.observed_at)} />
+                <InfoRow label={t('multicast_discovery_source_ip')} value={selectedPassiveObservation.source_ip} mono />
+                <InfoRow label={t('multicast_discovery_source_mac')} value={selectedPassiveObservation.source_mac} mono />
+                <InfoRow label={t('multicast_discovery_destination_ip')} value={selectedPassiveObservation.destination_ip} mono />
+                <InfoRow label={t('multicast_discovery_linked_device')} value={selectedPassiveObservation.linked_device_label} />
+                <InfoRow label={t('multicast_discovery_service')} value={selectedPassiveObservation.service_name} />
+                <InfoRow label={t('multicast_discovery_type')} value={selectedPassiveObservation.service_type} />
+                <InfoRow
+                  label={t('multicast_discovery_inferred_class')}
+                  value={selectedPassiveObservation.inferred_device_class}
+                  tone={selectedPassiveObservation.inference_confidence === 'high' ? 'success' : selectedPassiveObservation.inference_confidence === 'medium' ? 'warning' : 'default'}
+                />
+                <InfoRow label={t('multicast_discovery_inference_confidence')} value={selectedPassiveObservation.inference_confidence} />
+                <div className="sm:col-span-2">
+                  <InfoRow label={t('multicast_discovery_summary')} value={selectedPassiveObservation.summary} />
+                </div>
+                {selectedPassiveObservation.inference_reasons && selectedPassiveObservation.inference_reasons.length > 0 && (
+                  <div className="sm:col-span-2">
+                    <InfoRow label={t('multicast_discovery_inference_reason')} value={selectedPassiveObservation.inference_reasons.join(', ')} />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 border-t border-border pt-4">
+                <h4 className="mb-3 text-sm font-semibold text-text-muted">{t('details')}</h4>
+                {selectedPassiveMetadata.length === 0 ? (
+                  <p className="text-sm text-text-subtle">{t('multicast_discovery_no_metadata')}</p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {selectedPassiveMetadata.map(([key, value]) => (
+                      <div key={key} className="rounded-lg border border-border bg-surface2/40 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-text-subtle">{key.split('_').join(' ')}</p>
+                        <p className="mt-1 break-words font-mono text-xs text-text-muted">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 border-t border-border pt-4">
+                <h4 className="mb-3 text-sm font-semibold text-text-muted">{t('multicast_discovery_raw')}</h4>
+                <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-5 text-text-muted">
+                  {passiveRawPayload(selectedPassiveObservation)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ping history */}
       {showPingHistory && (
@@ -862,9 +1194,23 @@ export default function DeviceDetail() {
         <p className="text-xs text-text-subtle mb-3">
           {t('delete_device_warning')}
         </p>
-        <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
-          {t('delete_device')}
-        </Button>
+        <p className="text-xs text-text-subtle mb-3">
+          {t('archive_device_warning')}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            loading={archiving}
+            disabled={Boolean(device?.is_archived)}
+            onClick={handleArchive}
+          >
+            {device?.is_archived ? t('device_already_archived') : t('archive_device')}
+          </Button>
+          <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
+            {t('delete_device')}
+          </Button>
+        </div>
       </Card>
     </div>
   )

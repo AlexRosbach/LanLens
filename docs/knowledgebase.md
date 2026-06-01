@@ -39,13 +39,15 @@ LanLens uses conservative i-doit standard categories for the initial mapping:
 | Vendor | `C__CATG__MODEL.manufacturer` |
 | Asset tag / CMDB ID | `C__CATG__ACCOUNTING.inventory_no` |
 | Purpose | `C__CATG__GLOBAL.purpose` |
-| OS info | `C__CATG__OPERATING_SYSTEM.assigned_version` |
+| OS info | `C__CATG__OPERATING_SYSTEM.description` |
+| Description / notes | `C__CATG__GLOBAL.description` |
 | CPU | `C__CATG__CPU.title` plus derived standard CPU fields when accepted |
 | Model | `C__CATG__MODEL.title` |
+| Serial number | `C__CATG__MODEL.serial` |
 | Memory | `C__CATG__MEMORY.title` plus derived standard memory fields when accepted |
 | Disks | `C__CATG__DRIVE.title` plus derived standard drive fields when accepted |
 
-Notes, services, containers, hypervisor data, licenses, relationships and the full LanLens inventory are intentionally empty in the default mapping. Choose a writable standard or custom i-doit field before mapping those values. This avoids writing large LanLens text dumps into generic i-doit descriptions.
+Services, containers, hypervisor data, licenses, relationships and the full LanLens inventory are intentionally empty in the default mapping. Choose a writable standard or custom i-doit field before mapping those values. This avoids writing large LanLens text dumps into generic i-doit descriptions.
 
 ### Sync logs show the device ID only
 

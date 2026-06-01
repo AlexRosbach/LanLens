@@ -15,6 +15,7 @@ from ..models import Device, DeviceChangeEvent, ScanNode, Segment, Setting, User
 from ..services.device_classifier import classify_device
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.scanner import _find_matching_segment, _is_ip_only_identifier, _pseudo_mac_for_ip, record_device_ip_history
+from ..services.settings_helpers import is_advanced_view_enabled
 
 router = APIRouter(prefix="/api/scan-nodes", tags=["scan-nodes"])
 
@@ -81,6 +82,11 @@ def _install_command(db: Session, node: ScanNode, token: str) -> str:
     return " ".join(shlex.quote(part) for part in parts)
 
 
+def _require_scan_nodes_enabled(db: Session) -> None:
+    if not is_advanced_view_enabled(db):
+        raise HTTPException(status_code=403, detail="Scan Nodes are disabled")
+
+
 def _extract_token(authorization: Optional[str], node_token: Optional[str]) -> str:
     if node_token:
         return node_token.strip()
@@ -91,12 +97,14 @@ def _extract_token(authorization: Optional[str], node_token: Optional[str]) -> s
 
 @router.get("")
 def list_scan_nodes(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_scan_nodes_enabled(db)
     nodes = db.query(ScanNode).order_by(ScanNode.name.asc()).all()
     return [_node_response(node) for node in nodes]
 
 
 @router.post("")
 def create_scan_node(payload: ScanNodeCreate, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_scan_nodes_enabled(db)
     name = payload.name.strip()
     if db.query(ScanNode).filter(ScanNode.name == name).first():
         raise HTTPException(status_code=409, detail="Scan node name already exists")
@@ -116,6 +124,7 @@ def create_scan_node(payload: ScanNodeCreate, db: Session = Depends(get_db), _: 
 
 @router.post("/{node_id}/rotate-token")
 def rotate_scan_node_token(node_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_scan_nodes_enabled(db)
     node = db.query(ScanNode).filter(ScanNode.id == node_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Scan node not found")
@@ -130,6 +139,7 @@ def rotate_scan_node_token(node_id: int, db: Session = Depends(get_db), _: User 
 
 @router.delete("/{node_id}")
 def delete_scan_node(node_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_scan_nodes_enabled(db)
     node = db.query(ScanNode).filter(ScanNode.id == node_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Scan node not found")
@@ -146,6 +156,7 @@ def ingest_scan_node_results(
     x_lanlens_node_token: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
+    _require_scan_nodes_enabled(db)
     token = _extract_token(authorization, x_lanlens_node_token)
     if not token:
         raise HTTPException(status_code=401, detail="Missing scan node token")

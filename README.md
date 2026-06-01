@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.3-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.4-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -25,6 +25,7 @@ LanLens is built for small self-hosted, homelab, and lightweight IT environments
 
 - Discover devices on the local Layer-2 network with ARP scanning
 - Track online/offline state, DHCP range membership, IP history, and open services
+- Archive inactive unregistered discoveries automatically and keep them in a dedicated archived view
 - Document devices with owner, location, purpose, OS, asset tag, notes, and CMDB ID
 - Group networks into segments and keep device lists readable
 - Connect quickly through SSH, RDP, HTTP, and HTTPS shortcuts
@@ -55,9 +56,15 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 |---|
 | ![LanLens feature visibility settings](docs/screenshots/lanlens-settings-features.png) |
 
+Feature switches hide optional expert modules and enforce the same state in the backend, including related authenticated APIs and background jobs.
+
 | CMDB / i-doit settings | Editable i-doit CSV export |
 |---|---|
 | ![LanLens CMDB and i-doit settings](docs/screenshots/lanlens-idoit-settings.png) | ![LanLens editable i-doit CSV export](docs/screenshots/lanlens-idoit-export.png) |
+
+| SNMP switch port visualization |
+|---|
+| ![LanLens SNMP switch port visualization](docs/screenshots/lanlens-snmp-switch-ports.svg) |
 
 ---
 
@@ -138,7 +145,7 @@ For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, S
 Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens).
 
 ```bash
-docker pull alexrosbach/lanlens:1.5.3
+docker pull alexrosbach/lanlens:1.5.4
 ```
 
 Use release tags for reproducible deployments. `latest` tracks the newest published build.
@@ -179,4 +186,4 @@ npm run dev
 
 MIT License, see [LICENSE](LICENSE).
 
-Dependency note: LanLens uses `scapy` and `python-nmap`. Check their licenses when redistributing bundled builds.
+Dependency note: LanLens uses GPL/LGPL and dual-licensed libraries for network discovery and remote connectivity features. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing bundled builds or Docker images.

@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.5.3'
+export const APP_VERSION = '1.5.4'
 export const GITHUB_REPO = 'AlexRosbach/LanLens'
 export const BUILD_CODE = import.meta.env.VITE_LANLENS_BUILD_CODE || 'dev'
 export const BUILD_COMMIT = import.meta.env.VITE_LANLENS_BUILD_COMMIT || 'unknown'

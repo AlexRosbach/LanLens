@@ -117,6 +117,25 @@ def _get_webhook_config(db: Session):
     }
 
 
+def _get_server_url(db: Session) -> str:
+    row = db.query(Setting).filter(Setting.key == "server_url").first()
+    return (row.value or "").rstrip("/") if row else ""
+
+
+def notification_device_path(notification: Notification) -> Optional[str]:
+    if notification.device_id:
+        return f"/devices/{notification.device_id}"
+    return None
+
+
+def notification_device_url(db: Session, notification: Notification) -> Optional[str]:
+    server_url = _get_server_url(db)
+    device_path = notification_device_path(notification)
+    if server_url and device_path:
+        return f"{server_url}{device_path}"
+    return None
+
+
 def _notification_title_and_message(notification: Notification) -> tuple[str, str]:
     device = notification.device
     if device:
@@ -152,14 +171,12 @@ async def send_telegram_for_notification(db: Session, notification: Notification
     if not config["enabled"] or not config["bot_token"] or not config["chat_id"]:
         return False
 
-    server_url_row = db.query(Setting).filter(Setting.key == "server_url").first()
-    server_url = (server_url_row.value or "").rstrip("/") if server_url_row else ""
-
     device = notification.device
     if device:
         link_line = ""
-        if server_url and device.id:
-            link_line = f'\n\n<a href="{server_url}/devices/{device.id}">Open in LanLens →</a>'
+        device_url = notification_device_url(db, notification)
+        if device_url:
+            link_line = f'\n\n<a href="{device_url}">Open in LanLens →</a>'
         mac_label = IP_ONLY_HOST_LABEL if device.mac_address and device.mac_address.startswith("ip:") else device.mac_address
         text = (
             f"<b>LanLens — New Device Detected</b>\n\n"
@@ -203,14 +220,26 @@ async def send_webhook_for_notification(db: Session, notification: Notification)
         return False
 
     title, message = _notification_title_and_message(notification)
+    device_url = notification_device_url(db, notification)
+    device_path = notification_device_path(notification)
+    if device_url:
+        message = f"{message}\n\nOpen in LanLens: {device_url}"
     payload = {
         "title": title,
         "message": message,
         "priority": 5,
         "event_type": notification.event_type,
         "device_id": notification.device_id,
+        "device_path": device_path,
+        "device_url": device_url,
+        "url": device_url,
         "source": "LanLens",
     }
+    if device_url:
+        payload["extras"] = {
+            "client::display": {"contentType": "text/markdown"},
+            "client::notification": {"click": {"url": device_url}},
+        }
     return await _send_webhook(config["url"], payload)
 
 

@@ -7,6 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from ..database import SessionLocal
 from .idoit import get_config, sync_all_registered_devices_to_idoit
+from .settings_helpers import is_advanced_feature_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ async def _sync_job() -> None:
     db = SessionLocal()
     try:
         cfg = get_config(db)
-        if not cfg.enabled or not cfg.auto_sync_enabled:
+        if not is_advanced_feature_enabled(db, "show_cmdb_integrations") or not cfg.enabled or not cfg.auto_sync_enabled:
             return
         result = await sync_all_registered_devices_to_idoit(db, mode="auto", skip_unchanged=True)
         if result.get("failure"):

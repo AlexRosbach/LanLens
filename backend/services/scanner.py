@@ -25,6 +25,7 @@ from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
+from .device_retention import apply_device_retention
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,8 @@ MISSED_SCAN_MULTIPLIER = 3
 NOTIFICATION_RETRY_BACKOFF_MINUTES = 5
 NOTIFICATION_RETRY_SETTING = "notification_delivery_last_failure_at"
 PING_SAMPLE_RETENTION_PER_DEVICE = 500
+PING_LATENCY_SAMPLE_LIMIT = 256
+PING_MONITOR_SAMPLE_LIMIT = 512
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -233,6 +236,61 @@ def record_ping_sample(
     ]
     if old_ids:
         db.query(DevicePingSample).filter(DevicePingSample.id.in_(old_ids)).delete(synchronize_session=False)
+
+
+async def _measure_scan_latencies(results: List[DiscoveryResult]) -> Dict[str, Optional[float]]:
+    """Measure ICMP latency for discovered hosts without blocking once per device."""
+    unique_ips = sorted({result.ip for result in results if result.ip})[:PING_LATENCY_SAMPLE_LIMIT]
+    loop = asyncio.get_running_loop()
+    tasks = [loop.run_in_executor(None, _ping_host, ip, 1) for ip in unique_ips]
+    values = await asyncio.gather(*tasks, return_exceptions=True)
+    latencies: Dict[str, Optional[float]] = {}
+    for ip, value in zip(unique_ips, values):
+        latencies[ip] = value if isinstance(value, (int, float)) else None
+    return latencies
+
+
+async def monitor_known_device_pings(source: str = "monitor") -> int:
+    """Record reachability samples for known devices, independent of discovery."""
+    db = SessionLocal()
+    try:
+        devices = (
+            db.query(Device)
+            .filter(Device.ip_address.isnot(None), Device.ignored == False, Device.is_archived == False)
+            .order_by(Device.id.asc())
+            .limit(PING_MONITOR_SAMPLE_LIMIT)
+            .all()
+        )
+        if not devices:
+            return 0
+
+        checked_at = datetime.utcnow()
+        loop = asyncio.get_running_loop()
+        tasks = [loop.run_in_executor(None, _ping_host, device.ip_address, 1) for device in devices]
+        values = await asyncio.gather(*tasks, return_exceptions=True)
+
+        recorded = 0
+        for device, value in zip(devices, values):
+            latency = value if isinstance(value, (int, float)) else None
+            success = latency is not None
+            previous_online = device.is_online
+            device.is_online = success
+            if success:
+                device.last_seen = checked_at
+                record_device_ip_history(db, device, device.ip_address, checked_at)
+            if previous_online != success:
+                _record_change(db, device.id, "online_state_changed", "is_online", previous_online, success, source)
+            record_ping_sample(db, device.id, success, latency, source, checked_at)
+            recorded += 1
+
+        db.commit()
+        return recorded
+    except Exception:
+        db.rollback()
+        logger.exception("Ping monitor failed")
+        return 0
+    finally:
+        db.close()
 
 
 def _detect_host_network() -> Optional[ipaddress.IPv4Network]:
@@ -494,6 +552,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             routed_results = await asyncio.get_event_loop().run_in_executor(None, _nmap_ping_scan, routed_scan_targets)
             results.extend(routed_results)
         results = _dedupe_discovery_results(results)
+        latency_by_ip = await _measure_scan_latencies(results)
         logger.info(f"Network scan found {len(results)} hosts")
 
         # Pre-load all known devices to avoid N+1 queries
@@ -566,7 +625,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 db.flush()
                 db.add(DeviceChangeEvent(device_id=new_device.id, event_type="device_discovered", source="scan", message=f"Discovered at {ip}"))
                 record_device_ip_history(db, new_device, ip, seen_at)
-                record_ping_sample(db, new_device.id, True, None, "scan", seen_at)
+                record_ping_sample(db, new_device.id, True, latency_by_ip.get(ip), "scan", seen_at)
                 existing_devices[mac_normalized] = new_device
                 existing_devices_by_ip[ip] = new_device
                 devices_new += 1
@@ -586,13 +645,18 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 previous_ip = existing.ip_address
                 previous_online = existing.is_online
                 previous_hostname = existing.hostname
+                was_archived = bool(existing.is_archived)
                 existing.ip_address = ip
                 existing.is_online = True
+                existing.is_archived = False
+                existing.archived_at = None
                 existing.last_seen = seen_at
                 _record_change(db, existing.id, "ip_changed", "ip_address", previous_ip, ip, "scan")
                 _record_change(db, existing.id, "online_state_changed", "is_online", previous_online, True, "scan")
+                if was_archived:
+                    _record_change(db, existing.id, "device_unarchived", "is_archived", True, False, "scan")
                 record_device_ip_history(db, existing, ip, seen_at)
-                record_ping_sample(db, existing.id, True, None, "scan", seen_at)
+                record_ping_sample(db, existing.id, True, latency_by_ip.get(ip), "scan", seen_at)
                 if hostname:
                     existing.hostname = hostname
                     _record_change(db, existing.id, "hostname_changed", "hostname", previous_hostname, hostname, "scan")
@@ -618,6 +682,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         scan_run.devices_offline = devices_offline
         scan_run.finished_at = datetime.utcnow()
         scan_run.status = "done"
+        retention_result = apply_device_retention(db, scan_reference_time)
         db.commit()
 
         # Retry pending deliveries after every completed scan. This lets
@@ -627,7 +692,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
 
         logger.info(
             f"Scan complete: {len(found_macs)} found, "
-            f"{devices_new} new, {devices_offline} went offline"
+            f"{devices_new} new, {devices_offline} went offline, "
+            f"{retention_result['archived']} archived, {retention_result['deleted']} deleted"
         )
         return scan_run
 

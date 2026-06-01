@@ -146,6 +146,58 @@ class DhcpMonitorStatusResponse(BaseModel):
     is_capturing: bool
 
 
+class PluginManifestResponse(BaseModel):
+    key: str
+    name: str
+    category: str
+    description: str
+    enabled: bool
+    status: str
+    setting_key: str
+    dependencies: List[str] = []
+    related_issues: List[int] = []
+    config_hint: Optional[str] = None
+
+
+class PluginToggleRequest(BaseModel):
+    enabled: bool
+
+
+class PassiveDiscoveryStatusResponse(BaseModel):
+    is_capturing: bool
+
+
+class PassiveDiscoveryCaptureReportResponse(BaseModel):
+    filter: str
+    protocols: List[str]
+    packets_seen: int
+    packets_parsed: int
+    observations_stored: int
+    observations_linked: int = 0
+    device_classes_updated: int = 0
+    hostnames_updated: int = 0
+    duplicates_skipped: int
+    errors: List[str] = []
+
+
+class PassiveDiscoveryObservationResponse(BaseModel):
+    id: int
+    protocol: str
+    source_ip: Optional[str]
+    source_mac: Optional[str]
+    destination_ip: Optional[str]
+    service_name: Optional[str]
+    service_type: Optional[str]
+    summary: Optional[str]
+    metadata: dict[str, Any]
+    observed_at: datetime
+    linked_device_id: Optional[int] = None
+    linked_device_label: Optional[str] = None
+    inferred_device_class: Optional[str] = None
+    inference_confidence: Optional[str] = None
+    inference_reasons: List[str] = []
+
+
 # ── Devices ───────────────────────────────────────────────────────────────────
 
 DEVICE_CLASSES = [
@@ -308,6 +360,8 @@ class DeviceResponse(BaseModel):
     notifications_muted: bool = False
     maintenance_until: Optional[datetime] = None
     maintenance_note: Optional[str] = None
+    is_archived: bool = False
+    archived_at: Optional[datetime] = None
     idoit_enabled: bool = False
     idoit_sync_enabled: bool = False
     idoit_sync_status: Optional[str] = None
@@ -321,6 +375,12 @@ class DeviceResponse(BaseModel):
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
     ip_history: List[DeviceIpHistoryResponse] = []
+    snmp_switch: Optional[str] = None
+    snmp_switch_host: Optional[str] = None
+    snmp_interface: Optional[str] = None
+    snmp_interface_alias: Optional[str] = None
+    snmp_vlan: Optional[str] = None
+    snmp_last_seen_at: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -332,6 +392,7 @@ class DeviceListResponse(BaseModel):
     online: int
     offline: int
     unregistered: int
+    archived: int = 0
 
 
 class DeviceIgnoreRuleBase(BaseModel):
@@ -433,6 +494,22 @@ class ScanScheduleSettings(BaseModel):
     scan_interval_minutes: int
 
 
+class PassiveDiscoverySettings(BaseModel):
+    passive_discovery_background_enabled: bool = False
+    passive_discovery_interval_minutes: int = 15
+    passive_discovery_capture_seconds: int = 30
+
+
+class PingMonitorSettings(BaseModel):
+    ping_monitor_enabled: bool = False
+    ping_monitor_interval_minutes: int = 5
+
+
+class DeviceRetentionSettings(BaseModel):
+    device_archive_after_days: int = 0
+    device_delete_archived_after_days: int = 0
+
+
 class TelegramSettings(BaseModel):
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: str
@@ -455,6 +532,10 @@ class UiSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_plugin_api: bool = False
+    show_passive_discovery: bool = False
+    show_mdns_discovery: bool = False
+    show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False
@@ -479,6 +560,13 @@ class AllSettings(BaseModel):
     scan_end: Optional[str] = "192.168.1.254"
     scan_additional_targets: Optional[str] = ""
     scan_interval_minutes: int = 5
+    passive_discovery_background_enabled: bool = False
+    passive_discovery_interval_minutes: int = 15
+    passive_discovery_capture_seconds: int = 30
+    ping_monitor_enabled: bool = False
+    ping_monitor_interval_minutes: int = 5
+    device_archive_after_days: int = 0
+    device_delete_archived_after_days: int = 0
     port_scan_range: str = "top:1000"
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""
@@ -506,6 +594,10 @@ class AllSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_plugin_api: bool = False
+    show_passive_discovery: bool = False
+    show_mdns_discovery: bool = False
+    show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False
@@ -536,6 +628,8 @@ class SmtpSettings(BaseModel):
 class NotificationResponse(BaseModel):
     id: int
     device_id: Optional[int]
+    device_path: Optional[str] = None
+    device_url: Optional[str] = None
     event_type: str
     message: str
     is_read: bool

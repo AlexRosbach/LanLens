@@ -355,6 +355,20 @@ Triggers immediate ARP scan in background.
 { "scan_interval_minutes": 5 }
 ```
 
+#### `PUT /api/settings/device-retention`
+```json
+{
+  "device_archive_after_days": 30,
+  "device_delete_archived_after_days": 90
+}
+```
+
+Both values are day counts. `device_archive_after_days` moves inactive, unregistered discovered devices out of the normal dashboard into the archived view. `device_delete_archived_after_days` counts from `archived_at` and permanently deletes archived unregistered devices after that many days. Set either value to `0` to disable that step.
+
+#### `POST /api/devices/{device_id}/archive`
+
+Manually archives one device and returns the updated `DeviceResponse`. Manual archive sets `is_archived`, stores `archived_at`, marks the device offline, and records a `device_archived` timeline event. The device moves out of the normal dashboard list and into the **Archived** filter.
+
 #### `PUT /api/settings/telegram`
 ```json
 {
@@ -520,12 +534,34 @@ External reverse proxies remain the better central TLS option when the deploymen
 
 ### Advanced View
 
-The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor and internal build metadata visibility. When disabled, LanLens hides the related UI surfaces but keeps the stored settings intact.
+The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
+
+### Passive Multicast Discovery
+
+Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a 30-second capture or schedule background captures.
+
+LanLens stores visible mDNS, SSDP/UPnP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. Repeated observations with the same protocol, source, destination and service identity update their latest seen timestamp instead of filling per-device lists with duplicate rows. mDNS deduplication groups recurring packets by source and advertised service type or local host name, so a device does not get duplicate-looking rows just because the mDNS question, answer or summary text changed between packets. Generic multicast deduplication intentionally ignores ephemeral source-port churn and changing MAC metadata when the source, multicast group and destination port are the same. Per-device discovery tables show unique observations that can be linked to the device's current IP, MAC address or recorded IP history. Click an observation row to inspect parsed details and the raw captured payload.
+
+When a linked observation carries a high- or medium-confidence device-class inference, passive discovery can update the matched device's `device_class`. Unknown devices are filled automatically; high-confidence router, access-point, printer and similar observations may also replace broad generic classes such as `IoT` or `Workstation`. More specific existing classes are left unchanged so manually curated inventory data is not overwritten by weak service advertisements. If normal DNS discovery did not provide a usable hostname, linked mDNS observations can also fill `hostname` from advertised `.local` names.
+
+Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, linked observations, device classes updated, hostnames updated, duplicates skipped and capture errors. The same card lists recent observations and links matched rows directly to device detail pages. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. If observations are stored but not linked, the source IP/MAC has not matched a known device or its IP history yet.
+
+Docker deployments need host networking and raw packet permissions for live capture. If the container runs in bridge mode or without `NET_RAW`, the capture endpoint can start but may not observe LAN multicast traffic.
+
+Passive discovery uses Scapy for packet capture and parsing. The currently installed Scapy package metadata reports `GPL-2.0-only`; keep that license in mind when redistributing LanLens images or changing packet-capture dependencies. LanLens also uses other GPL/LGPL or dual-licensed backend dependencies for network discovery and connectivity features; see `THIRD_PARTY_NOTICES.md` for the maintained dependency license matrix.
+
+### Device Retention
+
+Use **Settings → Network Discovery → Device retention** to keep old discoveries from cluttering the active dashboard. `Archive after inactive days` moves unregistered discovered devices whose `last_seen` is older than the configured threshold into the dashboard's **Archived** filter. Registered/documented devices are not archived or deleted by retention. Archived devices are excluded from the normal device list, online/offline counters and new-device count. If a later scan sees the same device again, LanLens unarchives it automatically.
+
+Use the device detail **Danger Zone** to archive one device immediately without waiting for the retention window. This keeps the device history and documentation but moves it into the dashboard's **Archived** filter.
+
+`Delete archived after days` is a second retention window that starts at `archived_at`. When enabled, unregistered archived devices older than that threshold are permanently deleted by the background retention job or the next completed scan. Set either field to `0` to disable that step.
 
 ### Capabilities
 
 - `NET_ADMIN`: Required for interface configuration
-- `NET_RAW`: Required for raw socket creation (ARP)
+- `NET_RAW`: Required for raw socket creation (ARP and passive multicast capture)
 
 ### Volume
 
@@ -595,7 +631,7 @@ LanLens images are published on Docker Hub:
 
 ```text
 alexrosbach/lanlens:latest
-alexrosbach/lanlens:1.5.3
+alexrosbach/lanlens:1.5.4
 ```
 
 Use `latest` for the newest build or pin the release tag for reproducible deployments.
@@ -866,6 +902,20 @@ Security and operational boundaries:
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
 
+Default i-doit JSON-RPC field mapping writes the LanLens values that have reliable standard-category targets:
+
+- hostname and IP address -> `C__CATG__IP`
+- MAC address -> `C__CATG__NETWORK_PORT`
+- vendor, model and serial number -> `C__CATG__MODEL`
+- inventory number / CMDB ID -> `C__CATG__ACCOUNTING.inventory_no`
+- purpose, description and notes -> `C__CATG__GLOBAL`
+- operating system text -> `C__CATG__OPERATING_SYSTEM.description`
+- CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
+
+Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
+
+Some i-doit fields such as responsible person or location are object references in standard i-doit data models, not plain text. LanLens does not guess those object IDs automatically; operators can still add explicit custom mapping entries once the target i-doit field is known.
+
 ### Editable i-doit CSV Export (v1.5.2)
 
 LanLens 1.5.2 adds a reviewed CSV export for i-doit. In **Settings → CMDB → i-doit**, use **Load export preview** to build rows from the current inventory, adjust fields in the table, untick rows that should not be included, and download the CSV.
@@ -877,6 +927,8 @@ The export can include SNMP-derived identity context when switches have been pol
 - `SNMP-Switch`
 - `SNMP-Port`
 - `Identity Confidence`
+
+It also includes `mDNS`, `UPnP/SSDP` and `Passive Discovery` columns when passive-discovery observations match the device by current IP, historical IP or MAC address.
 
 These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
 
@@ -891,6 +943,12 @@ LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiqu
 
 Routers and firewalls may expose IF-MIB without a switch MAC table. In that case LanLens keeps the interface inventory, returns a completed poll, and records a clear warning instead of turning the whole poll into a generic failure.
 
+SNMP data is most useful when the router or switch exposes bridge forwarding tables. For a UniFi router, expect the first poll to show system identity, vendor detection and interface inventory. If the UniFi device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the router and interfaces, but endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
+
+![SNMP switch port visualization](screenshots/lanlens-snmp-switch-ports.svg)
+
+When an SNMP target is linked to a LanLens device and the poll returns both interfaces and MAC/VLAN table entries, the device detail page shows a switch-port visualization. Each discovered interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, learned device/MAC and VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. SNMP routers, firewalls or incomplete switch polls that only expose IF-MIB interfaces do not show the visualization, which avoids a misleading empty port map.
+
 The API surface is available under `/api/snmp`:
 
 - `GET /api/snmp/profiles`
@@ -901,6 +959,7 @@ The API surface is available under `/api/snmp`:
 - `DELETE /api/snmp/switches/{switch_id}`
 - `POST /api/snmp/switches/{switch_id}/poll`
 - `GET /api/snmp/switches/{switch_id}/interfaces`
+- `GET /api/snmp/devices/{device_id}/ports`
 - `GET /api/snmp/topology/endpoints`
 - `GET /api/snmp/devices/{device_id}/identity`
 
@@ -1032,7 +1091,7 @@ npm run dev
 docker compose up -d --build
 ```
 
-The Docker build compiles the React frontend, installs backend dependencies, renders nginx configuration at startup, applies database migrations, and starts nginx plus FastAPI in one container.
+The Docker build compiles the React frontend, stamps build metadata into the frontend and backend app files, installs backend dependencies, renders nginx configuration at startup, applies database migrations, and starts nginx plus FastAPI in one container.
 
 ### Versioning
 

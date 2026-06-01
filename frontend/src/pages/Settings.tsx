@@ -9,12 +9,14 @@ import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
+import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryObservation } from '../api/plugins'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { formatDateTime } from '../utils/formatters'
+import { dedupePassiveObservations } from '../utils/passiveDiscovery'
 
 interface IdoitErrorDetails {
   message: string
@@ -51,6 +53,9 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'disks', labelKey: 'idoit_field_disks', placeholder: 'C__CATG__DRIVE.title' },
   { key: 'open_ports', labelKey: 'idoit_field_open_ports', placeholder: '' },
   { key: 'services', labelKey: 'idoit_field_services', placeholder: '' },
+  { key: 'mdns_discovery', labelKey: 'idoit_field_mdns_discovery', placeholder: '' },
+  { key: 'upnp_discovery', labelKey: 'idoit_field_upnp_discovery', placeholder: '' },
+  { key: 'passive_discovery', labelKey: 'idoit_field_passive_discovery', placeholder: '' },
   { key: 'tls_certificates', labelKey: 'idoit_field_tls_certificates', placeholder: '' },
   { key: 'containers', labelKey: 'idoit_field_containers', placeholder: '' },
   { key: 'hypervisor', labelKey: 'idoit_field_hypervisor', placeholder: '' },
@@ -77,6 +82,9 @@ const IDOIT_EXPORT_EDIT_FIELDS = [
   { key: 'notes', labelKey: 'idoit_field_notes', wide: true },
   { key: 'snmp_switch', labelKey: 'idoit_export_snmp_switch' },
   { key: 'snmp_port', labelKey: 'idoit_export_snmp_port' },
+  { key: 'mdns_discovery', labelKey: 'idoit_field_mdns_discovery', wide: true },
+  { key: 'upnp_discovery', labelKey: 'idoit_field_upnp_discovery', wide: true },
+  { key: 'passive_discovery', labelKey: 'idoit_field_passive_discovery', wide: true },
   { key: 'tls_certificates', labelKey: 'idoit_field_tls_certificates', wide: true },
   { key: 'identity_confidence', labelKey: 'idoit_export_identity_confidence' },
 ] as const
@@ -355,11 +363,19 @@ export default function Settings() {
   const [snmpSwitchName, setSnmpSwitchName] = useState('')
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
+  const [passiveCaptureLoading, setPassiveCaptureLoading] = useState(false)
+  const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
+  const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
+  const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
   const [activeSection, setActiveSection] = useState<'system' | 'features' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const setShowPluginApi = useUiSettingsStore((state) => state.setShowPluginApi)
+  const setShowPassiveDiscovery = useUiSettingsStore((state) => state.setShowPassiveDiscovery)
+  const setShowMdnsDiscovery = useUiSettingsStore((state) => state.setShowMdnsDiscovery)
+  const setShowSsdpDiscovery = useUiSettingsStore((state) => state.setShowSsdpDiscovery)
   const setShowTlsChecks = useUiSettingsStore((state) => state.setShowTlsChecks)
   const setShowPingHistory = useUiSettingsStore((state) => state.setShowPingHistory)
   const setShowBuildInfo = useUiSettingsStore((state) => state.setShowBuildInfo)
@@ -377,22 +393,26 @@ export default function Settings() {
       setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+      setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
+      setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
+      setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
+      setShowSsdpDiscovery(data.advanced_view_enabled && data.show_ssdp_discovery)
       setShowTlsChecks(data.advanced_view_enabled && data.show_tls_checks)
       setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
       setShowBuildInfo(data.show_build_info)
       setTelegramTokenDirty(false)
+      if (data.advanced_view_enabled && data.show_plugin_api && data.show_passive_discovery) {
+        loadPassiveObservations().catch(() => {})
+      }
+      if (data.advanced_view_enabled) {
+        if (data.show_cmdb_integrations) loadIdoitConfig()
+        loadScanNodes().catch(() => {})
+        loadSnmp().catch(() => {})
+      }
     }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
   }, [])
-
-  useEffect(() => {
-    if (settings?.advanced_view_enabled) {
-      if (settings.show_cmdb_integrations) loadIdoitConfig()
-      loadScanNodes().catch(() => {})
-      loadSnmp().catch(() => {})
-    }
-  }, [settings?.advanced_view_enabled, settings?.show_cmdb_integrations])
 
   useEffect(() => {
     if (settings && (!settings.advanced_view_enabled || !settings.show_cmdb_integrations) && activeSection === 'cmdb') {
@@ -466,6 +486,46 @@ export default function Settings() {
     } finally {
       setSnmpLoading(false)
     }
+  }
+
+  async function startPassiveDiscoveryCapture() {
+    setPassiveCaptureLoading(true)
+    try {
+      await passiveDiscoveryApi.capture(30)
+      setTimeout(() => loadPassiveObservations().catch(() => {}), 32000)
+      toast.success(t('multicast_discovery_capture_started'))
+    } catch {
+      toast.error(t('multicast_discovery_capture_failed'))
+    } finally {
+      setPassiveCaptureLoading(false)
+    }
+  }
+
+  async function runPassiveDiscoveryDiagnostics() {
+    setPassiveDiagnosticLoading(true)
+    try {
+      const report = await passiveDiscoveryApi.diagnostics(10)
+      setPassiveCaptureReport(report)
+      loadPassiveObservations().catch(() => {})
+      if (report.errors.length > 0) {
+        toast.error(report.errors[0])
+      } else if (report.packets_seen === 0) {
+        toast.error(t('multicast_discovery_no_packets'))
+      } else {
+        toast.success(t('multicast_discovery_diagnostic_result', {
+          packets: report.packets_seen,
+          stored: report.observations_stored,
+        }))
+      }
+    } catch {
+      toast.error(t('multicast_discovery_diagnostics_failed'))
+    } finally {
+      setPassiveDiagnosticLoading(false)
+    }
+  }
+
+  async function loadPassiveObservations() {
+    setPassiveObservations(dedupePassiveObservations(await passiveDiscoveryApi.observations()))
   }
 
   async function createSnmpProfile() {
@@ -681,6 +741,52 @@ export default function Settings() {
     }
   }
 
+  async function savePassiveDiscoverySchedule() {
+    setSaving(true)
+    try {
+      await settingsApi.updatePassiveDiscovery({
+        passive_discovery_background_enabled: current.passive_discovery_background_enabled,
+        passive_discovery_interval_minutes: current.passive_discovery_interval_minutes,
+        passive_discovery_capture_seconds: current.passive_discovery_capture_seconds,
+      })
+      toast.success(t('multicast_discovery_saved'))
+    } catch {
+      toast.error(t('multicast_discovery_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function savePingMonitorSchedule() {
+    setSaving(true)
+    try {
+      await settingsApi.updatePingMonitor({
+        ping_monitor_enabled: current.ping_monitor_enabled,
+        ping_monitor_interval_minutes: current.ping_monitor_interval_minutes,
+      })
+      toast.success(t('ping_monitor_saved'))
+    } catch {
+      toast.error(t('ping_monitor_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveDeviceRetention() {
+    setSaving(true)
+    try {
+      await settingsApi.updateDeviceRetention({
+        device_archive_after_days: current.device_archive_after_days,
+        device_delete_archived_after_days: current.device_delete_archived_after_days,
+      })
+      toast.success(t('device_retention_saved'))
+    } catch {
+      toast.error(t('device_retention_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function savePortScanSettings() {
     setSaving(true)
     try {
@@ -871,6 +977,10 @@ export default function Settings() {
         setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+        setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
+        setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
+        setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
+        setShowSsdpDiscovery(data.advanced_view_enabled && data.show_ssdp_discovery)
         setShowTlsChecks(data.advanced_view_enabled && data.show_tls_checks)
         setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
         setShowBuildInfo(data.show_build_info)
@@ -1088,6 +1198,10 @@ export default function Settings() {
         current.show_cmdb_integrations,
         current.show_services_nav,
         current.show_dhcp_monitor_nav,
+        current.show_plugin_api,
+        current.show_passive_discovery,
+        current.show_mdns_discovery,
+        current.show_ssdp_discovery,
         current.show_tls_checks,
         current.show_ping_history,
         current.show_build_info,
@@ -1096,9 +1210,26 @@ export default function Settings() {
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
+      setShowPluginApi(current.advanced_view_enabled && current.show_plugin_api)
+      setShowPassiveDiscovery(current.advanced_view_enabled && current.show_passive_discovery)
+      setShowMdnsDiscovery(current.advanced_view_enabled && current.show_mdns_discovery)
+      setShowSsdpDiscovery(current.advanced_view_enabled && current.show_ssdp_discovery)
       setShowTlsChecks(current.advanced_view_enabled && current.show_tls_checks)
       setShowPingHistory(current.advanced_view_enabled && current.show_ping_history)
       setShowBuildInfo(current.show_build_info)
+      if (current.advanced_view_enabled) {
+        if (current.show_cmdb_integrations) {
+          loadIdoitConfig()
+        } else {
+          setIdoitConfig(null)
+          setIdoitLoadError(false)
+        }
+        loadScanNodes().catch(() => {})
+        loadSnmp().catch(() => {})
+      } else {
+        setIdoitConfig(null)
+        setIdoitLoadError(false)
+      }
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))
@@ -1135,6 +1266,10 @@ export default function Settings() {
             show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
             show_services_nav: checked ? current.show_services_nav : false,
             show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
+            show_plugin_api: checked ? current.show_plugin_api : false,
+            show_passive_discovery: checked ? current.show_passive_discovery : false,
+            show_mdns_discovery: checked ? current.show_mdns_discovery : false,
+            show_ssdp_discovery: checked ? current.show_ssdp_discovery : false,
             show_tls_checks: checked ? current.show_tls_checks : false,
             show_ping_history: checked ? current.show_ping_history : false,
           }),
@@ -1176,6 +1311,56 @@ export default function Settings() {
           label: t('show_dhcp_monitor_nav'),
           description: t('show_dhcp_monitor_nav_hint'),
           onChange: (checked: boolean) => setSettings({ ...current, show_dhcp_monitor_nav: checked }),
+        },
+      ],
+    },
+    {
+      id: 'extensions',
+      title: t('feature_category_extensions'),
+      description: t('feature_category_extensions_hint'),
+      items: [
+        {
+          key: 'plugin-api',
+          checked: current.show_plugin_api,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_plugin_api'),
+          description: t('show_plugin_api_hint'),
+          onChange: (checked: boolean) => setSettings({
+            ...current,
+            show_plugin_api: checked,
+            show_passive_discovery: checked ? current.show_passive_discovery : false,
+            show_mdns_discovery: checked ? current.show_mdns_discovery : false,
+            show_ssdp_discovery: checked ? current.show_ssdp_discovery : false,
+          }),
+        },
+        {
+          key: 'passive-discovery',
+          checked: current.show_passive_discovery,
+          disabled: !current.advanced_view_enabled || !current.show_plugin_api,
+          label: t('show_passive_discovery'),
+          description: t('show_passive_discovery_hint'),
+          onChange: (checked: boolean) => setSettings({
+            ...current,
+            show_passive_discovery: checked,
+            show_mdns_discovery: checked ? current.show_mdns_discovery : false,
+            show_ssdp_discovery: checked ? current.show_ssdp_discovery : false,
+          }),
+        },
+        {
+          key: 'mdns-discovery',
+          checked: current.show_mdns_discovery,
+          disabled: !current.advanced_view_enabled || !current.show_plugin_api || !current.show_passive_discovery,
+          label: t('show_mdns_discovery'),
+          description: t('show_mdns_discovery_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_mdns_discovery: checked }),
+        },
+        {
+          key: 'ssdp-discovery',
+          checked: current.show_ssdp_discovery,
+          disabled: !current.advanced_view_enabled || !current.show_plugin_api || !current.show_passive_discovery,
+          label: t('show_ssdp_discovery'),
+          description: t('show_ssdp_discovery_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_ssdp_discovery: checked }),
         },
       ],
     },
@@ -1423,6 +1608,10 @@ export default function Settings() {
           {t('network_discovery')}
         </h2>
         <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_ranges')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_ranges_hint')}</p>
+          </div>
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-2">{t('dhcp_range_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">
@@ -1472,6 +1661,219 @@ export default function Settings() {
               <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_monitoring')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_monitoring_hint')}</p>
+          </div>
+
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('ping_monitor_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('ping_monitor_description')}</p>
+              </div>
+              <label className="flex items-start gap-3 rounded-lg border border-border bg-surface2/35 p-3">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={current.ping_monitor_enabled}
+                  onChange={(e) => setSettings({ ...current, ping_monitor_enabled: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-text-base">{t('ping_monitor_background')}</span>
+                  <span className="block text-xs text-text-subtle">{t('ping_monitor_background_hint')}</span>
+                </span>
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('ping_monitor_interval')}</label>
+                  <Input
+                    type="number"
+                    value={String(current.ping_monitor_interval_minutes)}
+                    onChange={(e) => setSettings({ ...current, ping_monitor_interval_minutes: Number(e.target.value) || 5 })}
+                  />
+                </div>
+              </div>
+              <div>
+                <Button onClick={savePingMonitorSchedule} loading={saving}>{t('ping_monitor_save')}</Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('device_retention_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('device_retention_description')}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('device_archive_after_days')}</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    value={String(current.device_archive_after_days)}
+                    onChange={(e) => setSettings({ ...current, device_archive_after_days: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('device_retention_zero_disabled')}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('device_delete_archived_after_days')}</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    value={String(current.device_delete_archived_after_days)}
+                    onChange={(e) => setSettings({ ...current, device_delete_archived_after_days: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('device_delete_archived_after_days_hint')}</p>
+                </div>
+              </div>
+              <div>
+                <Button onClick={saveDeviceRetention} loading={saving}>{t('device_retention_save')}</Button>
+              </div>
+            </div>
+          </Card>
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_multicast')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_multicast_hint')}</p>
+          </div>
+
+          {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-text-base">{t('multicast_discovery_capture')}</h2>
+                  <p className="text-sm text-text-subtle">
+                    {t('multicast_discovery_capture_hint')}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={runPassiveDiscoveryDiagnostics} loading={passiveDiagnosticLoading}>
+                    {t('multicast_discovery_diagnostics_10s')}
+                  </Button>
+                  <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
+                    {t('multicast_discovery_capture_30s')}
+                  </Button>
+                </div>
+              </div>
+              {passiveCaptureReport && (
+                <div className="rounded-lg border border-border bg-surface2/35 p-3 text-xs text-text-subtle">
+                  <div className="mb-2 font-medium text-text-muted">{t('multicast_discovery_last_diagnostic')}</div>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <div>{t('multicast_discovery_packets_seen')}: <span className="text-text-base">{passiveCaptureReport.packets_seen}</span></div>
+                    <div>{t('multicast_discovery_packets_parsed')}: <span className="text-text-base">{passiveCaptureReport.packets_parsed}</span></div>
+                    <div>{t('multicast_discovery_observations_stored')}: <span className="text-text-base">{passiveCaptureReport.observations_stored}</span></div>
+                    <div>{t('multicast_discovery_observations_linked')}: <span className="text-text-base">{passiveCaptureReport.observations_linked}</span></div>
+                    <div>{t('multicast_discovery_duplicates')}: <span className="text-text-base">{passiveCaptureReport.duplicates_skipped}</span></div>
+                    <div>{t('multicast_discovery_protocols')}: <span className="text-text-base">{passiveCaptureReport.protocols.join(', ')}</span></div>
+                    <div>{t('multicast_discovery_filter')}: <span className="text-text-base">{passiveCaptureReport.filter || '-'}</span></div>
+                  </div>
+                  {passiveCaptureReport.errors.length > 0 && (
+                    <div className="mt-2 text-danger">{passiveCaptureReport.errors.join(' · ')}</div>
+                  )}
+                </div>
+              )}
+              {passiveObservations.length > 0 && (
+                <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium text-text-base">{t('multicast_discovery_recent_observations')}</div>
+                    <button
+                      type="button"
+                      className="text-xs text-accent hover:underline"
+                      onClick={() => loadPassiveObservations().catch(() => {})}
+                    >
+                      {t('refresh')}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_protocol')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_source')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_service')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_linked_device')}</th>
+                          <th className="py-2 text-left font-medium">{t('last_seen')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {passiveObservations.slice(0, 12).map((row) => (
+                          <tr key={row.id} className="border-b border-border last:border-0">
+                            <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol}</td>
+                            <td className="py-2 pr-3 font-mono text-text-subtle">{row.source_ip || row.source_mac || '-'}</td>
+                            <td className="py-2 pr-3 text-text-subtle">{row.service_name || row.service_type || row.summary || '-'}</td>
+                            <td className="py-2 pr-3 text-text-subtle">
+                              {row.linked_device_id ? (
+                                <Link className="text-accent hover:underline" to={`/devices/${row.linked_device_id}`}>
+                                  {row.linked_device_label || `Device #${row.linked_device_id}`}
+                                </Link>
+                              ) : (
+                                <span>{t('multicast_discovery_unlinked')}</span>
+                              )}
+                            </td>
+                            <td className="py-2 text-text-subtle">{formatDateTime(row.observed_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={current.passive_discovery_background_enabled}
+                    onChange={(e) => setSettings({ ...current, passive_discovery_background_enabled: e.target.checked })}
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-text-base">{t('multicast_discovery_background')}</span>
+                    <span className="block text-xs text-text-subtle">
+                      {t('multicast_discovery_background_hint')}
+                    </span>
+                  </span>
+                </label>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
+                    <Input
+                      type="number"
+                      value={String(current.passive_discovery_interval_minutes)}
+                      onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
+                    <Input
+                      type="number"
+                      value={String(current.passive_discovery_capture_seconds)}
+                      onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
+                    />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
+                </div>
+              </div>
+              <div className="grid gap-2 text-xs text-text-subtle md:grid-cols-3">
+                <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_mdns_hint')}</div>
+                <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_ssdp_hint')}</div>
+                <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_control_hint')}</div>
+              </div>
+            </div>
+          </Card>
+          )}
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_remote')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_remote_hint')}</p>
+          </div>
 
           {current.advanced_view_enabled && (
           <Card>
@@ -1703,6 +2105,11 @@ export default function Settings() {
             </div>
           </Card>
           )}
+
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_scan_cadence')}</h2>
+            <p className="text-sm text-text-subtle">{t('discovery_category_scan_cadence_hint')}</p>
+          </div>
 
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">{t('scan_schedule_title')}</h2>

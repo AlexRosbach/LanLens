@@ -32,6 +32,24 @@ export interface DevicePingSample {
   source: string
 }
 
+export interface PassiveDiscoveryObservation {
+  id: number
+  protocol: string
+  source_ip?: string | null
+  source_mac?: string | null
+  destination_ip?: string | null
+  service_name?: string | null
+  service_type?: string | null
+  summary?: string | null
+  metadata: Record<string, unknown>
+  observed_at: string
+  linked_device_id?: number | null
+  linked_device_label?: string | null
+  inferred_device_class?: string | null
+  inference_confidence?: string | null
+  inference_reasons?: string[]
+}
+
 export interface Device {
   id: number
   mac_address: string
@@ -62,6 +80,8 @@ export interface Device {
   notifications_muted?: boolean
   maintenance_until?: string | null
   maintenance_note?: string | null
+  is_archived?: boolean
+  archived_at?: string | null
   idoit_enabled?: boolean
   idoit_sync_enabled?: boolean
   idoit_sync_status?: string | null
@@ -85,6 +105,12 @@ export interface Device {
   latest_scan: PortScanResult | null
   services: Service[]
   ip_history?: DeviceIpHistoryEntry[]
+  snmp_switch?: string | null
+  snmp_switch_host?: string | null
+  snmp_interface?: string | null
+  snmp_interface_alias?: string | null
+  snmp_vlan?: string | null
+  snmp_last_seen_at?: string | null
 }
 
 export interface DeviceListResponse {
@@ -93,6 +119,7 @@ export interface DeviceListResponse {
   online: number
   offline: number
   unregistered: number
+  archived: number
 }
 
 export interface DeviceUpdate {
@@ -121,6 +148,7 @@ export const devicesApi = {
     unregistered_only?: boolean
     device_class?: string
     search?: string
+    archived_only?: boolean
   }) => apiClient.get<DeviceListResponse>('/devices', { params }).then((r) => r.data),
 
   get: (id: number) => apiClient.get<Device>(`/devices/${id}`).then((r) => r.data),
@@ -130,6 +158,9 @@ export const devicesApi = {
 
   getPingHistory: (id: number, limit = 120) =>
     apiClient.get<DevicePingSample[]>(`/devices/${id}/ping-history`, { params: { limit } }).then((r) => r.data),
+
+  getPassiveDiscovery: (id: number, limit = 50) =>
+    apiClient.get<PassiveDiscoveryObservation[]>(`/devices/${id}/passive-discovery`, { params: { limit } }).then((r) => r.data),
 
   getTimeline: (id: number) =>
     apiClient.get<ChangeEvent[]>(`/devices/${id}/timeline`).then((r) => r.data),
@@ -141,6 +172,9 @@ export const devicesApi = {
 
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
+
+  archive: (id: number) =>
+    apiClient.post<Device>(`/devices/${id}/archive`).then((r) => r.data),
 
   refreshStatus: (id: number) =>
     apiClient.post<Device>(`/devices/${id}/refresh-status`).then((r) => r.data),

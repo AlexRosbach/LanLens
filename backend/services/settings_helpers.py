@@ -27,3 +27,8 @@ def is_advanced_feature_enabled(db: Session, key: str) -> bool:
         get_setting_value(db, "advanced_view_enabled", "false") == "true"
         and get_setting_value(db, key, "false") == "true"
     )
+
+
+def is_advanced_view_enabled(db: Session) -> bool:
+    """Return true when advanced/backend expert features are enabled."""
+    return get_setting_value(db, "advanced_view_enabled", "false") == "true"

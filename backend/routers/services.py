@@ -19,6 +19,16 @@ global_router = APIRouter(prefix="/api/services", tags=["services"])
 TLS_EXPIRING_SOON_DAYS = 30
 
 
+def _require_services_enabled(db: Session) -> None:
+    if not is_advanced_feature_enabled(db, "show_services_nav"):
+        raise HTTPException(status_code=403, detail="Services are disabled")
+
+
+def _require_tls_checks_enabled(db: Session) -> None:
+    if not is_advanced_feature_enabled(db, "show_tls_checks"):
+        raise HTTPException(status_code=403, detail="TLS certificate checks are disabled")
+
+
 def _get_device_or_404(device_id: int, db: Session) -> Device:
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
@@ -155,6 +165,7 @@ def list_services(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     _get_device_or_404(device_id, db)
     return (
         db.query(Service)
@@ -171,6 +182,7 @@ def create_service(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     _get_device_or_404(device_id, db)
     service = Service(device_id=device_id, **data.model_dump())
     db.add(service)
@@ -186,6 +198,7 @@ def get_service(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     service = db.query(Service).filter(
         Service.id == service_id, Service.device_id == device_id
     ).first()
@@ -202,6 +215,7 @@ def update_service(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     service = db.query(Service).filter(
         Service.id == service_id, Service.device_id == device_id
     ).first()
@@ -223,8 +237,7 @@ def check_service_tls(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    if not is_advanced_feature_enabled(db, "show_tls_checks"):
-        raise HTTPException(status_code=403, detail="TLS certificate checks are disabled")
+    _require_tls_checks_enabled(db)
 
     device = _get_device_or_404(device_id, db)
     service = db.query(Service).filter(
@@ -248,6 +261,7 @@ def delete_service(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     service = db.query(Service).filter(
         Service.id == service_id, Service.device_id == device_id
     ).first()
@@ -263,6 +277,7 @@ def list_all_services(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     rows = (
         db.query(Service, Device)
         .join(Device, Service.device_id == Device.id)
@@ -298,6 +313,7 @@ def list_service_groups(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     return db.query(ServiceGroup).order_by(ServiceGroup.sort_order, ServiceGroup.name).all()
 
 
@@ -307,6 +323,7 @@ def create_service_group(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     group = ServiceGroup(**data.model_dump())
     db.add(group)
     db.commit()
@@ -321,6 +338,7 @@ def update_service_group(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     group = db.query(ServiceGroup).filter(ServiceGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Service group not found")
@@ -337,6 +355,7 @@ def delete_service_group(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _require_services_enabled(db)
     group = db.query(ServiceGroup).filter(ServiceGroup.id == group_id).first()
     if not group:
         raise HTTPException(status_code=404, detail="Service group not found")

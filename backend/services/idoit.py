@@ -18,11 +18,14 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Device, DeepScanFinding, DeviceHostRelationship, IdoitDeviceSync, IdoitSyncLog, PortScan, Setting
+from ..models import Device, DeepScanFinding, DeviceHostRelationship, DeviceIpHistory, IdoitDeviceSync, IdoitSyncLog, PassiveDiscoveryObservation, PortScan, Setting
+from .mac_vendor import normalize_mac
 from .notification import request_json_via_validated_url
+from .passive_discovery import deduplicate_observations
 from .snmp import bulk_identities_for_devices, identity_for_device
 
 logger = logging.getLogger(__name__)
@@ -42,7 +45,7 @@ def _safe_csv_cell(value: Any) -> Any:
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 9,
+    "version": 11,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -77,15 +80,19 @@ DEFAULT_MAPPING = {
         "asset_tag": "C__CATG__ACCOUNTING.inventory_no",
         "cmdb_id": "C__CATG__ACCOUNTING.inventory_no",
         "purpose": "C__CATG__GLOBAL.purpose",
-        "notes": "",
-        "os_info": "C__CATG__OPERATING_SYSTEM.assigned_version",
+        "description": "C__CATG__GLOBAL.description",
+        "notes": "C__CATG__GLOBAL.description",
+        "os_info": "C__CATG__OPERATING_SYSTEM.description",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
-        "serial": "",
+        "serial": "C__CATG__MODEL.serial",
         "memory": "C__CATG__MEMORY.title",
         "disks": "C__CATG__DRIVE.title",
         "open_ports": "",
         "services": "",
+        "mdns_discovery": "",
+        "upnp_discovery": "",
+        "passive_discovery": "",
         "tls_certificates": "",
         "containers": "",
         "hypervisor": "",
@@ -275,7 +282,7 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
         fields.get(field) == "C__CATG__GLOBAL.description"
         for field in description_dump_fields
     ) and version < 4
-    global_description_dump = any(value == "C__CATG__GLOBAL.description" for value in fields.values())
+    global_description_dump = version < 10 and any(value == "C__CATG__GLOBAL.description" for value in fields.values())
     return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description or global_description_dump
 
 
@@ -321,6 +328,9 @@ def _allowed_device_mapping_fields() -> set[str]:
         "disks",
         "open_ports",
         "services",
+        "mdns_discovery",
+        "upnp_discovery",
+        "passive_discovery",
         "tls_certificates",
         "containers",
         "hypervisor",
@@ -454,6 +464,9 @@ IDOIT_EXPORT_COLUMNS = [
     "Notizen",
     "SNMP-Switch",
     "SNMP-Port",
+    "mDNS",
+    "UPnP/SSDP",
+    "Passive Discovery",
     "TLS-Zertifikate",
     "Identity Confidence",
     "LanLens-ID",
@@ -467,6 +480,7 @@ def build_export_row(
     snmp_identity: Optional[dict[str, Any]] = None,
     findings: Optional[dict[str, dict[str, Any]]] = None,
     open_ports_summary: Optional[str] = None,
+    passive_discovery: Optional[dict[str, str]] = None,
 ) -> dict[str, Any]:
     """Build one editable i-doit CSV export row for a LanLens device."""
     findings = findings if findings is not None else _latest_findings(db, device)
@@ -487,6 +501,7 @@ def build_export_row(
         limit=255,
     )
     open_ports_summary = open_ports_summary if open_ports_summary is not None else _latest_open_ports(db, device)
+    passive_discovery = passive_discovery if passive_discovery is not None else _passive_discovery_summaries(db, device)
     notes_parts = [part for part in [device.notes, device.description, open_ports_summary] if part]
     return {
         "include": True,
@@ -507,6 +522,9 @@ def build_export_row(
         "notes": "\n\n".join(notes_parts),
         "snmp_switch": snmp_identity.get("switch_name", ""),
         "snmp_port": str(snmp_identity.get("interface_name") or snmp_identity.get("if_index") or ""),
+        "mdns_discovery": passive_discovery.get("mdns_discovery", ""),
+        "upnp_discovery": passive_discovery.get("upnp_discovery", ""),
+        "passive_discovery": passive_discovery.get("passive_discovery", ""),
         "tls_certificates": _tls_certificates_summary(device) or "",
         "identity_confidence": snmp_identity.get("confidence", "base"),
         "lanlens_id": str(device.id),
@@ -518,6 +536,7 @@ def build_export_rows(db: Session, devices: list[Device], config: IdoitConfig) -
     identities = bulk_identities_for_devices(db, devices)
     findings_by_device = _bulk_latest_findings(db, devices)
     open_ports_by_device = _bulk_latest_open_ports(db, devices)
+    passive_discovery_by_device = _bulk_passive_discovery_summaries(db, devices)
     return [
         build_export_row(
             db,
@@ -526,6 +545,7 @@ def build_export_rows(db: Session, devices: list[Device], config: IdoitConfig) -
             identities.get(device.id, {}),
             findings_by_device.get(device.id, {}),
             open_ports_by_device.get(device.id),
+            passive_discovery_by_device.get(device.id, {}),
         )
         for device in devices
     ]
@@ -557,6 +577,9 @@ def rows_to_export_csv(rows: list[dict[str, Any]]) -> str:
             _safe_csv_cell(row.get("notes", "")),
             _safe_csv_cell(row.get("snmp_switch", "")),
             _safe_csv_cell(row.get("snmp_port", "")),
+            _safe_csv_cell(row.get("mdns_discovery", "")),
+            _safe_csv_cell(row.get("upnp_discovery", "")),
+            _safe_csv_cell(row.get("passive_discovery", "")),
             _safe_csv_cell(row.get("tls_certificates", "")),
             _safe_csv_cell(row.get("identity_confidence", "")),
             _safe_csv_cell(row.get("lanlens_id", "")),
@@ -1017,6 +1040,102 @@ def _tls_certificates_summary(device: Device) -> Optional[str]:
     return "\n".join(lines)[:6000]
 
 
+def _passive_discovery_filters(db: Optional[Session], device: Device) -> list[Any]:
+    filters: list[Any] = []
+    ip_addresses = [device.ip_address] if device.ip_address else []
+    if db is not None and device.id:
+        history_ips = (
+            db.query(DeviceIpHistory.ip_address)
+            .filter(DeviceIpHistory.device_id == device.id)
+            .all()
+        )
+        ip_addresses.extend(ip for (ip,) in history_ips if ip)
+    ip_addresses = sorted(set(ip_addresses))
+    if ip_addresses:
+        filters.append(PassiveDiscoveryObservation.source_ip.in_(ip_addresses))
+    if device.mac_address and not str(device.mac_address).startswith("ip:"):
+        mac = normalize_mac(device.mac_address)
+        if mac:
+            filters.append(PassiveDiscoveryObservation.source_mac == mac)
+    return filters
+
+
+def _passive_discovery_rows(
+    db: Optional[Session],
+    device: Device,
+    protocols: Optional[set[str]] = None,
+    limit: int = 20,
+) -> list[PassiveDiscoveryObservation]:
+    if db is None or not device.id:
+        return []
+    filters = _passive_discovery_filters(db, device)
+    if not filters:
+        return []
+    query = db.query(PassiveDiscoveryObservation).filter(or_(*filters))
+    if protocols:
+        query = query.filter(PassiveDiscoveryObservation.protocol.in_(sorted(protocols)))
+    rows = (
+        query.order_by(PassiveDiscoveryObservation.observed_at.desc())
+        .limit(max(1, min(limit * 5, 500)))
+        .all()
+    )
+    return deduplicate_observations(rows, max(1, min(limit, 100)))
+
+
+def _passive_row_line(row: PassiveDiscoveryObservation) -> str:
+    try:
+        metadata = json.loads(row.metadata_json or "{}")
+    except Exception:
+        metadata = {}
+    observed = row.observed_at.isoformat() if row.observed_at else "unknown"
+    parts = [
+        observed,
+        row.protocol.upper(),
+        row.summary or row.service_type or row.service_name or "observation",
+    ]
+    if row.service_name and row.service_name not in parts[-1]:
+        parts.append(row.service_name)
+    if row.service_type and row.service_type not in " ".join(parts):
+        parts.append(row.service_type)
+    if row.destination_ip:
+        parts.append(f"dst={row.destination_ip}")
+    for key in ("query", "answer_count", "location", "server", "user_agent"):
+        value = metadata.get(key) if isinstance(metadata, dict) else None
+        if value not in (None, ""):
+            parts.append(f"{key}={str(value)[:160]}")
+    return " | ".join(str(part) for part in parts if part)
+
+
+def _format_passive_discovery_summary(title: str, rows: list[PassiveDiscoveryObservation]) -> Optional[str]:
+    if not rows:
+        return None
+    lines = [title]
+    for row in rows:
+        lines.append(f"- {_passive_row_line(row)}")
+    return "\n".join(lines)[:5000]
+
+
+def _passive_discovery_summaries(db: Optional[Session], device: Device) -> dict[str, str]:
+    mdns_rows = _passive_discovery_rows(db, device, {"mdns"}, 20)
+    upnp_rows = _passive_discovery_rows(db, device, {"ssdp"}, 20)
+    all_rows = _passive_discovery_rows(db, device, {"mdns", "ssdp", "multicast", "ospf", "vrrp", "hsrp"}, 30)
+    return {
+        "mdns_discovery": _format_passive_discovery_summary("LanLens mDNS observations:", mdns_rows) or "",
+        "upnp_discovery": _format_passive_discovery_summary("LanLens UPnP/SSDP observations:", upnp_rows) or "",
+        "passive_discovery": _format_passive_discovery_summary("LanLens passive discovery observations:", all_rows) or "",
+    }
+
+
+def _bulk_passive_discovery_summaries(db: Session, devices: list[Device]) -> dict[int, dict[str, str]]:
+    # Kept deliberately simple and bounded; i-doit export previews are limited
+    # and this mirrors the per-device matching semantics used by the UI.
+    return {
+        device.id: summaries
+        for device in devices
+        if device.id and (summaries := _passive_discovery_summaries(db, device))
+    }
+
+
 def _relationships_summary(db: Optional[Session], device: Device) -> Optional[str]:
     if db is None or not device.id:
         return None
@@ -1056,6 +1175,7 @@ def _deep_scan_summary(findings: dict[str, dict[str, Any]]) -> Optional[str]:
 
 def _lanlens_inventory_summary(device: Device, findings: dict[str, dict[str, Any]], db: Optional[Session]) -> str:
     lines = ["LanLens inventory snapshot"]
+    passive = _passive_discovery_summaries(db, device)
     lines.append(f"CMDB ID: {device.cmdb_id or '-'}")
     lines.append(f"Class: {device.device_class or 'Unknown'}")
     lines.append(f"MAC: {device.mac_address or '-'}")
@@ -1069,6 +1189,8 @@ def _lanlens_inventory_summary(device: Device, findings: dict[str, dict[str, Any
         ("Documentation", "\n".join(part for part in [device.purpose, device.description, device.notes] if part)),
         ("Open ports", _latest_open_ports(db, device) or ""),
         ("Services", _services_summary(device) or ""),
+        ("mDNS discovery", passive.get("mdns_discovery", "")),
+        ("UPnP/SSDP discovery", passive.get("upnp_discovery", "")),
         ("TLS certificates", _tls_certificates_summary(device) or ""),
         ("Relationships", _relationships_summary(db, device) or ""),
         ("Deep scan", _deep_scan_summary(findings) or ""),
@@ -1134,6 +1256,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         ] if text
     ) or None
     licenses = _finding_text(findings, "audit", "licensing", 2500)
+    passive_discovery = _passive_discovery_summaries(db, device)
     source = {
         "label": label,
         "hostname": device.hostname,
@@ -1145,6 +1268,10 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "asset_tag": device.asset_tag,
         "location": device.location,
         "responsible": device.responsible,
+        "purpose": device.purpose,
+        "description": device.description,
+        "notes": device.notes,
+        "password_location": device.password_location,
         "os_info": _os_assigned_version(os_info),
         "cpu": _cpu_title(cpu_raw),
         "memory": _memory_entries(memory),
@@ -1153,6 +1280,9 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "disks": _drive_entries(disks),
         "open_ports": _latest_open_ports(db, device),
         "services": _services_summary(device),
+        "mdns_discovery": passive_discovery.get("mdns_discovery"),
+        "upnp_discovery": passive_discovery.get("upnp_discovery"),
+        "passive_discovery": passive_discovery.get("passive_discovery"),
         "tls_certificates": _tls_certificates_summary(device),
         "containers": containers,
         "hypervisor": hypervisor,

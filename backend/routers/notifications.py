@@ -5,6 +5,7 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Notification, User
 from ..schemas import MessageResponse, NotificationResponse
+from ..services.notification import notification_device_path, notification_device_url
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -23,6 +24,8 @@ def list_notifications(
         NotificationResponse(
             id=n.id,
             device_id=n.device_id,
+            device_path=notification_device_path(n),
+            device_url=notification_device_url(db, n),
             event_type=n.event_type,
             message=n.message,
             is_read=n.is_read,

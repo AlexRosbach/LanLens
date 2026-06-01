@@ -7,6 +7,13 @@ export interface AllSettings {
   scan_end: string
   scan_additional_targets: string
   scan_interval_minutes: number
+  passive_discovery_background_enabled: boolean
+  passive_discovery_interval_minutes: number
+  passive_discovery_capture_seconds: number
+  ping_monitor_enabled: boolean
+  ping_monitor_interval_minutes: number
+  device_archive_after_days: number
+  device_delete_archived_after_days: number
   port_scan_range: string
   telegram_bot_token: string
   telegram_chat_id: string
@@ -34,6 +41,10 @@ export interface AllSettings {
   show_cmdb_integrations: boolean
   show_services_nav: boolean
   show_dhcp_monitor_nav: boolean
+  show_plugin_api: boolean
+  show_passive_discovery: boolean
+  show_mdns_discovery: boolean
+  show_ssdp_discovery: boolean
   show_tls_checks: boolean
   show_ping_history: boolean
   show_build_info: boolean
@@ -66,6 +77,22 @@ export const settingsApi = {
 
   updateScanSchedule: (scan_interval_minutes: number) =>
     apiClient.put('/settings/scan-schedule', { scan_interval_minutes }).then((r) => r.data),
+
+  updatePassiveDiscovery: (data: {
+    passive_discovery_background_enabled: boolean
+    passive_discovery_interval_minutes: number
+    passive_discovery_capture_seconds: number
+  }) => apiClient.put('/settings/passive-discovery', data).then((r) => r.data),
+
+  updatePingMonitor: (data: {
+    ping_monitor_enabled: boolean
+    ping_monitor_interval_minutes: number
+  }) => apiClient.put('/settings/ping-monitor', data).then((r) => r.data),
+
+  updateDeviceRetention: (data: {
+    device_archive_after_days: number
+    device_delete_archived_after_days: number
+  }) => apiClient.put('/settings/device-retention', data).then((r) => r.data),
 
   updateTelegram: (data: {
     telegram_bot_token: string
@@ -113,6 +140,10 @@ export const settingsApi = {
     show_cmdb_integrations: boolean,
     show_services_nav: boolean,
     show_dhcp_monitor_nav: boolean,
+    show_plugin_api: boolean,
+    show_passive_discovery: boolean,
+    show_mdns_discovery: boolean,
+    show_ssdp_discovery: boolean,
     show_tls_checks: boolean,
     show_ping_history: boolean,
     show_build_info: boolean,
@@ -122,6 +153,10 @@ export const settingsApi = {
       show_cmdb_integrations,
       show_services_nav,
       show_dhcp_monitor_nav,
+      show_plugin_api,
+      show_passive_discovery,
+      show_mdns_discovery,
+      show_ssdp_discovery,
       show_tls_checks,
       show_ping_history,
       show_build_info,

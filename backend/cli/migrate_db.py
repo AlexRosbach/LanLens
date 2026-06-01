@@ -620,6 +620,8 @@ def migrate():
             "notifications_muted": "ALTER TABLE devices ADD COLUMN notifications_muted BOOLEAN NOT NULL DEFAULT FALSE",
             "maintenance_until": "ALTER TABLE devices ADD COLUMN maintenance_until DATETIME",
             "maintenance_note": "ALTER TABLE devices ADD COLUMN maintenance_note TEXT",
+            "is_archived": "ALTER TABLE devices ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE",
+            "archived_at": "ALTER TABLE devices ADD COLUMN archived_at DATETIME",
         }.items():
             if not _column_exists(conn, "devices", column):
                 conn.execute(text(ddl))
@@ -709,6 +711,37 @@ def migrate():
             print("Migration: device_ping_samples — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: device_ping_samples already exists — skipped")
+
+        # ── v1.5.4 ── Optional plugin/passive-discovery observations ───────
+        if IS_SQLITE and not _table_exists(conn, "passive_discovery_observations"):
+            conn.execute(text(
+                "CREATE TABLE passive_discovery_observations ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "protocol VARCHAR(32) NOT NULL, "
+                "source_ip VARCHAR(45), "
+                "source_mac VARCHAR(17), "
+                "destination_ip VARCHAR(45), "
+                "service_name VARCHAR(255), "
+                "service_type VARCHAR(128), "
+                "summary TEXT, "
+                "metadata_json TEXT NOT NULL DEFAULT '{}', "
+                "observed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_passive_discovery_protocol_time "
+                "ON passive_discovery_observations(protocol, observed_at)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_passive_discovery_source_ip "
+                "ON passive_discovery_observations(source_ip)"
+            ))
+            conn.commit()
+            print("Migration: created passive_discovery_observations")
+        elif not IS_SQLITE:
+            print("Migration: passive_discovery_observations — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: passive_discovery_observations already exists — skipped")
 
         conn.commit()
 

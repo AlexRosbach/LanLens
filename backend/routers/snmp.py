@@ -10,6 +10,7 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch, User
 from ..schemas import MessageResponse
+from ..services.settings_helpers import is_advanced_view_enabled
 from ..services.snmp import detect_vendor, identity_for_device, poll_switch
 
 router = APIRouter(prefix="/api/snmp", tags=["snmp"])
@@ -19,6 +20,11 @@ SNMP_VERSIONS = {"1", "2c", "3"}
 SNMP_V3_SECURITY_LEVELS = {"noAuthNoPriv", "authNoPriv", "authPriv"}
 SNMP_AUTH_PROTOCOLS = {"MD5", "SHA"}
 SNMP_PRIVACY_PROTOCOLS = {"DES", "AES"}
+
+
+def _require_snmp_enabled(db: Session) -> None:
+    if not is_advanced_view_enabled(db):
+        raise HTTPException(status_code=403, detail="SNMP is disabled")
 
 
 class SnmpProfilePayload(BaseModel):
@@ -84,13 +90,69 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
     }
 
 
+def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
+    interfaces = (
+        db.query(SnmpInterface)
+        .filter(SnmpInterface.switch_id == switch.id)
+        .order_by(SnmpInterface.if_index.asc())
+        .all()
+    )
+    mac_entries = (
+        db.query(SnmpMacTableEntry, Device)
+        .outerjoin(Device, func.lower(SnmpMacTableEntry.mac_address) == func.lower(Device.mac_address))
+        .filter(SnmpMacTableEntry.switch_id == switch.id)
+        .order_by(SnmpMacTableEntry.last_seen_at.desc())
+        .all()
+    )
+
+    has_mac_vlan_context = False
+    endpoints_by_if_index: dict[int, list[dict]] = {}
+    for entry, device in mac_entries:
+        if entry.if_index is None:
+            continue
+        if entry.vlan:
+            has_mac_vlan_context = True
+        endpoints_by_if_index.setdefault(entry.if_index, []).append({
+            "mac_address": entry.mac_address,
+            "vlan": entry.vlan or "",
+            "device_id": device.id if device else None,
+            "device_label": (device.label or device.hostname or device.ip_address or device.mac_address) if device else "",
+            "last_seen_at": entry.last_seen_at,
+        })
+
+    ports = []
+    for iface in interfaces:
+        endpoints = endpoints_by_if_index.get(iface.if_index, [])
+        is_active = iface.oper_status == "up" or bool(endpoints)
+        ports.append({
+            "if_index": iface.if_index,
+            "name": iface.name or "",
+            "description": iface.description or "",
+            "alias": iface.alias or "",
+            "admin_status": iface.admin_status or "",
+            "oper_status": iface.oper_status or "",
+            "speed_bps": iface.speed_bps,
+            "is_active": is_active,
+            "endpoints": endpoints,
+            "last_seen_at": iface.last_seen_at,
+        })
+
+    return {
+        "switch": _switch_response(switch, interface_count=len(interfaces), mac_count=len(mac_entries)),
+        "has_visualization": bool(interfaces and has_mac_vlan_context),
+        "ports": ports,
+    }
+
+
 @router.get("/profiles")
 def list_profiles(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     return [_profile_response(profile) for profile in db.query(SnmpProfile).order_by(SnmpProfile.name.asc()).all()]
 
 
 @router.post("/profiles")
 def create_profile(payload: SnmpProfilePayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     version = payload.version.strip()
     security_level = payload.security_level.strip() or "noAuthNoPriv"
     auth_protocol = payload.auth_protocol.strip().upper() or "SHA"
@@ -137,6 +199,7 @@ def create_profile(payload: SnmpProfilePayload, db: Session = Depends(get_db), _
 
 @router.delete("/profiles/{profile_id}", response_model=MessageResponse)
 def delete_profile(profile_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MessageResponse:
+    _require_snmp_enabled(db)
     profile = db.query(SnmpProfile).filter(SnmpProfile.id == profile_id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="SNMP profile not found")
@@ -152,6 +215,7 @@ def delete_profile(profile_id: int, db: Session = Depends(get_db), _: User = Dep
 
 @router.get("/switches")
 def list_switches(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     switches = db.query(SnmpSwitch).order_by(SnmpSwitch.name.asc()).all()
     if not switches:
         return []
@@ -184,6 +248,7 @@ def list_switches(db: Session = Depends(get_db), _: User = Depends(get_current_u
 
 @router.post("/switches")
 def create_switch(payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     host = payload.host.strip()
     if db.query(SnmpSwitch).filter(SnmpSwitch.host == host).first():
         raise HTTPException(status_code=409, detail="SNMP switch host already exists")
@@ -206,6 +271,7 @@ def create_switch(payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: 
 
 @router.delete("/switches/{switch_id}", response_model=MessageResponse)
 def delete_switch(switch_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MessageResponse:
+    _require_snmp_enabled(db)
     switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == switch_id).first()
     if not switch:
         raise HTTPException(status_code=404, detail="SNMP switch not found")
@@ -217,6 +283,7 @@ def delete_switch(switch_id: int, db: Session = Depends(get_db), _: User = Depen
 
 @router.post("/switches/{switch_id}/poll")
 def poll_snmp_switch(switch_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == switch_id).first()
     if not switch:
         raise HTTPException(status_code=404, detail="SNMP switch not found")
@@ -240,6 +307,7 @@ def poll_snmp_switch(switch_id: int, db: Session = Depends(get_db), _: User = De
 
 @router.get("/switches/{switch_id}/interfaces")
 def list_switch_interfaces(switch_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     rows = (
         db.query(SnmpInterface)
         .filter(SnmpInterface.switch_id == switch_id)
@@ -261,8 +329,18 @@ def list_switch_interfaces(switch_id: int, db: Session = Depends(get_db), _: Use
     ]
 
 
+@router.get("/devices/{device_id}/ports")
+def get_device_switch_ports(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    switch = db.query(SnmpSwitch).filter(SnmpSwitch.device_id == device_id).first()
+    if not switch:
+        return {"switch": None, "has_visualization": False, "ports": []}
+    return _build_switch_port_visualization(db, switch)
+
+
 @router.get("/topology/endpoints")
 def list_snmp_endpoints(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     rows = (
         db.query(SnmpMacTableEntry, SnmpSwitch, SnmpInterface, Device)
         .join(SnmpSwitch, SnmpMacTableEntry.switch_id == SnmpSwitch.id)
@@ -295,6 +373,7 @@ def list_snmp_endpoints(db: Session = Depends(get_db), _: User = Depends(get_cur
 
 @router.get("/devices/{device_id}/identity")
 def get_device_snmp_identity(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")

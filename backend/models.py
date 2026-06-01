@@ -60,6 +60,8 @@ class Device(Base):
     notifications_muted = Column(Boolean, default=False, nullable=False, server_default=false())
     maintenance_until = Column(DateTime, nullable=True)
     maintenance_note = Column(Text, nullable=True)
+    is_archived = Column(Boolean, default=False, nullable=False, server_default=false())
+    archived_at = Column(DateTime, nullable=True)
     is_online = Column(Boolean, default=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)
@@ -457,6 +459,26 @@ class DhcpObservation(Base):
     requested_ip = Column(String(45), nullable=True)
     lease_time = Column(Integer, nullable=True)
     options_json = Column(Text, nullable=False, default="{}")
+    observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PassiveDiscoveryObservation(Base):
+    """Observed optional multicast/service-discovery packet metadata."""
+    __tablename__ = "passive_discovery_observations"
+    __table_args__ = (
+        Index("ix_passive_discovery_protocol_time", "protocol", "observed_at"),
+        Index("ix_passive_discovery_source_ip", "source_ip"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    protocol = Column(String(32), nullable=False)
+    source_ip = Column(String(45), nullable=True)
+    source_mac = Column(String(17), nullable=True)
+    destination_ip = Column(String(45), nullable=True)
+    service_name = Column(String(255), nullable=True)
+    service_type = Column(String(128), nullable=True)
+    summary = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
     observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

@@ -28,6 +28,13 @@ INTERESTING_PORTS = {
     27017: "mongodb",
 }
 
+HTTPS_PORTS = {443, 8443, 9443, 9444, 10443}
+
+
+def _is_https_service(port: int, service_name: str) -> bool:
+    normalized = (service_name or "").lower()
+    return port in HTTPS_PORTS or "https" in normalized or "ssl" in normalized
+
 
 def normalize_port_spec(port_spec: Optional[str]) -> Optional[str]:
     spec = (port_spec or "").strip().lower()
@@ -138,7 +145,7 @@ def scan_ports(ip_address: str, port_spec: Optional[str] = None) -> Optional[Dic
                         rdp_available = True
                     elif port == 80:
                         http_available = True
-                    elif port == 443:
+                    elif _is_https_service(port, service_name):
                         https_available = True
 
         return {

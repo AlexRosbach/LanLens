@@ -10,6 +10,9 @@ export interface TopologyNode {
   segment_id: number | null
   segment_name: string | null
   service_count: number
+  snmp_switch?: string | null
+  snmp_interface?: string | null
+  snmp_vlan?: string | null
 }
 
 export interface TopologyEdge {
@@ -17,6 +20,7 @@ export interface TopologyEdge {
   target: number
   relationship_type: string
   label?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface TopologyResponse {

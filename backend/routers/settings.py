@@ -12,8 +12,11 @@ from ..models import Setting, User
 from ..version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 from ..schemas import (
     AllSettings,
+    DeviceRetentionSettings,
     DhcpSettings,
     MessageResponse,
+    PassiveDiscoverySettings,
+    PingMonitorSettings,
     PortScanSettings,
     ScanRangeSettings,
     ScanScheduleSettings,
@@ -25,7 +28,9 @@ from ..schemas import (
 )
 from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message, validate_webhook_url
 from ..services.https_config import apply_nginx_config, load_https_config, save_https_config
-from ..services.scheduler import update_interval
+from ..services.passive_discovery_scheduler import update_passive_discovery_schedule
+from ..services.device_retention import get_device_retention_settings
+from ..services.scheduler import update_interval, update_ping_monitor_schedule
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
 from ..services.settings_helpers import get_scan_interval_minutes
@@ -36,6 +41,9 @@ TOKEN_MASK = "••••••••"
 
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
+    "passive_discovery_background_enabled", "passive_discovery_interval_minutes", "passive_discovery_capture_seconds",
+    "ping_monitor_enabled", "ping_monitor_interval_minutes",
+    "device_archive_after_days", "device_delete_archived_after_days",
     "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
@@ -43,6 +51,7 @@ SETTING_KEYS = [
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
     "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav",
+    "show_plugin_api", "show_passive_discovery", "show_mdns_discovery", "show_ssdp_discovery",
     "show_tls_checks", "show_ping_history", "show_build_info",
 ]
 
@@ -136,6 +145,12 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         scan_end=effective_scan_end,
         scan_additional_targets=_get(db, "scan_additional_targets", "") or "",
         scan_interval_minutes=interval_minutes,
+        passive_discovery_background_enabled=_get(db, "passive_discovery_background_enabled", "false") == "true",
+        passive_discovery_interval_minutes=int(_get(db, "passive_discovery_interval_minutes", "15") or "15"),
+        passive_discovery_capture_seconds=int(_get(db, "passive_discovery_capture_seconds", "30") or "30"),
+        ping_monitor_enabled=_get(db, "ping_monitor_enabled", "false") == "true",
+        ping_monitor_interval_minutes=int(_get(db, "ping_monitor_interval_minutes", "5") or "5"),
+        **get_device_retention_settings(db),
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
         telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
@@ -163,6 +178,10 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         show_cmdb_integrations=_get(db, "show_cmdb_integrations", "false") == "true",
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
         show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
+        show_plugin_api=_get(db, "show_plugin_api", "false") == "true",
+        show_passive_discovery=_get(db, "show_passive_discovery", "false") == "true",
+        show_mdns_discovery=_get(db, "show_mdns_discovery", "false") == "true",
+        show_ssdp_discovery=_get(db, "show_ssdp_discovery", "false") == "true",
         show_tls_checks=_get(db, "show_tls_checks", "false") == "true",
         show_ping_history=_get(db, "show_ping_history", "false") == "true",
         show_build_info=_get(db, "show_build_info", "false") == "true",
@@ -240,6 +259,50 @@ def update_scan_schedule(
     db.commit()
     update_interval(data.scan_interval_minutes)
     return MessageResponse(message="Scan schedule updated")
+
+
+@router.put("/passive-discovery", response_model=MessageResponse)
+def update_passive_discovery(
+    data: PassiveDiscoverySettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    interval = max(1, min(1440, int(data.passive_discovery_interval_minutes or 15)))
+    seconds = max(3, min(120, int(data.passive_discovery_capture_seconds or 30)))
+    _set(db, "passive_discovery_background_enabled", "true" if data.passive_discovery_background_enabled else "false")
+    _set(db, "passive_discovery_interval_minutes", str(interval))
+    _set(db, "passive_discovery_capture_seconds", str(seconds))
+    db.commit()
+    update_passive_discovery_schedule()
+    return MessageResponse(message="Passive discovery schedule updated")
+
+
+@router.put("/ping-monitor", response_model=MessageResponse)
+def update_ping_monitor(
+    data: PingMonitorSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    interval = max(1, min(1440, int(data.ping_monitor_interval_minutes or 5)))
+    _set(db, "ping_monitor_enabled", "true" if data.ping_monitor_enabled else "false")
+    _set(db, "ping_monitor_interval_minutes", str(interval))
+    db.commit()
+    update_ping_monitor_schedule()
+    return MessageResponse(message="Ping monitor schedule updated")
+
+
+@router.put("/device-retention", response_model=MessageResponse)
+def update_device_retention(
+    data: DeviceRetentionSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    archive_days = max(0, min(3650, int(data.device_archive_after_days or 0)))
+    delete_days = max(0, min(3650, int(data.device_delete_archived_after_days or 0)))
+    _set(db, "device_archive_after_days", str(archive_days))
+    _set(db, "device_delete_archived_after_days", str(delete_days))
+    db.commit()
+    return MessageResponse(message="Device retention settings updated")
 
 
 @router.put("/port-scan", response_model=MessageResponse)
@@ -333,10 +396,16 @@ def update_ui_settings(
     _set(db, "show_cmdb_integrations", "true" if data.show_cmdb_integrations else "false")
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
     _set(db, "show_dhcp_monitor_nav", "true" if data.show_dhcp_monitor_nav else "false")
+    _set(db, "show_plugin_api", "true" if data.show_plugin_api else "false")
+    _set(db, "show_passive_discovery", "true" if data.show_passive_discovery else "false")
+    _set(db, "show_mdns_discovery", "true" if data.show_mdns_discovery else "false")
+    _set(db, "show_ssdp_discovery", "true" if data.show_ssdp_discovery else "false")
     _set(db, "show_tls_checks", "true" if data.show_tls_checks else "false")
     _set(db, "show_ping_history", "true" if data.show_ping_history else "false")
     _set(db, "show_build_info", "true" if data.show_build_info else "false")
     db.commit()
+    update_passive_discovery_schedule()
+    update_ping_monitor_schedule()
     return MessageResponse(message="UI settings updated")
 
 
