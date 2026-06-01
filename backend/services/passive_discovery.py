@@ -509,12 +509,78 @@ def linked_devices_for_observations(db: Session, rows: Iterable[PassiveDiscovery
     return linked_by_row
 
 
+def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    metadata = metadata or _metadata_for(row)
+    protocol = (row.protocol or "").lower()
+    values: list[str] = []
+    for value in [row.service_name, row.service_type, row.summary, row.destination_ip]:
+        if value:
+            values.append(str(value))
+    for key in ("st", "nt", "usn", "server", "location", "packet_type", "method", "status"):
+        value = metadata.get(key)
+        if value:
+            values.append(str(value))
+    for key in ("questions", "answers"):
+        items = metadata.get(key) or []
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    for nested_key in ("name", "data"):
+                        if item.get(nested_key):
+                            values.append(str(item[nested_key]))
+
+    haystack = " ".join(values).lower()
+    reasons: list[str] = []
+
+    def result(device_class: str, confidence: str, reason: str) -> dict[str, Any]:
+        return {
+            "inferred_device_class": device_class,
+            "inference_confidence": confidence,
+            "inference_reasons": [reason],
+        }
+
+    if protocol in {"ospf", "vrrp", "hsrp"}:
+        return result("Router", "high", f"{row.protocol.upper()} control-plane multicast")
+
+    if any(token in haystack for token in ("internetgatewaydevice", "wandevice", "wanconnectiondevice", "router", "gateway")):
+        return result("Router", "high", "UPnP/SSDP gateway or router advertisement")
+    if any(token in haystack for token in ("wlanaccesspoint", "accesspoint", "access point", "uap-", "unifi")):
+        return result("AP", "high", "Wireless access-point service advertisement")
+    if any(token in haystack for token in ("_ipp", "_printer", "_pdl-datastream", "printer", "print")):
+        return result("Printer", "high", "Printer service advertised by mDNS/Bonjour")
+    if any(token in haystack for token in ("mediarenderer", "mediaserver", "dial-multiscreen", "googlecast", "_airplay", "_raop", "chromecast", "roku")):
+        return result("TV", "medium", "Media renderer/server advertisement")
+    if any(token in haystack for token in ("_smb", "_nfs", "_afpovertcp", "_webdav", "_ssh", "nas")):
+        return result("NAS", "medium", "File sharing or storage-oriented service advertisement")
+    if any(token in haystack for token in ("_hap", "_homekit", "_matter", "_mqtt", "shelly", "tasmota", "esphome", "ewelink", "miio")):
+        return result("IoT", "medium", "IoT/home-automation service advertisement")
+    if any(token in haystack for token in ("_workstation", "_device-info", "workstation")):
+        return result("Workstation", "low", "Generic workstation/device-info advertisement")
+
+    if protocol == "ssdp" and any(token in haystack for token in ("upnp:rootdevice", "basic:1")):
+        return result("IoT", "low", "Generic UPnP root/basic device advertisement")
+
+    if protocol == "multicast":
+        destination_port = metadata.get("destination_port")
+        if destination_port in {1900, "1900"} or row.destination_ip == "239.255.255.250":
+            return result("IoT", "low", "Generic SSDP/UPnP multicast traffic")
+        if destination_port in {5353, "5353"} or row.destination_ip == "224.0.0.251":
+            return result("Workstation", "low", "Generic mDNS multicast traffic")
+
+    return {
+        "inferred_device_class": None,
+        "inference_confidence": None,
+        "inference_reasons": reasons,
+    }
+
+
 def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None = None, linked_device: Device | None = None) -> dict[str, Any]:
     try:
         metadata = json.loads(row.metadata_json or "{}")
     except Exception:
         metadata = {}
     linked_device = linked_device or (find_linked_device(db, row) if db is not None else None)
+    inference = infer_device_class_from_observation(row, metadata)
     return {
         "id": row.id,
         "protocol": row.protocol,
@@ -528,4 +594,5 @@ def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None
         "observed_at": row.observed_at,
         "linked_device_id": linked_device.id if linked_device else None,
         "linked_device_label": _device_label(linked_device) if linked_device else None,
+        **inference,
     }

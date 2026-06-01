@@ -10,6 +10,7 @@ All notable changes to this project should be documented in this file.
 - Added backend plugin status endpoints that report available plugin modules and enabled discovery protocols.
 - Added passive multicast discovery storage for observed protocol metadata, including generic IPv4 multicast packets in addition to recognized OSPF/VRRP/HSRP control-plane traffic.
 - Added visible passive-discovery capture and per-device mDNS/SSDP/multicast observations.
+- Added passive-discovery device-class hints with confidence and reasons for common mDNS/SSDP/multicast advertisements.
 - Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, duplicates skipped, active filter, enabled protocols and capture errors.
 - Added passive-discovery device matching status and recent observation links in Settings so captured multicast packets can be traced directly to matching devices.
 - Added clickable per-device multicast discovery rows with a detail dialog that shows parsed fields and the raw captured observation payload.

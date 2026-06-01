@@ -45,6 +45,9 @@ export interface PassiveDiscoveryObservation {
   observed_at: string
   linked_device_id?: number | null
   linked_device_label?: string | null
+  inferred_device_class?: string | null
+  inference_confidence?: string | null
+  inference_reasons?: string[]
 }
 
 export interface Device {

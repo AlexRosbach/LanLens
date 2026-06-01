@@ -8,7 +8,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345
 import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceIpHistory, PassiveDiscoveryObservation
-from backend.services.passive_discovery import capture_passive_discovery_report, deduplicate_observations, find_linked_device, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
+from backend.services.passive_discovery import capture_passive_discovery_report, deduplicate_observations, find_linked_device, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -141,6 +141,37 @@ class PassiveDiscoveryTests(unittest.TestCase):
         self.assertEqual(observation.destination_ip, "239.255.255.250")
         self.assertEqual(observation.service_type, "urn:schemas-upnp-org:device:MediaServer:1")
         self.assertEqual(observation.summary, "M-SEARCH urn:schemas-upnp-org:device:MediaServer:1")
+
+    def test_passive_discovery_infers_printer_from_mdns_service(self):
+        observation = PassiveDiscoveryObservation(
+            protocol="mdns",
+            service_name="Office Printer._ipp._tcp.local",
+            service_type="_ipp._tcp",
+            summary="Office Printer._ipp._tcp.local",
+            metadata_json='{"answers": [{"name": "_ipp._tcp.local"}]}',
+        )
+
+        inference = infer_device_class_from_observation(observation)
+
+        self.assertEqual(inference["inferred_device_class"], "Printer")
+        self.assertEqual(inference["inference_confidence"], "high")
+        self.assertTrue(inference["inference_reasons"])
+
+    def test_passive_discovery_infers_router_from_upnp_gateway(self):
+        observation = parse_ssdp_payload("\r\n".join([
+            "NOTIFY * HTTP/1.1",
+            "HOST: 239.255.255.250:1900",
+            "NT: urn:schemas-upnp-org:device:InternetGatewayDevice:1",
+            "NTS: ssdp:alive",
+            "",
+            "",
+        ]))
+
+        self.assertIsNotNone(observation)
+        inference = infer_device_class_from_observation(observation)
+
+        self.assertEqual(inference["inferred_device_class"], "Router")
+        self.assertEqual(inference["inference_confidence"], "high")
 
     @unittest.skipIf(Raw is None, "scapy is not installed")
     def test_upnp_response_packet_extracts_addresses_and_usn(self):

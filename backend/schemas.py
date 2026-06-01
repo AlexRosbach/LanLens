@@ -191,6 +191,9 @@ class PassiveDiscoveryObservationResponse(BaseModel):
     observed_at: datetime
     linked_device_id: Optional[int] = None
     linked_device_label: Optional[str] = None
+    inferred_device_class: Optional[str] = None
+    inference_confidence: Optional[str] = None
+    inference_reasons: List[str] = []
 
 
 # ── Devices ───────────────────────────────────────────────────────────────────

@@ -72,12 +72,13 @@ function toEditState(d: Device): EditState {
   }
 }
 
-function InfoRow({ label, value, mono = false }: { label: string; value?: string | null; mono?: boolean }) {
+function InfoRow({ label, value, mono = false, tone = 'default' }: { label: string; value?: string | null; mono?: boolean; tone?: 'default' | 'success' | 'warning' }) {
   if (!value) return null
+  const toneClass = tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : 'text-text-muted'
   return (
     <div>
       <p className="text-text-subtle text-xs mb-0.5">{label}</p>
-      <p className={`text-text-muted text-xs ${mono ? 'font-mono' : ''}`}>{value}</p>
+      <p className={`${toneClass} text-xs ${mono ? 'font-mono' : ''}`}>{value}</p>
     </div>
   )
 }
@@ -110,6 +111,12 @@ function passiveMetadataEntries(row: PassiveDiscoveryObservation) {
 
 function passiveRawPayload(row: PassiveDiscoveryObservation) {
   return JSON.stringify(row, null, 2)
+}
+
+function passiveInferenceTone(confidence?: string | null) {
+  if (confidence === 'high') return 'text-success border-success/30 bg-success/10'
+  if (confidence === 'medium') return 'text-warning border-warning/30 bg-warning/10'
+  return 'text-text-muted border-border bg-surface2/40'
 }
 
 export default function DeviceDetail() {
@@ -788,6 +795,7 @@ export default function DeviceDetail() {
                   <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_protocol')}</th>
                   <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_service')}</th>
                   <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_type')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_inferred_class')}</th>
                   <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_summary')}</th>
                   <th className="py-2 pr-3 text-left font-medium">{t('last_seen')}</th>
                   <th className="py-2 text-right font-medium">{t('details')}</th>
@@ -802,6 +810,16 @@ export default function DeviceDetail() {
                     <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol}</td>
                     <td className="py-2 pr-3 text-text-muted">{row.service_name || '—'}</td>
                     <td className="py-2 pr-3 text-text-subtle">{row.service_type || '—'}</td>
+                    <td className="py-2 pr-3">
+                      {row.inferred_device_class ? (
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${passiveInferenceTone(row.inference_confidence)}`}>
+                          {row.inferred_device_class}
+                          {row.inference_confidence ? ` · ${row.inference_confidence}` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-text-subtle">—</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3 text-text-subtle">{row.summary || '—'}</td>
                     <td className="py-2 pr-3 text-text-subtle">{formatRelativeTime(row.observed_at, lang)}</td>
                     <td className="py-2 text-right">
@@ -862,9 +880,20 @@ export default function DeviceDetail() {
                 <InfoRow label={t('multicast_discovery_linked_device')} value={selectedPassiveObservation.linked_device_label} />
                 <InfoRow label={t('multicast_discovery_service')} value={selectedPassiveObservation.service_name} />
                 <InfoRow label={t('multicast_discovery_type')} value={selectedPassiveObservation.service_type} />
+                <InfoRow
+                  label={t('multicast_discovery_inferred_class')}
+                  value={selectedPassiveObservation.inferred_device_class}
+                  tone={selectedPassiveObservation.inference_confidence === 'high' ? 'success' : selectedPassiveObservation.inference_confidence === 'medium' ? 'warning' : 'default'}
+                />
+                <InfoRow label={t('multicast_discovery_inference_confidence')} value={selectedPassiveObservation.inference_confidence} />
                 <div className="sm:col-span-2">
                   <InfoRow label={t('multicast_discovery_summary')} value={selectedPassiveObservation.summary} />
                 </div>
+                {selectedPassiveObservation.inference_reasons && selectedPassiveObservation.inference_reasons.length > 0 && (
+                  <div className="sm:col-span-2">
+                    <InfoRow label={t('multicast_discovery_inference_reason')} value={selectedPassiveObservation.inference_reasons.join(', ')} />
+                  </div>
+                )}
               </div>
 
               <div className="mt-5 border-t border-border pt-4">

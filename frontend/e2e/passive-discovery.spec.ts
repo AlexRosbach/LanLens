@@ -154,6 +154,9 @@ test('device multicast discovery shows one row for repeated observations', async
           service_type: null,
           summary: 'IPv4 multicast packet',
           metadata: { transport: 'udp', source_port: 42000, destination_port: 9999 },
+          inferred_device_class: 'Workstation',
+          inference_confidence: 'low',
+          inference_reasons: ['Generic mDNS multicast traffic'],
           observed_at: '2026-05-31T20:25:00Z',
           linked_device_id: 1,
           linked_device_label: 'Printer 01',
@@ -168,6 +171,9 @@ test('device multicast discovery shows one row for repeated observations', async
           service_type: null,
           summary: 'IPv4 multicast packet',
           metadata: { transport: 'udp', source_port: 43000, destination_port: 9999 },
+          inferred_device_class: 'Workstation',
+          inference_confidence: 'low',
+          inference_reasons: ['Generic mDNS multicast traffic'],
           observed_at: now,
           linked_device_id: 1,
           linked_device_label: 'Printer 01',
@@ -180,12 +186,14 @@ test('device multicast discovery shows one row for repeated observations', async
 
   await expect(page.getByText('1 unique observations')).toBeVisible()
   await expect(page.locator('#device-passive-discovery tbody tr')).toHaveCount(1)
+  await expect(page.locator('#device-passive-discovery').getByText('Workstation · low')).toBeVisible()
   await expect(page.locator('#device-passive-discovery').getByRole('button', { name: /multicast.*details/i })).toBeVisible()
   await page.locator('#device-passive-discovery').scrollIntoViewIfNeeded()
   await page.screenshot({ path: `${screenshotDir}/passive-discovery-dedupe.png`, fullPage: true })
   await page.locator('#device-passive-discovery').getByRole('button', { name: /multicast.*details/i }).click()
   await expect(page.getByRole('dialog', { name: 'MULTICAST observation' })).toBeVisible()
   await expect(page.getByText('Multicast discovery detail')).toBeVisible()
+  await expect(page.getByText('Generic mDNS multicast traffic').first()).toBeVisible()
   await expect(page.getByText('"destination_port": 9999')).toBeVisible()
   await expect(page.getByText('"source_port": 43000')).toBeVisible()
   await page.screenshot({ path: `${screenshotDir}/passive-discovery-detail.png`, fullPage: true })
