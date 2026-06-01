@@ -1,3 +1,4 @@
+import asyncio
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -13,7 +14,7 @@ from backend.database import Base
 from backend.models import Device, DevicePingSample, Service, Setting
 from backend.routers.devices import _auto_check_https_certificate
 from backend.routers.services import _normalize_tls_expiry, _resolve_safe_tls_addresses, _service_tls_target
-from backend.services.scanner import PING_SAMPLE_RETENTION_PER_DEVICE, record_ping_sample
+from backend.services.scanner import PING_SAMPLE_RETENTION_PER_DEVICE, monitor_known_device_pings, record_ping_sample
 from backend.services.scheduler import get_ping_monitor_schedule
 from backend.services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
 
@@ -138,6 +139,33 @@ class ServiceTlsAndPingTests(unittest.TestCase):
 
             self.assertEqual(len(rows), PING_SAMPLE_RETENTION_PER_DEVICE)
             self.assertEqual(rows[0].checked_at, base_time + timedelta(seconds=5))
+        finally:
+            db.close()
+
+    def test_ping_monitor_skips_archived_devices(self):
+        db = self.Session()
+        try:
+            active = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10")
+            archived = Device(
+                mac_address="00:11:22:33:44:66",
+                ip_address="192.0.2.11",
+                is_archived=True,
+            )
+            db.add_all([active, archived])
+            db.commit()
+            db.refresh(active)
+            db.refresh(archived)
+
+            with patch("backend.services.scanner.SessionLocal", self.Session), patch(
+                "backend.services.scanner._ping_host",
+                return_value=3.5,
+            ) as ping:
+                recorded = asyncio.run(monitor_known_device_pings("test"))
+
+            self.assertEqual(recorded, 1)
+            ping.assert_called_once_with("192.0.2.10", 1)
+            self.assertEqual(db.query(DevicePingSample).filter(DevicePingSample.device_id == active.id).count(), 1)
+            self.assertEqual(db.query(DevicePingSample).filter(DevicePingSample.device_id == archived.id).count(), 0)
         finally:
             db.close()
 

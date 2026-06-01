@@ -31,6 +31,8 @@ All notable changes to this project should be documented in this file.
 - Aligned frontend plugin feature gates with backend dependencies so passive discovery cannot render without Plugin API enabled.
 - Included device IP history in per-device passive discovery lookups so observations remain visible after an address change.
 - Avoided per-device SNMP identity lookups on dashboard lists by using the existing bulk identity resolver.
+- Excluded archived devices from the background ping monitor so archived discoveries stay out of active reachability updates.
+- Updated async ping helpers to use the running event loop explicitly for modern asyncio runtimes.
 - Bounded passive discovery service identifiers before persistence so long SSDP/UPnP locations cannot exceed database column limits.
 - Fixed mDNS DNS-section parsing for Scapy packet-list sections so service names and service types are extracted correctly.
 - Matched passive-discovery observations against current device IPs, MAC addresses and device IP history so captures still link when a device address has changed.

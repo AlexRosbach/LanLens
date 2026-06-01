@@ -241,7 +241,7 @@ def record_ping_sample(
 async def _measure_scan_latencies(results: List[DiscoveryResult]) -> Dict[str, Optional[float]]:
     """Measure ICMP latency for discovered hosts without blocking once per device."""
     unique_ips = sorted({result.ip for result in results if result.ip})[:PING_LATENCY_SAMPLE_LIMIT]
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     tasks = [loop.run_in_executor(None, _ping_host, ip, 1) for ip in unique_ips]
     values = await asyncio.gather(*tasks, return_exceptions=True)
     latencies: Dict[str, Optional[float]] = {}
@@ -256,7 +256,7 @@ async def monitor_known_device_pings(source: str = "monitor") -> int:
     try:
         devices = (
             db.query(Device)
-            .filter(Device.ip_address.isnot(None), Device.ignored == False)
+            .filter(Device.ip_address.isnot(None), Device.ignored == False, Device.is_archived == False)
             .order_by(Device.id.asc())
             .limit(PING_MONITOR_SAMPLE_LIMIT)
             .all()
@@ -265,7 +265,7 @@ async def monitor_known_device_pings(source: str = "monitor") -> int:
             return 0
 
         checked_at = datetime.utcnow()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         tasks = [loop.run_in_executor(None, _ping_host, device.ip_address, 1) for device in devices]
         values = await asyncio.gather(*tasks, return_exceptions=True)
 
