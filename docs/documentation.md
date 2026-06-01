@@ -365,6 +365,10 @@ Triggers immediate ARP scan in background.
 
 Both values are day counts. `device_archive_after_days` moves inactive, discovered devices out of the normal dashboard into the archived view. `device_delete_archived_after_days` counts from `archived_at` and permanently deletes archived devices after that many days. Set either value to `0` to disable that step.
 
+#### `POST /api/devices/{device_id}/archive`
+
+Manually archives one device and returns the updated `DeviceResponse`. Manual archive sets `is_archived`, stores `archived_at`, marks the device offline, and records a `device_archived` timeline event. The device moves out of the normal dashboard list and into the **Archived** filter.
+
 #### `PUT /api/settings/telegram`
 ```json
 {
@@ -549,6 +553,8 @@ Passive discovery uses Scapy for packet capture and parsing. The currently insta
 ### Device Retention
 
 Use **Settings → Network Discovery → Device retention** to keep old discoveries from cluttering the active dashboard. `Archive after inactive days` moves devices whose `last_seen` is older than the configured threshold into the dashboard's **Archived** filter. Archived devices are excluded from the normal device list, online/offline counters and new-device count. If a later scan sees the same device again, LanLens unarchives it automatically.
+
+Use the device detail **Danger Zone** to archive one device immediately without waiting for the retention window. This keeps the device history and documentation but moves it into the dashboard's **Archived** filter.
 
 `Delete archived after days` is a second retention window that starts at `archived_at`. When enabled, archived devices older than that threshold are permanently deleted by the background retention job or the next completed scan. Set either field to `0` to disable that step.
 

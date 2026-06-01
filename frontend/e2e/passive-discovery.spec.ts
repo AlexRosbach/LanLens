@@ -204,6 +204,64 @@ test('device multicast discovery shows one row for repeated observations', async
   await page.screenshot({ path: `${screenshotDir}/passive-discovery-detail.png`, fullPage: true })
 })
 
+test('device detail danger zone can archive a device manually', async ({ page }) => {
+  let archived = false
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({ json: { username: 'admin', force_password_change: false } })
+  })
+  await page.route('**/api/settings', async (route) => {
+    await route.fulfill({ json: settings })
+  })
+  await page.route('**/api/notifications/unread-count', async (route) => {
+    await route.fulfill({ json: { count: 0 } })
+  })
+  await page.route('**/api/settings/update/check', async (route) => {
+    await route.fulfill({ json: { current_version: '1.5.4', latest_version: '1.5.4', release_url: '', update_available: false } })
+  })
+  await page.route('**/api/devices**', async (route) => {
+    const url = new URL(route.request().url())
+    if (!url.pathname.endsWith('/api/devices')) return route.fallback()
+    await route.fulfill({ json: { items: [device], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
+  })
+  await page.route('**/api/devices/1/archive', async (route) => {
+    archived = true
+    await route.fulfill({ json: { ...device, is_archived: true, is_online: false, archived_at: now } })
+  })
+  await page.route('**/api/devices/1', async (route) => {
+    await route.fulfill({ json: device })
+  })
+  await page.route('**/api/devices/1/mark-viewed', async (route) => {
+    await route.fulfill({ json: { message: 'ok' } })
+  })
+  await page.route('**/api/devices/1/ip-history', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/timeline', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/deep-scan/**', async (route) => {
+    await route.fulfill({ json: route.request().url().includes('/config') ? {} : [] })
+  })
+  await page.route('**/api/credentials', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/devices/1/ports', async (route) => {
+    await route.fulfill({ status: 404, json: { detail: 'Not found' } })
+  })
+  await page.route('**/api/devices/1/passive-discovery?**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.goto('/devices/1')
+  await page.getByRole('button', { name: 'Archive Device' }).click()
+
+  await expect.poll(() => archived).toBe(true)
+  await expect(page.getByRole('button', { name: 'Already archived' })).toBeVisible()
+  await page.screenshot({ path: `${screenshotDir}/device-danger-zone-archive.png`, fullPage: true })
+})
+
 test('enabling i-doit feature does not load i-doit config before settings are saved', async ({ page }) => {
   let idoitConfigRequests = 0
 

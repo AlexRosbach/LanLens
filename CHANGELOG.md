@@ -14,6 +14,7 @@ All notable changes to this project should be documented in this file.
 - Added automatic passive-discovery device-class updates for linked observations when the inferred class is confident enough.
 - Added automatic mDNS hostname fill-in for linked devices when normal discovery did not produce a usable hostname.
 - Added device retention settings to automatically archive inactive discovered devices and optionally delete archived devices after a separate retention period.
+- Added a manual device archive action in the device detail danger zone so individual discoveries can be moved to the archived view immediately.
 - Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, linked, device classes updated, hostnames updated, duplicates skipped, active filter, enabled protocols and capture errors.
 - Added passive-discovery device matching status and recent observation links in Settings so captured multicast packets can be traced directly to matching devices.
 - Added clickable per-device multicast discovery rows with a detail dialog that shows parsed fields and the raw captured observation payload.

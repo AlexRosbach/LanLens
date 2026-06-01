@@ -173,6 +173,9 @@ export const devicesApi = {
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
 
+  archive: (id: number) =>
+    apiClient.post<Device>(`/devices/${id}/archive`).then((r) => r.data),
+
   refreshStatus: (id: number) =>
     apiClient.post<Device>(`/devices/${id}/refresh-status`).then((r) => r.data),
 

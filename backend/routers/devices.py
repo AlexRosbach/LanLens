@@ -1029,6 +1029,41 @@ def delete_device(
     return MessageResponse(message="Device deleted")
 
 
+@router.post("/{device_id}/archive", response_model=DeviceResponse)
+def archive_device(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    if not device.is_archived:
+        device.is_archived = True
+        device.archived_at = datetime.utcnow()
+        device.is_online = False
+        _record_change(
+            db,
+            device.id,
+            "device_archived",
+            "is_archived",
+            False,
+            True,
+            source="user",
+            message="Archived manually from device danger zone",
+        )
+        db.commit()
+    else:
+        db.commit()
+
+    db.refresh(device)
+    dhcp_range = _get_dhcp_range(db)
+    viewed_device_ids = _get_viewed_device_ids(db, current_user)
+    segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
+    return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
+
+
 @router.post("/{device_id}/generate-cmdb-id", response_model=DeviceResponse)
 def regenerate_cmdb_id(
     device_id: int,

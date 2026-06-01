@@ -137,6 +137,7 @@ export default function DeviceDetail() {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [refreshStatusLoading, setRefreshStatusLoading] = useState(false)
   const [portScanInput, setPortScanInput] = useState('')
@@ -254,6 +255,22 @@ export default function DeviceDetail() {
     } catch {
       toast.error(t('device_delete_failed'))
       setDeleting(false)
+    }
+  }
+
+  async function handleArchive() {
+    if (!device || device.is_archived || !confirm(t('device_archive_confirm'))) return
+    setArchiving(true)
+    try {
+      const updated = await devicesApi.archive(device.id)
+      setDevice(updated)
+      setForm(toEditState(updated))
+      setIpHistory(updated.ip_history ?? ipHistory)
+      toast.success(t('device_archived'))
+    } catch {
+      toast.error(t('device_archive_failed'))
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -1177,9 +1194,23 @@ export default function DeviceDetail() {
         <p className="text-xs text-text-subtle mb-3">
           {t('delete_device_warning')}
         </p>
-        <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
-          {t('delete_device')}
-        </Button>
+        <p className="text-xs text-text-subtle mb-3">
+          {t('archive_device_warning')}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            loading={archiving}
+            disabled={Boolean(device?.is_archived)}
+            onClick={handleArchive}
+          >
+            {device?.is_archived ? t('device_already_archived') : t('archive_device')}
+          </Button>
+          <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
+            {t('delete_device')}
+          </Button>
+        </div>
       </Card>
     </div>
   )
