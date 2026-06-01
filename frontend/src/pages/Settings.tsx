@@ -367,7 +367,7 @@ export default function Settings() {
   const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
   const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
-  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'automation' | 'network' | 'notifications' | 'inventory' | 'database' | 'backup' | 'cmdb'>('system')
+  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'backup' | 'database' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
@@ -1241,12 +1241,13 @@ export default function Settings() {
   const settingSections = [
     { key: 'system' as const, label: t('system') },
     { key: 'features' as const, label: t('feature_visibility_tab') },
-    { key: 'automation' as const, label: t('automation_settings_tab') },
     { key: 'network' as const, label: t('network_discovery') },
+    { key: 'automation' as const, label: t('automation_settings_tab') },
+    { key: 'lifecycle' as const, label: t('lifecycle_settings_tab') },
     { key: 'notifications' as const, label: t('notifications') },
     { key: 'inventory' as const, label: t('inventory_tools_title') },
-    { key: 'database' as const, label: t('database') },
     { key: 'backup' as const, label: t('backup_restore') },
+    { key: 'database' as const, label: t('database') },
     ...(current.advanced_view_enabled && current.show_cmdb_integrations ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
   ]
 
@@ -1588,6 +1589,7 @@ export default function Settings() {
             <p className="text-sm text-text-subtle">{t('automation_settings_description')}</p>
           </div>
 
+          <div className="grid gap-4 lg:grid-cols-2">
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-2">{t('scan_schedule_title')}</h2>
             <p className="text-sm text-text-subtle mb-4">{t('scan_schedule_description')}</p>
@@ -1631,6 +1633,7 @@ export default function Settings() {
               </div>
             </div>
           </Card>
+          </div>
 
           {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
           <Card>
@@ -1671,6 +1674,21 @@ export default function Settings() {
             </div>
           </Card>
           )}
+        </div>
+      </div>
+      )}
+
+      {/* ── LIFECYCLE ────────────────────────────────────────────────────── */}
+      {activeSection === 'lifecycle' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('lifecycle_settings_tab')}
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('lifecycle_settings_title')}</h2>
+            <p className="text-sm text-text-subtle">{t('lifecycle_settings_description')}</p>
+          </div>
 
           <Card>
             <div className="flex flex-col gap-4">

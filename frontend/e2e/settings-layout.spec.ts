@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test'
 
-const screenshotDir = 'test-results'
-
 const settings = {
   dhcp_start: '192.168.1.10',
   dhcp_end: '192.168.1.200',
@@ -61,7 +59,7 @@ const settings = {
   https_redirect_http: false,
 }
 
-test('settings groups automation and keeps network discovery focused', async ({ page }) => {
+test('settings groups routine jobs, lifecycle, and network discovery separately', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 980 })
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({ json: { username: 'admin', force_password_change: false } })
@@ -92,15 +90,21 @@ test('settings groups automation and keeps network discovery focused', async ({ 
 
   await expect(page.getByRole('button', { name: 'Automation' })).toBeVisible()
   await page.getByRole('button', { name: 'Automation' }).click()
-  await expect(page.getByRole('heading', { name: 'Automation and retention' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Device retention' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Automation', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Device retention' })).not.toBeVisible()
   await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
 
-  await page.screenshot({ path: `${screenshotDir}/settings-automation.png`, fullPage: false })
+  await page.screenshot({ path: testInfo.outputPath('settings-automation.png'), fullPage: false })
+
+  await page.getByRole('button', { name: 'Lifecycle' }).click()
+  await expect(page.getByRole('heading', { name: 'Device lifecycle' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Device retention' })).toBeVisible()
+
+  await page.screenshot({ path: testInfo.outputPath('settings-lifecycle.png'), fullPage: false })
 
   await page.getByRole('button', { name: 'Network Discovery' }).click()
   await expect(page.getByRole('heading', { name: 'Discovery ranges' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Device retention' })).not.toBeVisible()
 
-  await page.screenshot({ path: `${screenshotDir}/settings-network-discovery.png`, fullPage: false })
+  await page.screenshot({ path: testInfo.outputPath('settings-network-discovery.png'), fullPage: false })
 })
