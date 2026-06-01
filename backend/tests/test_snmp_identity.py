@@ -271,7 +271,7 @@ class SnmpIdentityTests(unittest.TestCase):
 
             db.add(SnmpMacTableEntry(
                 switch_id=switch.id,
-                mac_address=client_device.mac_address,
+                mac_address=client_device.mac_address.upper(),
                 if_index=1,
                 vlan="20",
                 last_seen_at=datetime.utcnow(),

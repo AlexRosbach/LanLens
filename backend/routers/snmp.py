@@ -99,7 +99,7 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
     )
     mac_entries = (
         db.query(SnmpMacTableEntry, Device)
-        .outerjoin(Device, SnmpMacTableEntry.mac_address == Device.mac_address)
+        .outerjoin(Device, func.lower(SnmpMacTableEntry.mac_address) == func.lower(Device.mac_address))
         .filter(SnmpMacTableEntry.switch_id == switch.id)
         .order_by(SnmpMacTableEntry.last_seen_at.desc())
         .all()

@@ -7,8 +7,6 @@ from datetime import datetime, timezone
 from typing import List, Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-
-logger = logging.getLogger(__name__)
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -42,6 +40,8 @@ from ..services.passive_discovery import deduplicate_observations, linked_device
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
 from .services import _apply_tls_result, _inspect_tls_certificate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
