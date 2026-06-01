@@ -51,9 +51,19 @@ class DeviceRetentionTests(unittest.TestCase):
                 first_seen=now - timedelta(days=2),
                 last_seen=now - timedelta(days=2),
             )
+            registered = Device(
+                mac_address="00:11:22:33:44:77",
+                ip_address="192.0.2.12",
+                device_class="Server",
+                is_registered=True,
+                is_online=True,
+                first_seen=now - timedelta(days=20),
+                last_seen=now - timedelta(days=15),
+            )
             db.add_all([
                 stale,
                 recent,
+                registered,
                 Setting(key="device_archive_after_days", value="7"),
                 Setting(key="device_delete_archived_after_days", value="0"),
             ])
@@ -67,6 +77,8 @@ class DeviceRetentionTests(unittest.TestCase):
             self.assertEqual(stale.archived_at, now)
             self.assertFalse(stale.is_online)
             self.assertFalse(recent.is_archived)
+            self.assertFalse(registered.is_archived)
+            self.assertTrue(registered.is_online)
             self.assertEqual(db.query(DeviceChangeEvent).filter(DeviceChangeEvent.device_id == stale.id).count(), 1)
         finally:
             db.close()
@@ -93,9 +105,20 @@ class DeviceRetentionTests(unittest.TestCase):
                 first_seen=now - timedelta(days=30),
                 last_seen=now - timedelta(days=10),
             )
+            registered = Device(
+                mac_address="00:11:22:33:44:77",
+                ip_address="192.0.2.12",
+                device_class="Server",
+                is_registered=True,
+                is_archived=True,
+                archived_at=now - timedelta(days=90),
+                first_seen=now - timedelta(days=120),
+                last_seen=now - timedelta(days=100),
+            )
             db.add_all([
                 archived,
                 retained,
+                registered,
                 Setting(key="device_archive_after_days", value="7"),
                 Setting(key="device_delete_archived_after_days", value="30"),
             ])
@@ -107,5 +130,6 @@ class DeviceRetentionTests(unittest.TestCase):
             self.assertEqual(result, {"archived": 0, "deleted": 1})
             self.assertIsNone(db.query(Device).filter(Device.mac_address == "00:11:22:33:44:55").first())
             self.assertIsNotNone(db.query(Device).filter(Device.mac_address == "00:11:22:33:44:66").first())
+            self.assertIsNotNone(db.query(Device).filter(Device.mac_address == "00:11:22:33:44:77").first())
         finally:
             db.close()

@@ -363,7 +363,7 @@ Triggers immediate ARP scan in background.
 }
 ```
 
-Both values are day counts. `device_archive_after_days` moves inactive, discovered devices out of the normal dashboard into the archived view. `device_delete_archived_after_days` counts from `archived_at` and permanently deletes archived devices after that many days. Set either value to `0` to disable that step.
+Both values are day counts. `device_archive_after_days` moves inactive, unregistered discovered devices out of the normal dashboard into the archived view. `device_delete_archived_after_days` counts from `archived_at` and permanently deletes archived unregistered devices after that many days. Set either value to `0` to disable that step.
 
 #### `POST /api/devices/{device_id}/archive`
 
@@ -552,11 +552,11 @@ Passive discovery uses Scapy for packet capture and parsing. The currently insta
 
 ### Device Retention
 
-Use **Settings → Network Discovery → Device retention** to keep old discoveries from cluttering the active dashboard. `Archive after inactive days` moves devices whose `last_seen` is older than the configured threshold into the dashboard's **Archived** filter. Archived devices are excluded from the normal device list, online/offline counters and new-device count. If a later scan sees the same device again, LanLens unarchives it automatically.
+Use **Settings → Network Discovery → Device retention** to keep old discoveries from cluttering the active dashboard. `Archive after inactive days` moves unregistered discovered devices whose `last_seen` is older than the configured threshold into the dashboard's **Archived** filter. Registered/documented devices are not archived or deleted by retention. Archived devices are excluded from the normal device list, online/offline counters and new-device count. If a later scan sees the same device again, LanLens unarchives it automatically.
 
 Use the device detail **Danger Zone** to archive one device immediately without waiting for the retention window. This keeps the device history and documentation but moves it into the dashboard's **Archived** filter.
 
-`Delete archived after days` is a second retention window that starts at `archived_at`. When enabled, archived devices older than that threshold are permanently deleted by the background retention job or the next completed scan. Set either field to `0` to disable that step.
+`Delete archived after days` is a second retention window that starts at `archived_at`. When enabled, unregistered archived devices older than that threshold are permanently deleted by the background retention job or the next completed scan. Set either field to `0` to disable that step.
 
 ### Capabilities
 

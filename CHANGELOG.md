@@ -27,6 +27,10 @@ All notable changes to this project should be documented in this file.
 
 ### Fixes / Hardening
 - Enforced feature switches in the backend as well as the UI, so disabled expert modules reject API access and background jobs instead of only disappearing from navigation.
+- Constrained automatic device retention archive and purge steps to unregistered discovered devices so registered inventory documentation is never purged by retention.
+- Aligned frontend plugin feature gates with backend dependencies so passive discovery cannot render without Plugin API enabled.
+- Included device IP history in per-device passive discovery lookups so observations remain visible after an address change.
+- Avoided per-device SNMP identity lookups on dashboard lists by using the existing bulk identity resolver.
 - Bounded passive discovery service identifiers before persistence so long SSDP/UPnP locations cannot exceed database column limits.
 - Fixed mDNS DNS-section parsing for Scapy packet-list sections so service names and service types are extracted correctly.
 - Matched passive-discovery observations against current device IPs, MAC addresses and device IP history so captures still link when a device address has changed.

@@ -607,10 +607,10 @@ export default function DeviceDetail() {
               <InfoRow label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} mono />
               <InfoRow label={t('hostname')} value={device.hostname} mono />
               <InfoRow label={t('vendor')} value={device.vendor} />
-              <InfoRow label="SNMP switch" value={device.snmp_switch} />
-              <InfoRow label="SNMP port" value={device.snmp_interface || device.snmp_interface_alias} />
-              <InfoRow label="SNMP VLAN" value={device.snmp_vlan} />
-              <InfoRow label="SNMP last seen" value={device.snmp_last_seen_at ? formatRelativeTime(device.snmp_last_seen_at, lang) : null} />
+              <InfoRow label={t('idoit_export_snmp_switch')} value={device.snmp_switch} />
+              <InfoRow label={t('idoit_export_snmp_port')} value={device.snmp_interface || device.snmp_interface_alias} />
+              <InfoRow label={t('idoit_export_snmp_vlan')} value={device.snmp_vlan} />
+              <InfoRow label={t('snmp_last_seen')} value={device.snmp_last_seen_at ? formatRelativeTime(device.snmp_last_seen_at, lang) : null} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />
               <InfoRow label={t('os_info')} value={device.os_info} />
               {device.cmdb_id && (

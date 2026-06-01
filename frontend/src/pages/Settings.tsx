@@ -401,7 +401,7 @@ export default function Settings() {
       setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
       setShowBuildInfo(data.show_build_info)
       setTelegramTokenDirty(false)
-      if (data.advanced_view_enabled && data.show_passive_discovery) {
+      if (data.advanced_view_enabled && data.show_plugin_api && data.show_passive_discovery) {
         loadPassiveObservations().catch(() => {})
       }
       if (data.advanced_view_enabled) {
@@ -1794,11 +1794,11 @@ export default function Settings() {
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
-                          <th className="py-2 pr-3 text-left font-medium">Protocol</th>
-                          <th className="py-2 pr-3 text-left font-medium">Source</th>
-                          <th className="py-2 pr-3 text-left font-medium">Service</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_protocol')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_source')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_service')}</th>
                           <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_linked_device')}</th>
-                          <th className="py-2 text-left font-medium">Seen</th>
+                          <th className="py-2 text-left font-medium">{t('last_seen')}</th>
                         </tr>
                       </thead>
                       <tbody>

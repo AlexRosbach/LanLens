@@ -40,7 +40,7 @@ from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_devi
 from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
 from ..services.passive_discovery import deduplicate_observations, linked_devices_for_observations, observation_to_response
 from ..services.plugin_registry import is_plugin_enabled
-from ..services.snmp import identity_for_device
+from ..services.snmp import bulk_identities_for_devices, identity_for_device
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -272,6 +272,7 @@ def _device_to_response(
     db: Optional[Session] = None,
     idoit_portal_url: Optional[str] = None,
     idoit_enabled: bool = False,
+    snmp_identities: Optional[dict] = None,
 ) -> DeviceResponse:
     from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
@@ -297,7 +298,10 @@ def _device_to_response(
         idoit_enabled = cfg.enabled
     idoit_object_id = device.idoit_sync.idoit_object_id if device.idoit_sync else None
 
-    snmp_identity = identity_for_device(db, device) if db is not None and is_advanced_view_enabled(db) else None
+    if snmp_identities is not None:
+        snmp_identity = snmp_identities.get(device.id)
+    else:
+        snmp_identity = identity_for_device(db, device) if db is not None and is_advanced_view_enabled(db) else None
 
     return DeviceResponse(
         id=device.id,
@@ -403,6 +407,7 @@ def list_devices(
     dhcp_range = _get_dhcp_range(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
+    snmp_identities = bulk_identities_for_devices(db, all_devices) if is_advanced_view_enabled(db) else {}
 
     # Batch-fetch hardware findings for device list display (cpu, memory, model)
     hardware_summaries: dict = {}
@@ -496,6 +501,7 @@ def list_devices(
                 segment_ranges,
                 idoit_portal_url=idoit_config.portal_url,
                 idoit_enabled=idoit_config.enabled,
+                snmp_identities=snmp_identities,
             )
             for d in all_devices
         ],
@@ -531,6 +537,7 @@ def get_new_devices(
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
+    snmp_identities = bulk_identities_for_devices(db, devices) if is_advanced_view_enabled(db) else {}
     return DeviceListResponse(
         items=[
             _device_to_response(
@@ -540,6 +547,7 @@ def get_new_devices(
                 segment_ranges=segment_ranges,
                 idoit_portal_url=idoit_config.portal_url,
                 idoit_enabled=idoit_config.enabled,
+                snmp_identities=snmp_identities,
             )
             for d in devices
         ],
@@ -608,8 +616,17 @@ def get_device_passive_discovery(
         raise HTTPException(status_code=404, detail="Device not found")
 
     filters = []
+    device_ips = {
+        ip_address
+        for (ip_address,) in db.query(DeviceIpHistory.ip_address)
+        .filter(DeviceIpHistory.device_id == device_id)
+        .all()
+        if ip_address
+    }
     if device.ip_address:
-        filters.append(PassiveDiscoveryObservation.source_ip == device.ip_address)
+        device_ips.add(device.ip_address)
+    if device_ips:
+        filters.append(PassiveDiscoveryObservation.source_ip.in_(device_ips))
     if device.mac_address and not device.mac_address.startswith("ip:"):
         filters.append(PassiveDiscoveryObservation.source_mac == normalize_mac(device.mac_address))
     if not filters:

@@ -49,6 +49,7 @@ def apply_device_retention(db: Session, now: datetime | None = None) -> dict[str
         stale_devices = (
             db.query(Device)
             .filter(Device.is_archived == False)
+            .filter(Device.is_registered == False)
             .filter(Device.last_seen <= archive_cutoff)
             .all()
         )
@@ -73,6 +74,7 @@ def apply_device_retention(db: Session, now: datetime | None = None) -> dict[str
         archived_devices = (
             db.query(Device)
             .filter(Device.is_archived == True)
+            .filter(Device.is_registered == False)
             .filter(Device.archived_at.isnot(None))
             .filter(Device.archived_at <= delete_cutoff)
             .all()

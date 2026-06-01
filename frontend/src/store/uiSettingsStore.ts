@@ -33,6 +33,23 @@ interface UiSettingsState {
   fetchUiSettings: () => Promise<void>
 }
 
+function normalizeFeatureGates(input: {
+  advancedViewEnabled: boolean
+  showPluginApi: boolean
+  showPassiveDiscovery: boolean
+  showMdnsDiscovery: boolean
+  showSsdpDiscovery: boolean
+}) {
+  const showPluginApi = input.advancedViewEnabled && input.showPluginApi
+  const showPassiveDiscovery = showPluginApi && input.showPassiveDiscovery
+  return {
+    showPluginApi,
+    showPassiveDiscovery,
+    showMdnsDiscovery: showPassiveDiscovery && input.showMdnsDiscovery,
+    showSsdpDiscovery: showPassiveDiscovery && input.showSsdpDiscovery,
+  }
+}
+
 export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   advancedViewEnabled: false,
   showCmdbIntegrations: false,
@@ -52,14 +69,52 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   buildCreated: '',
   loading: false,
 
-  setAdvancedViewEnabled: (advancedViewEnabled) => set({ advancedViewEnabled }),
+  setAdvancedViewEnabled: (advancedViewEnabled) => set((state) => ({
+    advancedViewEnabled,
+    showCmdbIntegrations: advancedViewEnabled && state.showCmdbIntegrations,
+    showServicesNav: advancedViewEnabled && state.showServicesNav,
+    showDhcpMonitorNav: advancedViewEnabled && state.showDhcpMonitorNav,
+    showTlsChecks: advancedViewEnabled && state.showTlsChecks,
+    showPingHistory: advancedViewEnabled && state.showPingHistory,
+    ...normalizeFeatureGates({
+      advancedViewEnabled,
+      showPluginApi: state.showPluginApi,
+      showPassiveDiscovery: state.showPassiveDiscovery,
+      showMdnsDiscovery: state.showMdnsDiscovery,
+      showSsdpDiscovery: state.showSsdpDiscovery,
+    }),
+  })),
   setShowCmdbIntegrations: (showCmdbIntegrations) => set({ showCmdbIntegrations }),
   setShowServicesNav: (showServicesNav) => set({ showServicesNav }),
   setShowDhcpMonitorNav: (showDhcpMonitorNav) => set({ showDhcpMonitorNav }),
-  setShowPluginApi: (showPluginApi) => set({ showPluginApi }),
-  setShowPassiveDiscovery: (showPassiveDiscovery) => set({ showPassiveDiscovery }),
-  setShowMdnsDiscovery: (showMdnsDiscovery) => set({ showMdnsDiscovery }),
-  setShowSsdpDiscovery: (showSsdpDiscovery) => set({ showSsdpDiscovery }),
+  setShowPluginApi: (showPluginApi) => set((state) => normalizeFeatureGates({
+    advancedViewEnabled: state.advancedViewEnabled,
+    showPluginApi,
+    showPassiveDiscovery: state.showPassiveDiscovery,
+    showMdnsDiscovery: state.showMdnsDiscovery,
+    showSsdpDiscovery: state.showSsdpDiscovery,
+  })),
+  setShowPassiveDiscovery: (showPassiveDiscovery) => set((state) => normalizeFeatureGates({
+    advancedViewEnabled: state.advancedViewEnabled,
+    showPluginApi: state.showPluginApi,
+    showPassiveDiscovery,
+    showMdnsDiscovery: state.showMdnsDiscovery,
+    showSsdpDiscovery: state.showSsdpDiscovery,
+  })),
+  setShowMdnsDiscovery: (showMdnsDiscovery) => set((state) => normalizeFeatureGates({
+    advancedViewEnabled: state.advancedViewEnabled,
+    showPluginApi: state.showPluginApi,
+    showPassiveDiscovery: state.showPassiveDiscovery,
+    showMdnsDiscovery,
+    showSsdpDiscovery: state.showSsdpDiscovery,
+  })),
+  setShowSsdpDiscovery: (showSsdpDiscovery) => set((state) => normalizeFeatureGates({
+    advancedViewEnabled: state.advancedViewEnabled,
+    showPluginApi: state.showPluginApi,
+    showPassiveDiscovery: state.showPassiveDiscovery,
+    showMdnsDiscovery: state.showMdnsDiscovery,
+    showSsdpDiscovery,
+  })),
   setShowTlsChecks: (showTlsChecks) => set({ showTlsChecks }),
   setShowPingHistory: (showPingHistory) => set({ showPingHistory }),
   setShowBuildInfo: (showBuildInfo) => set({ showBuildInfo }),
@@ -68,15 +123,22 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
     set({ loading: true })
     try {
       const settings = await settingsApi.get()
+      const featureGates = normalizeFeatureGates({
+        advancedViewEnabled: settings.advanced_view_enabled,
+        showPluginApi: settings.show_plugin_api,
+        showPassiveDiscovery: settings.show_passive_discovery,
+        showMdnsDiscovery: settings.show_mdns_discovery,
+        showSsdpDiscovery: settings.show_ssdp_discovery,
+      })
       set({
         advancedViewEnabled: settings.advanced_view_enabled,
         showCmdbIntegrations: settings.advanced_view_enabled && settings.show_cmdb_integrations,
         showServicesNav: settings.advanced_view_enabled && settings.show_services_nav,
         showDhcpMonitorNav: settings.advanced_view_enabled && settings.show_dhcp_monitor_nav,
-        showPluginApi: settings.advanced_view_enabled && settings.show_plugin_api,
-        showPassiveDiscovery: settings.advanced_view_enabled && settings.show_passive_discovery,
-        showMdnsDiscovery: settings.advanced_view_enabled && settings.show_mdns_discovery,
-        showSsdpDiscovery: settings.advanced_view_enabled && settings.show_ssdp_discovery,
+        showPluginApi: featureGates.showPluginApi,
+        showPassiveDiscovery: featureGates.showPassiveDiscovery,
+        showMdnsDiscovery: featureGates.showMdnsDiscovery,
+        showSsdpDiscovery: featureGates.showSsdpDiscovery,
         showTlsChecks: settings.advanced_view_enabled && settings.show_tls_checks,
         showPingHistory: settings.advanced_view_enabled && settings.show_ping_history,
         showBuildInfo: settings.show_build_info,

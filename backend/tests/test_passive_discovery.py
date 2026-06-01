@@ -8,9 +8,15 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345
 import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
+from backend.models import Setting
 from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+try:
+    from backend.routers.devices import get_device_passive_discovery
+except Exception:
+    get_device_passive_discovery = None
 
 try:
     from scapy.layers.dns import DNS, DNSQR, DNSRR
@@ -366,6 +372,34 @@ class PassiveDiscoveryTests(unittest.TestCase):
             observation = PassiveDiscoveryObservation(protocol="mdns", source_ip="192.0.2.20")
 
             self.assertEqual(find_linked_device(db, observation).id, device.id)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    @unittest.skipIf(get_device_passive_discovery is None, "router dependencies are not installed")
+    def test_device_passive_discovery_endpoint_includes_ip_history_observations(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.99")
+            db.add(device)
+            db.commit()
+            db.add_all([
+                DeviceIpHistory(device_id=device.id, ip_address="192.0.2.20"),
+                PassiveDiscoveryObservation(protocol="mdns", source_ip="192.0.2.20", service_name="printer.local"),
+                Setting(key="advanced_view_enabled", value="true"),
+                Setting(key="show_plugin_api", value="true"),
+                Setting(key="show_passive_discovery", value="true"),
+            ])
+            db.commit()
+
+            response = get_device_passive_discovery(device.id, db=db, _=None)
+
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["source_ip"], "192.0.2.20")
+            self.assertEqual(response[0]["linked_device_id"], device.id)
         finally:
             db.close()
             Base.metadata.drop_all(engine)
