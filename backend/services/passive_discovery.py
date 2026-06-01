@@ -12,7 +12,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import Device, DeviceIpHistory, PassiveDiscoveryObservation
+from ..models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
 from .mac_vendor import normalize_mac
 
 logger = logging.getLogger(__name__)
@@ -366,6 +366,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
             "packets_parsed": 0,
             "observations_stored": 0,
             "observations_linked": 0,
+            "device_classes_updated": 0,
             "duplicates_skipped": 0,
             "errors": ["Passive discovery capture already running"],
         }
@@ -378,6 +379,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
         "packets_parsed": 0,
         "observations_stored": 0,
         "observations_linked": 0,
+        "device_classes_updated": 0,
         "duplicates_skipped": 0,
         "errors": [],
     }
@@ -398,11 +400,15 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
                 report["duplicates_skipped"] += 1
                 return
             seen.add(key)
+            linked_device = None
             try:
-                if find_linked_device(db, row):
+                linked_device = find_linked_device(db, row)
+                if linked_device:
                     report["observations_linked"] += 1
             except Exception as exc:
                 logger.debug("Passive discovery device matching failed: %s", exc)
+            if linked_device and apply_passive_device_class(db, linked_device, row):
+                report["device_classes_updated"] += 1
             if upsert_passive_observation(db, row):
                 report["observations_stored"] += 1
             else:
@@ -572,6 +578,46 @@ def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metada
         "inference_confidence": None,
         "inference_reasons": reasons,
     }
+
+
+def _should_apply_passive_device_class(current_class: str | None, inferred_class: str | None, confidence: str | None) -> bool:
+    if not inferred_class or confidence not in {"high", "medium"}:
+        return False
+    current = (current_class or "").strip()
+    if not current or current.lower() == "unknown":
+        return True
+    if current == inferred_class:
+        return False
+    if confidence == "high" and current in {"IoT", "Workstation"}:
+        return True
+    return False
+
+
+def apply_passive_device_class(db: Session, device: Device, row: PassiveDiscoveryObservation) -> bool:
+    inference = infer_device_class_from_observation(row)
+    inferred_class = inference.get("inferred_device_class")
+    confidence = inference.get("inference_confidence")
+    if not _should_apply_passive_device_class(device.device_class, inferred_class, confidence):
+        return False
+
+    previous_class = device.device_class
+    device.device_class = inferred_class
+    reason = ", ".join(inference.get("inference_reasons") or [])
+    message = f"Passive discovery classified device as {inferred_class}"
+    if confidence:
+        message += f" ({confidence} confidence)"
+    if reason:
+        message += f": {reason}"
+    db.add(DeviceChangeEvent(
+        device_id=device.id,
+        event_type="field_changed",
+        field_name="device_class",
+        old_value=previous_class,
+        new_value=inferred_class,
+        source="passive_discovery",
+        message=message,
+    ))
+    return True
 
 
 def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None = None, linked_device: Device | None = None) -> dict[str, Any]:

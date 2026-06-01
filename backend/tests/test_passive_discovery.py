@@ -7,8 +7,8 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345
 
 import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
-from backend.models import Device, DeviceIpHistory, PassiveDiscoveryObservation
-from backend.services.passive_discovery import capture_passive_discovery_report, deduplicate_observations, find_linked_device, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
+from backend.models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
+from backend.services.passive_discovery import apply_passive_device_class, capture_passive_discovery_report, deduplicate_observations, find_linked_device, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -172,6 +172,65 @@ class PassiveDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(inference["inferred_device_class"], "Router")
         self.assertEqual(inference["inference_confidence"], "high")
+
+    def test_passive_discovery_applies_high_confidence_class_to_unknown_device(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.1", device_class="Unknown")
+            db.add(device)
+            db.commit()
+            observation = parse_ssdp_payload(
+                "\r\n".join([
+                    "NOTIFY * HTTP/1.1",
+                    "HOST: 239.255.255.250:1900",
+                    "NT: urn:schemas-upnp-org:device:InternetGatewayDevice:1",
+                    "NTS: ssdp:alive",
+                    "",
+                    "",
+                ]),
+                source_ip="192.0.2.1",
+            )
+
+            self.assertTrue(apply_passive_device_class(db, device, observation))
+            db.commit()
+
+            self.assertEqual(device.device_class, "Router")
+            event = db.query(DeviceChangeEvent).one()
+            self.assertEqual(event.field_name, "device_class")
+            self.assertEqual(event.old_value, "Unknown")
+            self.assertEqual(event.new_value, "Router")
+            self.assertEqual(event.source, "passive_discovery")
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    def test_passive_discovery_does_not_replace_specific_class_with_medium_hint(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.20", device_class="Linux Server")
+            db.add(device)
+            db.commit()
+            observation = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                service_name="_smb._tcp.local",
+                service_type="_smb._tcp",
+                summary="_smb._tcp.local",
+            )
+
+            self.assertFalse(apply_passive_device_class(db, device, observation))
+
+            self.assertEqual(device.device_class, "Linux Server")
+            self.assertEqual(db.query(DeviceChangeEvent).count(), 0)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
 
     @unittest.skipIf(Raw is None, "scapy is not installed")
     def test_upnp_response_packet_extracts_addresses_and_usn(self):

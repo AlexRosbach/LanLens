@@ -11,7 +11,8 @@ All notable changes to this project should be documented in this file.
 - Added passive multicast discovery storage for observed protocol metadata, including generic IPv4 multicast packets in addition to recognized OSPF/VRRP/HSRP control-plane traffic.
 - Added visible passive-discovery capture and per-device mDNS/SSDP/multicast observations.
 - Added passive-discovery device-class hints with confidence and reasons for common mDNS/SSDP/multicast advertisements.
-- Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, duplicates skipped, active filter, enabled protocols and capture errors.
+- Added automatic passive-discovery device-class updates for linked observations when the inferred class is confident enough.
+- Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, linked, device classes updated, duplicates skipped, active filter, enabled protocols and capture errors.
 - Added passive-discovery device matching status and recent observation links in Settings so captured multicast packets can be traced directly to matching devices.
 - Added clickable per-device multicast discovery rows with a detail dialog that shows parsed fields and the raw captured observation payload.
 - Added direct device links for new-device notifications in the app UI and external notification payloads.
