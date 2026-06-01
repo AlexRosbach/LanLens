@@ -40,7 +40,7 @@ LABEL org.opencontainers.image.title="LanLens" \
       org.opencontainers.image.version=$LANLENS_APP_VERSION \
       org.opencontainers.image.revision=$LANLENS_BUILD_COMMIT \
       org.opencontainers.image.created=$LANLENS_BUILD_CREATED \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="MIT AND GPL-2.0-only AND GPL-3.0-only AND LGPL-2.1-only AND Apache-2.0" \
       org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 
 # System dependencies + Python build tools (gcc needed for netifaces C extension).

@@ -185,4 +185,4 @@ npm run dev
 
 MIT License, see [LICENSE](LICENSE).
 
-Dependency note: LanLens uses `scapy` and `python-nmap`. Check their licenses when redistributing bundled builds.
+Dependency note: LanLens uses GPL/LGPL and dual-licensed libraries for network discovery and remote connectivity features. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing bundled builds or Docker images.

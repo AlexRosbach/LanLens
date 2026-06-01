@@ -532,7 +532,7 @@ Use **Diagnose 10s** in the same settings card when a network is known to send m
 
 Docker deployments need host networking and raw packet permissions for live capture. If the container runs in bridge mode or without `NET_RAW`, the capture endpoint can start but may not observe LAN multicast traffic.
 
-Passive discovery uses Scapy for packet capture and parsing. The currently installed Scapy package metadata reports `GPL-2.0-only`; keep that license in mind when redistributing LanLens images or changing packet-capture dependencies.
+Passive discovery uses Scapy for packet capture and parsing. The currently installed Scapy package metadata reports `GPL-2.0-only`; keep that license in mind when redistributing LanLens images or changing packet-capture dependencies. LanLens also uses other GPL/LGPL or dual-licensed backend dependencies for network discovery and connectivity features; see `THIRD_PARTY_NOTICES.md` for the maintained dependency license matrix.
 
 ### Capabilities
 
