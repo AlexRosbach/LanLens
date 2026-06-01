@@ -789,30 +789,32 @@ export default function DeviceDetail() {
                   <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_service')}</th>
                   <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_type')}</th>
                   <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_summary')}</th>
-                  <th className="py-2 text-left font-medium">{t('last_seen')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('last_seen')}</th>
+                  <th className="py-2 text-right font-medium">{t('details')}</th>
                 </tr>
               </thead>
               <tbody>
                 {passiveObservations.map((row) => (
                   <tr
                     key={row.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={t('multicast_discovery_show_details', { protocol: row.protocol })}
-                    onClick={() => setSelectedPassiveObservation(row)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setSelectedPassiveObservation(row)
-                      }
-                    }}
-                    className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-surface2/55 focus:bg-surface2/55 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    className="border-b border-border transition-colors last:border-0 hover:bg-surface2/55"
                   >
                     <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol}</td>
                     <td className="py-2 pr-3 text-text-muted">{row.service_name || '—'}</td>
                     <td className="py-2 pr-3 text-text-subtle">{row.service_type || '—'}</td>
                     <td className="py-2 pr-3 text-text-subtle">{row.summary || '—'}</td>
-                    <td className="py-2 text-text-subtle">{formatRelativeTime(row.observed_at, lang)}</td>
+                    <td className="py-2 pr-3 text-text-subtle">{formatRelativeTime(row.observed_at, lang)}</td>
+                    <td className="py-2 text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedPassiveObservation(row)}
+                        aria-label={t('multicast_discovery_show_details', { protocol: row.protocol })}
+                      >
+                        {t('details')}
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
