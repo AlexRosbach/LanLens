@@ -12,6 +12,7 @@ All notable changes to this project should be documented in this file.
 - Added visible passive-discovery capture and per-device mDNS/SSDP/multicast observations.
 - Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, duplicates skipped, active filter, enabled protocols and capture errors.
 - Added passive-discovery device matching status and recent observation links in Settings so captured multicast packets can be traced directly to matching devices.
+- Added clickable per-device multicast discovery rows with a detail dialog that shows parsed fields and the raw captured observation payload.
 - Added direct device links for new-device notifications in the app UI and external notification payloads.
 - Added mDNS, UPnP/SSDP and passive-discovery summaries to i-doit mapping sources and editable CSV exports.
 - Added reachable device-detail SNMP switch-port topology mappings.
@@ -25,6 +26,8 @@ All notable changes to this project should be documented in this file.
 - Fixed mDNS DNS-section parsing for Scapy packet-list sections so service names and service types are extracted correctly.
 - Matched passive-discovery observations against current device IPs, MAC addresses and device IP history so captures still link when a device address has changed.
 - Deduplicated repeated passive-discovery observations so recurring mDNS/UPnP/multicast packets update the latest seen time instead of flooding device detail lists and i-doit summaries.
+- Tightened generic multicast deduplication so packets with the same source, multicast group and destination port update the latest seen time even when ephemeral source ports or MAC metadata vary between captures.
+- Added Playwright coverage for the device multicast discovery table and detail dialog to prevent duplicate-looking multicast rows from returning.
 - Added focused parser and capture-report coverage for mDNS packets, UPnP/SSDP M-SEARCH payloads, UPnP/SSDP response packets and generic IPv4 multicast packets.
 - Moved build metadata into backend and frontend app constants, with Docker builds stamping the app files from build args instead of runtime environment variables.
 - Bumped backend, frontend and image metadata to 1.5.4.

@@ -277,17 +277,24 @@ def _metadata_for(row: PassiveDiscoveryObservation) -> dict[str, Any]:
 
 def observation_signature(row: PassiveDiscoveryObservation) -> tuple[Any, ...]:
     metadata = _metadata_for(row)
+    source_identity = row.source_ip or (normalize_mac(row.source_mac) if row.source_mac else None)
+    if row.protocol == "multicast":
+        return (
+            row.protocol,
+            source_identity,
+            row.destination_ip,
+            metadata.get("transport"),
+            metadata.get("destination_port"),
+            row.summary,
+        )
     return (
         row.protocol,
         row.source_ip,
-        normalize_mac(row.source_mac) if row.source_mac else None,
+        source_identity,
         row.destination_ip,
         row.service_name,
         row.service_type,
         row.summary,
-        metadata.get("source_port"),
-        metadata.get("destination_port"),
-        metadata.get("query"),
         metadata.get("location"),
     )
 
@@ -318,8 +325,6 @@ def upsert_passive_observation(db: Session, row: PassiveDiscoveryObservation) ->
                 PassiveDiscoveryObservation.protocol == row.protocol,
                 _column_matches(PassiveDiscoveryObservation.source_ip, row.source_ip),
                 _column_matches(PassiveDiscoveryObservation.destination_ip, row.destination_ip),
-                _column_matches(PassiveDiscoveryObservation.service_name, row.service_name),
-                _column_matches(PassiveDiscoveryObservation.service_type, row.service_type),
                 _column_matches(PassiveDiscoveryObservation.summary, row.summary),
             )
         )

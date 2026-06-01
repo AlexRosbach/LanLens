@@ -19,6 +19,7 @@ import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
+import { dedupePassiveObservations } from '../utils/passiveDiscovery'
 
 interface EditState {
   label: string
@@ -101,6 +102,16 @@ function portDisplayName(port: SnmpSwitchPort) {
   return port.alias || port.name || port.description || `ifIndex ${port.if_index}`
 }
 
+function passiveMetadataEntries(row: PassiveDiscoveryObservation) {
+  return Object.entries(row.metadata ?? {})
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)] as const)
+}
+
+function passiveRawPayload(row: PassiveDiscoveryObservation) {
+  return JSON.stringify(row, null, 2)
+}
+
 export default function DeviceDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -128,6 +139,7 @@ export default function DeviceDetail() {
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
   const [idoitSyncing, setIdoitSyncing] = useState(false)
   const [tlsCheckingIds, setTlsCheckingIds] = useState<number[]>([])
+  const [selectedPassiveObservation, setSelectedPassiveObservation] = useState<PassiveDiscoveryObservation | null>(null)
   const sectionNavRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -150,7 +162,7 @@ export default function DeviceDetail() {
         devicesApi.getPingHistory(currentDevice.id).then(setPingHistory).catch(() => {})
       }
       if (showPassiveDiscovery) {
-        devicesApi.getPassiveDiscovery(currentDevice.id).then(setPassiveObservations).catch(() => {})
+        devicesApi.getPassiveDiscovery(currentDevice.id).then((rows) => setPassiveObservations(dedupePassiveObservations(rows))).catch(() => {})
       }
       if (advancedViewEnabled) {
         snmpApi.getDevicePorts(currentDevice.id).then(setSwitchPorts).catch(() => setSwitchPorts(null))
@@ -251,7 +263,7 @@ export default function DeviceDetail() {
         devicesApi.getPingHistory(updated.id).then(setPingHistory).catch(() => {})
       }
       if (showPassiveDiscovery) {
-        devicesApi.getPassiveDiscovery(updated.id).then(setPassiveObservations).catch(() => {})
+        devicesApi.getPassiveDiscovery(updated.id).then((rows) => setPassiveObservations(dedupePassiveObservations(rows))).catch(() => {})
       }
       devicesApi.getTimeline(updated.id).then(setTimeline).catch(() => {})
       toast.success(updated.is_online ? t('device_status_online') : t('device_status_offline'))
@@ -366,6 +378,7 @@ export default function DeviceDetail() {
   const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
   const openPortCount = device.latest_scan?.open_ports.length ?? 0
   const visibleSwitchPorts = switchPorts?.has_visualization ? switchPorts.ports : []
+  const selectedPassiveMetadata = selectedPassiveObservation ? passiveMetadataEntries(selectedPassiveObservation) : []
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -779,7 +792,20 @@ export default function DeviceDetail() {
               </thead>
               <tbody>
                 {passiveObservations.map((row) => (
-                  <tr key={row.id} className="border-b border-border last:border-0">
+                  <tr
+                    key={row.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Show ${row.protocol} discovery details`}
+                    onClick={() => setSelectedPassiveObservation(row)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedPassiveObservation(row)
+                      }
+                    }}
+                    className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-surface2/55 focus:bg-surface2/55 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  >
                     <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol}</td>
                     <td className="py-2 pr-3 text-text-muted">{row.service_name || '—'}</td>
                     <td className="py-2 pr-3 text-text-subtle">{row.service_type || '—'}</td>
@@ -792,6 +818,76 @@ export default function DeviceDetail() {
           </div>
         )}
       </Card>
+      )}
+
+      {selectedPassiveObservation && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="passive-discovery-detail-title"
+          onClick={() => setSelectedPassiveObservation(null)}
+        >
+          <div
+            className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-text-subtle">Multicast discovery detail</p>
+                <h3 id="passive-discovery-detail-title" className="mt-1 text-lg font-semibold text-text-base">
+                  {selectedPassiveObservation.protocol.toUpperCase()} observation
+                </h3>
+              </div>
+              <button
+                type="button"
+                aria-label="Close discovery details"
+                onClick={() => setSelectedPassiveObservation(null)}
+                className="rounded-lg border border-border bg-surface2 px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto p-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InfoRow label="Protocol" value={selectedPassiveObservation.protocol} mono />
+                <InfoRow label="Last seen" value={formatDateTime(selectedPassiveObservation.observed_at)} />
+                <InfoRow label="Source IP" value={selectedPassiveObservation.source_ip} mono />
+                <InfoRow label="Source MAC" value={selectedPassiveObservation.source_mac} mono />
+                <InfoRow label="Destination IP" value={selectedPassiveObservation.destination_ip} mono />
+                <InfoRow label="Linked device" value={selectedPassiveObservation.linked_device_label} />
+                <InfoRow label="Service" value={selectedPassiveObservation.service_name} />
+                <InfoRow label="Type" value={selectedPassiveObservation.service_type} />
+                <div className="sm:col-span-2">
+                  <InfoRow label="Summary" value={selectedPassiveObservation.summary} />
+                </div>
+              </div>
+
+              <div className="mt-5 border-t border-border pt-4">
+                <h4 className="mb-3 text-sm font-semibold text-text-muted">Details</h4>
+                {selectedPassiveMetadata.length === 0 ? (
+                  <p className="text-sm text-text-subtle">No parsed metadata was captured for this observation.</p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {selectedPassiveMetadata.map(([key, value]) => (
+                      <div key={key} className="rounded-lg border border-border bg-surface2/40 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-text-subtle">{key.split('_').join(' ')}</p>
+                        <p className="mt-1 break-words font-mono text-xs text-text-muted">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 border-t border-border pt-4">
+                <h4 className="mb-3 text-sm font-semibold text-text-muted">RAW</h4>
+                <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-5 text-text-muted">
+                  {passiveRawPayload(selectedPassiveObservation)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Ping history */}

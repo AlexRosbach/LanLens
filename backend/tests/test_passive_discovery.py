@@ -289,6 +289,66 @@ class PassiveDiscoveryTests(unittest.TestCase):
 
         self.assertEqual([row.id for row in rows], [2])
 
+    def test_generic_multicast_deduplicates_source_port_churn(self):
+        older = PassiveDiscoveryObservation(
+            id=1,
+            protocol="multicast",
+            source_ip="192.0.2.40",
+            source_mac="AA:BB:CC:DD:EE:FF",
+            destination_ip="239.1.1.1",
+            summary="IPv4 multicast packet",
+            metadata_json='{"transport": "udp", "source_port": 42000, "destination_port": 9999}',
+        )
+        newer = PassiveDiscoveryObservation(
+            id=2,
+            protocol="multicast",
+            source_ip="192.0.2.40",
+            destination_ip="239.1.1.1",
+            summary="IPv4 multicast packet",
+            metadata_json='{"transport": "udp", "source_port": 43000, "destination_port": 9999}',
+        )
+        newer.observed_at = datetime.utcnow()
+        older.observed_at = newer.observed_at - timedelta(minutes=5)
+
+        rows = deduplicate_observations([older, newer], 20)
+
+        self.assertEqual([row.id for row in rows], [2])
+
+    def test_generic_multicast_upsert_updates_source_port_churn(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            first = PassiveDiscoveryObservation(
+                protocol="multicast",
+                source_ip="192.0.2.40",
+                source_mac="AA:BB:CC:DD:EE:FF",
+                destination_ip="239.1.1.1",
+                summary="IPv4 multicast packet",
+                metadata_json='{"transport": "udp", "source_port": 42000, "destination_port": 9999}',
+            )
+            second = PassiveDiscoveryObservation(
+                protocol="multicast",
+                source_ip="192.0.2.40",
+                destination_ip="239.1.1.1",
+                summary="IPv4 multicast packet",
+                metadata_json='{"transport": "udp", "source_port": 43000, "destination_port": 9999}',
+            )
+
+            self.assertTrue(upsert_passive_observation(db, first))
+            db.commit()
+            self.assertFalse(upsert_passive_observation(db, second))
+            db.commit()
+
+            rows = db.query(PassiveDiscoveryObservation).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].observed_at, second.observed_at)
+            self.assertIn("43000", rows[0].metadata_json)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,6 +16,7 @@ import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBac
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { formatDateTime } from '../utils/formatters'
+import { dedupePassiveObservations } from '../utils/passiveDiscovery'
 
 interface IdoitErrorDetails {
   message: string
@@ -527,7 +528,7 @@ export default function Settings() {
   }
 
   async function loadPassiveObservations() {
-    setPassiveObservations(await passiveDiscoveryApi.observations())
+    setPassiveObservations(dedupePassiveObservations(await passiveDiscoveryApi.observations()))
   }
 
   async function createSnmpProfile() {
