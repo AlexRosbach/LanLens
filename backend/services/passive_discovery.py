@@ -607,19 +607,25 @@ def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metada
     if protocol in {"ospf", "vrrp", "hsrp"}:
         return result("Router", "high", f"{row.protocol.upper()} control-plane multicast")
 
-    if any(token in haystack for token in ("internetgatewaydevice", "wandevice", "wanconnectiondevice", "router", "gateway")):
+    if any(token in haystack for token in ("internetgatewaydevice", "wandevice", "wanconnectiondevice")):
         return result("Router", "high", "UPnP/SSDP gateway or router advertisement")
     if any(token in haystack for token in ("wlanaccesspoint", "accesspoint", "access point", "uap-", "unifi")):
         return result("AP", "high", "Wireless access-point service advertisement")
-    printer_tokens = ("_printer", "_pdl-datastream", "printer", "print")
+    printer_tokens = ("_printer", "_pdl-datastream", "printer")
     if any(token in haystack for token in printer_tokens):
         return result("Printer", "high", "Printer service advertised by mDNS/Bonjour")
-    if any(token in haystack for token in ("mediarenderer", "mediaserver", "dial-multiscreen", "googlecast", "_airplay", "_raop", "chromecast", "roku")):
-        return result("TV", "medium", "Media renderer/server advertisement")
-    if any(token in haystack for token in ("_smb", "_nfs", "_afpovertcp", "_webdav", "_ssh", "nas")):
-        return result("NAS", "medium", "File sharing or storage-oriented service advertisement")
-    if any(token in haystack for token in ("_hap", "_homekit", "_matter", "_mqtt", "shelly", "tasmota", "esphome", "ewelink", "miio")):
-        return result("IoT", "medium", "IoT/home-automation service advertisement")
+    if any(token in haystack for token in ("dial-multiscreen", "googlecast", "chromecast", "roku:")):
+        return result("TV", "high", "TV/media-device service advertisement")
+    if any(token in haystack for token in ("mediarenderer", "mediaserver", "_airplay", "_raop")):
+        return result("TV", "low", "Generic media sharing advertisement")
+    if any(token in haystack for token in ("synology", "qnap", "truenas", "freenas", "openmediavault")):
+        return result("NAS", "high", "NAS-specific service advertisement")
+    if any(token in haystack for token in ("_smb", "_nfs", "_afpovertcp", "_webdav", "_ssh")):
+        return result("NAS", "low", "Generic file sharing or login service advertisement")
+    if any(token in haystack for token in ("_hap", "_homekit", "_matter", "shelly", "tasmota", "esphome", "ewelink", "miio")):
+        return result("IoT", "high", "IoT/home-automation service advertisement")
+    if "_mqtt" in haystack:
+        return result("IoT", "low", "Generic MQTT service advertisement")
     if any(token in haystack for token in ("_workstation", "_device-info", "workstation")):
         return result("Workstation", "low", "Generic workstation/device-info advertisement")
 
@@ -641,7 +647,7 @@ def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metada
 
 
 def _should_apply_passive_device_class(current_class: str | None, inferred_class: str | None, confidence: str | None) -> bool:
-    if not inferred_class or confidence not in {"high", "medium"}:
+    if not inferred_class or confidence != "high":
         return False
     current = (current_class or "").strip()
     if not current or current.lower() == "unknown":

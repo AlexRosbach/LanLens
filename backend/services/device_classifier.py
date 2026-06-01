@@ -8,13 +8,13 @@ documented as a server just because a broad vendor or hostname fragment matched.
 import re
 
 VENDOR_RULES = [
-    # Networking gear
-    (["cisco", "ubiquiti", "mikrotik", "netgear", "zyxel", "tp-link", "d-link", "juniper", "aruba", "ruckus"], "Router"),
+    # Specific rules must stay ahead of broad vendor families.
     (["netgear switch", "hp procurve", "extreme networks", "brocade", "dell networking", "cisco catalyst"], "Switch"),
-    # Access Points (checked before generic Router to be more specific)
-    (["cambium", "meraki", "aerohive", "xirrus", "meru"], "AP"),
+    (["cambium", "meraki", "aerohive", "xirrus", "meru", "ubiquiti networks"], "AP"),
     # Firewalls
     (["palo alto", "fortinet", "sonicwall", "check point", "sophos", "watchguard", "netgate", "barracuda"], "Firewall"),
+    # Networking gear
+    (["cisco systems", "mikrotik", "zyxel", "tp-link", "d-link", "juniper", "aruba", "ruckus"], "Router"),
     # Servers / NAS
     (["synology", "qnap", "buffalo", "western digital"], "NAS"),
     (["dell emc", "hewlett packard enterprise", "supermicro", "ibm", "lenovo system x"], "Server"),
@@ -47,8 +47,8 @@ PORT_CLASS_HINTS = {
     5060: "VoIP",       # SIP
     5061: "VoIP",       # SIP TLS
     1720: "VoIP",       # H.323
-    554: "Camera",      # RTSP
-    8554: "Camera",     # RTSP alternative
+    554: None,          # RTSP is common on cameras, NAS boxes and media devices
+    8554: None,         # RTSP alternative; needs vendor/hostname corroboration
     3389: "Workstation",
     22: None,           # Too generic
 }
@@ -64,7 +64,7 @@ def classify_device(vendor: str, hostname: str = "", open_ports: list = None) ->
 
     port_numbers = [p.get("port") if isinstance(p, dict) else p for p in open_ports]
 
-    # Port-based hints (high confidence)
+    # Port-based hints (only high-confidence, type-specific ports)
     for port, device_class in PORT_CLASS_HINTS.items():
         if port in port_numbers and device_class:
             return device_class
@@ -77,20 +77,25 @@ def classify_device(vendor: str, hostname: str = "", open_ports: list = None) ->
             if kw in vendor_lower:
                 return device_class
 
-    # Hostname hints. Server detection deliberately requires a token-like match;
-    # a loose "srv" substring caused false server documentation in i-doit.
+    # Hostname hints. Patterns deliberately require token-like matches where a
+    # loose substring would otherwise classify normal person/device names.
     for pattern, device_class in [
-        (r"printer", "Printer"), (r"nas", "NAS"), (r"router", "Router"),
-        (r"switch", "Switch"), (r"(^|[-_.])srv([0-9-_.]|$)", "Server"), (r"(^|[-_.])server([0-9-_.]|$)", "Server"),
+        (r"(^|[-_.])(printer|print|mfp)([0-9-_.]|$)", "Printer"),
+        (r"(^|[-_.])nas([0-9-_.]|$)", "NAS"),
+        (r"(^|[-_.])(router|gateway|gw)([0-9-_.]|$)", "Router"),
+        (r"(^|[-_.])(switch|sw)([0-9-_.]|$)", "Switch"),
+        (r"(^|[-_.])srv([0-9-_.]|$)", "Server"), (r"(^|[-_.])server([0-9-_.]|$)", "Server"),
         (r"(^|[-_.])esx(i)?([0-9-_.]|$)", "Server"), (r"(^|[-_.])hyperv([0-9-_.]|$)", "Server"),
         (r"(^|[-_.])proxmox([0-9-_.]|$)", "Server"),
         (r"(^|[-_.])vm([0-9-_.]|$)", "VM"), (r"(^|[-_.])pi([0-9-_.]|$)", "IoT"),
-        (r"firewall", "Firewall"), (r"(^|[-_.])fw[-_.]", "Firewall"), (r"pfsense", "Firewall"), (r"fortigate", "Firewall"),
+        (r"(^|[-_.])firewall([0-9-_.]|$)", "Firewall"), (r"(^|[-_.])fw([0-9-_.]|$)", "Firewall"),
+        (r"pfsense", "Firewall"), (r"fortigate", "Firewall"),
         (r"iphone", "Mobile"), (r"android", "Mobile"), (r"pixel", "Mobile"), (r"galaxy", "Mobile"),
-        (r"mobile", "Mobile"), (r"phone", "VoIP"), (r"voip", "VoIP"), (r"(^|[-_.])sip[-_.]", "VoIP"),
-        (r"camera", "Camera"), (r"(^|[-_.])cam[-_.]", "Camera"), (r"ipcam", "Camera"), (r"(^|[-_.])nvr([0-9-_.]|$)", "Camera"),
-        (r"[-_.]tv($|[-_.])", "TV"), (r"smarttv", "TV"), (r"appletv", "TV"), (r"chromecast", "TV"),
-        (r"[-_.]ap[-_.]", "AP"), (r"accesspoint", "AP"), (r"(^|[-_.])wap[-_.]", "AP"), (r"(^|[-_.])uap([0-9-_.]|$)", "AP"),
+        (r"(^|[-_.])mobile([0-9-_.]|$)", "Mobile"),
+        (r"(^|[-_.])(deskphone|ipphone|voip|sip)([0-9-_.]|$)", "VoIP"),
+        (r"(^|[-_.])(camera|cam|ipcam|nvr)([0-9-_.]|$)", "Camera"),
+        (r"(^|[-_.])(tv|smarttv|appletv|chromecast|roku)([0-9-_.]|$)", "TV"),
+        (r"(^|[-_.])(ap|wap|uap|accesspoint)([0-9-_.]|$)", "AP"),
     ]:
         if re.search(pattern, hostname_lower):
             return device_class

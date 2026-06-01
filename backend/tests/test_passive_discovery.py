@@ -177,6 +177,45 @@ class PassiveDiscoveryTests(unittest.TestCase):
         self.assertIsNone(inference["inferred_device_class"])
         self.assertIsNone(inference["inference_confidence"])
 
+    def test_passive_discovery_keeps_generic_file_sharing_low_confidence(self):
+        observation = PassiveDiscoveryObservation(
+            protocol="mdns",
+            service_name="Alexs MacBook Pro._smb._tcp.local",
+            service_type="_smb._tcp",
+            summary="Alexs MacBook Pro._smb._tcp.local",
+        )
+
+        inference = infer_device_class_from_observation(observation)
+
+        self.assertEqual(inference["inferred_device_class"], "NAS")
+        self.assertEqual(inference["inference_confidence"], "low")
+
+    def test_passive_discovery_keeps_generic_airplay_low_confidence(self):
+        observation = PassiveDiscoveryObservation(
+            protocol="mdns",
+            service_name="Alexs MacBook Pro._airplay._tcp.local",
+            service_type="_airplay._tcp",
+            summary="Alexs MacBook Pro._airplay._tcp.local",
+        )
+
+        inference = infer_device_class_from_observation(observation)
+
+        self.assertEqual(inference["inferred_device_class"], "TV")
+        self.assertEqual(inference["inference_confidence"], "low")
+
+    def test_passive_discovery_infers_nas_from_specific_nas_signal(self):
+        observation = PassiveDiscoveryObservation(
+            protocol="mdns",
+            service_name="DiskStation._smb._tcp.local",
+            service_type="_smb._tcp",
+            summary="Synology DiskStation._smb._tcp.local",
+        )
+
+        inference = infer_device_class_from_observation(observation)
+
+        self.assertEqual(inference["inferred_device_class"], "NAS")
+        self.assertEqual(inference["inference_confidence"], "high")
+
     def test_passive_discovery_infers_router_from_upnp_gateway(self):
         observation = parse_ssdp_payload("\r\n".join([
             "NOTIFY * HTTP/1.1",
@@ -227,7 +266,7 @@ class PassiveDiscoveryTests(unittest.TestCase):
             db.close()
             Base.metadata.drop_all(engine)
 
-    def test_passive_discovery_does_not_replace_specific_class_with_medium_hint(self):
+    def test_passive_discovery_does_not_replace_specific_class_with_weak_hint(self):
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         Session = sessionmaker(bind=engine)
@@ -247,6 +286,31 @@ class PassiveDiscoveryTests(unittest.TestCase):
             self.assertFalse(apply_passive_device_class(db, device, observation))
 
             self.assertEqual(device.device_class, "Linux Server")
+            self.assertEqual(db.query(DeviceChangeEvent).count(), 0)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    def test_passive_discovery_does_not_apply_low_confidence_to_unknown_device(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.20", device_class="Unknown")
+            db.add(device)
+            db.commit()
+            observation = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                service_name="Alexs MacBook Pro._smb._tcp.local",
+                service_type="_smb._tcp",
+                summary="Alexs MacBook Pro._smb._tcp.local",
+            )
+
+            self.assertFalse(apply_passive_device_class(db, device, observation))
+
+            self.assertEqual(device.device_class, "Unknown")
             self.assertEqual(db.query(DeviceChangeEvent).count(), 0)
         finally:
             db.close()
