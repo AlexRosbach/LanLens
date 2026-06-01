@@ -404,18 +404,15 @@ export default function Settings() {
       if (data.advanced_view_enabled && data.show_passive_discovery) {
         loadPassiveObservations().catch(() => {})
       }
+      if (data.advanced_view_enabled) {
+        if (data.show_cmdb_integrations) loadIdoitConfig()
+        loadScanNodes().catch(() => {})
+        loadSnmp().catch(() => {})
+      }
     }).catch(() => {
       toast.error(t('settings_load_failed'))
     })
   }, [])
-
-  useEffect(() => {
-    if (settings?.advanced_view_enabled) {
-      if (settings.show_cmdb_integrations) loadIdoitConfig()
-      loadScanNodes().catch(() => {})
-      loadSnmp().catch(() => {})
-    }
-  }, [settings?.advanced_view_enabled, settings?.show_cmdb_integrations])
 
   useEffect(() => {
     if (settings && (!settings.advanced_view_enabled || !settings.show_cmdb_integrations) && activeSection === 'cmdb') {
@@ -1205,6 +1202,19 @@ export default function Settings() {
       setShowTlsChecks(current.advanced_view_enabled && current.show_tls_checks)
       setShowPingHistory(current.advanced_view_enabled && current.show_ping_history)
       setShowBuildInfo(current.show_build_info)
+      if (current.advanced_view_enabled) {
+        if (current.show_cmdb_integrations) {
+          loadIdoitConfig()
+        } else {
+          setIdoitConfig(null)
+          setIdoitLoadError(false)
+        }
+        loadScanNodes().catch(() => {})
+        loadSnmp().catch(() => {})
+      } else {
+        setIdoitConfig(null)
+        setIdoitLoadError(false)
+      }
       toast.success(t('ui_settings_saved'))
     } catch {
       toast.error(t('ui_settings_save_failed'))

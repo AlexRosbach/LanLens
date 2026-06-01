@@ -190,3 +190,74 @@ test('device multicast discovery shows one row for repeated observations', async
   await expect(page.getByText('"source_port": 43000')).toBeVisible()
   await page.screenshot({ path: `${screenshotDir}/passive-discovery-detail.png`, fullPage: true })
 })
+
+test('enabling i-doit feature does not load i-doit config before settings are saved', async ({ page }) => {
+  let idoitConfigRequests = 0
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({ json: { username: 'admin', force_password_change: false } })
+  })
+  await page.route('**/api/settings', async (route) => {
+    await route.fulfill({ json: { ...settings, advanced_view_enabled: false, show_cmdb_integrations: false } })
+  })
+  await page.route('**/api/settings/ui', async (route) => {
+    await route.fulfill({ json: { message: 'UI settings updated' } })
+  })
+  await page.route('**/api/notifications/unread-count', async (route) => {
+    await route.fulfill({ json: { count: 0 } })
+  })
+  await page.route('**/api/settings/update/check', async (route) => {
+    await route.fulfill({ json: { current_version: '1.5.4', latest_version: '1.5.4', release_url: '', update_available: false } })
+  })
+  await page.route('**/api/idoit/config', async (route) => {
+    idoitConfigRequests += 1
+    await route.fulfill({
+      json: {
+        idoit_enabled: false,
+        idoit_base_url: '',
+        idoit_jsonrpc_path: '/src/jsonrpc.php',
+        idoit_portal_url: '',
+        idoit_api_key_configured: false,
+        idoit_basic_username: '',
+        idoit_basic_password_configured: false,
+        idoit_timeout_seconds: 15,
+        idoit_default_object_type: 'C__OBJTYPE__CLIENT',
+        idoit_auto_sync_enabled: false,
+        idoit_sync_scope: 'all',
+        idoit_create_policy: 'match_only',
+        idoit_sync_interval_minutes: 60,
+        idoit_offline_retire_days: 7,
+        idoit_sync_status_field: '',
+        idoit_mapping_json: '{}',
+        idoit_mapping_raw: '{}',
+        idoit_mapping_parsed: {},
+        idoit_mapping_parse_error: null,
+        mapping_errors: [],
+        scheduler: { running: false, next_run_at: null },
+      },
+    })
+  })
+  await page.route('**/api/idoit/logs**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices', async (route) => {
+    await route.fulfill({ json: { items: [], total: 0 } })
+  })
+  await page.route('**/api/scan-nodes**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+
+  await page.goto('/settings')
+  await page.getByRole('button', { name: 'Features' }).click()
+  await page.getByRole('button', { name: /Enable advanced view/ }).click()
+  await page.getByRole('button', { name: /Show CMDB and i-doit features/ }).click()
+  await page.screenshot({ path: `${screenshotDir}/idoit-feature-toggle-before-save.png`, fullPage: true })
+
+  await expect.poll(() => idoitConfigRequests).toBe(0)
+
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect.poll(() => idoitConfigRequests).toBe(1)
+})

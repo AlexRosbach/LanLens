@@ -28,7 +28,9 @@ All notable changes to this project should be documented in this file.
 - Deduplicated repeated passive-discovery observations so recurring mDNS/UPnP/multicast packets update the latest seen time instead of flooding device detail lists and i-doit summaries.
 - Tightened generic multicast deduplication so packets with the same source, multicast group and destination port update the latest seen time even when ephemeral source ports or MAC metadata vary between captures.
 - Added Playwright coverage for the device multicast discovery table and detail dialog to prevent duplicate-looking multicast rows from returning.
+- Added Playwright coverage for enabling CMDB/i-doit features so i-doit settings are not requested before the UI settings save has reached the backend.
 - Added focused parser and capture-report coverage for mDNS packets, UPnP/SSDP M-SEARCH payloads, UPnP/SSDP response packets and generic IPv4 multicast packets.
+- Fixed a Settings race where enabling CMDB/i-doit visibility could show “Failed to load i-doit settings” before the feature toggle was persisted.
 - Moved build metadata into backend and frontend app constants, with Docker builds stamping the app files from build args instead of runtime environment variables.
 - Bumped backend, frontend and image metadata to 1.5.4.
 
