@@ -536,6 +536,12 @@ External reverse proxies remain the better central TLS option when the deploymen
 
 The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
 
+### Network Changes
+
+The **Changes** view shows the structured `device_change_events` history across all devices. It surfaces device discoveries, online/offline transitions, IP and hostname changes, archive/unarchive actions, CMDB ID generation, merge actions, maintenance updates and manual documentation edits. Use the filters to narrow by event type, time range or free-text search across device labels, hostnames, IPs, MAC addresses, fields, sources and event messages.
+
+Each row links to the affected device detail page. Device Detail keeps its per-device timeline for local context, while the global Changes page answers broader questions such as what changed in the last day, week or month.
+
 ### Passive Multicast Discovery
 
 Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a 30-second capture or schedule background captures.

@@ -53,6 +53,13 @@ export interface ChangeEvent {
   created_at: string
 }
 
+export interface NetworkChangeEvent extends ChangeEvent {
+  device_label: string
+  device_ip?: string | null
+  device_mac?: string | null
+  device_class?: string | null
+}
+
 export interface MergePreview {
   source_device_id: number
   target_device_id: number
@@ -65,6 +72,14 @@ export interface MergePreview {
 
 export const inventoryApi = {
   topology: () => apiClient.get<TopologyResponse>('/inventory/topology').then((r) => r.data),
+  changes: (params?: {
+    event_type?: string
+    device_id?: number
+    source?: string
+    since_hours?: number
+    search?: string
+    limit?: number
+  }) => apiClient.get<NetworkChangeEvent[]>('/inventory/changes', { params }).then((r) => r.data),
   reportUrl: (format: 'markdown' | 'csv' | 'json' = 'markdown') => withBasePath(`/api/inventory/report?format=${format}`),
   selectiveBackupUrl: () => withBasePath('/api/backups/selective'),
   ignoreRules: () => apiClient.get<IgnoreRule[]>('/ignore-rules').then((r) => r.data),

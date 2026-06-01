@@ -2,6 +2,18 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.5 — Network change log
+
+### New Features
+- Added a global Network Changes view that shows recent device and infrastructure changes across the inventory.
+- Added filters for change type, time range and search so changes can be narrowed by device, field, source or event type.
+- Added an authenticated `/api/inventory/changes` endpoint with device labels, IPs, MAC addresses and classes for each change event.
+- Linked change rows directly to the affected device detail page while preserving the existing per-device timeline.
+
+### Fixes / Hardening
+- Reused the existing `device_change_events` table and current frontend/backend dependencies; no new packages or license obligations were added.
+- Bumped backend, frontend and image metadata to 1.5.5.
+
 ## v1.5.4 — Plugin discovery foundation
 
 ### New Features

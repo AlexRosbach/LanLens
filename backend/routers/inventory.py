@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -10,12 +10,13 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, Service, Setting, User
+from ..models import Device, DeviceChangeEvent, DeviceHostRelationship, DeviceIgnoreRule, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIgnoreRuleCreate,
     DeviceIgnoreRuleResponse,
     DeviceIgnoreRuleUpdate,
     MessageResponse,
+    NetworkChangeEventResponse,
     TopologyEdge,
     TopologyNode,
     TopologyResponse,
@@ -55,6 +56,24 @@ SECRET_SETTING_KEY_PARTS = (
 
 def _device_label(device: Device) -> str:
     return device.label or device.hostname or device.ip_address or device.mac_address or f"Device #{device.id}"
+
+
+def _change_event_response(event: DeviceChangeEvent, device: Device) -> NetworkChangeEventResponse:
+    return NetworkChangeEventResponse(
+        id=event.id,
+        device_id=event.device_id,
+        event_type=event.event_type,
+        field_name=event.field_name,
+        old_value=event.old_value,
+        new_value=event.new_value,
+        source=event.source,
+        message=event.message,
+        created_at=event.created_at,
+        device_label=_device_label(device),
+        device_ip=device.ip_address,
+        device_mac=device.mac_address,
+        device_class=device.device_class,
+    )
 
 
 def _is_secret_setting(key: str) -> bool:
@@ -148,6 +167,52 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
                 metadata=identity,
             ))
     return TopologyResponse(nodes=nodes, edges=edges)
+
+
+@router.get("/changes", response_model=list[NetworkChangeEventResponse])
+def list_network_changes(
+    event_type: Optional[str] = Query(None, max_length=64),
+    device_id: Optional[int] = None,
+    source: Optional[str] = Query(None, max_length=64),
+    since_hours: Optional[int] = Query(None, ge=1, le=24 * 90),
+    search: Optional[str] = Query(None, max_length=120),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    query = (
+        db.query(DeviceChangeEvent, Device)
+        .join(Device, Device.id == DeviceChangeEvent.device_id)
+    )
+    if event_type:
+        query = query.filter(DeviceChangeEvent.event_type == event_type)
+    if device_id is not None:
+        query = query.filter(DeviceChangeEvent.device_id == device_id)
+    if source:
+        query = query.filter(DeviceChangeEvent.source == source)
+    if since_hours is not None:
+        query = query.filter(DeviceChangeEvent.created_at >= datetime.utcnow() - timedelta(hours=since_hours))
+    if search:
+        like = f"%{search.strip()}%"
+        query = query.filter(or_(
+            Device.label.ilike(like),
+            Device.hostname.ilike(like),
+            Device.ip_address.ilike(like),
+            Device.mac_address.ilike(like),
+            Device.device_class.ilike(like),
+            DeviceChangeEvent.event_type.ilike(like),
+            DeviceChangeEvent.field_name.ilike(like),
+            DeviceChangeEvent.message.ilike(like),
+            DeviceChangeEvent.source.ilike(like),
+        ))
+
+    rows = (
+        query
+        .order_by(DeviceChangeEvent.created_at.desc(), DeviceChangeEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_change_event_response(event, device) for event, device in rows]
 
 
 @router.get("/report")

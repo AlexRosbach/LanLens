@@ -260,6 +260,13 @@ class DeviceChangeEventResponse(BaseModel):
         from_attributes = True
 
 
+class NetworkChangeEventResponse(DeviceChangeEventResponse):
+    device_label: str
+    device_ip: Optional[str] = None
+    device_mac: Optional[str] = None
+    device_class: Optional[str] = None
+
+
 class DeviceMergeRequest(BaseModel):
     source_device_id: int
     target_device_id: int
