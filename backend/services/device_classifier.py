@@ -43,7 +43,7 @@ VENDOR_RULES = [
 PORT_CLASS_HINTS = {
     9100: "Printer",    # JetDirect
     515: "Printer",     # LPD
-    631: "Printer",     # IPP
+    631: None,          # IPP is also exposed by non-printers, for example macOS
     5060: "VoIP",       # SIP
     5061: "VoIP",       # SIP TLS
     1720: "VoIP",       # H.323

@@ -11,6 +11,7 @@ All notable changes to this project should be documented in this file.
 - Linked change rows directly to the affected device detail page while preserving the existing per-device timeline.
 
 ### Fixes / Hardening
+- Made passive device type assignment more conservative so generic IPP/mDNS printer sharing from Macs or workstations does not classify the device as a printer.
 - Reused the existing `device_change_events` table and current frontend/backend dependencies; no new packages or license obligations were added.
 - Bumped backend, frontend and image metadata to 1.5.5.
 

@@ -163,6 +163,20 @@ class PassiveDiscoveryTests(unittest.TestCase):
         self.assertEqual(inference["inference_confidence"], "high")
         self.assertTrue(inference["inference_reasons"])
 
+    def test_passive_discovery_does_not_infer_printer_from_generic_ipp(self):
+        observation = PassiveDiscoveryObservation(
+            protocol="mdns",
+            service_name="Alexs MacBook Pro._ipp._tcp.local",
+            service_type="_ipp._tcp",
+            summary="Alexs MacBook Pro._ipp._tcp.local",
+            metadata_json='{"answers": [{"name": "_ipp._tcp.local"}]}',
+        )
+
+        inference = infer_device_class_from_observation(observation)
+
+        self.assertIsNone(inference["inferred_device_class"])
+        self.assertIsNone(inference["inference_confidence"])
+
     def test_passive_discovery_infers_router_from_upnp_gateway(self):
         observation = parse_ssdp_payload("\r\n".join([
             "NOTIFY * HTTP/1.1",

@@ -611,7 +611,8 @@ def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metada
         return result("Router", "high", "UPnP/SSDP gateway or router advertisement")
     if any(token in haystack for token in ("wlanaccesspoint", "accesspoint", "access point", "uap-", "unifi")):
         return result("AP", "high", "Wireless access-point service advertisement")
-    if any(token in haystack for token in ("_ipp", "_printer", "_pdl-datastream", "printer", "print")):
+    printer_tokens = ("_printer", "_pdl-datastream", "printer", "print")
+    if any(token in haystack for token in printer_tokens):
         return result("Printer", "high", "Printer service advertised by mDNS/Bonjour")
     if any(token in haystack for token in ("mediarenderer", "mediaserver", "dial-multiscreen", "googlecast", "_airplay", "_raop", "chromecast", "roku")):
         return result("TV", "medium", "Media renderer/server advertisement")
