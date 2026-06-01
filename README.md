@@ -64,7 +64,7 @@ Feature switches hide optional expert modules and enforce the same state in the 
 
 | SNMP switch port visualization |
 |---|
-| ![LanLens SNMP switch port visualization](docs/screenshots/lanlens-snmp-switch-ports.svg) |
+| ![LanLens device overview with SNMP switch port visualization](docs/screenshots/lanlens-snmp-switch-ports.png) |
 
 ---
 

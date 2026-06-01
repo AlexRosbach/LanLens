@@ -945,7 +945,7 @@ Routers and firewalls may expose IF-MIB without a switch MAC table. In that case
 
 SNMP data is most useful when the router or switch exposes bridge forwarding tables. For a UniFi router, expect the first poll to show system identity, vendor detection and interface inventory. If the UniFi device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the router and interfaces, but endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
 
-![SNMP switch port visualization](screenshots/lanlens-snmp-switch-ports.svg)
+![Device overview with SNMP switch port visualization](screenshots/lanlens-snmp-switch-ports.png)
 
 When an SNMP target is linked to a LanLens device and the poll returns both interfaces and MAC/VLAN table entries, the device detail page shows a switch-port visualization. Each discovered interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, learned device/MAC and VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. SNMP routers, firewalls or incomplete switch polls that only expose IF-MIB interfaces do not show the visualization, which avoids a misleading empty port map.
 
