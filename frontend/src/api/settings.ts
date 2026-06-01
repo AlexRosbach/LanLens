@@ -12,6 +12,8 @@ export interface AllSettings {
   passive_discovery_capture_seconds: number
   ping_monitor_enabled: boolean
   ping_monitor_interval_minutes: number
+  device_archive_after_days: number
+  device_delete_archived_after_days: number
   port_scan_range: string
   telegram_bot_token: string
   telegram_chat_id: string
@@ -86,6 +88,11 @@ export const settingsApi = {
     ping_monitor_enabled: boolean
     ping_monitor_interval_minutes: number
   }) => apiClient.put('/settings/ping-monitor', data).then((r) => r.data),
+
+  updateDeviceRetention: (data: {
+    device_archive_after_days: number
+    device_delete_archived_after_days: number
+  }) => apiClient.put('/settings/device-retention', data).then((r) => r.data),
 
   updateTelegram: (data: {
     telegram_bot_token: string

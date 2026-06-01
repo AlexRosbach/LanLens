@@ -20,7 +20,7 @@ function ipInRange(ip: string, start: string, end: string): boolean {
   return ipToInt(ip) >= ipToInt(start) && ipToInt(ip) <= ipToInt(end)
 }
 
-type Filter = 'all' | 'online' | 'offline' | 'new'
+type Filter = 'all' | 'online' | 'offline' | 'new' | 'archived'
 
 export default function Dashboard() {
   const { devices, stats, loading, fetchDevices, updateDevice } = useDeviceStore()
@@ -37,18 +37,20 @@ export default function Dashboard() {
   const deviceClassOptions = Array.from(new Set([...DEVICE_CLASSES, ...devices.map((d) => d.device_class).filter(Boolean)])).sort()
 
   useEffect(() => {
-    fetchDevices()
+    fetchDevices({ archived_only: filter === 'archived' })
     segmentsApi.list().then(setSegments).catch(() => {})
-  }, [fetchDevices])
+  }, [fetchDevices, filter])
 
   const filterLabels: Record<Filter, string> = {
     all: t('filter_all'),
     online: t('filter_online'),
     offline: t('filter_offline'),
     new: t('filter_new'),
+    archived: t('filter_archived'),
   }
 
   const filtered = devices.filter((d) => {
+    if (filter === 'archived') return true
     if (filter === 'online' && !d.is_online) return false
     if (filter === 'offline' && d.is_online) return false
     if (filter === 'new' && !d.is_new) return false
@@ -79,11 +81,12 @@ export default function Dashboard() {
     { labelKey: 'online' as const, value: stats.online, color: 'text-success' },
     { labelKey: 'offline' as const, value: stats.offline, color: 'text-danger' },
     { labelKey: 'filter_new' as const, value: stats.unregistered, color: 'text-warning' },
+    { labelKey: 'filter_archived' as const, value: stats.archived, color: 'text-text-subtle' },
   ]
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {summaryCards.map((card) => (
           <Card key={card.labelKey} className="flex flex-col gap-1">
             <span className="text-xs text-text-subtle">{t(card.labelKey)}</span>
@@ -94,7 +97,7 @@ export default function Dashboard() {
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1 bg-surface border border-border rounded-lg p-1">
-          {(['all', 'online', 'offline', 'new'] as Filter[]).map((f) => (
+          {(['all', 'online', 'offline', 'new', 'archived'] as Filter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -156,7 +159,7 @@ export default function Dashboard() {
         <DeviceTable
           devices={filtered}
           onRegister={setRegisterDevice}
-          onRefresh={() => fetchDevices()}
+          onRefresh={() => fetchDevices({ archived_only: filter === 'archived' })}
         />
       )}
 

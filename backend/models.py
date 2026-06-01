@@ -60,6 +60,8 @@ class Device(Base):
     notifications_muted = Column(Boolean, default=False, nullable=False, server_default=false())
     maintenance_until = Column(DateTime, nullable=True)
     maintenance_note = Column(Text, nullable=True)
+    is_archived = Column(Boolean, default=False, nullable=False, server_default=false())
+    archived_at = Column(DateTime, nullable=True)
     is_online = Column(Boolean, default=False)
     first_seen = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)

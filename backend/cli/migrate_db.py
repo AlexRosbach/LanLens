@@ -620,6 +620,8 @@ def migrate():
             "notifications_muted": "ALTER TABLE devices ADD COLUMN notifications_muted BOOLEAN NOT NULL DEFAULT FALSE",
             "maintenance_until": "ALTER TABLE devices ADD COLUMN maintenance_until DATETIME",
             "maintenance_note": "ALTER TABLE devices ADD COLUMN maintenance_note TEXT",
+            "is_archived": "ALTER TABLE devices ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE",
+            "archived_at": "ALTER TABLE devices ADD COLUMN archived_at DATETIME",
         }.items():
             if not _column_exists(conn, "devices", column):
                 conn.execute(text(ddl))

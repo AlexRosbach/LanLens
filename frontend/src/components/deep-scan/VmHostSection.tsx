@@ -30,7 +30,7 @@ export default function VmHostSection({ deviceId }: Props) {
     try {
       const [relsResp, allDevicesResp] = await Promise.all([
         deepScanApi.getRelationships(deviceId),
-        devicesApi.list().catch(() => ({ items: [] as Device[], total: 0, online: 0, offline: 0, unregistered: 0 })),
+        devicesApi.list().catch(() => ({ items: [] as Device[], total: 0, online: 0, offline: 0, unregistered: 0, archived: 0 })),
       ])
       const rels = relsResp.data.filter((r) => r.child_device_id === deviceId)
       setRelationships(rels)

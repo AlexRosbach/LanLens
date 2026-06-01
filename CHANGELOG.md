@@ -13,6 +13,7 @@ All notable changes to this project should be documented in this file.
 - Added passive-discovery device-class hints with confidence and reasons for common mDNS/SSDP/multicast advertisements.
 - Added automatic passive-discovery device-class updates for linked observations when the inferred class is confident enough.
 - Added automatic mDNS hostname fill-in for linked devices when normal discovery did not produce a usable hostname.
+- Added device retention settings to automatically archive inactive discovered devices and optionally delete archived devices after a separate retention period.
 - Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, linked, device classes updated, hostnames updated, duplicates skipped, active filter, enabled protocols and capture errors.
 - Added passive-discovery device matching status and recent observation links in Settings so captured multicast packets can be traced directly to matching devices.
 - Added clickable per-device multicast discovery rows with a detail dialog that shows parsed fields and the raw captured observation payload.

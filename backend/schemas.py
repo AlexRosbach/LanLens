@@ -360,6 +360,8 @@ class DeviceResponse(BaseModel):
     notifications_muted: bool = False
     maintenance_until: Optional[datetime] = None
     maintenance_note: Optional[str] = None
+    is_archived: bool = False
+    archived_at: Optional[datetime] = None
     idoit_enabled: bool = False
     idoit_sync_enabled: bool = False
     idoit_sync_status: Optional[str] = None
@@ -390,6 +392,7 @@ class DeviceListResponse(BaseModel):
     online: int
     offline: int
     unregistered: int
+    archived: int = 0
 
 
 class DeviceIgnoreRuleBase(BaseModel):
@@ -502,6 +505,11 @@ class PingMonitorSettings(BaseModel):
     ping_monitor_interval_minutes: int = 5
 
 
+class DeviceRetentionSettings(BaseModel):
+    device_archive_after_days: int = 0
+    device_delete_archived_after_days: int = 0
+
+
 class TelegramSettings(BaseModel):
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: str
@@ -557,6 +565,8 @@ class AllSettings(BaseModel):
     passive_discovery_capture_seconds: int = 30
     ping_monitor_enabled: bool = False
     ping_monitor_interval_minutes: int = 5
+    device_archive_after_days: int = 0
+    device_delete_archived_after_days: int = 0
     port_scan_range: str = "top:1000"
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""

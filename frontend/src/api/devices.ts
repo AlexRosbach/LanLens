@@ -80,6 +80,8 @@ export interface Device {
   notifications_muted?: boolean
   maintenance_until?: string | null
   maintenance_note?: string | null
+  is_archived?: boolean
+  archived_at?: string | null
   idoit_enabled?: boolean
   idoit_sync_enabled?: boolean
   idoit_sync_status?: string | null
@@ -117,6 +119,7 @@ export interface DeviceListResponse {
   online: number
   offline: number
   unregistered: number
+  archived: number
 }
 
 export interface DeviceUpdate {
@@ -145,6 +148,7 @@ export const devicesApi = {
     unregistered_only?: boolean
     device_class?: string
     search?: string
+    archived_only?: boolean
   }) => apiClient.get<DeviceListResponse>('/devices', { params }).then((r) => r.data),
 
   get: (id: number) => apiClient.get<Device>(`/devices/${id}`).then((r) => r.data),

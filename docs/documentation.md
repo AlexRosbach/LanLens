@@ -355,6 +355,16 @@ Triggers immediate ARP scan in background.
 { "scan_interval_minutes": 5 }
 ```
 
+#### `PUT /api/settings/device-retention`
+```json
+{
+  "device_archive_after_days": 30,
+  "device_delete_archived_after_days": 90
+}
+```
+
+Both values are day counts. `device_archive_after_days` moves inactive, discovered devices out of the normal dashboard into the archived view. `device_delete_archived_after_days` counts from `archived_at` and permanently deletes archived devices after that many days. Set either value to `0` to disable that step.
+
 #### `PUT /api/settings/telegram`
 ```json
 {
@@ -535,6 +545,12 @@ Use **Diagnose 10s** in the same settings card when a network is known to send m
 Docker deployments need host networking and raw packet permissions for live capture. If the container runs in bridge mode or without `NET_RAW`, the capture endpoint can start but may not observe LAN multicast traffic.
 
 Passive discovery uses Scapy for packet capture and parsing. The currently installed Scapy package metadata reports `GPL-2.0-only`; keep that license in mind when redistributing LanLens images or changing packet-capture dependencies. LanLens also uses other GPL/LGPL or dual-licensed backend dependencies for network discovery and connectivity features; see `THIRD_PARTY_NOTICES.md` for the maintained dependency license matrix.
+
+### Device Retention
+
+Use **Settings → Network Discovery → Device retention** to keep old discoveries from cluttering the active dashboard. `Archive after inactive days` moves devices whose `last_seen` is older than the configured threshold into the dashboard's **Archived** filter. Archived devices are excluded from the normal device list, online/offline counters and new-device count. If a later scan sees the same device again, LanLens unarchives it automatically.
+
+`Delete archived after days` is a second retention window that starts at `archived_at`. When enabled, archived devices older than that threshold are permanently deleted by the background retention job or the next completed scan. Set either field to `0` to disable that step.
 
 ### Capabilities
 

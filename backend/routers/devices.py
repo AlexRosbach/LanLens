@@ -254,6 +254,7 @@ def _count_new_devices(db: Session, current_user: User) -> int:
     viewed_subquery = db.query(DeviceView.device_id).filter(DeviceView.user_id == current_user.id)
     return (
         db.query(Device)
+        .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
         .filter(~Device.id.in_(viewed_subquery))
         .count()
@@ -330,6 +331,8 @@ def _device_to_response(
         notifications_muted=bool(device.notifications_muted),
         maintenance_until=device.maintenance_until,
         maintenance_note=device.maintenance_note,
+        is_archived=bool(device.is_archived),
+        archived_at=device.archived_at,
         idoit_enabled=idoit_enabled,
         idoit_sync_enabled=bool(device.idoit_sync_enabled),
         idoit_sync_status=device.idoit_sync.status if device.idoit_sync else "never_synced",
@@ -357,10 +360,16 @@ def list_devices(
     unregistered_only: Optional[bool] = None,
     device_class: Optional[str] = None,
     search: Optional[str] = None,
+    archived_only: Optional[bool] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     query = db.query(Device).options(joinedload(Device.idoit_sync))
+
+    if archived_only is True:
+        query = query.filter(Device.is_archived == True)
+    else:
+        query = query.filter(Device.is_archived == False)
 
     if online_only is True:
         query = query.filter(Device.is_online == True)
@@ -386,9 +395,11 @@ def list_devices(
     all_devices = query.order_by(Device.last_seen.desc()).all()
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
 
-    total = db.query(Device).count()
-    online = db.query(Device).filter(Device.is_online == True).count()
+    active_query = db.query(Device).filter(Device.is_archived == False)
+    total = active_query.count()
+    online = active_query.filter(Device.is_online == True).count()
     unregistered = _count_new_devices(db, current_user)
+    archived = db.query(Device).filter(Device.is_archived == True).count()
     dhcp_range = _get_dhcp_range(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
@@ -492,6 +503,7 @@ def list_devices(
         online=online,
         offline=total - online,
         unregistered=unregistered,
+        archived=archived,
     )
 
 
@@ -504,14 +516,17 @@ def get_new_devices(
     devices = (
         db.query(Device)
         .options(joinedload(Device.idoit_sync))
+        .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
         .filter(~Device.id.in_(viewed_subquery))
         .order_by(Device.last_seen.desc())
         .all()
     )
-    total = db.query(Device).count()
-    online = db.query(Device).filter(Device.is_online == True).count()
+    active_query = db.query(Device).filter(Device.is_archived == False)
+    total = active_query.count()
+    online = active_query.filter(Device.is_online == True).count()
     unregistered = _count_new_devices(db, current_user)
+    archived = db.query(Device).filter(Device.is_archived == True).count()
     dhcp_range = _get_dhcp_range(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
@@ -532,6 +547,7 @@ def get_new_devices(
         online=online,
         offline=total - online,
         unregistered=unregistered,
+        archived=archived,
     )
 
 

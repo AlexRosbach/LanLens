@@ -12,6 +12,7 @@ from ..models import Setting, User
 from ..version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 from ..schemas import (
     AllSettings,
+    DeviceRetentionSettings,
     DhcpSettings,
     MessageResponse,
     PassiveDiscoverySettings,
@@ -28,6 +29,7 @@ from ..schemas import (
 from ..services.notification import send_test_message, send_update_notification, send_webhook_test_message, validate_webhook_url
 from ..services.https_config import apply_nginx_config, load_https_config, save_https_config
 from ..services.passive_discovery_scheduler import update_passive_discovery_schedule
+from ..services.device_retention import get_device_retention_settings
 from ..services.scheduler import update_interval, update_ping_monitor_schedule
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
@@ -41,6 +43,7 @@ SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
     "passive_discovery_background_enabled", "passive_discovery_interval_minutes", "passive_discovery_capture_seconds",
     "ping_monitor_enabled", "ping_monitor_interval_minutes",
+    "device_archive_after_days", "device_delete_archived_after_days",
     "port_scan_range",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
@@ -147,6 +150,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         passive_discovery_capture_seconds=int(_get(db, "passive_discovery_capture_seconds", "30") or "30"),
         ping_monitor_enabled=_get(db, "ping_monitor_enabled", "false") == "true",
         ping_monitor_interval_minutes=int(_get(db, "ping_monitor_interval_minutes", "5") or "5"),
+        **get_device_retention_settings(db),
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
         telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
@@ -285,6 +289,20 @@ def update_ping_monitor(
     db.commit()
     update_ping_monitor_schedule()
     return MessageResponse(message="Ping monitor schedule updated")
+
+
+@router.put("/device-retention", response_model=MessageResponse)
+def update_device_retention(
+    data: DeviceRetentionSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    archive_days = max(0, min(3650, int(data.device_archive_after_days or 0)))
+    delete_days = max(0, min(3650, int(data.device_delete_archived_after_days or 0)))
+    _set(db, "device_archive_after_days", str(archive_days))
+    _set(db, "device_delete_archived_after_days", str(delete_days))
+    db.commit()
+    return MessageResponse(message="Device retention settings updated")
 
 
 @router.put("/port-scan", response_model=MessageResponse)

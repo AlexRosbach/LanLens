@@ -25,6 +25,7 @@ from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
+from .device_retention import apply_device_retention
 
 logger = logging.getLogger(__name__)
 
@@ -644,11 +645,16 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 previous_ip = existing.ip_address
                 previous_online = existing.is_online
                 previous_hostname = existing.hostname
+                was_archived = bool(existing.is_archived)
                 existing.ip_address = ip
                 existing.is_online = True
+                existing.is_archived = False
+                existing.archived_at = None
                 existing.last_seen = seen_at
                 _record_change(db, existing.id, "ip_changed", "ip_address", previous_ip, ip, "scan")
                 _record_change(db, existing.id, "online_state_changed", "is_online", previous_online, True, "scan")
+                if was_archived:
+                    _record_change(db, existing.id, "device_unarchived", "is_archived", True, False, "scan")
                 record_device_ip_history(db, existing, ip, seen_at)
                 record_ping_sample(db, existing.id, True, latency_by_ip.get(ip), "scan", seen_at)
                 if hostname:
@@ -676,6 +682,7 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         scan_run.devices_offline = devices_offline
         scan_run.finished_at = datetime.utcnow()
         scan_run.status = "done"
+        retention_result = apply_device_retention(db, scan_reference_time)
         db.commit()
 
         # Retry pending deliveries after every completed scan. This lets
@@ -685,7 +692,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
 
         logger.info(
             f"Scan complete: {len(found_macs)} found, "
-            f"{devices_new} new, {devices_offline} went offline"
+            f"{devices_new} new, {devices_offline} went offline, "
+            f"{retention_result['archived']} archived, {retention_result['deleted']} deleted"
         )
         return scan_run
 

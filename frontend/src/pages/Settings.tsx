@@ -772,6 +772,21 @@ export default function Settings() {
     }
   }
 
+  async function saveDeviceRetention() {
+    setSaving(true)
+    try {
+      await settingsApi.updateDeviceRetention({
+        device_archive_after_days: current.device_archive_after_days,
+        device_delete_archived_after_days: current.device_delete_archived_after_days,
+      })
+      toast.success(t('device_retention_saved'))
+    } catch {
+      toast.error(t('device_retention_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function savePortScanSettings() {
     setSaving(true)
     try {
@@ -1682,6 +1697,42 @@ export default function Settings() {
               </div>
               <div>
                 <Button onClick={savePingMonitorSchedule} loading={saving}>{t('ping_monitor_save')}</Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('device_retention_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('device_retention_description')}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('device_archive_after_days')}</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    value={String(current.device_archive_after_days)}
+                    onChange={(e) => setSettings({ ...current, device_archive_after_days: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('device_retention_zero_disabled')}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('device_delete_archived_after_days')}</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    value={String(current.device_delete_archived_after_days)}
+                    onChange={(e) => setSettings({ ...current, device_delete_archived_after_days: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('device_delete_archived_after_days_hint')}</p>
+                </div>
+              </div>
+              <div>
+                <Button onClick={saveDeviceRetention} loading={saving}>{t('device_retention_save')}</Button>
               </div>
             </div>
           </Card>

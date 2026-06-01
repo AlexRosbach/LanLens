@@ -15,6 +15,8 @@ const settings = {
   passive_discovery_capture_seconds: 30,
   ping_monitor_enabled: false,
   ping_monitor_interval_minutes: 5,
+  device_archive_after_days: 30,
+  device_delete_archived_after_days: 90,
   port_scan_range: '1-1024',
   telegram_bot_token: '',
   telegram_chat_id: '',
@@ -85,6 +87,8 @@ const device = {
   notifications_muted: false,
   maintenance_until: null,
   maintenance_note: null,
+  is_archived: false,
+  archived_at: null,
   idoit_enabled: false,
   idoit_sync_enabled: false,
   idoit_sync_status: null,
@@ -117,8 +121,9 @@ test('device multicast discovery shows one row for repeated observations', async
   await page.route('**/api/settings/update/check', async (route) => {
     await route.fulfill({ json: { current_version: '1.5.4', latest_version: '1.5.4', release_url: '', update_available: false } })
   })
-  await page.route('**/api/devices', async (route) => {
-    await route.fulfill({ json: { items: [device], total: 1 } })
+  await page.route('**/api/devices**', async (route) => {
+    if (!new URL(route.request().url()).pathname.endsWith('/api/devices')) return route.fallback()
+    await route.fulfill({ json: { items: [device], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
   })
   await page.route('**/api/devices/1', async (route) => {
     await route.fulfill({ json: device })
@@ -248,8 +253,9 @@ test('enabling i-doit feature does not load i-doit config before settings are sa
   await page.route('**/api/idoit/logs**', async (route) => {
     await route.fulfill({ json: [] })
   })
-  await page.route('**/api/devices', async (route) => {
-    await route.fulfill({ json: { items: [], total: 0 } })
+  await page.route('**/api/devices**', async (route) => {
+    if (!new URL(route.request().url()).pathname.endsWith('/api/devices')) return route.fallback()
+    await route.fulfill({ json: { items: [], total: 0, online: 0, offline: 0, unregistered: 0, archived: 0 } })
   })
   await page.route('**/api/scan-nodes**', async (route) => {
     await route.fulfill({ json: [] })
@@ -268,4 +274,63 @@ test('enabling i-doit feature does not load i-doit config before settings are sa
 
   await page.getByRole('button', { name: 'Save changes' }).click()
   await expect.poll(() => idoitConfigRequests).toBe(1)
+})
+
+test('settings expose device retention archive and delete controls', async ({ page }) => {
+  let savedRetention: Record<string, unknown> | null = null
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({ json: { username: 'admin', force_password_change: false } })
+  })
+  await page.route('**/api/settings', async (route) => {
+    await route.fulfill({ json: settings })
+  })
+  await page.route('**/api/settings/device-retention', async (route) => {
+    savedRetention = await route.request().postDataJSON()
+    await route.fulfill({ json: { message: 'Device retention settings updated' } })
+  })
+  await page.route('**/api/notifications/unread-count', async (route) => {
+    await route.fulfill({ json: { count: 0 } })
+  })
+  await page.route('**/api/settings/update/check', async (route) => {
+    await route.fulfill({ json: { current_version: '1.5.4', latest_version: '1.5.4', release_url: '', update_available: false } })
+  })
+  await page.route('**/api/devices**', async (route) => {
+    if (!new URL(route.request().url()).pathname.endsWith('/api/devices')) return route.fallback()
+    const archivedOnly = new URL(route.request().url()).searchParams.get('archived_only') === 'true'
+    await route.fulfill({
+      json: {
+        items: archivedOnly ? [{ ...device, id: 2, label: 'Archived NAS', is_archived: true, archived_at: '2026-05-01T12:00:00Z' }] : [device],
+        total: 1,
+        online: 1,
+        offline: 0,
+        unregistered: 0,
+        archived: 1,
+      },
+    })
+  })
+  await page.route('**/api/scan-nodes**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+
+  await page.goto('/settings')
+  await page.getByRole('button', { name: 'Network Discovery' }).click()
+  await expect(page.getByRole('heading', { name: 'Device retention' })).toBeVisible()
+  await page.getByText('Archive after inactive days').locator('..').getByRole('spinbutton').fill('14')
+  await page.getByText('Delete archived after days').locator('..').getByRole('spinbutton').fill('60')
+  await page.screenshot({ path: `${screenshotDir}/device-retention-settings.png`, fullPage: true })
+  await page.getByRole('button', { name: 'Save device retention' }).click()
+  await expect.poll(() => savedRetention).toEqual({
+    device_archive_after_days: 14,
+    device_delete_archived_after_days: 60,
+  })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Archived' })).toBeVisible()
+  await page.getByRole('button', { name: 'Archived' }).click()
+  await expect(page.getByText('Archived NAS')).toBeVisible()
+  await page.screenshot({ path: `${screenshotDir}/device-retention-archived-filter.png`, fullPage: true })
 })
