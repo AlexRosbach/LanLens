@@ -38,7 +38,8 @@ from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
 from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
-from ..services.passive_discovery import deduplicate_observations, observation_to_response
+from ..services.passive_discovery import deduplicate_observations, linked_devices_for_observations, observation_to_response
+from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import identity_for_device
 from .services import _apply_tls_result, _inspect_tls_certificate
 
@@ -583,7 +584,7 @@ def get_device_passive_discovery(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    if not is_advanced_feature_enabled(db, "show_passive_discovery"):
+    if not is_plugin_enabled(db, "passive-discovery"):
         raise HTTPException(status_code=403, detail="Passive discovery is disabled")
 
     device = db.query(Device).filter(Device.id == device_id).first()
@@ -601,10 +602,9 @@ def get_device_passive_discovery(
     requested_limit = max(1, min(limit, 200))
     rows = db.query(PassiveDiscoveryObservation).filter(or_(*filters))
     observations = rows.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(min(requested_limit * 5, 1000)).all()
-    return [
-        observation_to_response(row, db)
-        for row in deduplicate_observations(observations, requested_limit)
-    ]
+    deduped = deduplicate_observations(observations, requested_limit)
+    linked_devices = linked_devices_for_observations(db, deduped)
+    return [observation_to_response(row, linked_device=linked_devices.get(row.id)) for row in deduped]
 
 
 @router.get("/{device_id}/timeline", response_model=List[DeviceChangeEventResponse])

@@ -769,25 +769,27 @@ export default function DeviceDetail() {
       {showPassiveDiscovery && (
       <Card id="device-passive-discovery" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h2 className="text-sm font-semibold text-text-muted">Multicast discovery</h2>
+          <h2 className="text-sm font-semibold text-text-muted">{t('multicast_discovery_title')}</h2>
           {passiveObservations.length > 0 && (
-            <span className="text-xs text-text-subtle">{passiveObservations.length} unique observations</span>
+            <span className="text-xs text-text-subtle">
+              {t('multicast_discovery_unique_observations', { count: passiveObservations.length })}
+            </span>
           )}
         </div>
         {passiveObservations.length === 0 ? (
           <p className="text-sm text-text-subtle">
-            No mDNS, SSDP/UPnP or multicast observations are linked to this device yet. Enable the discovery modules in Settings and run a passive capture while the device is active.
+            {t('multicast_discovery_empty_device')}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
-                  <th className="py-2 pr-3 text-left font-medium">Protocol</th>
-                  <th className="py-2 pr-3 text-left font-medium">Service</th>
-                  <th className="py-2 pr-3 text-left font-medium">Type</th>
-                  <th className="py-2 pr-3 text-left font-medium">Summary</th>
-                  <th className="py-2 text-left font-medium">Last seen</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_protocol')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_service')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_type')}</th>
+                  <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_summary')}</th>
+                  <th className="py-2 text-left font-medium">{t('last_seen')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -796,7 +798,7 @@ export default function DeviceDetail() {
                     key={row.id}
                     tabIndex={0}
                     role="button"
-                    aria-label={`Show ${row.protocol} discovery details`}
+                    aria-label={t('multicast_discovery_show_details', { protocol: row.protocol })}
                     onClick={() => setSelectedPassiveObservation(row)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -834,14 +836,14 @@ export default function DeviceDetail() {
           >
             <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
               <div>
-                <p className="text-xs uppercase tracking-wide text-text-subtle">Multicast discovery detail</p>
+                <p className="text-xs uppercase tracking-wide text-text-subtle">{t('multicast_discovery_detail')}</p>
                 <h3 id="passive-discovery-detail-title" className="mt-1 text-lg font-semibold text-text-base">
-                  {selectedPassiveObservation.protocol.toUpperCase()} observation
+                  {t('multicast_discovery_observation_title', { protocol: selectedPassiveObservation.protocol.toUpperCase() })}
                 </h3>
               </div>
               <button
                 type="button"
-                aria-label="Close discovery details"
+                aria-label={t('multicast_discovery_close_details')}
                 onClick={() => setSelectedPassiveObservation(null)}
                 className="rounded-lg border border-border bg-surface2 px-2.5 py-1.5 text-sm text-text-muted transition-colors hover:border-primary hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
@@ -850,23 +852,23 @@ export default function DeviceDetail() {
             </div>
             <div className="overflow-y-auto p-5">
               <div className="grid gap-3 sm:grid-cols-2">
-                <InfoRow label="Protocol" value={selectedPassiveObservation.protocol} mono />
-                <InfoRow label="Last seen" value={formatDateTime(selectedPassiveObservation.observed_at)} />
-                <InfoRow label="Source IP" value={selectedPassiveObservation.source_ip} mono />
-                <InfoRow label="Source MAC" value={selectedPassiveObservation.source_mac} mono />
-                <InfoRow label="Destination IP" value={selectedPassiveObservation.destination_ip} mono />
-                <InfoRow label="Linked device" value={selectedPassiveObservation.linked_device_label} />
-                <InfoRow label="Service" value={selectedPassiveObservation.service_name} />
-                <InfoRow label="Type" value={selectedPassiveObservation.service_type} />
+                <InfoRow label={t('multicast_discovery_protocol')} value={selectedPassiveObservation.protocol} mono />
+                <InfoRow label={t('last_seen')} value={formatDateTime(selectedPassiveObservation.observed_at)} />
+                <InfoRow label={t('multicast_discovery_source_ip')} value={selectedPassiveObservation.source_ip} mono />
+                <InfoRow label={t('multicast_discovery_source_mac')} value={selectedPassiveObservation.source_mac} mono />
+                <InfoRow label={t('multicast_discovery_destination_ip')} value={selectedPassiveObservation.destination_ip} mono />
+                <InfoRow label={t('multicast_discovery_linked_device')} value={selectedPassiveObservation.linked_device_label} />
+                <InfoRow label={t('multicast_discovery_service')} value={selectedPassiveObservation.service_name} />
+                <InfoRow label={t('multicast_discovery_type')} value={selectedPassiveObservation.service_type} />
                 <div className="sm:col-span-2">
-                  <InfoRow label="Summary" value={selectedPassiveObservation.summary} />
+                  <InfoRow label={t('multicast_discovery_summary')} value={selectedPassiveObservation.summary} />
                 </div>
               </div>
 
               <div className="mt-5 border-t border-border pt-4">
-                <h4 className="mb-3 text-sm font-semibold text-text-muted">Details</h4>
+                <h4 className="mb-3 text-sm font-semibold text-text-muted">{t('details')}</h4>
                 {selectedPassiveMetadata.length === 0 ? (
-                  <p className="text-sm text-text-subtle">No parsed metadata was captured for this observation.</p>
+                  <p className="text-sm text-text-subtle">{t('multicast_discovery_no_metadata')}</p>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2">
                     {selectedPassiveMetadata.map(([key, value]) => (
@@ -880,7 +882,7 @@ export default function DeviceDetail() {
               </div>
 
               <div className="mt-5 border-t border-border pt-4">
-                <h4 className="mb-3 text-sm font-semibold text-text-muted">RAW</h4>
+                <h4 className="mb-3 text-sm font-semibold text-text-muted">{t('multicast_discovery_raw')}</h4>
                 <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-5 text-text-muted">
                   {passiveRawPayload(selectedPassiveObservation)}
                 </pre>

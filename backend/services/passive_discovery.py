@@ -6,7 +6,7 @@ import logging
 import re
 import threading
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
@@ -467,12 +467,54 @@ def find_linked_device(db: Session, row: PassiveDiscoveryObservation) -> Device 
     return None
 
 
-def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None = None) -> dict[str, Any]:
+def linked_devices_for_observations(db: Session, rows: Iterable[PassiveDiscoveryObservation]) -> dict[int, Device]:
+    indexed_rows = [row for row in rows if row.id is not None]
+    source_ips = {row.source_ip.strip() for row in indexed_rows if row.source_ip and row.source_ip.strip()}
+    source_macs = {normalize_mac(row.source_mac) for row in indexed_rows if row.source_mac}
+    source_macs = {mac for mac in source_macs if mac}
+    linked_by_ip: dict[str, Device] = {}
+    linked_by_mac: dict[str, Device] = {}
+    linked_by_row: dict[int, Device] = {}
+
+    if source_ips or source_macs:
+        filters = []
+        if source_ips:
+            filters.append(Device.ip_address.in_(source_ips))
+        if source_macs:
+            filters.append(Device.mac_address.in_(source_macs | {mac.lower() for mac in source_macs}))
+        for device in db.query(Device).filter(or_(*filters)).order_by(Device.last_seen.desc()).all():
+            if device.ip_address and device.ip_address not in linked_by_ip:
+                linked_by_ip[device.ip_address] = device
+            if device.mac_address:
+                linked_by_mac.setdefault(normalize_mac(device.mac_address), device)
+
+    if source_ips:
+        for device, history in (
+            db.query(Device, DeviceIpHistory)
+            .join(DeviceIpHistory, DeviceIpHistory.device_id == Device.id)
+            .filter(DeviceIpHistory.ip_address.in_(source_ips))
+            .order_by(DeviceIpHistory.last_seen.desc())
+            .all()
+        ):
+            linked_by_ip.setdefault(history.ip_address, device)
+
+    for row in indexed_rows:
+        linked_device = None
+        if row.source_ip:
+            linked_device = linked_by_ip.get(row.source_ip.strip())
+        if not linked_device and row.source_mac:
+            linked_device = linked_by_mac.get(normalize_mac(row.source_mac))
+        if linked_device:
+            linked_by_row[row.id] = linked_device
+    return linked_by_row
+
+
+def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None = None, linked_device: Device | None = None) -> dict[str, Any]:
     try:
         metadata = json.loads(row.metadata_json or "{}")
     except Exception:
         metadata = {}
-    linked_device = find_linked_device(db, row) if db is not None else None
+    linked_device = linked_device or (find_linked_device(db, row) if db is not None else None)
     return {
         "id": row.id,
         "protocol": row.protocol,

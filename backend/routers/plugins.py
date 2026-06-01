@@ -19,10 +19,11 @@ from ..services.passive_discovery import (
     capture_passive_discovery_report,
     deduplicate_observations,
     is_capture_running,
+    linked_devices_for_observations,
     observation_to_response,
     try_begin_capture,
 )
-from ..services.plugin_registry import get_plugin, list_plugins
+from ..services.plugin_registry import get_plugin, is_plugin_enabled, list_plugins
 from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
@@ -43,7 +44,7 @@ def _require_plugin_api_enabled(db: Session) -> None:
 
 
 def _require_passive_discovery_enabled(db: Session) -> None:
-    if not is_advanced_feature_enabled(db, "show_passive_discovery"):
+    if not is_plugin_enabled(db, "passive-discovery"):
         raise HTTPException(status_code=403, detail="Passive discovery is disabled")
 
 
@@ -81,7 +82,9 @@ def list_passive_observations(
     if protocol:
         query = query.filter(PassiveDiscoveryObservation.protocol == protocol)
     rows = query.order_by(PassiveDiscoveryObservation.observed_at.desc()).limit(min(limit * 5, 1000)).all()
-    return [observation_to_response(row, db) for row in deduplicate_observations(rows, limit)]
+    observations = deduplicate_observations(rows, limit)
+    linked_devices = linked_devices_for_observations(db, observations)
+    return [observation_to_response(row, linked_device=linked_devices.get(row.id)) for row in observations]
 
 
 @passive_router.post("/capture", response_model=MessageResponse)

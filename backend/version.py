@@ -1,5 +1,7 @@
-APP_VERSION = "1.5.4"
-BUILD_CODE = "1.5.4-18b94af76e9c"
-BUILD_COMMIT = "18b94af76e9cd1eb2287213390e773550170b85a"
-BUILD_BRANCH = "codex/1.5.4-plugin-api-discovery"
-BUILD_CREATED = "2026-05-31T07:55:28Z"
+import os
+
+APP_VERSION = os.getenv("LANLENS_APP_VERSION", "1.5.4")
+BUILD_CODE = os.getenv("LANLENS_BUILD_CODE", "dev")
+BUILD_COMMIT = os.getenv("LANLENS_BUILD_COMMIT", "unknown")
+BUILD_BRANCH = os.getenv("LANLENS_BUILD_BRANCH", "unknown")
+BUILD_CREATED = os.getenv("LANLENS_BUILD_CREATED", "unknown")

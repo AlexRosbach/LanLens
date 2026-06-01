@@ -496,9 +496,9 @@ export default function Settings() {
     try {
       await passiveDiscoveryApi.capture(30)
       setTimeout(() => loadPassiveObservations().catch(() => {}), 32000)
-      toast.success('Passive discovery capture started')
+      toast.success(t('multicast_discovery_capture_started'))
     } catch {
-      toast.error('Passive discovery capture failed')
+      toast.error(t('multicast_discovery_capture_failed'))
     } finally {
       setPassiveCaptureLoading(false)
     }
@@ -1805,27 +1805,6 @@ export default function Settings() {
                 <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_ssdp_hint')}</div>
                 <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_control_hint')}</div>
               </div>
-            </div>
-          </Card>
-          )}
-
-          {current.advanced_view_enabled && false && (
-          <Card>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-text-base">Multicast discovery capture</h2>
-                <p className="text-sm text-text-subtle">
-                  Captures visible mDNS, SSDP/UPnP and multicast control-plane packets for 30 seconds. Linked results appear on matching device detail pages.
-                </p>
-              </div>
-              <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
-                Capture 30s
-              </Button>
-            </div>
-            <div className="mt-3 grid gap-2 text-xs text-text-subtle md:grid-cols-3">
-              <div className="rounded-lg border border-border bg-surface2/40 p-3">mDNS: UDP/5353 Bonjour names and services.</div>
-              <div className="rounded-lg border border-border bg-surface2/40 p-3">SSDP/UPnP: UDP/1900 device and service advertisements.</div>
-              <div className="rounded-lg border border-border bg-surface2/40 p-3">Multicast: OSPF, VRRP and HSRP control-plane hints.</div>
             </div>
           </Card>
           )}
