@@ -13,6 +13,7 @@ All notable changes to this project should be documented in this file.
 ### Fixes / Hardening
 - Made passive device type assignment more conservative so generic IPP/mDNS printer sharing from Macs or workstations does not classify the device as a printer.
 - Tightened device type assignment across all classes: generic RTSP, SMB, SSH, AirPlay, MQTT and broad hostname fragments now stay as weak hints instead of automatically assigning Camera, NAS, TV, IoT or other classes.
+- Reorganized Settings with a new **Automation** category. Scan schedule, ping monitoring, passive discovery background jobs and device retention now live under Automation; Network Discovery keeps scan ranges, manual multicast diagnostics, scan nodes, SNMP topology and port-scan configuration.
 - Reused the existing `device_change_events` table and current frontend/backend dependencies; no new packages or license obligations were added.
 - Bumped backend, frontend and image metadata to 1.5.5.
 
