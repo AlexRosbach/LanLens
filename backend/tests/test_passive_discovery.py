@@ -8,7 +8,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-passive-discovery-12345
 import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
-from backend.services.passive_discovery import apply_passive_device_class, capture_passive_discovery_report, deduplicate_observations, find_linked_device, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
+from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -232,6 +232,59 @@ class PassiveDiscoveryTests(unittest.TestCase):
             db.close()
             Base.metadata.drop_all(engine)
 
+    def test_passive_discovery_fills_missing_hostname_from_mdns_local_name(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.20", hostname=None)
+            db.add(device)
+            db.commit()
+            observation = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                service_name="printer.local",
+                summary="printer.local",
+                metadata_json='{"answers": [{"name": "printer.local", "data": "192.0.2.20"}]}',
+            )
+
+            self.assertTrue(apply_passive_hostname(db, device, observation))
+            db.commit()
+
+            self.assertEqual(device.hostname, "printer.local")
+            event = db.query(DeviceChangeEvent).one()
+            self.assertEqual(event.field_name, "hostname")
+            self.assertEqual(event.new_value, "printer.local")
+            self.assertEqual(event.source, "passive_discovery")
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    def test_passive_discovery_keeps_existing_usable_hostname(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.20", hostname="dns-name.example")
+            db.add(device)
+            db.commit()
+            observation = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                service_name="printer.local",
+                summary="printer.local",
+            )
+
+            self.assertFalse(apply_passive_hostname(db, device, observation))
+
+            self.assertEqual(device.hostname, "dns-name.example")
+            self.assertEqual(db.query(DeviceChangeEvent).count(), 0)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
     @unittest.skipIf(Raw is None, "scapy is not installed")
     def test_upnp_response_packet_extracts_addresses_and_usn(self):
         payload = "\r\n".join([
@@ -379,6 +432,32 @@ class PassiveDiscoveryTests(unittest.TestCase):
 
         self.assertEqual([row.id for row in rows], [2])
 
+    def test_mdns_deduplicates_same_service_with_changing_summary(self):
+        older = PassiveDiscoveryObservation(
+            id=1,
+            protocol="mdns",
+            source_ip="192.0.2.20",
+            destination_ip="224.0.0.251",
+            service_name="Printer._ipp._tcp.local",
+            service_type="_ipp._tcp",
+            summary="Printer._ipp._tcp.local",
+        )
+        newer = PassiveDiscoveryObservation(
+            id=2,
+            protocol="mdns",
+            source_ip="192.0.2.20",
+            destination_ip="224.0.0.251",
+            service_name="_ipp._tcp.local",
+            service_type="_ipp._tcp",
+            summary="_services._dns-sd._udp.local, _ipp._tcp.local",
+        )
+        newer.observed_at = datetime.utcnow()
+        older.observed_at = newer.observed_at - timedelta(minutes=5)
+
+        rows = deduplicate_observations([older, newer], 20)
+
+        self.assertEqual([row.id for row in rows], [2])
+
     def test_generic_multicast_deduplicates_source_port_churn(self):
         older = PassiveDiscoveryObservation(
             id=1,
@@ -435,6 +514,42 @@ class PassiveDiscoveryTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0].observed_at, second.observed_at)
             self.assertIn("43000", rows[0].metadata_json)
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    def test_mdns_upsert_updates_existing_service_with_changing_summary(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            first = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                destination_ip="224.0.0.251",
+                source_mac="AA:BB:CC:DD:EE:FF",
+                service_name="Printer._ipp._tcp.local",
+                service_type="_ipp._tcp",
+                summary="Printer._ipp._tcp.local",
+            )
+            second = PassiveDiscoveryObservation(
+                protocol="mdns",
+                source_ip="192.0.2.20",
+                destination_ip="224.0.0.251",
+                service_name="_ipp._tcp.local",
+                service_type="_ipp._tcp",
+                summary="_services._dns-sd._udp.local, _ipp._tcp.local",
+            )
+
+            self.assertTrue(upsert_passive_observation(db, first))
+            db.commit()
+            self.assertFalse(upsert_passive_observation(db, second))
+            db.commit()
+
+            rows = db.query(PassiveDiscoveryObservation).all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].summary, "_services._dns-sd._udp.local, _ipp._tcp.local")
         finally:
             db.close()
             Base.metadata.drop_all(engine)

@@ -111,6 +111,51 @@ def _mdns_service_type(name: str | None) -> str | None:
     return None
 
 
+def _mdns_name_values(row: PassiveDiscoveryObservation, metadata: dict[str, Any] | None = None) -> list[str]:
+    metadata = metadata or _metadata_for(row)
+    values = [row.service_name, row.service_type, row.summary]
+    for key in ("questions", "answers"):
+        items = metadata.get(key) or []
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    values.extend([item.get("name"), item.get("data")])
+    return [str(value).strip().rstrip(".") for value in values if value]
+
+
+def _mdns_observation_hostname(row: PassiveDiscoveryObservation, metadata: dict[str, Any] | None = None) -> str | None:
+    values = _mdns_name_values(row, metadata)
+    candidates: list[str] = []
+    for value in values:
+        lower = value.lower()
+        if "._tcp.local" in lower or "._udp.local" in lower:
+            prefix = re.split(r"\._(?:tcp|udp)\.local", value, maxsplit=1, flags=re.IGNORECASE)[0]
+            if prefix and not prefix.startswith("_"):
+                candidates.append(prefix)
+            continue
+        if lower.endswith(".local") and not lower.startswith("_"):
+            candidates.append(value[:-6])
+
+    for candidate in candidates:
+        candidate = candidate.strip().strip(".")
+        if not candidate or candidate.startswith("_"):
+            continue
+        return _bounded_text(f"{candidate}.local", 255)
+    return None
+
+
+def _mdns_signature_key(row: PassiveDiscoveryObservation, metadata: dict[str, Any]) -> str | None:
+    if row.service_type:
+        return str(row.service_type).lower().rstrip(".")
+    hostname = _mdns_observation_hostname(row, metadata)
+    if hostname:
+        return hostname.lower().rstrip(".")
+    for value in _mdns_name_values(row, metadata):
+        if value:
+            return re.sub(r"\s+", " ", value.lower().rstrip("."))
+    return None
+
+
 def parse_mdns_packet(packet: Any) -> PassiveDiscoveryObservation | None:
     try:
         from scapy.layers.dns import DNS, DNSQR, DNSRR
@@ -278,6 +323,13 @@ def _metadata_for(row: PassiveDiscoveryObservation) -> dict[str, Any]:
 def observation_signature(row: PassiveDiscoveryObservation) -> tuple[Any, ...]:
     metadata = _metadata_for(row)
     source_identity = row.source_ip or (normalize_mac(row.source_mac) if row.source_mac else None)
+    if row.protocol == "mdns":
+        return (
+            row.protocol,
+            source_identity,
+            row.destination_ip,
+            _mdns_signature_key(row, metadata),
+        )
     if row.protocol == "multicast":
         return (
             row.protocol,
@@ -318,18 +370,18 @@ def _column_matches(column: Any, value: Any) -> Any:
 
 
 def upsert_passive_observation(db: Session, row: PassiveDiscoveryObservation) -> bool:
+    filters = [
+        PassiveDiscoveryObservation.protocol == row.protocol,
+        _column_matches(PassiveDiscoveryObservation.source_ip, row.source_ip),
+        _column_matches(PassiveDiscoveryObservation.destination_ip, row.destination_ip),
+    ]
+    if row.protocol not in {"mdns", "ssdp", "multicast"}:
+        filters.append(_column_matches(PassiveDiscoveryObservation.summary, row.summary))
     candidates = (
         db.query(PassiveDiscoveryObservation)
-        .filter(
-            and_(
-                PassiveDiscoveryObservation.protocol == row.protocol,
-                _column_matches(PassiveDiscoveryObservation.source_ip, row.source_ip),
-                _column_matches(PassiveDiscoveryObservation.destination_ip, row.destination_ip),
-                _column_matches(PassiveDiscoveryObservation.summary, row.summary),
-            )
-        )
+        .filter(and_(*filters))
         .order_by(PassiveDiscoveryObservation.observed_at.desc())
-        .limit(50)
+        .limit(200)
         .all()
     )
     key = observation_signature(row)
@@ -340,6 +392,9 @@ def upsert_passive_observation(db: Session, row: PassiveDiscoveryObservation) ->
             continue
         existing.observed_at = observed_at
         existing.source_mac = row.source_mac or existing.source_mac
+        existing.service_name = row.service_name or existing.service_name
+        existing.service_type = row.service_type or existing.service_type
+        existing.summary = row.summary or existing.summary
         existing.metadata_json = row.metadata_json or existing.metadata_json
         return False
     db.add(row)
@@ -367,6 +422,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
             "observations_stored": 0,
             "observations_linked": 0,
             "device_classes_updated": 0,
+            "hostnames_updated": 0,
             "duplicates_skipped": 0,
             "errors": ["Passive discovery capture already running"],
         }
@@ -380,6 +436,7 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
         "observations_stored": 0,
         "observations_linked": 0,
         "device_classes_updated": 0,
+        "hostnames_updated": 0,
         "duplicates_skipped": 0,
         "errors": [],
     }
@@ -409,6 +466,8 @@ def capture_passive_discovery_report(timeout_seconds: int = 30, packet_limit: in
                 logger.debug("Passive discovery device matching failed: %s", exc)
             if linked_device and apply_passive_device_class(db, linked_device, row):
                 report["device_classes_updated"] += 1
+            if linked_device and apply_passive_hostname(db, linked_device, row):
+                report["hostnames_updated"] += 1
             if upsert_passive_observation(db, row):
                 report["observations_stored"] += 1
             else:
@@ -616,6 +675,42 @@ def apply_passive_device_class(db: Session, device: Device, row: PassiveDiscover
         new_value=inferred_class,
         source="passive_discovery",
         message=message,
+    ))
+    return True
+
+
+def _is_usable_hostname(hostname: str | None, device: Device | None = None) -> bool:
+    value = (hostname or "").strip()
+    if not value:
+        return False
+    if value.lower() in {"unknown", "unknown.local", "localhost", "localhost.local"}:
+        return False
+    if device and device.ip_address and value == device.ip_address:
+        return False
+    if device and device.mac_address and value.lower() == device.mac_address.lower():
+        return False
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", value):
+        return False
+    return True
+
+
+def apply_passive_hostname(db: Session, device: Device, row: PassiveDiscoveryObservation) -> bool:
+    if row.protocol != "mdns" or _is_usable_hostname(device.hostname, device):
+        return False
+    hostname = _mdns_observation_hostname(row)
+    if not _is_usable_hostname(hostname, device):
+        return False
+
+    previous_hostname = device.hostname
+    device.hostname = hostname
+    db.add(DeviceChangeEvent(
+        device_id=device.id,
+        event_type="hostname_changed",
+        field_name="hostname",
+        old_value=previous_hostname,
+        new_value=hostname,
+        source="passive_discovery",
+        message=f"Passive mDNS discovery filled hostname from {hostname}",
     ))
     return True
 

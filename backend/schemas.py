@@ -175,6 +175,7 @@ class PassiveDiscoveryCaptureReportResponse(BaseModel):
     observations_stored: int
     observations_linked: int = 0
     device_classes_updated: int = 0
+    hostnames_updated: int = 0
     duplicates_skipped: int
     errors: List[str] = []
 

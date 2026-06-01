@@ -12,7 +12,8 @@ All notable changes to this project should be documented in this file.
 - Added visible passive-discovery capture and per-device mDNS/SSDP/multicast observations.
 - Added passive-discovery device-class hints with confidence and reasons for common mDNS/SSDP/multicast advertisements.
 - Added automatic passive-discovery device-class updates for linked observations when the inferred class is confident enough.
-- Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, linked, device classes updated, duplicates skipped, active filter, enabled protocols and capture errors.
+- Added automatic mDNS hostname fill-in for linked devices when normal discovery did not produce a usable hostname.
+- Added a passive-discovery diagnostic capture that reports packets seen, parsed, stored, linked, device classes updated, hostnames updated, duplicates skipped, active filter, enabled protocols and capture errors.
 - Added passive-discovery device matching status and recent observation links in Settings so captured multicast packets can be traced directly to matching devices.
 - Added clickable per-device multicast discovery rows with a detail dialog that shows parsed fields and the raw captured observation payload.
 - Added direct device links for new-device notifications in the app UI and external notification payloads.
@@ -28,6 +29,7 @@ All notable changes to this project should be documented in this file.
 - Fixed mDNS DNS-section parsing for Scapy packet-list sections so service names and service types are extracted correctly.
 - Matched passive-discovery observations against current device IPs, MAC addresses and device IP history so captures still link when a device address has changed.
 - Deduplicated repeated passive-discovery observations so recurring mDNS/UPnP/multicast packets update the latest seen time instead of flooding device detail lists and i-doit summaries.
+- Tightened mDNS deduplication so repeated packets for the same source and advertised service or `.local` host do not appear as duplicate-looking multicast rows when question/answer summaries vary.
 - Tightened generic multicast deduplication so packets with the same source, multicast group and destination port update the latest seen time even when ephemeral source ports or MAC metadata vary between captures.
 - Added Playwright coverage for the device multicast discovery table and detail dialog to prevent duplicate-looking multicast rows from returning.
 - Added Playwright coverage for enabling CMDB/i-doit features so i-doit settings are not requested before the UI settings save has reached the backend.
