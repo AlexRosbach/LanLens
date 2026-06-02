@@ -9,6 +9,8 @@ All notable changes to this project should be documented in this file.
 - Added filters for change type, time range and search so changes can be narrowed by device, field, source or event type.
 - Added an authenticated `/api/inventory/changes` endpoint with device labels, IPs, MAC addresses and classes for each change event.
 - Added a filtered audit export for Network Changes so the visible change history can be downloaded as CSV or JSON for compliance review.
+- Added before/after columns to Network Changes so field-level diffs are visible without opening device detail.
+- Added opt-in network change notifications that reuse the existing in-app, Telegram and webhook delivery flow.
 - Linked change rows directly to the affected device detail page while preserving the existing per-device timeline.
 
 ### Fixes / Hardening

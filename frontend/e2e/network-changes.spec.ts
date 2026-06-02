@@ -26,6 +26,7 @@ const settings = {
   notify_on_device_online: false,
   notify_on_device_offline: false,
   notify_on_new_device: false,
+  notify_on_network_changes: false,
   server_url: '',
   smtp_host: '',
   smtp_port: 587,

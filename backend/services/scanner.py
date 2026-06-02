@@ -470,6 +470,18 @@ def _matching_ignore_rules(
     return [rule for rule in rule_rows if _matches_ignore_rule(rule, ip=ip, mac=mac, hostname=hostname, device_class=device_class, segment=segment)]
 
 
+def _network_change_notifications_enabled(db: Session) -> bool:
+    row = db.query(Setting).filter(Setting.key == "notify_on_network_changes").first()
+    return bool(row and row.value == "true")
+
+
+def _network_change_notification_message(event_type: str, field_name: Optional[str], old_value, new_value) -> str:
+    label = event_type.replace("_", " ")
+    if field_name:
+        return f"Network change: {label} ({field_name}: {old_value if old_value is not None else '—'} -> {new_value if new_value is not None else '—'})"
+    return f"Network change: {label}"
+
+
 def _record_change(db: Session, device_id: int, event_type: str, field_name: Optional[str], old_value, new_value, source: str) -> None:
     if old_value == new_value:
         return
@@ -481,6 +493,12 @@ def _record_change(db: Session, device_id: int, event_type: str, field_name: Opt
         new_value=str(new_value) if new_value is not None else None,
         source=source,
     ))
+    if _network_change_notifications_enabled(db):
+        db.add(Notification(
+            device_id=device_id,
+            event_type="network_change",
+            message=_network_change_notification_message(event_type, field_name, old_value, new_value),
+        ))
 
 
 def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
@@ -743,7 +761,7 @@ async def _send_notification_deliveries(db: Session) -> None:
     unsent = (
         db.query(Notification)
         .options(joinedload(Notification.device))
-        .filter(Notification.event_type == "new_device", or_(*pending_filters))
+        .filter(Notification.event_type.in_(("new_device", "network_change")), or_(*pending_filters))
         .all()
     )
     if not unsent:

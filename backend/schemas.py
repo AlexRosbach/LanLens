@@ -523,6 +523,7 @@ class TelegramSettings(BaseModel):
     telegram_enabled: bool
     notify_telegram_update: bool = False
     notify_on_new_device: bool = True
+    notify_on_network_changes: bool = False
 
 
 class WebhookSettings(BaseModel):
@@ -583,6 +584,7 @@ class AllSettings(BaseModel):
     notify_on_device_online: bool = False
     notify_on_device_offline: bool = False
     notify_on_new_device: bool = True
+    notify_on_network_changes: bool = False
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587

@@ -694,6 +694,7 @@ export default function Settings() {
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
         notify_on_new_device: current.notify_on_new_device,
+        notify_on_network_changes: current.notify_on_network_changes,
       })
       setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
       setTelegramTokenDirty(false)
@@ -2230,6 +2231,15 @@ export default function Settings() {
                 {t('notify_on_new_device')}
               </label>
               <p className="text-xs text-text-subtle">{t('notify_on_new_device_hint')}</p>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.notify_on_network_changes}
+                  onChange={(e) => setSettings({ ...current, notify_on_network_changes: e.target.checked })}
+                />
+                {t('notify_on_network_changes')}
+              </label>
+              <p className="text-xs text-text-subtle">{t('notify_on_network_changes_hint')}</p>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>

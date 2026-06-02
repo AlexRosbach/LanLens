@@ -69,6 +69,47 @@ class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_network_change_webhook_uses_change_payload(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                vendor="Example",
+                device_class="computer",
+                hostname="desk-01",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            notification = Notification(
+                device_id=device.id,
+                event_type="network_change",
+                message="Network change: ip changed (ip_address: 192.0.2.10 -> 192.0.2.20)",
+            )
+            db.add_all([
+                notification,
+                Setting(key="webhook_enabled", value="true"),
+                Setting(key="webhook_url", value="https://notify.example/message?token=test"),
+                Setting(key="server_url", value="https://lanlens.example"),
+            ])
+            db.commit()
+            db.refresh(notification)
+
+            with patch("backend.services.notification._send_webhook", new_callable=AsyncMock) as send:
+                send.return_value = True
+                self.assertTrue(await send_webhook_for_notification(db, notification))
+
+            payload = send.await_args.args[1]
+            self.assertEqual(payload["title"], "LanLens — Network Change")
+            self.assertEqual(payload["event_type"], "network_change")
+            self.assertIn("192.0.2.20", payload["message"])
+            self.assertEqual(payload["device_path"], f"/devices/{device.id}")
+            self.assertEqual(payload["url"], f"https://lanlens.example/devices/{device.id}")
+        finally:
+            db.close()
+
     def test_notification_device_path_and_url_use_app_route(self):
         db = self.Session()
         try:

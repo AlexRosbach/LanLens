@@ -35,7 +35,7 @@ function labelEvent(eventType: string) {
 
 function eventDetail(event: NetworkChangeEvent) {
   if (event.field_name) {
-    return `${event.field_name}: ${event.old_value ?? '—'} -> ${event.new_value ?? '—'}`
+    return event.field_name
   }
   return event.message || event.source
 }
@@ -145,10 +145,11 @@ export default function NetworkChanges() {
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
-          <div className="grid grid-cols-[minmax(180px,1fr)_minmax(150px,1fr)_minmax(220px,1.6fr)_140px] gap-3 border-b border-border px-4 py-2 text-xs uppercase text-text-subtle">
+          <div className="hidden grid-cols-[minmax(170px,1fr)_minmax(140px,0.9fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_140px] gap-3 border-b border-border px-4 py-2 text-xs uppercase text-text-subtle md:grid">
             <span>{t('col_device')}</span>
             <span>{t('change_type')}</span>
-            <span>{t('details')}</span>
+            <span>{t('before')}</span>
+            <span>{t('after')}</span>
             <span>{t('time')}</span>
           </div>
           <div className="divide-y divide-border">
@@ -157,7 +158,7 @@ export default function NetworkChanges() {
                 type="button"
                 key={item.id}
                 onClick={() => navigate(`/devices/${item.device_id}`)}
-                className="grid w-full grid-cols-1 gap-2 px-4 py-3 text-left transition-colors hover:bg-surface2 md:grid-cols-[minmax(180px,1fr)_minmax(150px,1fr)_minmax(220px,1.6fr)_140px] md:items-center md:gap-3"
+                className="grid w-full grid-cols-1 gap-3 px-4 py-3 text-left transition-colors hover:bg-surface2 md:grid-cols-[minmax(170px,1fr)_minmax(140px,0.9fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_140px] md:items-center"
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-text-base">{item.device_label}</p>
@@ -165,9 +166,20 @@ export default function NetworkChanges() {
                 </div>
                 <div>
                   <Badge variant={eventTone(item.event_type)}>{labelEvent(item.event_type)}</Badge>
-                  <p className="mt-1 text-xs text-text-subtle">{item.source}</p>
+                  <p className="mt-1 truncate text-xs text-text-subtle">{eventDetail(item)} · {item.source}</p>
                 </div>
-                <p className="min-w-0 truncate text-sm text-text-muted">{eventDetail(item)}</p>
+                <div className="min-w-0">
+                  <p className="mb-1 text-xs uppercase text-text-subtle md:hidden">{t('before')}</p>
+                  <p className="truncate rounded-md border border-border bg-surface2 px-2 py-1 text-sm text-text-muted">
+                    {item.old_value ?? '—'}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-xs uppercase text-text-subtle md:hidden">{t('after')}</p>
+                  <p className="truncate rounded-md border border-border bg-surface2 px-2 py-1 text-sm text-text-base">
+                    {item.new_value ?? item.message ?? '—'}
+                  </p>
+                </div>
                 <div className="text-xs text-text-subtle" title={formatDateTime(item.created_at)}>
                   {formatRelativeTime(item.created_at, lang)}
                 </div>

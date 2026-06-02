@@ -138,6 +138,13 @@ def notification_device_url(db: Session, notification: Notification) -> Optional
 
 def _notification_title_and_message(notification: Notification) -> tuple[str, str]:
     device = notification.device
+    if notification.event_type == "network_change":
+        title = "LanLens — Network Change"
+        if device:
+            message = f"{notification.message}\n\nDevice: {device.label or device.hostname or device.ip_address or device.mac_address or f'Device #{device.id}'}"
+        else:
+            message = notification.message
+        return title, message
     if device:
         mac_label = IP_ONLY_HOST_LABEL if device.mac_address and device.mac_address.startswith("ip:") else device.mac_address
         title = "LanLens — New Device Detected"
@@ -172,7 +179,12 @@ async def send_telegram_for_notification(db: Session, notification: Notification
         return False
 
     device = notification.device
-    if device:
+    if notification.event_type == "network_change":
+        title, message = _notification_title_and_message(notification)
+        device_url = notification_device_url(db, notification)
+        link_line = f'\n\n<a href="{device_url}">Open in LanLens →</a>' if device_url else ""
+        text = f"<b>{title}</b>\n\n{message}{link_line}"
+    elif device:
         link_line = ""
         device_url = notification_device_url(db, notification)
         if device_url:

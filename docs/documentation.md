@@ -540,9 +540,11 @@ The default UI is intended to stay approachable for home-network users. Advanced
 
 The **Changes** view shows the structured `device_change_events` history across all devices. It surfaces device discoveries, online/offline transitions, IP and hostname changes, archive/unarchive actions, CMDB ID generation, merge actions, maintenance updates and manual documentation edits. Use the filters to narrow by event type, time range or free-text search across device labels, hostnames, IPs, MAC addresses, fields, sources and event messages.
 
-Each row links to the affected device detail page. Device Detail keeps its per-device timeline for local context, while the global Changes page answers broader questions such as what changed in the last day, week or month.
+Each row shows the changed field plus before/after values and links to the affected device detail page. Device Detail keeps its per-device timeline for local context, while the global Changes page answers broader questions such as what changed in the last day, week or month.
 
 Use **Export audit CSV** to download the currently filtered change history for audit or compliance review. The export uses the same event type, time range and search filters as the visible table. CSV cells are escaped before download, and the API also supports `format=json` for machine-readable audit snapshots.
+
+To route scan-detected network changes into alerting systems, enable **Settings → Notifications → Notify on network changes** together with the desired delivery channel. LanLens creates in-app notifications for scan-detected IP, hostname, online/offline and archive changes; enabled Telegram and webhook/Gotify deliveries receive the same event payloads with a device link when `server_url` is configured.
 
 ### Passive Multicast Discovery
 
