@@ -205,6 +205,7 @@ const changes = [
 
 test('network changes page lists and filters inventory history', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 980 })
+  let changesRequests = 0
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({ json: { username: 'admin', force_password_change: false } })
   })
@@ -222,6 +223,7 @@ test('network changes page lists and filters inventory history', async ({ page }
     await route.fulfill({ json: { items: devices, total: 2, online: 1, offline: 1, unregistered: 0, archived: 0 } })
   })
   await page.route('**/api/inventory/changes**', async (route) => {
+    changesRequests += 1
     const url = new URL(route.request().url())
     const eventType = url.searchParams.get('event_type')
     const search = url.searchParams.get('search')?.toLowerCase() ?? ''
@@ -238,10 +240,14 @@ test('network changes page lists and filters inventory history', async ({ page }
   await expect(page.getByText('NAS-01').first()).toBeVisible()
   await expect(page.getByText('Gateway').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /NAS-01 192\.0\.2\.10 ip changed/ })).toBeVisible()
+  await expect.poll(() => changesRequests).toBe(1)
 
   await page.screenshot({ path: `${screenshotDir}/lanlens-network-changes.png`, fullPage: false })
 
+  await page.getByPlaceholder('Search devices, fields, sources').fill('g')
+  await page.getByPlaceholder('Search devices, fields, sources').fill('ga')
   await page.getByPlaceholder('Search devices, fields, sources').fill('gateway')
   await expect(page.getByText('Gateway').first()).toBeVisible()
   await expect(page.getByText('NAS-01').first()).not.toBeVisible()
+  await expect.poll(() => changesRequests).toBe(2)
 })

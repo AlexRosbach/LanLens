@@ -122,6 +122,44 @@ class InventoryChangeLogTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_ignores_whitespace_only_search(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="nas-01",
+                device_class="NAS",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            db.add(DeviceChangeEvent(
+                device_id=device.id,
+                event_type="device_discovered",
+                source="scan",
+                message="Discovered at 192.0.2.10",
+                created_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            rows = list_network_changes(
+                event_type=None,
+                device_id=None,
+                source=None,
+                since_hours=None,
+                search="   ",
+                limit=100,
+                db=db,
+                _=User(username="admin", password_hash="x"),
+            )
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].device_label, "nas-01")
+        finally:
+            db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

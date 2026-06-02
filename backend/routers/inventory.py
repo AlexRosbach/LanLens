@@ -192,8 +192,9 @@ def list_network_changes(
         query = query.filter(DeviceChangeEvent.source == source)
     if since_hours is not None:
         query = query.filter(DeviceChangeEvent.created_at >= datetime.utcnow() - timedelta(hours=since_hours))
-    if search:
-        like = f"%{search.strip()}%"
+    stripped_search = search.strip() if search else ""
+    if stripped_search:
+        like = f"%{stripped_search}%"
         query = query.filter(or_(
             Device.label.ilike(like),
             Device.hostname.ilike(like),

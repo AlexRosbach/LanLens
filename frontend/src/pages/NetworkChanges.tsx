@@ -48,13 +48,22 @@ export default function NetworkChanges() {
   const [eventType, setEventType] = useState('')
   const [sinceHours, setSinceHours] = useState('168')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearch(search.trim())
+    }, 300)
+
+    return () => window.clearTimeout(timeout)
+  }, [search])
 
   const params = useMemo(() => ({
     event_type: eventType || undefined,
     since_hours: sinceHours ? Number(sinceHours) : undefined,
-    search: search.trim() || undefined,
+    search: debouncedSearch || undefined,
     limit: 200,
-  }), [eventType, search, sinceHours])
+  }), [debouncedSearch, eventType, sinceHours])
 
   async function load() {
     setLoading(true)
