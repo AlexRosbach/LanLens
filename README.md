@@ -25,7 +25,7 @@ LanLens is built for small self-hosted, homelab, and lightweight IT environments
 
 - Discover devices on the local Layer-2 network with ARP scanning
 - Track online/offline state, DHCP range membership, IP history, and open services
-- Review a network change log for device discoveries, state changes, IP moves, hostname changes, archive actions, and manual documentation edits
+- Review and export a network change log for device discoveries, state changes, IP moves, hostname changes, archive actions, and manual documentation edits
 - Archive inactive unregistered discoveries automatically and keep them in a dedicated archived view
 - Document devices with owner, location, purpose, OS, asset tag, notes, and CMDB ID
 - Group networks into segments and keep device lists readable

@@ -542,6 +542,8 @@ The **Changes** view shows the structured `device_change_events` history across 
 
 Each row links to the affected device detail page. Device Detail keeps its per-device timeline for local context, while the global Changes page answers broader questions such as what changed in the last day, week or month.
 
+Use **Export audit CSV** to download the currently filtered change history for audit or compliance review. The export uses the same event type, time range and search filters as the visible table. CSV cells are escaped before download, and the API also supports `format=json` for machine-readable audit snapshots.
+
 ### Passive Multicast Discovery
 
 Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a 30-second capture or schedule background captures.

@@ -9,7 +9,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-inventory-change-tests-
 
 from backend.database import Base
 from backend.models import Device, DeviceChangeEvent, User
-from backend.routers.inventory import list_network_changes
+from backend.routers.inventory import export_network_changes, list_network_changes
 
 
 class InventoryChangeLogTests(unittest.TestCase):
@@ -157,6 +157,107 @@ class InventoryChangeLogTests(unittest.TestCase):
 
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0].device_label, "nas-01")
+        finally:
+            db.close()
+
+    def test_exports_filtered_changes_as_csv(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="nas-01",
+                label="NAS",
+                device_class="NAS",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            db.add_all([
+                DeviceChangeEvent(
+                    device_id=device.id,
+                    event_type="ip_changed",
+                    field_name="ip_address",
+                    old_value="192.0.2.9",
+                    new_value="=HYPERLINK(\"https://example.test\")",
+                    source="scan",
+                    created_at=datetime.utcnow(),
+                ),
+                DeviceChangeEvent(
+                    device_id=device.id,
+                    event_type="device_updated",
+                    field_name="label",
+                    old_value=None,
+                    new_value="NAS",
+                    source="user",
+                    created_at=datetime.utcnow() - timedelta(days=2),
+                ),
+            ])
+            db.commit()
+
+            response = export_network_changes(
+                format="csv",
+                event_type="ip_changed",
+                device_id=None,
+                source=None,
+                since_hours=24,
+                search="nas",
+                limit=1000,
+                db=db,
+                _=User(username="admin", password_hash="x"),
+            )
+
+            body = response.body.decode()
+            self.assertIn("Event ID,Timestamp,Device ID,Device,IP,MAC,Class,Event Type,Field,Old Value,New Value,Source,Message", body)
+            self.assertIn("ip_changed", body)
+            self.assertIn("'=HYPERLINK", body)
+            self.assertNotIn("device_updated", body)
+            self.assertEqual(response.media_type, "text/csv")
+            self.assertIn("lanlens-network-change-audit.csv", response.headers["Content-Disposition"])
+        finally:
+            db.close()
+
+    def test_exports_changes_as_json_audit_payload(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="nas-01",
+                device_class="NAS",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            db.add(DeviceChangeEvent(
+                device_id=device.id,
+                event_type="device_discovered",
+                source="scan",
+                message="Discovered at 192.0.2.10",
+                created_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            response = export_network_changes(
+                format="json",
+                event_type=None,
+                device_id=None,
+                source=None,
+                since_hours=None,
+                search="   ",
+                limit=1000,
+                db=db,
+                _=User(username="admin", password_hash="x"),
+            )
+
+            body = response.body.decode()
+            self.assertIn('"format": "lanlens-network-change-audit-v1"', body)
+            self.assertIn('"event_type": "device_discovered"', body)
+            self.assertIn('"search": null', body)
+            self.assertEqual(response.media_type, "application/json")
+            self.assertIn("lanlens-network-change-audit.json", response.headers["Content-Disposition"])
         finally:
             db.close()
 

@@ -80,6 +80,23 @@ export const inventoryApi = {
     search?: string
     limit?: number
   }) => apiClient.get<NetworkChangeEvent[]>('/inventory/changes', { params }).then((r) => r.data),
+  changesAuditExportUrl: (params?: {
+    format?: 'csv' | 'json'
+    event_type?: string
+    device_id?: number
+    source?: string
+    since_hours?: number
+    search?: string
+    limit?: number
+  }) => {
+    const query = new URLSearchParams()
+    query.set('format', params?.format ?? 'csv')
+    Object.entries(params ?? {}).forEach(([key, value]) => {
+      if (key === 'format' || value === undefined || value === null || value === '') return
+      query.set(key, String(value))
+    })
+    return withBasePath(`/api/inventory/changes/export?${query.toString()}`)
+  },
   reportUrl: (format: 'markdown' | 'csv' | 'json' = 'markdown') => withBasePath(`/api/inventory/report?format=${format}`),
   selectiveBackupUrl: () => withBasePath('/api/backups/selective'),
   ignoreRules: () => apiClient.get<IgnoreRule[]>('/ignore-rules').then((r) => r.data),

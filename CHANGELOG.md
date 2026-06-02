@@ -8,6 +8,7 @@ All notable changes to this project should be documented in this file.
 - Added a global Network Changes view that shows recent device and infrastructure changes across the inventory.
 - Added filters for change type, time range and search so changes can be narrowed by device, field, source or event type.
 - Added an authenticated `/api/inventory/changes` endpoint with device labels, IPs, MAC addresses and classes for each change event.
+- Added a filtered audit export for Network Changes so the visible change history can be downloaded as CSV or JSON for compliance review.
 - Linked change rows directly to the affected device detail page while preserving the existing per-device timeline.
 
 ### Fixes / Hardening

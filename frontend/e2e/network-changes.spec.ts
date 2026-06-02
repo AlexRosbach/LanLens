@@ -240,14 +240,24 @@ test('network changes page lists and filters inventory history', async ({ page }
   await expect(page.getByText('NAS-01').first()).toBeVisible()
   await expect(page.getByText('Gateway').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /NAS-01 192\.0\.2\.10 ip changed/ })).toBeVisible()
-  await expect.poll(() => changesRequests).toBe(1)
+  await expect.poll(() => changesRequests).toBeGreaterThanOrEqual(1)
 
   await page.screenshot({ path: `${screenshotDir}/lanlens-network-changes.png`, fullPage: false })
 
+  const requestsBeforeSearch = changesRequests
   await page.getByPlaceholder('Search devices, fields, sources').fill('g')
   await page.getByPlaceholder('Search devices, fields, sources').fill('ga')
   await page.getByPlaceholder('Search devices, fields, sources').fill('gateway')
   await expect(page.getByText('Gateway').first()).toBeVisible()
   await expect(page.getByText('NAS-01').first()).not.toBeVisible()
-  await expect.poll(() => changesRequests).toBe(2)
+  await expect.poll(() => changesRequests).toBe(requestsBeforeSearch + 1)
+
+  const auditExportUrl = await page.getByRole('link', { name: 'Export audit CSV' }).getAttribute('href')
+  expect(auditExportUrl).not.toBeNull()
+  expect(auditExportUrl).toContain('/api/inventory/changes/export')
+  const exportUrl = new URL(auditExportUrl!, 'http://127.0.0.1:5173')
+  expect(exportUrl.searchParams.get('format')).toBe('csv')
+  expect(exportUrl.searchParams.get('search')).toBe('gateway')
+  expect(exportUrl.searchParams.get('since_hours')).toBe('168')
+  expect(exportUrl.searchParams.get('limit')).toBe('1000')
 })

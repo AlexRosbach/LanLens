@@ -65,6 +65,14 @@ export default function NetworkChanges() {
     limit: 200,
   }), [debouncedSearch, eventType, sinceHours])
 
+  const auditExportUrl = useMemo(() => (
+    inventoryApi.changesAuditExportUrl({
+      ...params,
+      format: 'csv',
+      limit: 1000,
+    })
+  ), [params])
+
   async function load() {
     setLoading(true)
     try {
@@ -87,7 +95,15 @@ export default function NetworkChanges() {
           <h1 className="text-xl font-bold text-text-base">{t('network_changes')}</h1>
           <p className="mt-1 text-sm text-text-subtle">{t('network_changes_summary', { count: items.length, devices: uniqueDevices })}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={load}>{t('refresh')}</Button>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href={auditExportUrl}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text-muted transition-colors hover:border-primary hover:text-primary"
+          >
+            {t('export_audit_csv')}
+          </a>
+          <Button variant="outline" size="sm" onClick={load}>{t('refresh')}</Button>
+        </div>
       </div>
 
       <div className="grid gap-3 rounded-lg border border-border bg-surface p-3 md:grid-cols-[1.4fr_1fr_1fr_auto]">

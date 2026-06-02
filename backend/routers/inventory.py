@@ -76,6 +76,61 @@ def _change_event_response(event: DeviceChangeEvent, device: Device) -> NetworkC
     )
 
 
+def _network_changes_query(
+    db: Session,
+    event_type: Optional[str] = None,
+    device_id: Optional[int] = None,
+    source: Optional[str] = None,
+    since_hours: Optional[int] = None,
+    search: Optional[str] = None,
+):
+    query = (
+        db.query(DeviceChangeEvent, Device)
+        .join(Device, Device.id == DeviceChangeEvent.device_id)
+    )
+    if event_type:
+        query = query.filter(DeviceChangeEvent.event_type == event_type)
+    if device_id is not None:
+        query = query.filter(DeviceChangeEvent.device_id == device_id)
+    if source:
+        query = query.filter(DeviceChangeEvent.source == source)
+    if since_hours is not None:
+        query = query.filter(DeviceChangeEvent.created_at >= datetime.utcnow() - timedelta(hours=since_hours))
+    stripped_search = search.strip() if search else ""
+    if stripped_search:
+        like = f"%{stripped_search}%"
+        query = query.filter(or_(
+            Device.label.ilike(like),
+            Device.hostname.ilike(like),
+            Device.ip_address.ilike(like),
+            Device.mac_address.ilike(like),
+            Device.device_class.ilike(like),
+            DeviceChangeEvent.event_type.ilike(like),
+            DeviceChangeEvent.field_name.ilike(like),
+            DeviceChangeEvent.message.ilike(like),
+            DeviceChangeEvent.source.ilike(like),
+        ))
+    return query
+
+
+def _network_change_export_row(event: DeviceChangeEvent, device: Device) -> dict[str, Any]:
+    return {
+        "event_id": event.id,
+        "timestamp": event.created_at.isoformat() if event.created_at else "",
+        "device_id": event.device_id,
+        "device": _device_label(device),
+        "ip_address": device.ip_address or "",
+        "mac_address": device.mac_address or "",
+        "device_class": device.device_class or "",
+        "event_type": event.event_type,
+        "field": event.field_name or "",
+        "old_value": event.old_value or "",
+        "new_value": event.new_value or "",
+        "source": event.source,
+        "message": event.message or "",
+    }
+
+
 def _is_secret_setting(key: str) -> bool:
     lowered = key.lower()
     return any(part in lowered for part in SECRET_SETTING_KEY_PARTS)
@@ -180,33 +235,7 @@ def list_network_changes(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    query = (
-        db.query(DeviceChangeEvent, Device)
-        .join(Device, Device.id == DeviceChangeEvent.device_id)
-    )
-    if event_type:
-        query = query.filter(DeviceChangeEvent.event_type == event_type)
-    if device_id is not None:
-        query = query.filter(DeviceChangeEvent.device_id == device_id)
-    if source:
-        query = query.filter(DeviceChangeEvent.source == source)
-    if since_hours is not None:
-        query = query.filter(DeviceChangeEvent.created_at >= datetime.utcnow() - timedelta(hours=since_hours))
-    stripped_search = search.strip() if search else ""
-    if stripped_search:
-        like = f"%{stripped_search}%"
-        query = query.filter(or_(
-            Device.label.ilike(like),
-            Device.hostname.ilike(like),
-            Device.ip_address.ilike(like),
-            Device.mac_address.ilike(like),
-            Device.device_class.ilike(like),
-            DeviceChangeEvent.event_type.ilike(like),
-            DeviceChangeEvent.field_name.ilike(like),
-            DeviceChangeEvent.message.ilike(like),
-            DeviceChangeEvent.source.ilike(like),
-        ))
-
+    query = _network_changes_query(db, event_type, device_id, source, since_hours, search)
     rows = (
         query
         .order_by(DeviceChangeEvent.created_at.desc(), DeviceChangeEvent.id.desc())
@@ -214,6 +243,80 @@ def list_network_changes(
         .all()
     )
     return [_change_event_response(event, device) for event, device in rows]
+
+
+@router.get("/changes/export")
+def export_network_changes(
+    format: str = Query("csv", pattern="^(csv|json)$"),
+    event_type: Optional[str] = Query(None, max_length=64),
+    device_id: Optional[int] = None,
+    source: Optional[str] = Query(None, max_length=64),
+    since_hours: Optional[int] = Query(None, ge=1, le=24 * 90),
+    search: Optional[str] = Query(None, max_length=120),
+    limit: int = Query(1000, ge=1, le=5000),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rows = (
+        _network_changes_query(db, event_type, device_id, source, since_hours, search)
+        .order_by(DeviceChangeEvent.created_at.desc(), DeviceChangeEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    export_rows = [_network_change_export_row(event, device) for event, device in rows]
+
+    if format == "json":
+        stripped_search = search.strip() if search else ""
+        payload = {
+            "format": "lanlens-network-change-audit-v1",
+            "generated_at": datetime.utcnow().isoformat(),
+            "filters": {
+                "event_type": event_type,
+                "device_id": device_id,
+                "source": source,
+                "since_hours": since_hours,
+                "search": stripped_search or None,
+                "limit": limit,
+            },
+            "changes": export_rows,
+        }
+        return Response(json.dumps(payload, indent=2, default=str), media_type="application/json", headers={"Content-Disposition": "attachment; filename=lanlens-network-change-audit.json"})
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    columns = [
+        "Event ID",
+        "Timestamp",
+        "Device ID",
+        "Device",
+        "IP",
+        "MAC",
+        "Class",
+        "Event Type",
+        "Field",
+        "Old Value",
+        "New Value",
+        "Source",
+        "Message",
+    ]
+    writer.writerow(columns)
+    for row in export_rows:
+        writer.writerow([_safe_csv_cell(value) for value in [
+            row["event_id"],
+            row["timestamp"],
+            row["device_id"],
+            row["device"],
+            row["ip_address"],
+            row["mac_address"],
+            row["device_class"],
+            row["event_type"],
+            row["field"],
+            row["old_value"],
+            row["new_value"],
+            row["source"],
+            row["message"],
+        ]])
+    return Response(output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=lanlens-network-change-audit.csv"})
 
 
 @router.get("/report")
