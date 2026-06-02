@@ -97,6 +97,7 @@ export default function NetworkChanges() {
           onChange={(event) => setSearch(event.target.value)}
         />
         <select
+          aria-label={t('change_type_filter')}
           value={eventType}
           onChange={(event) => setEventType(event.target.value)}
           className="h-10 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base outline-none focus:border-primary"
@@ -107,6 +108,7 @@ export default function NetworkChanges() {
           ))}
         </select>
         <select
+          aria-label={t('time_range_filter')}
           value={sinceHours}
           onChange={(event) => setSinceHours(event.target.value)}
           className="h-10 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base outline-none focus:border-primary"
@@ -136,6 +138,7 @@ export default function NetworkChanges() {
           <div className="divide-y divide-border">
             {items.map((item) => (
               <button
+                type="button"
                 key={item.id}
                 onClick={() => navigate(`/devices/${item.device_id}`)}
                 className="grid w-full grid-cols-1 gap-2 px-4 py-3 text-left transition-colors hover:bg-surface2 md:grid-cols-[minmax(180px,1fr)_minmax(150px,1fr)_minmax(220px,1.6fr)_140px] md:items-center md:gap-3"
