@@ -9,7 +9,7 @@ import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
 from backend.models import Setting
-from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
+from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, ha_groups_for_observations, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -662,6 +662,41 @@ class PassiveDiscoveryTests(unittest.TestCase):
             rows = db.query(PassiveDiscoveryObservation).all()
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0].summary, "_services._dns-sd._udp.local, _ipp._tcp.local")
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
+
+    def test_ha_groups_link_vrrp_members_to_devices(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(
+                mac_address="AA:BB:CC:DD:EE:01",
+                ip_address="192.0.2.1",
+                label="edge-router-a",
+                device_class="Router",
+            )
+            row = PassiveDiscoveryObservation(
+                protocol="vrrp",
+                source_ip="192.0.2.1",
+                source_mac="AA:BB:CC:DD:EE:01",
+                destination_ip="224.0.0.18",
+                summary="VRRP multicast",
+                metadata_json='{"vrid": 10, "virtual_ip": "192.0.2.254"}',
+                observed_at=datetime.utcnow(),
+            )
+            db.add_all([device, row])
+            db.commit()
+
+            groups = ha_groups_for_observations(db)
+
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0]["protocol"], "vrrp")
+            self.assertEqual(groups[0]["virtual_ip"], "192.0.2.254")
+            self.assertEqual(groups[0]["member_count"], 1)
+            self.assertEqual(groups[0]["active_device_label"], "edge-router-a")
         finally:
             db.close()
             Base.metadata.drop_all(engine)

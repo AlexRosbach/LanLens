@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
-import { dhcpMonitorApi, type DhcpObservation } from '../api/dhcpMonitor'
+import { dhcpMonitorApi, type DhcpAuthorizedServer, type DhcpObservation } from '../api/dhcpMonitor'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
+import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
@@ -42,16 +43,26 @@ export default function DhcpMonitor() {
   const uiSettingsLoading = useUiSettingsStore((state) => state.loading)
   const fetchUiSettings = useUiSettingsStore((state) => state.fetchUiSettings)
   const [observations, setObservations] = useState<DhcpObservation[]>([])
+  const [authorizedServers, setAuthorizedServers] = useState<DhcpAuthorizedServer[]>([])
   const [loading, setLoading] = useState(true)
   const [uiSettingsChecked, setUiSettingsChecked] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [loadError, setLoadError] = useState(false)
+  const [allowlistName, setAllowlistName] = useState('')
+  const [allowlistIp, setAllowlistIp] = useState('')
+  const [allowlistMac, setAllowlistMac] = useState('')
+  const [allowlistSaving, setAllowlistSaving] = useState(false)
 
   async function load() {
-    const [items, status] = await Promise.all([dhcpMonitorApi.list(), dhcpMonitorApi.status()])
+    const [items, status, allowlist] = await Promise.all([
+      dhcpMonitorApi.list(),
+      dhcpMonitorApi.status(),
+      dhcpMonitorApi.authorizedServers(),
+    ])
     setObservations(items)
     setCapturing(status.is_capturing)
+    setAuthorizedServers(allowlist)
     setLoadError(false)
   }
 
@@ -82,11 +93,58 @@ export default function DhcpMonitor() {
   const servers = useMemo(() => {
     const map = new Map<string, number>()
     for (const obs of observations) {
-      const key = obs.server_ip || obs.server_mac || 'unknown'
+      const key = obs.server_ip || obs.server_mac
+      if (!key) continue
       map.set(key, (map.get(key) ?? 0) + 1)
     }
     return [...map.entries()]
   }, [observations])
+
+  const unknownServers = useMemo(() => observations.filter((obs) => !obs.is_authorized).length, [observations])
+
+  async function addAuthorizedServer() {
+    if (!allowlistName.trim() || (!allowlistIp.trim() && !allowlistMac.trim())) {
+      toast.error(t('dhcp_allowlist_required'))
+      return
+    }
+    setAllowlistSaving(true)
+    try {
+      await dhcpMonitorApi.createAuthorizedServer({
+        name: allowlistName.trim(),
+        server_ip: allowlistIp.trim() || null,
+        server_mac: allowlistMac.trim() || null,
+        enabled: true,
+      })
+      setAllowlistName('')
+      setAllowlistIp('')
+      setAllowlistMac('')
+      toast.success(t('dhcp_allowlist_saved'))
+      await load()
+    } catch {
+      toast.error(t('dhcp_allowlist_save_failed'))
+    } finally {
+      setAllowlistSaving(false)
+    }
+  }
+
+  async function toggleAuthorizedServer(row: DhcpAuthorizedServer) {
+    try {
+      await dhcpMonitorApi.updateAuthorizedServer(row.id, { enabled: !row.enabled })
+      await load()
+    } catch {
+      toast.error(t('dhcp_allowlist_save_failed'))
+    }
+  }
+
+  async function deleteAuthorizedServer(id: number) {
+    try {
+      await dhcpMonitorApi.deleteAuthorizedServer(id)
+      toast.success(t('dhcp_allowlist_deleted'))
+      await load()
+    } catch {
+      toast.error(t('dhcp_allowlist_delete_failed'))
+    }
+  }
 
   async function startProbe() {
     try {
@@ -168,6 +226,65 @@ export default function DhcpMonitor() {
             <p className="text-2xl font-semibold text-text-base">{observations.length}</p>
           </div>
           <div>
+            <p className="text-xs text-text-subtle uppercase tracking-wide">{t('dhcp_unknown_servers')}</p>
+            <p className={unknownServers > 0 ? 'text-2xl font-semibold text-danger' : 'text-2xl font-semibold text-success'}>{unknownServers}</p>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base">{t('dhcp_allowlist_title')}</h2>
+            <p className="text-sm text-text-subtle">{t('dhcp_allowlist_hint')}</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_auto]">
+          <Input placeholder={t('name')} value={allowlistName} onChange={(e) => setAllowlistName(e.target.value)} />
+          <Input placeholder={t('dhcp_server_ip')} value={allowlistIp} onChange={(e) => setAllowlistIp(e.target.value)} />
+          <Input placeholder={t('dhcp_server_mac')} value={allowlistMac} onChange={(e) => setAllowlistMac(e.target.value)} />
+          <Button onClick={addAuthorizedServer} loading={allowlistSaving}>{t('add')}</Button>
+        </div>
+        <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-surface2 text-text-subtle text-xs uppercase tracking-wide">
+              <tr>
+                <th className="text-left px-3 py-2">{t('name')}</th>
+                <th className="text-left px-3 py-2">{t('dhcp_server_ip')}</th>
+                <th className="text-left px-3 py-2">{t('dhcp_server_mac')}</th>
+                <th className="text-left px-3 py-2">{t('col_status')}</th>
+                <th className="text-right px-3 py-2">{t('actions')}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {authorizedServers.length === 0 ? (
+                <tr><td className="px-3 py-3 text-text-subtle" colSpan={5}>{t('dhcp_allowlist_empty')}</td></tr>
+              ) : authorizedServers.map((row) => (
+                <tr key={row.id}>
+                  <td className="px-3 py-2 font-medium text-text-base">{row.name}</td>
+                  <td className="px-3 py-2 font-mono text-text-muted">{row.server_ip || '—'}</td>
+                  <td className="px-3 py-2 font-mono text-text-muted">{row.server_mac || '—'}</td>
+                  <td className="px-3 py-2"><Badge variant={row.enabled ? 'success' : 'muted'}>{row.enabled ? t('enabled') : t('disabled')}</Badge></td>
+                  <td className="px-3 py-2">
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="outline" onClick={() => toggleAuthorizedServer(row)}>{row.enabled ? t('disable') : t('enable')}</Button>
+                      <Button size="sm" variant="ghost" onClick={() => deleteAuthorizedServer(row.id)}>{t('delete')}</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-text-subtle uppercase tracking-wide">{t('dhcp_allowlisted_servers')}</p>
+            <p className="text-2xl font-semibold text-text-base">{authorizedServers.filter((row) => row.enabled).length}</p>
+          </div>
+          <div>
             <p className="text-xs text-text-subtle uppercase tracking-wide">{t('dhcp_visibility')}</p>
             <p className="text-sm text-text-muted">{t('dhcp_visibility_hint')}</p>
           </div>
@@ -202,6 +319,11 @@ export default function DhcpMonitor() {
                       <td className="px-4 py-3">
                         <div className="font-medium text-text-base">{obs.server_ip || t('dhcp_unknown_server')}</div>
                         <div className="text-xs text-text-subtle font-mono">{obs.server_mac || '—'}</div>
+                        <div className="mt-1">
+                          <Badge variant={obs.is_authorized ? 'success' : 'danger'}>
+                            {obs.is_authorized ? (obs.authorized_server_name || t('dhcp_authorized')) : t('dhcp_unauthorized')}
+                          </Badge>
+                        </div>
                       </td>
                       <td className="px-4 py-3"><Badge variant="primary">{obs.message_type || t('dhcp_reply')}</Badge></td>
                       <td className="px-4 py-3">

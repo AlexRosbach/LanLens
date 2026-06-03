@@ -506,6 +506,42 @@ def _record_change(db: Session, device_id: int, event_type: str, field_name: Opt
         ))
 
 
+def _record_mac_drift_for_ip(db: Session, device: Device, ip: str, observed_mac: str, source: str) -> None:
+    previous_mac = normalize_mac(device.mac_address) if device.mac_address else None
+    current_mac = normalize_mac(observed_mac) if observed_mac else None
+    if not previous_mac or not current_mac or previous_mac == current_mac or _is_ip_only_identifier(previous_mac):
+        return
+    recent_duplicate = (
+        db.query(DeviceChangeEvent)
+        .filter(
+            DeviceChangeEvent.device_id == device.id,
+            DeviceChangeEvent.event_type == "mac_drift_detected",
+            DeviceChangeEvent.field_name == "mac_address",
+            DeviceChangeEvent.old_value == previous_mac,
+            DeviceChangeEvent.new_value == current_mac,
+        )
+        .first()
+    )
+    if recent_duplicate:
+        return
+    message = f"MAC drift detected for {ip}: {previous_mac} -> {current_mac}"
+    db.add(DeviceChangeEvent(
+        device_id=device.id,
+        event_type="mac_drift_detected",
+        field_name="mac_address",
+        old_value=previous_mac,
+        new_value=current_mac,
+        source=source,
+        message=message,
+    ))
+    if _network_change_notifications_enabled(db):
+        db.add(Notification(
+            device_id=device.id,
+            event_type="network_change",
+            message=f"Network security: {message}",
+        ))
+
+
 def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
     # Primary scan range is ARP/L2. Additional routed targets use nmap ping scan
     # because MAC addresses are usually unavailable beyond the local broadcast
@@ -603,6 +639,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
             ):
                 existing = ip_matched_existing
+            elif existing is None and ip_matched_existing is not None and result.mac:
+                _record_mac_drift_for_ip(db, ip_matched_existing, ip, result.mac, "scan")
             mac_normalized = result.mac or (existing.mac_address if existing and existing.mac_address else _pseudo_mac_for_ip(ip))
             if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
                 existing_devices.pop(existing.mac_address, None)

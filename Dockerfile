@@ -3,7 +3,7 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-ARG LANLENS_APP_VERSION=1.5.5
+ARG LANLENS_APP_VERSION=1.5.6
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
@@ -29,7 +29,7 @@ RUN npm run build
 # ─── Stage 2: Runtime image ───────────────────────────────────────────────────
 FROM python:3.12-slim
 
-ARG LANLENS_APP_VERSION=1.5.5
+ARG LANLENS_APP_VERSION=1.5.6
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown

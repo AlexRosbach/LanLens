@@ -139,7 +139,40 @@ class DhcpObservationResponse(BaseModel):
     requested_ip: Optional[str]
     lease_time: Optional[int]
     options: dict[str, Any]
+    is_authorized: bool = True
+    authorized_server_id: Optional[int] = None
+    authorized_server_name: Optional[str] = None
     observed_at: datetime
+
+
+class DhcpAuthorizedServerCreate(BaseModel):
+    name: str
+    server_ip: Optional[str] = None
+    server_mac: Optional[str] = None
+    enabled: bool = True
+    note: Optional[str] = None
+
+
+class DhcpAuthorizedServerUpdate(BaseModel):
+    name: Optional[str] = None
+    server_ip: Optional[str] = None
+    server_mac: Optional[str] = None
+    enabled: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class DhcpAuthorizedServerResponse(BaseModel):
+    id: int
+    name: str
+    server_ip: Optional[str]
+    server_mac: Optional[str]
+    enabled: bool
+    note: Optional[str]
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
 
 
 class DhcpMonitorStatusResponse(BaseModel):
@@ -196,6 +229,26 @@ class PassiveDiscoveryObservationResponse(BaseModel):
     inferred_device_class: Optional[str] = None
     inference_confidence: Optional[str] = None
     inference_reasons: List[str] = []
+
+
+class PassiveDiscoveryHaMemberResponse(BaseModel):
+    source_ip: Optional[str] = None
+    source_mac: Optional[str] = None
+    device_id: Optional[int] = None
+    device_label: Optional[str] = None
+    observed_at: datetime
+
+
+class PassiveDiscoveryHaGroupResponse(BaseModel):
+    protocol: str
+    group_key: str
+    destination_ip: Optional[str] = None
+    virtual_ip: Optional[str] = None
+    active_device_id: Optional[int] = None
+    active_device_label: Optional[str] = None
+    member_count: int
+    observed_at: datetime
+    members: List[PassiveDiscoveryHaMemberResponse] = []
 
 
 # ── Devices ───────────────────────────────────────────────────────────────────

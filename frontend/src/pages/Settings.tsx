@@ -9,7 +9,7 @@ import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
-import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryObservation } from '../api/plugins'
+import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryHaGroup, type PassiveDiscoveryObservation } from '../api/plugins'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -367,6 +367,7 @@ export default function Settings() {
   const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
   const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
+  const [passiveHaGroups, setPassiveHaGroups] = useState<PassiveDiscoveryHaGroup[]>([])
   const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'backup' | 'database' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
@@ -525,7 +526,12 @@ export default function Settings() {
   }
 
   async function loadPassiveObservations() {
-    setPassiveObservations(dedupePassiveObservations(await passiveDiscoveryApi.observations()))
+    const [observations, haGroups] = await Promise.all([
+      passiveDiscoveryApi.observations(),
+      passiveDiscoveryApi.haGroups(),
+    ])
+    setPassiveObservations(dedupePassiveObservations(observations))
+    setPassiveHaGroups(haGroups)
   }
 
   async function createSnmpProfile() {
@@ -1856,6 +1862,41 @@ export default function Settings() {
                   {passiveCaptureReport.errors.length > 0 && (
                     <div className="mt-2 text-danger">{passiveCaptureReport.errors.join(' · ')}</div>
                   )}
+                </div>
+              )}
+              {passiveHaGroups.length > 0 && (
+                <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                  <div className="mb-3 text-sm font-medium text-text-base">{t('passive_ha_groups')}</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_protocol')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('passive_ha_group')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('passive_ha_active')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('passive_ha_members')}</th>
+                          <th className="py-2 text-left font-medium">{t('last_seen')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {passiveHaGroups.slice(0, 8).map((row) => (
+                          <tr key={row.group_key} className="border-b border-border last:border-0">
+                            <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol.toUpperCase()}</td>
+                            <td className="py-2 pr-3 text-text-subtle">{row.virtual_ip || row.destination_ip || row.group_key}</td>
+                            <td className="py-2 pr-3 text-text-subtle">
+                              {row.active_device_id ? (
+                                <Link className="text-accent hover:underline" to={`/devices/${row.active_device_id}`}>
+                                  {row.active_device_label || `Device #${row.active_device_id}`}
+                                </Link>
+                              ) : (row.members[0]?.source_ip || row.members[0]?.source_mac || '-')}
+                            </td>
+                            <td className="py-2 pr-3 text-text-subtle">{row.member_count}</td>
+                            <td className="py-2 text-text-subtle">{formatDateTime(row.observed_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
               {passiveObservations.length > 0 && (

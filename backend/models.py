@@ -462,6 +462,24 @@ class DhcpObservation(Base):
     observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class DhcpAuthorizedServer(Base):
+    """Allowed DHCP server identity for rogue-server checks."""
+    __tablename__ = "dhcp_authorized_servers"
+    __table_args__ = (
+        Index("ix_dhcp_authorized_servers_ip", "server_ip"),
+        Index("ix_dhcp_authorized_servers_mac", "server_mac"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    server_ip = Column(String(45), nullable=True)
+    server_mac = Column(String(17), nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class PassiveDiscoveryObservation(Base):
     """Observed optional multicast/service-discovery packet metadata."""
     __tablename__ = "passive_discovery_observations"

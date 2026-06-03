@@ -14,7 +14,7 @@ from ..database import get_db
 from ..models import Device, DeviceChangeEvent, ScanNode, Segment, Setting, User
 from ..services.device_classifier import classify_device
 from ..services.mac_vendor import lookup_vendor, normalize_mac
-from ..services.scanner import _find_matching_segment, _is_ip_only_identifier, _pseudo_mac_for_ip, record_device_ip_history
+from ..services.scanner import _find_matching_segment, _is_ip_only_identifier, _pseudo_mac_for_ip, _record_mac_drift_for_ip, record_device_ip_history
 from ..services.settings_helpers import is_advanced_view_enabled
 
 router = APIRouter(prefix="/api/scan-nodes", tags=["scan-nodes"])
@@ -181,6 +181,8 @@ def ingest_scan_node_results(
                 not mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
             ):
                 existing = ip_matched_existing
+            elif ip_matched_existing is not None and mac:
+                _record_mac_drift_for_ip(db, ip_matched_existing, ip, mac, "scan_node")
         mac_or_identifier = mac or (existing.mac_address if existing else _pseudo_mac_for_ip(ip))
 
         if mac and existing and _is_ip_only_identifier(existing.mac_address):

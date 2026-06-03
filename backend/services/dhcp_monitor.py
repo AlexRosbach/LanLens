@@ -18,7 +18,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import DhcpObservation
+from ..models import DhcpAuthorizedServer, DhcpObservation, Notification
 from .mac_vendor import normalize_mac
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,66 @@ def _lease_seconds(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_ip(value: str | None) -> str | None:
+    return value.strip() if value and value.strip() else None
+
+
+def _enabled_authorized_servers(db: Session) -> list[DhcpAuthorizedServer]:
+    return db.query(DhcpAuthorizedServer).filter(DhcpAuthorizedServer.enabled == True).all()
+
+
+def _matches_authorized_server(row: DhcpObservation, server: DhcpAuthorizedServer) -> bool:
+    server_ip = _normalize_ip(server.server_ip)
+    server_mac = normalize_mac(server.server_mac) if server.server_mac else None
+    row_ip = _normalize_ip(row.server_ip)
+    row_mac = normalize_mac(row.server_mac) if row.server_mac else None
+    ip_matches = bool(server_ip and row_ip and server_ip == row_ip)
+    mac_matches = bool(server_mac and row_mac and server_mac == row_mac)
+    return ip_matches or mac_matches
+
+
+def authorization_for_observation(
+    row: DhcpObservation,
+    authorized_servers: list[DhcpAuthorizedServer] | None = None,
+) -> tuple[bool, DhcpAuthorizedServer | None]:
+    if not row.server_ip and not row.server_mac:
+        return True, None
+    authorized_servers = authorized_servers or []
+    if not authorized_servers:
+        return False, None
+    for server in authorized_servers:
+        if _matches_authorized_server(row, server):
+            return True, server
+    return False, None
+
+
+def _notification_exists(db: Session, message: str) -> bool:
+    return (
+        db.query(Notification)
+        .filter(Notification.event_type == "network_change", Notification.message == message)
+        .first()
+        is not None
+    )
+
+
+def notify_unknown_dhcp_servers(db: Session, rows: list[DhcpObservation]) -> int:
+    authorized_servers = _enabled_authorized_servers(db)
+    created = 0
+    for row in rows:
+        is_authorized, _ = authorization_for_observation(row, authorized_servers)
+        if is_authorized:
+            continue
+        identity = row.server_ip or row.server_mac or "unknown identity"
+        message = f"Network security: unknown DHCP server observed ({identity})"
+        if row.server_ip and row.server_mac:
+            message = f"Network security: unknown DHCP server observed ({row.server_ip}, {row.server_mac})"
+        if _notification_exists(db, message):
+            continue
+        db.add(Notification(event_type="network_change", message=message))
+        created += 1
+    return created
 
 
 def _packet_to_observation(packet: Any, include_client_requests: bool = False) -> Optional[DhcpObservation]:
@@ -270,6 +330,7 @@ def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
         return 0
 
     stored = 0
+    stored_rows: list[DhcpObservation] = []
     seen: set[tuple[str | None, str | None, str | None]] = set()
     for reply in replies:
         row = _packet_to_observation(reply)
@@ -280,7 +341,9 @@ def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
             continue
         seen.add(key)
         db.add(row)
+        stored_rows.append(row)
         stored += 1
+    notify_unknown_dhcp_servers(db, stored_rows)
     logger.info("DHCP active probe on %s stored %d server replies", iface, stored)
     return stored
 
@@ -293,10 +356,14 @@ def _passive_capture_dhcp_replies(db: Session, timeout_seconds: int, packet_limi
         return 0
 
     stored = 0
+    stored_rows: list[DhcpObservation] = []
 
     def handle(packet: Any) -> None:
         nonlocal stored
-        if _store_packet(db, packet):
+        row = _packet_to_observation(packet)
+        if row:
+            db.add(row)
+            stored_rows.append(row)
             stored += 1
 
     sniff(
@@ -306,6 +373,7 @@ def _passive_capture_dhcp_replies(db: Session, timeout_seconds: int, packet_limi
         count=max(1, min(500, packet_limit)),
         store=False,
     )
+    notify_unknown_dhcp_servers(db, stored_rows)
     return stored
 
 
@@ -383,11 +451,15 @@ def sniff_dhcp_requests(timeout_seconds: int = 30, packet_limit: int = 100, rese
         _end_capture()
 
 
-def observation_to_response(row: DhcpObservation) -> dict[str, Any]:
+def observation_to_response(
+    row: DhcpObservation,
+    authorized_servers: list[DhcpAuthorizedServer] | None = None,
+) -> dict[str, Any]:
     try:
         options = json.loads(row.options_json or "{}")
     except Exception:
         options = {}
+    is_authorized, server = authorization_for_observation(row, authorized_servers)
     return {
         "id": row.id,
         "message_type": row.message_type,
@@ -399,5 +471,8 @@ def observation_to_response(row: DhcpObservation) -> dict[str, Any]:
         "requested_ip": row.requested_ip,
         "lease_time": row.lease_time,
         "options": options,
+        "is_authorized": is_authorized,
+        "authorized_server_id": server.id if server else None,
+        "authorized_server_name": server.name if server else None,
         "observed_at": row.observed_at,
     }

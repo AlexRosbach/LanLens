@@ -451,6 +451,29 @@ def migrate():
         else:
             print("Migration: dhcp_observations already exists — skipped")
 
+        # ── v1.5.6 ── Authorized DHCP server allowlist ─────────────────────
+        if IS_SQLITE and not _table_exists(conn, "dhcp_authorized_servers"):
+            conn.execute(text(
+                "CREATE TABLE dhcp_authorized_servers ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL, "
+                "server_ip VARCHAR(45), "
+                "server_mac VARCHAR(17), "
+                "enabled BOOLEAN NOT NULL DEFAULT 1, "
+                "note TEXT, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_dhcp_authorized_servers_ip ON dhcp_authorized_servers(server_ip)"))
+            conn.execute(text("CREATE INDEX ix_dhcp_authorized_servers_mac ON dhcp_authorized_servers(server_mac)"))
+            conn.commit()
+            print("Migration: created dhcp_authorized_servers")
+        elif not IS_SQLITE:
+            print("Migration: dhcp_authorized_servers — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: dhcp_authorized_servers already exists — skipped")
+
         # ── v1.5.0 ── Generic CMDB REST sync audit logs ────────────────────
         if IS_SQLITE and not _table_exists(conn, "cmdb_sync_logs"):
             conn.execute(text(

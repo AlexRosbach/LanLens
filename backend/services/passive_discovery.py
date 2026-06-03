@@ -744,3 +744,53 @@ def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None
         "linked_device_label": _device_label(linked_device) if linked_device else None,
         **inference,
     }
+
+
+def ha_groups_for_observations(db: Session, limit: int = 100) -> list[dict[str, Any]]:
+    rows = (
+        db.query(PassiveDiscoveryObservation)
+        .filter(PassiveDiscoveryObservation.protocol.in_(("vrrp", "hsrp")))
+        .order_by(PassiveDiscoveryObservation.observed_at.desc())
+        .limit(max(1, min(limit * 10, 1000)))
+        .all()
+    )
+    linked_devices = linked_devices_for_observations(db, rows)
+    groups: dict[str, dict[str, Any]] = {}
+    seen_members: dict[str, set[tuple[str | None, str | None]]] = {}
+
+    for row in rows:
+        metadata = _metadata_for(row)
+        virtual_ip = metadata.get("virtual_ip") or metadata.get("vip")
+        group_number = metadata.get("group") or metadata.get("vrid")
+        group_identity = str(group_number or virtual_ip or row.destination_ip or "unknown")
+        group_key = f"{row.protocol}:{group_identity}"
+        device = linked_devices.get(row.id)
+        member_key = (row.source_ip, normalize_mac(row.source_mac) if row.source_mac else None)
+
+        if group_key not in groups:
+            groups[group_key] = {
+                "protocol": row.protocol,
+                "group_key": group_key,
+                "destination_ip": row.destination_ip,
+                "virtual_ip": str(virtual_ip) if virtual_ip else None,
+                "active_device_id": device.id if device else None,
+                "active_device_label": _device_label(device) if device else None,
+                "member_count": 0,
+                "observed_at": row.observed_at,
+                "members": [],
+            }
+            seen_members[group_key] = set()
+
+        if member_key in seen_members[group_key]:
+            continue
+        seen_members[group_key].add(member_key)
+        groups[group_key]["members"].append({
+            "source_ip": row.source_ip,
+            "source_mac": row.source_mac,
+            "device_id": device.id if device else None,
+            "device_label": _device_label(device) if device else None,
+            "observed_at": row.observed_at,
+        })
+        groups[group_key]["member_count"] = len(groups[group_key]["members"])
+
+    return list(groups.values())[:limit]

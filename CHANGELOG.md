@@ -2,6 +2,20 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.6 — Network security awareness
+
+### New Features
+- Added an authorized DHCP server allowlist with API and UI management for expected server IP/MAC identities.
+- Marked DHCP observations as authorized or unknown so unexpected DHCP servers stand out immediately in the DHCP Monitor.
+- Added network-change notifications for unknown DHCP server observations.
+- Added ARP/MAC drift detection for local scans and scan-node ingests when a known IP appears with a different real MAC address.
+- Added passive VRRP/HSRP group awareness that summarizes recent high-availability peers from multicast discovery.
+
+### Fixes / Hardening
+- Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.
+- Reused the existing DHCP Monitor, passive discovery and network-change infrastructure; no new packages or license obligations were added.
+- Bumped backend, frontend and image metadata to 1.5.6.
+
 ## v1.5.5 — Network change log
 
 ### New Features

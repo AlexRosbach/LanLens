@@ -6,7 +6,7 @@
 
 **Self-hosted network monitoring and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.5-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.6-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -25,6 +25,7 @@ LanLens is built for small self-hosted, homelab, and lightweight IT environments
 
 - Discover devices on the local Layer-2 network with ARP scanning
 - Track online/offline state, DHCP range membership, IP history, and open services
+- Flag unknown DHCP servers, ARP/MAC drift, and VRRP/HSRP control-plane peers for network security awareness
 - Review and export a network change log with before/after values for device discoveries, state changes, IP moves, hostname changes, archive actions, and manual documentation edits
 - Archive inactive unregistered discoveries automatically and keep them in a dedicated archived view
 - Document devices with owner, location, purpose, OS, asset tag, notes, and CMDB ID
@@ -150,7 +151,7 @@ For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, S
 Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens).
 
 ```bash
-docker pull alexrosbach/lanlens:1.5.5
+docker pull alexrosbach/lanlens:1.5.6
 ```
 
 Use release tags for reproducible deployments. `latest` tracks the newest published build.
