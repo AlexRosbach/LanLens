@@ -49,6 +49,7 @@ NOTIFICATION_RETRY_SETTING = "notification_delivery_last_failure_at"
 PING_SAMPLE_RETENTION_PER_DEVICE = 500
 PING_LATENCY_SAMPLE_LIMIT = 256
 PING_MONITOR_SAMPLE_LIMIT = 512
+NETWORK_CHANGE_NOTIFICATIONS_CACHE_KEY = "lanlens_notify_on_network_changes"
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -471,8 +472,12 @@ def _matching_ignore_rules(
 
 
 def _network_change_notifications_enabled(db: Session) -> bool:
+    if NETWORK_CHANGE_NOTIFICATIONS_CACHE_KEY in db.info:
+        return bool(db.info[NETWORK_CHANGE_NOTIFICATIONS_CACHE_KEY])
     row = db.query(Setting).filter(Setting.key == "notify_on_network_changes").first()
-    return bool(row and row.value == "true")
+    enabled = bool(row and row.value == "true")
+    db.info[NETWORK_CHANGE_NOTIFICATIONS_CACHE_KEY] = enabled
+    return enabled
 
 
 def _network_change_notification_message(event_type: str, field_name: Optional[str], old_value, new_value) -> str:

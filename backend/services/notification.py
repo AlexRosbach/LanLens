@@ -6,6 +6,7 @@ common deployment pattern; loopback, link-local, multicast, reserved,
 unspecified and cloud metadata endpoints are blocked.
 """
 import asyncio
+from html import escape
 import ipaddress
 import json
 import logging
@@ -182,8 +183,8 @@ async def send_telegram_for_notification(db: Session, notification: Notification
     if notification.event_type == "network_change":
         title, message = _notification_title_and_message(notification)
         device_url = notification_device_url(db, notification)
-        link_line = f'\n\n<a href="{device_url}">Open in LanLens →</a>' if device_url else ""
-        text = f"<b>{title}</b>\n\n{message}{link_line}"
+        link_line = f'\n\n<a href="{escape(device_url, quote=True)}">Open in LanLens →</a>' if device_url else ""
+        text = f"<b>{escape(title)}</b>\n\n{escape(message)}{link_line}"
     elif device:
         link_line = ""
         device_url = notification_device_url(db, notification)

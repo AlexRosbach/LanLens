@@ -14,6 +14,8 @@ All notable changes to this project should be documented in this file.
 - Linked change rows directly to the affected device detail page while preserving the existing per-device timeline.
 
 ### Fixes / Hardening
+- Cached the opt-in network-change notification setting per scanner database session so scans do not repeat the same settings lookup for every recorded change.
+- Escaped dynamic Telegram HTML for network-change notifications, including device labels, change messages and device links.
 - Made passive device type assignment more conservative so generic IPP/mDNS printer sharing from Macs or workstations does not classify the device as a printer.
 - Tightened device type assignment across all classes: generic RTSP, SMB, SSH, AirPlay, MQTT and broad hostname fragments now stay as weak hints instead of automatically assigning Camera, NAS, TV, IoT or other classes.
 - Reorganized Settings with clearer categories: Network Discovery now keeps scan ranges, manual multicast diagnostics, scan nodes, SNMP topology and port-scan configuration; Automation now contains recurring scan, ping and passive-discovery background jobs; device retention moved into the new **Lifecycle** category.
