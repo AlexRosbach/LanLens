@@ -80,3 +80,30 @@ class ScannerNetworkChangeNotificationTests(unittest.TestCase):
             self.assertIn("MAC drift", notifications[0].message)
         finally:
             db.close()
+
+    def test_mac_drift_dedupes_pending_change_event_without_autoflush(self):
+        SessionNoAutoflush = sessionmaker(bind=self.engine, autoflush=False)
+        db = SessionNoAutoflush()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                device_class="computer",
+            )
+            db.add_all([
+                device,
+                Setting(key="notify_on_network_changes", value="true"),
+            ])
+            db.commit()
+            db.refresh(device)
+
+            _record_mac_drift_for_ip(db, device, "192.0.2.10", "66:77:88:99:AA:BB", "test")
+            _record_mac_drift_for_ip(db, device, "192.0.2.10", "66:77:88:99:AA:BB", "test")
+            db.commit()
+
+            changes = db.query(DeviceChangeEvent).filter(DeviceChangeEvent.event_type == "mac_drift_detected").all()
+            notifications = db.query(Notification).filter(Notification.event_type == "network_change").all()
+            self.assertEqual(len(changes), 1)
+            self.assertEqual(len(notifications), 1)
+        finally:
+            db.close()

@@ -161,6 +161,13 @@ def authorization_for_observation(
 
 
 def _notification_exists(db: Session, message: str) -> bool:
+    for row in db.new:
+        if (
+            isinstance(row, Notification)
+            and row.event_type == "network_change"
+            and row.message == message
+        ):
+            return True
     return (
         db.query(Notification)
         .filter(Notification.event_type == "network_change", Notification.message == message)

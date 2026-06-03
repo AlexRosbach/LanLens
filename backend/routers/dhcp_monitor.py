@@ -56,7 +56,7 @@ def create_authorized_server(
     _require_dhcp_monitor_enabled(db)
     name = payload.name.strip()
     server_ip = payload.server_ip.strip() if payload.server_ip and payload.server_ip.strip() else None
-    server_mac = normalize_mac(payload.server_mac) if payload.server_mac else None
+    server_mac = normalize_mac(payload.server_mac.strip()) if payload.server_mac and payload.server_mac.strip() else None
     if not name:
         raise HTTPException(status_code=422, detail="Name is required")
     if not server_ip and not server_mac:
@@ -93,7 +93,7 @@ def update_authorized_server(
     if payload.server_ip is not None:
         row.server_ip = payload.server_ip.strip() if payload.server_ip.strip() else None
     if payload.server_mac is not None:
-        row.server_mac = normalize_mac(payload.server_mac) if payload.server_mac.strip() else None
+        row.server_mac = normalize_mac(payload.server_mac.strip()) if payload.server_mac.strip() else None
     if payload.enabled is not None:
         row.enabled = payload.enabled
     if payload.note is not None:

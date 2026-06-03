@@ -26,6 +26,11 @@ try:
 except Exception:
     DNS = DNSQR = DNSRR = Ether = IP = Raw = UDP = None
 
+try:
+    from scapy.layers.vrrp import VRRP
+except Exception:
+    VRRP = None
+
 
 class PassiveDiscoveryTests(unittest.TestCase):
     @unittest.skipIf(DNS is None, "scapy is not installed")
@@ -700,6 +705,42 @@ class PassiveDiscoveryTests(unittest.TestCase):
         finally:
             db.close()
             Base.metadata.drop_all(engine)
+
+    @unittest.skipIf(VRRP is None or Ether is None or IP is None, "scapy VRRP is not installed")
+    def test_vrrp_control_plane_metadata_includes_group_identity(self):
+        packet = (
+            Ether(src="AA:BB:CC:DD:EE:01")
+            / IP(src="192.0.2.1", dst="224.0.0.18", proto=112)
+            / VRRP(vrid=10, addrlist=["192.0.2.254"])
+        )
+
+        observation = parse_control_plane_packet(packet)
+
+        self.assertIsNotNone(observation)
+        metadata = observation_to_response(observation)["metadata"]
+        self.assertEqual(metadata["vrid"], 10)
+        self.assertEqual(metadata["virtual_ip"], "192.0.2.254")
+
+    @unittest.skipIf(Ether is None or IP is None or UDP is None or Raw is None, "scapy is not installed")
+    def test_hsrp_control_plane_metadata_includes_group_identity(self):
+        payload = bytes([
+            0, 0, 16, 3, 10, 30, 42, 0,
+            *b"cisco123",
+            192, 0, 2, 254,
+        ])
+        packet = (
+            Ether(src="AA:BB:CC:DD:EE:02")
+            / IP(src="192.0.2.2", dst="224.0.0.2")
+            / UDP(sport=1985, dport=1985)
+            / Raw(load=payload)
+        )
+
+        observation = parse_control_plane_packet(packet)
+
+        self.assertIsNotNone(observation)
+        metadata = observation_to_response(observation)["metadata"]
+        self.assertEqual(metadata["group"], 42)
+        self.assertEqual(metadata["virtual_ip"], "192.0.2.254")
 
 
 if __name__ == "__main__":

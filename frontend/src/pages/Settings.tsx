@@ -526,12 +526,14 @@ export default function Settings() {
   }
 
   async function loadPassiveObservations() {
-    const [observations, haGroups] = await Promise.all([
-      passiveDiscoveryApi.observations(),
-      passiveDiscoveryApi.haGroups(),
-    ])
+    const observations = await passiveDiscoveryApi.observations()
     setPassiveObservations(dedupePassiveObservations(observations))
-    setPassiveHaGroups(haGroups)
+    try {
+      const haGroups = await passiveDiscoveryApi.haGroups()
+      setPassiveHaGroups(haGroups)
+    } catch {
+      // Keep observations fresh even if HA grouping is temporarily unavailable.
+    }
   }
 
   async function createSnmpProfile() {

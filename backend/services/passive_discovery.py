@@ -262,6 +262,7 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
         metadata = _generic_multicast_metadata(packet, destination_ip)
     else:
         metadata = {"packet_type": packet_type, "destination_ip": destination_ip}
+        metadata.update(_control_plane_metadata(packet, protocol))
     return PassiveDiscoveryObservation(
         protocol=protocol,
         source_ip=source_ip,
@@ -271,6 +272,54 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
         metadata_json=json.dumps(metadata, sort_keys=True),
         observed_at=datetime.utcnow(),
     )
+
+
+def _control_plane_metadata(packet: Any, protocol: str) -> dict[str, Any]:
+    if protocol == "vrrp":
+        return _vrrp_metadata(packet)
+    if protocol == "hsrp":
+        return _hsrp_metadata(packet)
+    return {}
+
+
+def _vrrp_metadata(packet: Any) -> dict[str, Any]:
+    try:
+        from scapy.layers.vrrp import VRRP
+    except Exception:
+        return {}
+    if not packet.haslayer(VRRP):
+        return {}
+    layer = packet[VRRP]
+    addrlist = [str(item) for item in (getattr(layer, "addrlist", None) or []) if item]
+    metadata: dict[str, Any] = {}
+    vrid = getattr(layer, "vrid", None)
+    if vrid is not None:
+        metadata["vrid"] = int(vrid)
+    if addrlist:
+        metadata["virtual_ip"] = addrlist[0]
+        metadata["virtual_ips"] = addrlist
+    return metadata
+
+
+def _hsrp_metadata(packet: Any) -> dict[str, Any]:
+    try:
+        from scapy.layers.inet import UDP
+        from scapy.packet import Raw
+    except Exception:
+        return {}
+    if not packet.haslayer(UDP) or not packet.haslayer(Raw):
+        return {}
+    udp = packet[UDP]
+    if int(getattr(udp, "dport", 0) or 0) != 1985 and int(getattr(udp, "sport", 0) or 0) != 1985:
+        return {}
+    payload = bytes(packet[Raw].load)
+    if len(payload) < 20:
+        return {}
+    virtual_ip = ".".join(str(part) for part in payload[16:20])
+    return {
+        "group": int(payload[6]),
+        "virtual_ip": virtual_ip,
+    }
 
 
 def _is_ipv4_multicast(address: str) -> bool:

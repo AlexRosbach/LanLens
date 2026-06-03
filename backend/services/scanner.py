@@ -511,6 +511,16 @@ def _record_mac_drift_for_ip(db: Session, device: Device, ip: str, observed_mac:
     current_mac = normalize_mac(observed_mac) if observed_mac else None
     if not previous_mac or not current_mac or previous_mac == current_mac or _is_ip_only_identifier(previous_mac):
         return
+    for row in db.new:
+        if (
+            isinstance(row, DeviceChangeEvent)
+            and row.device_id == device.id
+            and row.event_type == "mac_drift_detected"
+            and row.field_name == "mac_address"
+            and row.old_value == previous_mac
+            and row.new_value == current_mac
+        ):
+            return
     recent_duplicate = (
         db.query(DeviceChangeEvent)
         .filter(
