@@ -2,6 +2,26 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.5 — Network change log
+
+### New Features
+- Added a global Network Changes view that shows recent device and infrastructure changes across the inventory.
+- Added filters for change type, time range and search so changes can be narrowed by device, field, source or event type.
+- Added an authenticated `/api/inventory/changes` endpoint with device labels, IPs, MAC addresses and classes for each change event.
+- Added a filtered audit export for Network Changes so the visible change history can be downloaded as CSV or JSON for compliance review.
+- Added before/after columns to Network Changes so field-level diffs are visible without opening device detail.
+- Added opt-in network change notifications that reuse the existing in-app, Telegram and webhook delivery flow.
+- Linked change rows directly to the affected device detail page while preserving the existing per-device timeline.
+
+### Fixes / Hardening
+- Cached the opt-in network-change notification setting per scanner database session so scans do not repeat the same settings lookup for every recorded change.
+- Escaped dynamic Telegram HTML for network-change notifications, including device labels, change messages and device links.
+- Made passive device type assignment more conservative so generic IPP/mDNS printer sharing from Macs or workstations does not classify the device as a printer.
+- Tightened device type assignment across all classes: generic RTSP, SMB, SSH, AirPlay, MQTT and broad hostname fragments now stay as weak hints instead of automatically assigning Camera, NAS, TV, IoT or other classes.
+- Reorganized Settings with clearer categories: Network Discovery now keeps scan ranges, manual multicast diagnostics, scan nodes, SNMP topology and port-scan configuration; Automation now contains recurring scan, ping and passive-discovery background jobs; device retention moved into the new **Lifecycle** category.
+- Reused the existing `device_change_events` table and current frontend/backend dependencies; no new packages or license obligations were added.
+- Bumped backend, frontend and image metadata to 1.5.5.
+
 ## v1.5.4 — Plugin discovery foundation
 
 ### New Features

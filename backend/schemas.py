@@ -260,6 +260,13 @@ class DeviceChangeEventResponse(BaseModel):
         from_attributes = True
 
 
+class NetworkChangeEventResponse(DeviceChangeEventResponse):
+    device_label: str
+    device_ip: Optional[str] = None
+    device_mac: Optional[str] = None
+    device_class: Optional[str] = None
+
+
 class DeviceMergeRequest(BaseModel):
     source_device_id: int
     target_device_id: int
@@ -516,6 +523,7 @@ class TelegramSettings(BaseModel):
     telegram_enabled: bool
     notify_telegram_update: bool = False
     notify_on_new_device: bool = True
+    notify_on_network_changes: bool = False
 
 
 class WebhookSettings(BaseModel):
@@ -576,6 +584,7 @@ class AllSettings(BaseModel):
     notify_on_device_online: bool = False
     notify_on_device_offline: bool = False
     notify_on_new_device: bool = True
+    notify_on_network_changes: bool = False
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587

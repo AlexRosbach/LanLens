@@ -160,6 +160,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
         notify_on_new_device=_get(db, "notify_on_new_device", "true") != "false",
+        notify_on_network_changes=_get(db, "notify_on_network_changes", "false") == "true",
         server_url=_get(db, "server_url", ""),
         smtp_host=_get(db, "smtp_host", ""),
         smtp_port=int(_get(db, "smtp_port", "587") or "587"),
@@ -382,6 +383,7 @@ def update_telegram(
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
     _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
+    _set(db, "notify_on_network_changes", "true" if data.notify_on_network_changes else "false")
     db.commit()
     return MessageResponse(message="Telegram settings updated")
 

@@ -16,8 +16,9 @@ export default function Notifications() {
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
 
-  const eventLabels: Record<string, { label: string; variant: 'warning' | 'success' | 'danger' | 'muted' }> = {
+  const eventLabels: Record<string, { label: string; variant: 'warning' | 'success' | 'danger' | 'primary' | 'muted' }> = {
     new_device: { label: t('event_new_device'), variant: 'warning' },
+    network_change: { label: t('event_network_change'), variant: 'primary' },
     device_online: { label: t('event_online'), variant: 'success' },
     device_offline: { label: t('event_offline'), variant: 'danger' },
   }

@@ -7,6 +7,7 @@ import DeviceDetail from './pages/DeviceDetail'
 import ForcePasswordChange from './pages/ForcePasswordChange'
 import Login from './pages/Login'
 import Notifications from './pages/Notifications'
+import NetworkChanges from './pages/NetworkChanges'
 import DeepScanSettings from './pages/DeepScanSettings'
 import Segments from './pages/Segments'
 import Settings from './pages/Settings'
@@ -101,6 +102,7 @@ export default function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="deep-scan-settings" element={<DeepScanSettings />} />
               <Route path="notifications" element={<Notifications />} />
+              <Route path="changes" element={<NetworkChanges />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

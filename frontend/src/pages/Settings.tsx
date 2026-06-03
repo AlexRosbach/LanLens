@@ -367,7 +367,7 @@ export default function Settings() {
   const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
   const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
-  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'database' | 'network' | 'notifications' | 'inventory' | 'backup' | 'cmdb'>('system')
+  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'backup' | 'database' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
@@ -694,6 +694,7 @@ export default function Settings() {
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
         notify_on_new_device: current.notify_on_new_device,
+        notify_on_network_changes: current.notify_on_network_changes,
       })
       setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
       setTelegramTokenDirty(false)
@@ -1241,11 +1242,13 @@ export default function Settings() {
   const settingSections = [
     { key: 'system' as const, label: t('system') },
     { key: 'features' as const, label: t('feature_visibility_tab') },
-    { key: 'database' as const, label: t('database') },
     { key: 'network' as const, label: t('network_discovery') },
+    { key: 'automation' as const, label: t('automation_settings_tab') },
+    { key: 'lifecycle' as const, label: t('lifecycle_settings_tab') },
     { key: 'notifications' as const, label: t('notifications') },
     { key: 'inventory' as const, label: t('inventory_tools_title') },
     { key: 'backup' as const, label: t('backup_restore') },
+    { key: 'database' as const, label: t('database') },
     ...(current.advanced_view_enabled && current.show_cmdb_integrations ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
   ]
 
@@ -1575,6 +1578,158 @@ export default function Settings() {
       </div>
       )}
 
+      {/* ── AUTOMATION ───────────────────────────────────────────────────── */}
+      {activeSection === 'automation' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('automation_settings_tab')}
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('automation_settings_title')}</h2>
+            <p className="text-sm text-text-subtle">{t('automation_settings_description')}</p>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <h2 className="text-lg font-semibold text-text-base mb-2">{t('scan_schedule_title')}</h2>
+            <p className="text-sm text-text-subtle mb-4">{t('scan_schedule_description')}</p>
+            <div className="max-w-sm">
+              <label className="block text-sm text-text-subtle mb-1">{t('interval_minutes')}</label>
+              <Input
+                type="number"
+                min="1"
+                value={String(current.scan_interval_minutes)}
+                onChange={(e) => setSettings({ ...current, scan_interval_minutes: Number(e.target.value) || 1 })}
+              />
+            </div>
+            <div className="mt-4">
+              <Button onClick={saveSchedule} loading={saving}>{t('save_changes')}</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('ping_monitor_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('ping_monitor_description')}</p>
+              </div>
+              <ToggleSwitch
+                checked={current.ping_monitor_enabled}
+                label={t('ping_monitor_background')}
+                description={t('ping_monitor_background_hint')}
+                onChange={(checked) => setSettings({ ...current, ping_monitor_enabled: checked })}
+              />
+              <div className="max-w-sm">
+                <label className="block text-sm text-text-subtle mb-1">{t('ping_monitor_interval')}</label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={String(current.ping_monitor_interval_minutes)}
+                  onChange={(e) => setSettings({ ...current, ping_monitor_interval_minutes: Number(e.target.value) || 5 })}
+                />
+              </div>
+              <div>
+                <Button onClick={savePingMonitorSchedule} loading={saving}>{t('ping_monitor_save')}</Button>
+              </div>
+            </div>
+          </Card>
+          </div>
+
+          {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('multicast_discovery_background_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('multicast_discovery_background_description')}</p>
+              </div>
+              <ToggleSwitch
+                checked={current.passive_discovery_background_enabled}
+                label={t('multicast_discovery_background')}
+                description={t('multicast_discovery_background_hint')}
+                onChange={(checked) => setSettings({ ...current, passive_discovery_background_enabled: checked })}
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={String(current.passive_discovery_interval_minutes)}
+                    onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={String(current.passive_discovery_capture_seconds)}
+                    onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
+                  />
+                </div>
+              </div>
+              <div>
+                <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
+              </div>
+            </div>
+          </Card>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* ── LIFECYCLE ────────────────────────────────────────────────────── */}
+      {activeSection === 'lifecycle' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('lifecycle_settings_tab')}
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('lifecycle_settings_title')}</h2>
+            <p className="text-sm text-text-subtle">{t('lifecycle_settings_description')}</p>
+          </div>
+
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('device_retention_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('device_retention_description')}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('device_archive_after_days')}</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    value={String(current.device_archive_after_days)}
+                    onChange={(e) => setSettings({ ...current, device_archive_after_days: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('device_retention_zero_disabled')}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('device_delete_archived_after_days')}</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="3650"
+                    value={String(current.device_delete_archived_after_days)}
+                    onChange={(e) => setSettings({ ...current, device_delete_archived_after_days: Math.max(0, Number(e.target.value) || 0) })}
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('device_delete_archived_after_days_hint')}</p>
+                </div>
+              </div>
+              <div>
+                <Button onClick={saveDeviceRetention} loading={saving}>{t('device_retention_save')}</Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+      )}
+
       {/* ── DATABASE ──────────────────────────────────────────────────────── */}
       {activeSection === 'database' && (
       <div>
@@ -1659,81 +1814,6 @@ export default function Settings() {
             </div>
             <div className="mt-4">
               <Button onClick={saveScanRange} loading={saving}>{t('save_changes')}</Button>
-            </div>
-          </Card>
-
-          <div className="pt-2">
-            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_monitoring')}</h2>
-            <p className="text-sm text-text-subtle">{t('discovery_category_monitoring_hint')}</p>
-          </div>
-
-          <Card>
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-text-base">{t('ping_monitor_title')}</h2>
-                <p className="text-sm text-text-subtle">{t('ping_monitor_description')}</p>
-              </div>
-              <label className="flex items-start gap-3 rounded-lg border border-border bg-surface2/35 p-3">
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={current.ping_monitor_enabled}
-                  onChange={(e) => setSettings({ ...current, ping_monitor_enabled: e.target.checked })}
-                />
-                <span>
-                  <span className="block text-sm font-medium text-text-base">{t('ping_monitor_background')}</span>
-                  <span className="block text-xs text-text-subtle">{t('ping_monitor_background_hint')}</span>
-                </span>
-              </label>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm text-text-subtle mb-1">{t('ping_monitor_interval')}</label>
-                  <Input
-                    type="number"
-                    value={String(current.ping_monitor_interval_minutes)}
-                    onChange={(e) => setSettings({ ...current, ping_monitor_interval_minutes: Number(e.target.value) || 5 })}
-                  />
-                </div>
-              </div>
-              <div>
-                <Button onClick={savePingMonitorSchedule} loading={saving}>{t('ping_monitor_save')}</Button>
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-text-base">{t('device_retention_title')}</h2>
-                <p className="text-sm text-text-subtle">{t('device_retention_description')}</p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm text-text-subtle mb-1">{t('device_archive_after_days')}</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    max="3650"
-                    value={String(current.device_archive_after_days)}
-                    onChange={(e) => setSettings({ ...current, device_archive_after_days: Math.max(0, Number(e.target.value) || 0) })}
-                  />
-                  <p className="mt-1 text-xs text-text-subtle">{t('device_retention_zero_disabled')}</p>
-                </div>
-                <div>
-                  <label className="block text-sm text-text-subtle mb-1">{t('device_delete_archived_after_days')}</label>
-                  <Input
-                    type="number"
-                    min="0"
-                    max="3650"
-                    value={String(current.device_delete_archived_after_days)}
-                    onChange={(e) => setSettings({ ...current, device_delete_archived_after_days: Math.max(0, Number(e.target.value) || 0) })}
-                  />
-                  <p className="mt-1 text-xs text-text-subtle">{t('device_delete_archived_after_days_hint')}</p>
-                </div>
-              </div>
-              <div>
-                <Button onClick={saveDeviceRetention} loading={saving}>{t('device_retention_save')}</Button>
-              </div>
             </div>
           </Card>
 
@@ -1824,43 +1904,6 @@ export default function Settings() {
                   </div>
                 </div>
               )}
-              <div className="rounded-lg border border-border bg-surface2/35 p-3">
-                <label className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={current.passive_discovery_background_enabled}
-                    onChange={(e) => setSettings({ ...current, passive_discovery_background_enabled: e.target.checked })}
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-text-base">{t('multicast_discovery_background')}</span>
-                    <span className="block text-xs text-text-subtle">
-                      {t('multicast_discovery_background_hint')}
-                    </span>
-                  </span>
-                </label>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
-                    <Input
-                      type="number"
-                      value={String(current.passive_discovery_interval_minutes)}
-                      onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
-                    <Input
-                      type="number"
-                      value={String(current.passive_discovery_capture_seconds)}
-                      onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
-                    />
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
-                </div>
-              </div>
               <div className="grid gap-2 text-xs text-text-subtle md:grid-cols-3">
                 <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_mdns_hint')}</div>
                 <div className="rounded-lg border border-border bg-surface2/40 p-3">{t('multicast_discovery_ssdp_hint')}</div>
@@ -2106,26 +2149,6 @@ export default function Settings() {
           </Card>
           )}
 
-          <div className="pt-2">
-            <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_scan_cadence')}</h2>
-            <p className="text-sm text-text-subtle">{t('discovery_category_scan_cadence_hint')}</p>
-          </div>
-
-          <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-4">{t('scan_schedule_title')}</h2>
-            <div>
-              <label className="block text-sm text-text-subtle mb-1">{t('interval_minutes')}</label>
-              <Input
-                type="number"
-                value={String(current.scan_interval_minutes)}
-                onChange={(e) => setSettings({ ...current, scan_interval_minutes: Number(e.target.value) || 1 })}
-              />
-            </div>
-            <div className="mt-4">
-              <Button onClick={saveSchedule} loading={saving}>{t('save_changes')}</Button>
-            </div>
-          </Card>
-
           {current.advanced_view_enabled && (
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-2">{t('port_scan_range_title')}</h2>
@@ -2208,6 +2231,15 @@ export default function Settings() {
                 {t('notify_on_new_device')}
               </label>
               <p className="text-xs text-text-subtle">{t('notify_on_new_device_hint')}</p>
+              <label className="flex items-center gap-2 text-sm text-text-base">
+                <input
+                  type="checkbox"
+                  checked={current.notify_on_network_changes}
+                  onChange={(e) => setSettings({ ...current, notify_on_network_changes: e.target.checked })}
+                />
+                {t('notify_on_network_changes')}
+              </label>
+              <p className="text-xs text-text-subtle">{t('notify_on_network_changes_hint')}</p>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
