@@ -9,6 +9,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-notification-tests-1234
 
 from backend.database import Base
 from backend.models import Device, Notification, Setting
+from backend.routers.notifications import delete_all_notifications
 from backend.services.notification import (
     notification_device_path,
     notification_device_url,
@@ -165,5 +166,21 @@ class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(notification_device_path(notification), "/devices/42")
             self.assertEqual(notification_device_url(db, notification), "https://lanlens.example/devices/42")
+        finally:
+            db.close()
+
+    def test_delete_all_notifications_removes_every_notification(self):
+        db = self.Session()
+        try:
+            db.add_all([
+                Notification(event_type="new_device", message="first", is_read=False),
+                Notification(event_type="network_change", message="second", is_read=True),
+            ])
+            db.commit()
+
+            response = delete_all_notifications(db, None)
+
+            self.assertEqual(response.message, "Deleted 2 notifications")
+            self.assertEqual(db.query(Notification).count(), 0)
         finally:
             db.close()

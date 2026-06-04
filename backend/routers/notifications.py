@@ -50,6 +50,13 @@ def mark_all_read(db: Session = Depends(get_db), _: User = Depends(get_current_u
     return MessageResponse(message="All notifications marked as read")
 
 
+@router.delete("", response_model=MessageResponse)
+def delete_all_notifications(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    deleted = db.query(Notification).delete()
+    db.commit()
+    return MessageResponse(message=f"Deleted {deleted} notifications")
+
+
 @router.delete("/{notification_id}", response_model=MessageResponse)
 def delete_notification(
     notification_id: int,

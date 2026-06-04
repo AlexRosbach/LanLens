@@ -18,6 +18,7 @@ All notable changes to this project should be documented in this file.
 - Added detailed SNMP poll troubleshooting output with attempted OIDs, per-step result counts and sanitized target/profile context.
 - Relaxed SNMP polling so routers, firewalls, printers and other non-switch SNMP targets can be scanned for identity/interface data even when IF-MIB details or bridge MAC tables are unavailable.
 - Linked SNMP targets now appear on matching device detail pages and CMDB export fields even when the target has no switch MAC table, using explicit device assignment or host/IP matching.
+- Added a bulk delete action on the Notifications page to clear all in-app notifications after confirmation.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.

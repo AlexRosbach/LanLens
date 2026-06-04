@@ -38,7 +38,7 @@ LanLens is built for small self-hosted, homelab, and lightweight IT environments
 - Maintain a clickable Services directory for self-hosted apps and device services
 - Enrich selected devices through SSH/WinRM deep scans
 - Prepare CMDB/i-doit exports and sync workflows, including reviewed CSV export
-- Send Telegram, webhook, or Gotify notifications for new devices and opt-in network change events
+- Send Telegram, webhook, or Gotify notifications for new devices and opt-in network change events, with bulk cleanup for in-app notifications
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
@@ -60,6 +60,10 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 | Network changes |
 |---|
 | ![LanLens network change log](docs/screenshots/lanlens-network-changes.png) |
+
+| Notifications cleanup |
+|---|
+| ![LanLens notifications bulk delete](docs/screenshots/lanlens-notifications-delete-all.png) |
 
 | Multicast capture settings |
 |---|

@@ -44,20 +44,33 @@ export default function Notifications() {
     if (wasUnread) decrementUnread()
   }
 
+  async function deleteAllNotifications() {
+    if (!confirm(t('delete_all_notifications_confirm'))) return
+    await notificationsApi.deleteAll()
+    setItems([])
+    storeMarkAllRead()
+    toast.success(t('all_notifications_deleted'))
+  }
+
   const unread = items.filter((n) => !n.is_read).length
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-bold text-text-base">
           {t('notifications')}
           {unread > 0 && (
             <span className="ml-2 text-sm font-normal text-warning">({unread} {t('unread')})</span>
           )}
         </h1>
-        {unread > 0 && (
-          <Button variant="ghost" size="sm" onClick={markAllRead}>{t('mark_all_read')}</Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {unread > 0 && (
+            <Button variant="ghost" size="sm" onClick={markAllRead}>{t('mark_all_read')}</Button>
+          )}
+          {items.length > 0 && (
+            <Button variant="danger" size="sm" onClick={deleteAllNotifications}>{t('delete_all_notifications')}</Button>
+          )}
+        </div>
       </div>
 
       {loading ? (

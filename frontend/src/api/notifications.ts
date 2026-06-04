@@ -22,5 +22,7 @@ export const notificationsApi = {
 
   markAllRead: () => apiClient.put('/notifications/read-all').then((r) => r.data),
 
+  deleteAll: () => apiClient.delete('/notifications').then((r) => r.data),
+
   delete: (id: number) => apiClient.delete(`/notifications/${id}`),
 }

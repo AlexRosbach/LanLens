@@ -479,6 +479,12 @@ Open LanLens to register this device.
 - `telegram_sent = False` visible in the Notifications page
 - No automatic retry (manual retry: save settings again and trigger a new scan)
 
+### In-App Cleanup
+
+- The Notifications page can mark all visible entries as read.
+- Use **Delete all** to remove all stored in-app notifications after confirmation.
+- Bulk deletion does not change device history, network-change events, scan results, or external delivery logs; it only clears rows from the notifications list.
+
 ---
 
 ## Connection Launch
