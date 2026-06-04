@@ -96,6 +96,8 @@ export const snmpApi = {
   listSwitches: () => apiClient.get<SnmpSwitch[]>('/snmp/switches').then((r) => r.data),
   createSwitch: (data: { name: string; host: string; profile_id: number; device_id?: number | null; enabled: boolean }) =>
     apiClient.post<SnmpSwitch>('/snmp/switches', data).then((r) => r.data),
+  updateSwitch: (switchId: number, data: { name: string; host: string; profile_id: number; device_id?: number | null; enabled: boolean }) =>
+    apiClient.put<SnmpSwitch>(`/snmp/switches/${switchId}`, data).then((r) => r.data),
   deleteSwitch: (switchId: number) => apiClient.delete(`/snmp/switches/${switchId}`).then((r) => r.data),
   pollSwitch: (switchId: number) => apiClient.post(`/snmp/switches/${switchId}/poll`).then((r) => r.data),
   getDevicePorts: (deviceId: number) =>

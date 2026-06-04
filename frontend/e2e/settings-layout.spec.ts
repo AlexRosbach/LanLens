@@ -62,6 +62,44 @@ const settings = {
   https_redirect_http: false,
 }
 
+const snmpProfiles = [
+  {
+    id: 10,
+    name: 'Core v2c',
+    version: '2c',
+    community: '••••••••',
+    username: '',
+    security_level: 'noAuthNoPriv',
+    auth_protocol: '',
+    auth_password: '',
+    privacy_protocol: '',
+    privacy_password: '',
+    port: 161,
+    enabled: true,
+  },
+]
+
+const snmpSwitches = [
+  {
+    id: 7,
+    name: 'Core Switch',
+    host: '192.168.1.2',
+    device_id: null,
+    profile_id: 10,
+    enabled: true,
+    sys_name: 'core-sw-01',
+    sys_descr: 'Cisco IOS XE',
+    sys_object_id: '1.3.6.1.4.1.9',
+    vendor: 'Cisco',
+    vendor_key: 'cisco',
+    vendor_notes: 'Cisco enterprise OID',
+    last_poll_at: '2026-06-04T08:30:00Z',
+    last_error: null,
+    interface_count: 48,
+    mac_count: 24,
+  },
+]
+
 test('settings groups routine jobs, lifecycle, and network discovery separately', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 980 })
   await page.route('**/api/auth/me', async (route) => {
@@ -93,10 +131,22 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
     await route.fulfill({ json: [] })
   })
   await page.route('**/api/snmp/profiles**', async (route) => {
-    await route.fulfill({ json: [] })
+    await route.fulfill({ json: snmpProfiles })
   })
-  await page.route('**/api/snmp/switches**', async (route) => {
-    await route.fulfill({ json: [] })
+  await page.route(/\/api\/snmp\/switches(?:$|\/)/, async (route) => {
+    if (route.request().method() === 'PUT') {
+      const payload = route.request().postDataJSON()
+      await route.fulfill({
+        json: {
+          ...snmpSwitches[0],
+          ...payload,
+          id: 7,
+          profile_id: Number(payload.profile_id),
+        },
+      })
+      return
+    }
+    await route.fulfill({ json: snmpSwitches })
   })
   await page.route('**/api/snmp/endpoints**', async (route) => {
     await route.fulfill({ json: [] })
@@ -127,6 +177,12 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
   await expect(page.getByLabel('Cycle interval in minutes')).toHaveValue('15')
   await expect(page.getByLabel('Capture duration in seconds')).toHaveValue('30')
+  await expect(page.getByText('Core Switch')).toBeVisible()
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await expect(page.getByLabel('Switch name')).toHaveValue('Core Switch')
+  await page.screenshot({ path: testInfo.outputPath('settings-snmp-switch-edit.png'), fullPage: false })
+  await page.getByLabel('Switch name').fill('Distribution Switch')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByLabel('Port range / list')).toHaveValue('top:1000')
   await expect(page.getByLabel('Port scan interval in minutes')).toHaveValue('120')
 

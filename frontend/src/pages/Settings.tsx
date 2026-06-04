@@ -363,6 +363,11 @@ export default function Settings() {
   const [snmpSwitchName, setSnmpSwitchName] = useState('')
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
+  const [editingSnmpSwitchId, setEditingSnmpSwitchId] = useState<number | null>(null)
+  const [editingSnmpSwitchName, setEditingSnmpSwitchName] = useState('')
+  const [editingSnmpSwitchHost, setEditingSnmpSwitchHost] = useState('')
+  const [editingSnmpSwitchProfileId, setEditingSnmpSwitchProfileId] = useState('')
+  const [editingSnmpSwitchEnabled, setEditingSnmpSwitchEnabled] = useState(true)
   const [passiveCaptureLoading, setPassiveCaptureLoading] = useState(false)
   const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
@@ -593,6 +598,43 @@ export default function Settings() {
       toast.success(t('snmp_switch_saved'))
     } catch {
       toast.error(t('snmp_switch_save_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  function startEditingSnmpSwitch(item: SnmpSwitch) {
+    setEditingSnmpSwitchId(item.id)
+    setEditingSnmpSwitchName(item.name)
+    setEditingSnmpSwitchHost(item.host)
+    setEditingSnmpSwitchProfileId(item.profile_id ? String(item.profile_id) : '')
+    setEditingSnmpSwitchEnabled(item.enabled)
+  }
+
+  function cancelEditingSnmpSwitch() {
+    setEditingSnmpSwitchId(null)
+    setEditingSnmpSwitchName('')
+    setEditingSnmpSwitchHost('')
+    setEditingSnmpSwitchProfileId('')
+    setEditingSnmpSwitchEnabled(true)
+  }
+
+  async function saveSnmpSwitch(item: SnmpSwitch) {
+    if (!editingSnmpSwitchName.trim() || !editingSnmpSwitchHost.trim() || !editingSnmpSwitchProfileId) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.updateSwitch(item.id, {
+        name: editingSnmpSwitchName.trim(),
+        host: editingSnmpSwitchHost.trim(),
+        profile_id: Number(editingSnmpSwitchProfileId),
+        device_id: item.device_id ?? null,
+        enabled: editingSnmpSwitchEnabled,
+      })
+      cancelEditingSnmpSwitch()
+      await loadSnmp()
+      toast.success(t('snmp_switch_saved'))
+    } catch (error) {
+      toast.error(`${t('snmp_switch_save_failed')}: ${extractApiErrorMessage(error, t('snmp_switch_save_failed'))}`)
     } finally {
       setSnmpLoading(false)
     }
@@ -2133,6 +2175,7 @@ export default function Settings() {
                     <th className="px-3 py-2 font-medium">{t('name')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_host')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_sys_name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('profile')}</th>
                     <th className="px-3 py-2 font-medium">{t('vendor')}</th>
                     <th className="px-3 py-2 font-medium">{t('interfaces')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_macs')}</th>
@@ -2142,30 +2185,88 @@ export default function Settings() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {snmpSwitches.length === 0 ? (
-                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={8}>{t('snmp_no_switches')}</td></tr>
-                  ) : snmpSwitches.map((item) => (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={9}>{t('snmp_no_switches')}</td></tr>
+                  ) : snmpSwitches.map((item) => {
+                    const isEditing = editingSnmpSwitchId === item.id
+                    const assignedProfile = snmpProfiles.find((profile) => profile.id === item.profile_id)
+                    return (
                     <tr key={item.id}>
                       <td className="px-3 py-2 font-medium text-text-base">
-                        <div>{item.name}</div>
-                        {item.last_error && <div className="mt-1 max-w-xs text-xs font-normal text-danger">{item.last_error}</div>}
+                        {isEditing ? (
+                          <Input
+                            aria-label={t('snmp_switch_name')}
+                            value={editingSnmpSwitchName}
+                            onChange={(e) => setEditingSnmpSwitchName(e.target.value)}
+                          />
+                        ) : (
+                          <>
+                            <div>{item.name}</div>
+                            {item.last_error && <div className="mt-1 max-w-xs text-xs font-normal text-danger">{item.last_error}</div>}
+                          </>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-text-muted">{item.host}</td>
+                      <td className="px-3 py-2 text-text-muted">
+                        {isEditing ? (
+                          <Input
+                            aria-label={t('snmp_switch_host')}
+                            value={editingSnmpSwitchHost}
+                            onChange={(e) => setEditingSnmpSwitchHost(e.target.value)}
+                          />
+                        ) : item.host}
+                      </td>
                       <td className="px-3 py-2 text-text-muted">{item.sys_name || '—'}</td>
                       <td className="px-3 py-2 text-text-muted">
-                        <div>{item.vendor || '—'}</div>
-                        {item.vendor_notes && <div className="mt-1 max-w-xs text-[11px] text-text-subtle">{item.vendor_notes}</div>}
+                        {isEditing ? (
+                          <select
+                            aria-label={t('snmp_select_profile')}
+                            className="input-field min-w-[10rem]"
+                            value={editingSnmpSwitchProfileId}
+                            onChange={(e) => setEditingSnmpSwitchProfileId(e.target.value)}
+                          >
+                            <option value="">{t('snmp_select_profile')}</option>
+                            {snmpProfiles.map((profile) => (
+                              <option key={profile.id} value={profile.id}>{profile.name}</option>
+                            ))}
+                          </select>
+                        ) : (assignedProfile?.name || '—')}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted">
+                        {isEditing ? '—' : (
+                          <>
+                            <div>{item.vendor || '—'}</div>
+                            {item.vendor_notes && <div className="mt-1 max-w-xs text-[11px] text-text-subtle">{item.vendor_notes}</div>}
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.mac_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.last_poll_at ? formatDateTime(item.last_poll_at) : '—'}</td>
                       <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading}>{t('poll_now')}</Button>
-                          <Button size="sm" variant="danger" onClick={() => deleteSnmpSwitch(item)} disabled={snmpLoading}>{t('delete')}</Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isEditing ? (
+                            <>
+                              <label className="flex items-center gap-2 text-xs text-text-muted">
+                                <input
+                                  type="checkbox"
+                                  checked={editingSnmpSwitchEnabled}
+                                  onChange={(event) => setEditingSnmpSwitchEnabled(event.target.checked)}
+                                />
+                                {t('enabled')}
+                              </label>
+                              <Button size="sm" onClick={() => saveSnmpSwitch(item)} disabled={snmpLoading}>{t('save')}</Button>
+                              <Button size="sm" variant="outline" onClick={cancelEditingSnmpSwitch} disabled={snmpLoading}>{t('cancel')}</Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => startEditingSnmpSwitch(item)} disabled={snmpLoading}>{t('edit')}</Button>
+                              <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading || !item.enabled}>{t('poll_now')}</Button>
+                              <Button size="sm" variant="danger" onClick={() => deleteSnmpSwitch(item)} disabled={snmpLoading}>{t('delete')}</Button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>

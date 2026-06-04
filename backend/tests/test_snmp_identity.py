@@ -9,7 +9,14 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-123
 
 from backend.database import Base
 from backend.models import Device, Setting, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
-from backend.routers.snmp import _build_switch_port_visualization, _require_snmp_enabled, delete_profile, delete_switch
+from backend.routers.snmp import (
+    SnmpSwitchPayload,
+    _build_switch_port_visualization,
+    _require_snmp_enabled,
+    delete_profile,
+    delete_switch,
+    update_switch,
+)
 from backend.services.snmp import (
     _parse_bridge_port_map,
     _parse_mac_suffix,
@@ -210,6 +217,58 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertIsNone(db.query(SnmpSwitch).filter(SnmpSwitch.id == switch.id).first())
             self.assertEqual(db.query(SnmpInterface).count(), 0)
             self.assertEqual(db.query(SnmpMacTableEntry).count(), 0)
+        finally:
+            db.close()
+
+    def test_update_switch_edits_identity_and_preserves_learned_data(self):
+        db = self.Session()
+        try:
+            self._enable_advanced_view(db)
+            profile = SnmpProfile(name="core", version="2c", community="public", port=161)
+            next_profile = SnmpProfile(name="backup", version="2c", community="private", port=161)
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile)
+            db.add_all([profile, next_profile, switch])
+            db.commit()
+            db.refresh(switch)
+            db.refresh(next_profile)
+
+            db.add(SnmpInterface(
+                switch_id=switch.id,
+                if_index=1,
+                name="Gi1/0/1",
+                last_seen_at=datetime.utcnow(),
+            ))
+            db.add(SnmpMacTableEntry(
+                switch_id=switch.id,
+                mac_address="00:11:22:33:44:55",
+                if_index=1,
+                last_seen_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            response = update_switch(
+                switch.id,
+                SnmpSwitchPayload(
+                    name="edge-switch",
+                    host="192.0.2.50",
+                    profile_id=next_profile.id,
+                    enabled=False,
+                ),
+                db,
+                None,
+            )
+            db.refresh(switch)
+
+            self.assertEqual(response["name"], "edge-switch")
+            self.assertEqual(response["host"], "192.0.2.50")
+            self.assertEqual(response["profile_id"], next_profile.id)
+            self.assertFalse(response["enabled"])
+            self.assertEqual(response["interface_count"], 1)
+            self.assertEqual(response["mac_count"], 1)
+            self.assertEqual(switch.name, "edge-switch")
+            self.assertEqual(switch.host, "192.0.2.50")
+            self.assertEqual(switch.profile_id, next_profile.id)
+            self.assertFalse(switch.enabled)
         finally:
             db.close()
 

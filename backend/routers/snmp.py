@@ -269,6 +269,38 @@ def create_switch(payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: 
     return _switch_response(switch, interface_count=0, mac_count=0)
 
 
+@router.put("/switches/{switch_id}")
+def update_switch(switch_id: int, payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == switch_id).first()
+    if not switch:
+        raise HTTPException(status_code=404, detail="SNMP switch not found")
+
+    host = payload.host.strip()
+    if db.query(SnmpSwitch).filter(SnmpSwitch.host == host, SnmpSwitch.id != switch_id).first():
+        raise HTTPException(status_code=409, detail="SNMP switch host already exists")
+
+    profile = db.query(SnmpProfile).filter(SnmpProfile.id == payload.profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="SNMP profile not found")
+
+    device = db.query(Device).filter(Device.id == payload.device_id).first() if payload.device_id else None
+    if device and db.query(SnmpSwitch).filter(SnmpSwitch.device_id == device.id, SnmpSwitch.id != switch_id).first():
+        raise HTTPException(status_code=409, detail="Device is already assigned to another SNMP switch")
+
+    switch.name = payload.name.strip()
+    switch.host = host
+    switch.profile_id = profile.id
+    switch.device_id = device.id if device else None
+    switch.enabled = payload.enabled
+    db.commit()
+    db.refresh(switch)
+
+    interface_count = db.query(SnmpInterface).filter(SnmpInterface.switch_id == switch.id).count()
+    mac_count = db.query(SnmpMacTableEntry).filter(SnmpMacTableEntry.switch_id == switch.id).count()
+    return _switch_response(switch, interface_count=interface_count, mac_count=mac_count)
+
+
 @router.delete("/switches/{switch_id}", response_model=MessageResponse)
 def delete_switch(switch_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MessageResponse:
     _require_snmp_enabled(db)
