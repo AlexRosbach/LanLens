@@ -18,7 +18,9 @@ All notable changes to this project should be documented in this file.
 - Added detailed SNMP poll troubleshooting output with attempted OIDs, per-step result counts and sanitized target/profile context.
 - Added an SNMP diagnostics details dialog so successful polls and failed polls can show full troubleshooting steps without filling the target table.
 - Added SNMP real-port statistics for device detail and switch-port hover context, including speed, cast packet counters, discards, CRC/FCS errors, collisions and fragment counters where the target exposes IF-MIB/EtherLike-MIB data.
-- Filtered common virtual SNMP interfaces such as loopback, VLAN/SVI, tunnel, bridge and port-channel rows from the switch-port visualization so it focuses on real ports.
+- Generalized SNMP vendor and class detection for common SNMP network devices beyond Cisco, including Juniper, MikroTik, Fortinet, Aruba/HPE, Netgear, TP-Link, D-Link, Zyxel, pfSense, OPNsense, Sophos, UniFi/Ubiquiti and Cisco Meraki identities.
+- Expanded SNMP real-port detection for common interface names such as Ethernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial interfaces.
+- Filtered common virtual SNMP interfaces such as loopback, VLAN/SVI, tunnel, bridge, management, stack, LAG/bond/team and port-channel rows from the switch-port visualization so it focuses on real ports.
 - Relaxed SNMP polling so routers, firewalls, printers and other non-switch SNMP targets can be scanned for identity/interface data even when IF-MIB details or bridge MAC tables are unavailable.
 - Linked SNMP targets now appear on matching device detail pages and CMDB export fields even when the target has no switch MAC table, using explicit device assignment or host/IP matching.
 - Added SNMP interface-only port visualization for linked switches when IF-MIB is available but BRIDGE-MIB/Q-BRIDGE-MIB MAC tables are not.
@@ -35,7 +37,7 @@ All notable changes to this project should be documented in this file.
 - Kept the Notifications bulk-delete UI unchanged when the backend delete request fails.
 - Replaced the SNMP target edit row's raw enabled checkbox with a compact inline toggle that fits the Settings table action layout.
 - Treated missing BRIDGE-MIB/Q-BRIDGE-MIB MAC tables as optional SNMP diagnostics instead of marking otherwise successful interface polls as latest errors.
-- Classified unknown IP-scan-discovered Cisco/UniFi switch devices from linked SNMP target identity and interface inventory.
+- Classified unknown IP-scan-discovered switch, router, firewall and AP devices from linked SNMP target identity and interface inventory.
 - Reused the existing DHCP Monitor, passive discovery and network-change infrastructure; no new packages or license obligations were added.
 - Bumped backend, frontend and image metadata to 1.5.6.
 

@@ -12,6 +12,7 @@ from backend.models import Device, Setting, SnmpInterface, SnmpMacTableEntry, Sn
 from backend.routers.snmp import (
     SnmpSwitchPayload,
     _build_switch_port_visualization,
+    _is_real_switch_port,
     _require_snmp_enabled,
     delete_profile,
     delete_switch,
@@ -78,6 +79,11 @@ class SnmpIdentityTests(unittest.TestCase):
         self.assertEqual(detect_vendor("Cisco IOS Software", "1.3.6.1.4.1.9.1.516").key, "cisco")
         self.assertEqual(detect_vendor("UniFi Switch", "1.3.6.1.4.1.41112.1.6").key, "unifi")
         self.assertEqual(detect_vendor("SFOS Sophos Firewall", "1.3.6.1.4.1.2604.5").key, "sophos")
+        self.assertEqual(detect_vendor("Juniper Networks JUNOS", "1.3.6.1.4.1.2636.1.1").key, "juniper")
+        self.assertEqual(detect_vendor("MikroTik RouterOS", "1.3.6.1.4.1.14988.1").key, "mikrotik")
+        self.assertEqual(detect_vendor("Fortinet FortiGate", "1.3.6.1.4.1.12356.101").key, "fortinet")
+        self.assertEqual(detect_vendor("Aruba CX Switch", "1.3.6.1.4.1.11.2.3.7.11").key, "aruba")
+        self.assertEqual(detect_vendor("NETGEAR Smart Managed Switch", "1.3.6.1.4.1.4526.100").key, "netgear")
         self.assertEqual(detect_vendor("Other", "1.3.6.1.4.1.999").key, "generic")
 
     def test_formats_snmp_timeout_with_actionable_hint(self):
@@ -235,6 +241,54 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertIn("FAILED: BRIDGE-MIB MAC forwarding table", switch.last_diagnostics)
         finally:
             db.close()
+
+    def test_poll_switch_classifies_common_network_devices_from_standard_identity(self):
+        scenarios = [
+            ("juniper", "Juniper Networks EX4300 Ethernet Switch", "1.3.6.1.4.1.2636.1.1", "Switch", "Juniper"),
+            ("mikrotik", "MikroTik RouterOS CCR2004", "1.3.6.1.4.1.14988.1", "Router", "MikroTik"),
+            ("fortigate", "Fortinet FortiGate 100F Firewall", "1.3.6.1.4.1.12356.101", "Firewall", "Fortinet"),
+            ("unifi-ap", "Ubiquiti UniFi AP U6-Pro", "1.3.6.1.4.1.41112.1.6", "AP", "UniFi / Ubiquiti"),
+        ]
+        for offset, (hostname, sys_descr, sys_object_id, expected_class, expected_vendor) in enumerate(scenarios, start=10):
+            db = self.Session()
+            try:
+                device = Device(
+                    mac_address=f"ip:{hostname}",
+                    ip_address=f"192.0.2.{offset}",
+                    hostname=hostname,
+                    device_class="Unknown",
+                    is_registered=True,
+                )
+                profile = SnmpProfile(name=f"profile-{hostname}", version="2c", community="public", port=161)
+                target = SnmpSwitch(name=hostname, host=device.ip_address, profile=profile)
+                db.add_all([device, profile, target])
+                db.commit()
+                db.refresh(target)
+
+                def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                    required = {
+                        OID_SYS_DESCR: {"": f"STRING: {sys_descr}"},
+                        OID_SYS_OBJECT_ID: {"": f"OID: {sys_object_id}"},
+                        OID_SYS_NAME: {"": f"STRING: {hostname}"},
+                        OID_IF_DESCR: {"1": "STRING: ge-0/0/1"},
+                        OID_IF_ADMIN_STATUS: {"1": "INTEGER: 1"},
+                        OID_IF_OPER_STATUS: {"1": "INTEGER: 1"},
+                        OID_IF_NAME: {"1": "STRING: ge-0/0/1"},
+                    }
+                    if oid in required:
+                        return required[oid]
+                    raise RuntimeError("No Such Object available on this agent")
+
+                with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                    result = poll_switch(db, target)
+                db.flush()
+                db.refresh(device)
+
+                self.assertEqual(result.interfaces, 1)
+                self.assertEqual(device.device_class, expected_class)
+                self.assertEqual(device.vendor, expected_vendor)
+            finally:
+                db.close()
 
     def test_poll_switch_required_failure_includes_troubleshooting_steps(self):
         db = self.Session()
@@ -640,6 +694,35 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertEqual(result["ports"][0]["collision_errors"], 1)
         finally:
             db.close()
+
+    def test_real_port_detection_accepts_common_vendor_names_and_filters_virtual_interfaces(self):
+        real_ports = [
+            SnmpInterface(name="GigabitEthernet1/0/1", if_type=6),
+            SnmpInterface(name="TenGigabitEthernet1/1", if_type=6),
+            SnmpInterface(name="FastEthernet0/24", if_type=62),
+            SnmpInterface(name="Ethernet1", if_type=6),
+            SnmpInterface(name="ge-0/0/1", if_type=6),
+            SnmpInterface(name="xe-1/0/48", if_type=6),
+            SnmpInterface(name="ether1", if_type=6),
+            SnmpInterface(name="port24", if_type=6),
+            SnmpInterface(name="SFP1", if_type=6),
+            SnmpInterface(name="wlan0", if_type=71),
+            SnmpInterface(name="ppp0", if_type=23),
+        ]
+        virtual_ports = [
+            SnmpInterface(name="Loopback0", if_type=24),
+            SnmpInterface(name="Vlan100", if_type=135),
+            SnmpInterface(name="ae1", if_type=161),
+            SnmpInterface(name="Port-Channel10", if_type=161),
+            SnmpInterface(name="br0", if_type=6),
+            SnmpInterface(name="mgmt0", if_type=6),
+            SnmpInterface(name="Tunnel0", if_type=131),
+        ]
+
+        for iface in real_ports:
+            self.assertTrue(_is_real_switch_port(iface), iface.name)
+        for iface in virtual_ports:
+            self.assertFalse(_is_real_switch_port(iface), iface.name)
 
     def test_snmp_router_requires_advanced_view(self):
         db = self.Session()

@@ -93,19 +93,42 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
 
 
 VIRTUAL_IF_TYPES = {24, 53, 131, 135, 136, 161, 209}
+PHYSICAL_PORT_IF_TYPES = {
+    6,    # ethernetCsmacd
+    22,   # propPointToPointSerial
+    23,   # ppp
+    62,   # fastEther
+    69,   # fastEtherFX
+    71,   # ieee80211
+    117,  # gigabitEthernet
+    127,  # docsCableMaclayer
+}
 
 
 def _is_real_switch_port(iface: SnmpInterface) -> bool:
     label = " ".join(part for part in [iface.name, iface.description, iface.alias] if part).lower()
     if iface.if_type in VIRTUAL_IF_TYPES:
         return False
-    if re.search(r"\b(loopback|lo\d*|null|vlan|svi|tunnel|tun\d*|gre|bvi|bridge|port-channel|po\d+)\b", label):
+    if re.search(
+        r"\b(loopback|lo\d*|null|vlan|svi|tunnel|tun\d*|gre|bvi|bridge|br\d*|"
+        r"port-channel|portchannel|po\d+|ae\d+|lag\d+|bond\d+|team\d+|irb|ve\d+|"
+        r"mgmt\d*|management\d*|cpu|stack|stackport|software loopback)\b",
+        label,
+    ):
         return False
-    if re.search(r"\b(gigabit|tengigabit|twentyfivegig|fortygigabit|hundredgig|fastethernet|ethernet|fa\d|gi\d|te\d|tw\d|hu\d|eth\d|wan\d|lan\d)\b", label):
+    if re.search(
+        r"\b(gigabitethernet[-/\\.0-9]*|tengigabitethernet[-/\\.0-9]*|"
+        r"twentyfivegigabitethernet[-/\\.0-9]*|fortygigabitethernet[-/\\.0-9]*|"
+        r"hundredgigabitethernet[-/\\.0-9]*|fastethernet[-/\\.0-9]*|ethernet[-/\\.0-9]*|"
+        r"gigabit|tengigabit|twentyfivegig|fortygigabit|hundredgig|"
+        r"fa\d|gi\d|te\d|tw\d|hu\d|eth\d|ge[-/\\.0-9]*|xe[-/\\.0-9]*|et[-/\\.0-9]*|"
+        r"ether\d|port\d|xg\d|sfp\d|qsfp\d|wan\d|lan\d|radio\d|wlan\d|wifi\d|ppp\d|serial\d)\b",
+        label,
+    ):
         return True
     if iface.if_type is None:
         return bool(label)
-    return iface.if_type in {6, 117}
+    return iface.if_type in PHYSICAL_PORT_IF_TYPES
 
 
 def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:

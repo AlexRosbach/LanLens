@@ -79,20 +79,75 @@ class VendorSupport:
 
 
 VENDOR_SUPPORT = {
+    "aruba": VendorSupport(
+        key="aruba",
+        label="Aruba / HPE",
+        notes="Aruba and HPE network devices usually expose IF-MIB; bridge-table endpoint mapping depends on switching features.",
+    ),
     "cisco": VendorSupport(
         key="cisco",
         label="Cisco",
         notes="Cisco switching platforms normally expose IF-MIB plus BRIDGE-MIB or Q-BRIDGE-MIB.",
+    ),
+    "dlink": VendorSupport(
+        key="dlink",
+        label="D-Link",
+        notes="D-Link switches usually expose IF-MIB; bridge-table endpoint mapping depends on model and enabled MIB views.",
+    ),
+    "fortinet": VendorSupport(
+        key="fortinet",
+        label="Fortinet",
+        notes="Fortinet FortiGate devices usually expose IF-MIB for interface inventory; MAC-table endpoint mapping depends on bridge/switch mode.",
+    ),
+    "juniper": VendorSupport(
+        key="juniper",
+        label="Juniper",
+        notes="Juniper network devices usually expose IF-MIB; bridge-table endpoint mapping depends on platform and enabled views.",
+    ),
+    "meraki": VendorSupport(
+        key="meraki",
+        label="Cisco Meraki",
+        notes="Meraki devices may expose standard IF-MIB via SNMP; bridge-table endpoint mapping depends on model and cloud-managed SNMP scope.",
+    ),
+    "mikrotik": VendorSupport(
+        key="mikrotik",
+        label="MikroTik",
+        notes="MikroTik RouterOS devices usually expose IF-MIB for ports and links; bridge-table endpoint mapping depends on bridge configuration.",
+    ),
+    "netgear": VendorSupport(
+        key="netgear",
+        label="Netgear",
+        notes="Netgear switches usually expose IF-MIB; bridge-table endpoint mapping depends on model and MIB access.",
+    ),
+    "opnsense": VendorSupport(
+        key="opnsense",
+        label="OPNsense",
+        notes="OPNsense firewalls usually expose IF-MIB for interface inventory; bridge MAC tables are not expected for routed deployments.",
+    ),
+    "pfsense": VendorSupport(
+        key="pfsense",
+        label="pfSense",
+        notes="pfSense firewalls usually expose IF-MIB for interface inventory; bridge MAC tables are not expected for routed deployments.",
     ),
     "sophos": VendorSupport(
         key="sophos",
         label="Sophos",
         notes="Sophos firewall/router platforms usually expose IF-MIB; MAC-table endpoint mapping depends on bridge support.",
     ),
+    "tplink": VendorSupport(
+        key="tplink",
+        label="TP-Link",
+        notes="TP-Link switches usually expose IF-MIB; bridge-table endpoint mapping depends on model and enabled MIB views.",
+    ),
     "unifi": VendorSupport(
         key="unifi",
         label="UniFi / Ubiquiti",
         notes="UniFi switches normally expose IF-MIB plus bridge tables; UniFi gateways may expose interfaces but no switch MAC table.",
+    ),
+    "zyxel": VendorSupport(
+        key="zyxel",
+        label="Zyxel",
+        notes="Zyxel switches usually expose IF-MIB; bridge-table endpoint mapping depends on model and enabled MIB views.",
     ),
     "generic": VendorSupport(
         key="generic",
@@ -105,11 +160,33 @@ VENDOR_SUPPORT = {
 def detect_vendor(sys_descr: str = "", sys_object_id: str = "") -> VendorSupport:
     text = f"{sys_descr} {sys_object_id}".lower()
     if "1.3.6.1.4.1.9." in sys_object_id or "cisco" in text:
+        if "meraki" in text:
+            return VENDOR_SUPPORT["meraki"]
         return VENDOR_SUPPORT["cisco"]
     if "1.3.6.1.4.1.41112." in sys_object_id or "ubiquiti" in text or "unifi" in text:
         return VENDOR_SUPPORT["unifi"]
     if "1.3.6.1.4.1.2604." in sys_object_id or "sophos" in text or "sfos" in text or "astaro" in text:
         return VENDOR_SUPPORT["sophos"]
+    if "1.3.6.1.4.1.2636." in sys_object_id or "juniper" in text or "junos" in text:
+        return VENDOR_SUPPORT["juniper"]
+    if "1.3.6.1.4.1.14988." in sys_object_id or "mikrotik" in text or "routeros" in text:
+        return VENDOR_SUPPORT["mikrotik"]
+    if "1.3.6.1.4.1.12356." in sys_object_id or "fortinet" in text or "fortigate" in text:
+        return VENDOR_SUPPORT["fortinet"]
+    if "pfsense" in text:
+        return VENDOR_SUPPORT["pfsense"]
+    if "opnsense" in text:
+        return VENDOR_SUPPORT["opnsense"]
+    if "1.3.6.1.4.1.11." in sys_object_id or "aruba" in text or "procurve" in text or "hewlett packard" in text or "hpe " in text:
+        return VENDOR_SUPPORT["aruba"]
+    if "1.3.6.1.4.1.4526." in sys_object_id or "netgear" in text:
+        return VENDOR_SUPPORT["netgear"]
+    if "1.3.6.1.4.1.11863." in sys_object_id or "tp-link" in text or "tplink" in text:
+        return VENDOR_SUPPORT["tplink"]
+    if "1.3.6.1.4.1.171." in sys_object_id or "d-link" in text or "dlink" in text:
+        return VENDOR_SUPPORT["dlink"]
+    if "1.3.6.1.4.1.890." in sys_object_id or "zyxel" in text:
+        return VENDOR_SUPPORT["zyxel"]
     return VENDOR_SUPPORT["generic"]
 
 
@@ -427,7 +504,7 @@ def _interface_stats(iface: Optional[SnmpInterface]) -> dict[str, Any]:
     }
 
 
-def _switch_like_device_class(vendor: VendorSupport, switch: SnmpSwitch, interface_count: int) -> Optional[str]:
+def _network_device_class(vendor: VendorSupport, switch: SnmpSwitch, interface_count: int) -> Optional[str]:
     text = " ".join(
         value
         for value in [
@@ -440,10 +517,21 @@ def _switch_like_device_class(vendor: VendorSupport, switch: SnmpSwitch, interfa
     ).lower()
     if not text or interface_count <= 0:
         return None
-    if re.search(r"\b(switch|catalyst|nexus|cbs\d|sg\d|sf\d|small business)\b", text):
+    switch_terms = (
+        r"\b(switch|switching|catalyst|nexus|cbs\d|sg\d|sf\d|small business|procurve|"
+        r"aruba\s+\d|cx\s+\d|netgear\s+\w*s\d|tplink|tp-link|d-link|dgs-|des-|zyxel|"
+        r"edgeswitch|usw|unifi switch|powerconnect|force10|n\d{3,4})\b"
+    )
+    if re.search(switch_terms, text):
         return "Switch"
     if vendor.key == "unifi" and "usw" in text:
         return "Switch"
+    if re.search(r"\b(access point|access-point|wireless ap|aironet|unifi ap|uap-|wap|wlan)\b", text):
+        return "AP"
+    if re.search(r"\b(firewall|fortigate|pfsense|opnsense|sophos|sfos|sonicwall|watchguard|checkpoint)\b", text):
+        return "Firewall"
+    if re.search(r"\b(router|routeros|junos|ios xe|ios-xe|gateway|edge gateway|edgerouter|isr\d|asr\d|ccr\d|rb\d)\b", text):
+        return "Router"
     return None
 
 
@@ -459,7 +547,7 @@ def _apply_target_identity_to_device(db: Session, switch: SnmpSwitch, vendor: Ve
     device = _linked_device_for_target(db, switch)
     if not device:
         return
-    inferred_class = _switch_like_device_class(vendor, switch, interface_count)
+    inferred_class = _network_device_class(vendor, switch, interface_count)
     current_class = (device.device_class or "").strip().lower()
     if inferred_class and current_class in {"", "unknown"}:
         device.device_class = inferred_class
