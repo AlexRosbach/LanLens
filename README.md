@@ -19,34 +19,23 @@ LanLens turns a Docker host into a local network scanner that discovers MAC/IP d
 
 ---
 
-## What You Get
+## After Two Minutes
 
-After the first scan, LanLens shows which devices are on your network, where they sit in your inventory, which services are reachable, and which changes deserve attention. It is built for self-hosted network inventory, home lab network monitoring, lightweight asset documentation, and quick troubleshooting without rolling out a full enterprise discovery suite.
+LanLens gives you a quick, local view of what is on your network:
 
-In the first two minutes you can usually see:
+- Devices found by MAC/IP device discovery, with vendor hints and online/offline state
+- A practical device inventory for names, notes, owners, locations, services, ports, and history
+- Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices
+- Awareness signals for DHCP, ARP/MAC, topology, SNMP, and scan-detected changes
+- Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
 
-- A device inventory with MAC/IP device discovery, vendor hints, online/offline state, DHCP range membership, and connection shortcuts
-- Device detail pages for labels, owner/team, location, purpose, OS/version, asset tag, notes, CMDB ID, IP history, services, ports, and timeline
-- Segments that keep routers, switches, servers, IoT, cameras, and client devices readable
-- Network awareness signals for unknown DHCP servers, ARP/MAC drift, VRRP/HSRP peers, and scan-detected changes
-- Optional SNMP target polling for common IF-MIB network devices, switch-port visibility, interface statistics, diagnostics, and device-class enrichment
-- Optional mDNS, SSDP/UPnP, LLDP/CDP, and multicast observations that can improve hostnames and device classes
-- Reviewed CMDB/i-doit CSV export plus integration foundations for inventory sync workflows
+Why people use it:
 
-Why it is useful:
+- **Fast start:** a Docker network scanner for home lab network monitoring and small IT networks.
+- **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
+- **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
 
-- **Fast local visibility:** run a Docker network scanner on a host in the LAN and get a practical device list quickly.
-- **Documentation without friction:** turn discovered devices into a maintained inventory instead of a spreadsheet that drifts.
-- **Security awareness for small networks:** surface suspicious DHCP, identity, and topology changes without sending the inventory to a cloud service.
-- **Operator-friendly exports:** prepare device inventory and CMDB/i-doit export data before it leaves LanLens.
-- **Optional expert modules:** enable Services, DHCP Monitor, SNMP, passive discovery, CMDB/i-doit, TLS checks, and other advanced views only when needed.
-
-Trust and privacy notes:
-
-- LanLens runs self-hosted and stores its inventory in your configured database volume.
-- No cloud account is required to use the product.
-- There is no product telemetry pipeline in the application. Optional outbound traffic happens only for features you configure or trigger, such as update checks, Telegram/email/webhook notifications, CMDB/i-doit connections, or external database/integration targets.
-- Secrets such as notification tokens, SNMP credentials, and integration credentials are masked in API responses; protect the database volume and backups because configured credentials live there.
+Optional expert views add SNMP switch-port context, passive discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
