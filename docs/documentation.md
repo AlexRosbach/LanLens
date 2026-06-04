@@ -27,7 +27,7 @@
 
 ## Overview
 
-LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, home lab network monitoring and lightweight device documentation. It helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, and prepare CMDB/i-doit export data without requiring a cloud account.
+LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. It helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, and prepare CMDB/i-doit export data without requiring a cloud account.
 
 LanLens can:
 

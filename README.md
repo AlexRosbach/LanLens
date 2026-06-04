@@ -11,7 +11,7 @@
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
 
-LanLens turns a Docker host into a local network scanner that discovers MAC/IP devices, builds a device inventory, and gives home lab or small IT operators a clean web UI for documentation, security awareness, and CMDB/i-doit export workflows.
+LanLens turns a Docker host into a local network scanner that discovers MAC/IP devices, builds a device inventory, and gives operators in home lab, small IT, and enterprise environments a clean web UI for documentation, security awareness, and CMDB/i-doit export workflows.
 
 [Documentation](docs/documentation.md) · [Knowledge Base](docs/knowledgebase.md) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens)
 
@@ -31,7 +31,7 @@ LanLens gives you a quick, local view of what is on your network:
 
 Why people use it:
 
-- **Fast start:** a Docker network scanner for home lab network monitoring and small IT networks.
+- **Fast start:** a Docker network scanner for networks from home labs to small IT and enterprise environments.
 - **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
 - **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
 
