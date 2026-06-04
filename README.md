@@ -13,7 +13,7 @@
 
 LanLens turns a Docker host into a local network scanner that discovers MAC/IP devices, builds a device inventory, and gives operators in home lab, small IT, and enterprise environments a clean web UI for documentation, security awareness, and CMDB/i-doit export workflows.
 
-[Documentation](docs/documentation.md) · [Knowledge Base](docs/knowledgebase.md) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens)
+[Documentation](docs/documentation.md) · [Knowledge Base](docs/knowledgebase.md) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens) · [Website](https://lanlens.org/)
 
 </div>
 
@@ -39,6 +39,16 @@ Optional expert views add SNMP switch-port context, passive discovery hints, ser
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
+
+---
+
+## Support
+
+LanLens is free and open source. If it helps you or saves you time, you can support ongoing development voluntarily. Support does not buy support priority, features, or access.
+
+<a href="https://www.buymeacoffee.com/alexrosbaci" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me a Coffee" height="42"></a>
+
+Legal notice and project contact information are maintained on [lanlens.org](https://lanlens.org/#privacy).
 
 ---
 
