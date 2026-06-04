@@ -425,6 +425,15 @@ def migrate():
         conn.execute(text("UPDATE notifications SET webhook_sent = FALSE WHERE webhook_sent IS NULL"))
         conn.commit()
 
+        if not _column_exists(conn, "notifications", "smtp_sent"):
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN smtp_sent BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.commit()
+            print("Migration: added notifications.smtp_sent")
+        else:
+            print("Migration: notifications.smtp_sent already exists — skipped")
+        conn.execute(text("UPDATE notifications SET smtp_sent = FALSE WHERE smtp_sent IS NULL"))
+        conn.commit()
+
         # ── v1.5.0 ── DHCP monitor observations ────────────────────────────
         if IS_SQLITE and not _table_exists(conn, "dhcp_observations"):
             conn.execute(text(

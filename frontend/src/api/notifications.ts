@@ -10,6 +10,7 @@ export interface NotificationItem {
   is_read: boolean
   telegram_sent: boolean
   webhook_sent: boolean
+  smtp_sent: boolean
   created_at: string
 }
 

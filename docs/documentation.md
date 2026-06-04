@@ -9,18 +9,19 @@
 5. [API Reference](#api-reference)
 6. [Scanning Logic](#scanning-logic)
 7. [Authentication](#authentication)
-8. [Telegram Integration](#telegram-integration)
-9. [Connection Launch](#connection-launch)
-10. [Docker Details](#docker-details)
-11. [CLI Tools](#cli-tools)
-12. [Frontend Structure](#frontend-structure)
-13. [Configuration Reference](#configuration-reference)
-14. [Deep Scan](#deep-scan)
-15. [Scan Nodes](#scan-nodes-experimental)
-16. [CMDB / i-doit Integrations](#cmdb--i-doit-integrations-v150)
-17. [External Database](#external-database-mariadb--postgresql)
-18. [Development Notes](#development-notes)
-19. [Troubleshooting](#troubleshooting)
+8. [Notification Rules](#notification-rules)
+9. [Telegram Integration](#telegram-integration)
+10. [Connection Launch](#connection-launch)
+11. [Docker Details](#docker-details)
+12. [CLI Tools](#cli-tools)
+13. [Frontend Structure](#frontend-structure)
+14. [Configuration Reference](#configuration-reference)
+15. [Deep Scan](#deep-scan)
+16. [Scan Nodes](#scan-nodes-experimental)
+17. [CMDB / i-doit Integrations](#cmdb--i-doit-integrations-v150)
+18. [External Database](#external-database-mariadb--postgresql)
+19. [Development Notes](#development-notes)
+20. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -449,6 +450,12 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 
 ---
 
+## Notification Rules
+
+Use **Settings -> Notifications -> Notification rules** to choose which events are enabled globally and which external channels receive them. The matrix has one global event column and separate Telegram, webhook/Gotify and email columns, so each channel can subscribe to new-device alerts and network-change alerts independently while the global column remains the master switch for that event.
+
+Channel rules only send when the matching channel is configured and enabled in the same settings tab. Email delivery uses the SMTP settings, webhook delivery uses the configured webhook URL, and Telegram still supports separate update notifications for release checks.
+
 ## Telegram Integration
 
 ### Setup
@@ -475,9 +482,9 @@ Open LanLens to register this device.
 
 ### Failure Handling
 
-- Failed Telegram sends are logged
-- `telegram_sent = False` visible in the Notifications page
-- No automatic retry (manual retry: save settings again and trigger a new scan)
+- Failed Telegram, webhook and SMTP sends are logged.
+- The Notifications page shows successful Telegram, webhook and email deliveries on each stored in-app notification.
+- Delivery is retried by the next scan cycle after a short backoff when a configured external channel fails.
 
 ### In-App Cleanup
 
@@ -551,7 +558,7 @@ Each row shows the changed field plus before/after values and links to the affec
 
 Use **Export audit CSV** to download the currently filtered change history for audit or compliance review. The export uses the same event type, time range and search filters as the visible table. CSV cells are escaped before download, and the API also supports `format=json` for machine-readable audit snapshots.
 
-To route scan-detected network changes into alerting systems, enable **Settings → Notifications → Notify on network changes** together with the desired delivery channel. LanLens creates in-app notifications for scan-detected IP, hostname, online/offline and archive changes; enabled Telegram and webhook/Gotify deliveries receive the same event payloads with a device link when `server_url` is configured.
+To route scan-detected network changes into alerting systems, enable **Settings -> Notifications -> Notification rules -> Network changes** for the desired in-app and external channels. LanLens creates notifications for scan-detected IP, hostname, online/offline and archive changes; enabled Telegram, webhook/Gotify and email deliveries receive the same event payloads with a device link when `server_url` is configured.
 
 ### UI Error Logging
 

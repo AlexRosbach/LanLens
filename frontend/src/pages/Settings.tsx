@@ -36,6 +36,16 @@ interface IdoitMapping {
   fields?: Record<string, string>
 }
 
+type NotificationRuleKey =
+  | 'notify_on_new_device'
+  | 'notify_on_network_changes'
+  | 'telegram_notify_new_device'
+  | 'telegram_notify_network_changes'
+  | 'webhook_notify_new_device'
+  | 'webhook_notify_network_changes'
+  | 'smtp_notify_new_device'
+  | 'smtp_notify_network_changes'
+
 const IDOIT_MAPPING_FIELDS = [
   { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
   { key: 'ip_address', labelKey: 'idoit_field_ip_address', placeholder: 'C__CATG__IP.ipv4_address' },
@@ -466,6 +476,36 @@ export default function Settings() {
 
   const current = settings
   const passiveDiscoveryCaptureSeconds = Math.max(3, Math.min(120, Number(current.passive_discovery_capture_seconds) || 30))
+  const notificationRuleChannels = [
+    {
+      label: t('notification_in_app'),
+      description: t('notification_in_app_hint'),
+      newDeviceKey: 'notify_on_new_device' as NotificationRuleKey,
+      networkChangeKey: 'notify_on_network_changes' as NotificationRuleKey,
+    },
+    {
+      label: t('notification_channel_telegram'),
+      description: t('notification_channel_telegram_hint'),
+      newDeviceKey: 'telegram_notify_new_device' as NotificationRuleKey,
+      networkChangeKey: 'telegram_notify_network_changes' as NotificationRuleKey,
+    },
+    {
+      label: t('notification_channel_webhook'),
+      description: t('notification_channel_webhook_hint'),
+      newDeviceKey: 'webhook_notify_new_device' as NotificationRuleKey,
+      networkChangeKey: 'webhook_notify_network_changes' as NotificationRuleKey,
+    },
+    {
+      label: t('notification_channel_email'),
+      description: t('notification_channel_email_hint'),
+      newDeviceKey: 'smtp_notify_new_device' as NotificationRuleKey,
+      networkChangeKey: 'smtp_notify_network_changes' as NotificationRuleKey,
+    },
+  ]
+
+  function updateNotificationRule(key: NotificationRuleKey, checked: boolean) {
+    setSettings({ ...current, [key]: checked })
+  }
 
   async function loadIdoitConfig() {
     // This endpoint is optional for the rest of Settings. If it fails, keep the
@@ -774,14 +814,33 @@ export default function Settings() {
         telegram_chat_id: current.telegram_chat_id,
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
-        notify_on_new_device: current.notify_on_new_device,
-        notify_on_network_changes: current.notify_on_network_changes,
       })
       setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
       setTelegramTokenDirty(false)
       toast.success(t('telegram_settings_saved'))
     } catch {
       toast.error(t('telegram_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveNotificationRules() {
+    setSaving(true)
+    try {
+      await settingsApi.updateNotificationRules({
+        notify_on_new_device: current.notify_on_new_device,
+        notify_on_network_changes: current.notify_on_network_changes,
+        telegram_notify_new_device: current.telegram_notify_new_device,
+        telegram_notify_network_changes: current.telegram_notify_network_changes,
+        webhook_notify_new_device: current.webhook_notify_new_device,
+        webhook_notify_network_changes: current.webhook_notify_network_changes,
+        smtp_notify_new_device: current.smtp_notify_new_device,
+        smtp_notify_network_changes: current.smtp_notify_network_changes,
+      })
+      toast.success(t('notification_rules_saved'))
+    } catch {
+      toast.error(t('notification_rules_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -2423,6 +2482,52 @@ export default function Settings() {
         </h2>
         <div className="space-y-4">
           <Card>
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-text-base">{t('notification_rules')}</h2>
+              <p className="mt-1 text-sm text-text-subtle">{t('notification_rules_hint')}</p>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] bg-surface2/70 text-xs font-medium uppercase tracking-wide text-text-subtle">
+                <div className="px-3 py-2">{t('notification_event')}</div>
+                {notificationRuleChannels.map((channel) => (
+                  <div key={channel.label} className="px-3 py-2 text-center" title={channel.description}>
+                    {channel.label}
+                  </div>
+                ))}
+              </div>
+              {[
+                { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
+                { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
+              ].map((row) => (
+                <div key={row.label} className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] border-t border-border bg-surface/60">
+                  <div className="px-3 py-3 text-sm font-medium text-text-base">{row.label}</div>
+                  {row.keys.map((key) => (
+                    <div key={key} className="flex items-center justify-center px-3 py-3">
+                      <button
+                        type="button"
+                        aria-pressed={Boolean(current[key])}
+                        aria-label={`${row.label}: ${key}`}
+                        onClick={() => updateNotificationRule(key, !current[key])}
+                        className={`relative h-6 w-11 rounded-full transition-colors ${
+                          current[key] ? 'bg-primary' : 'bg-border'
+                        }`}
+                      >
+                        <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                          current[key] ? 'translate-x-6' : 'translate-x-1'
+                        }`} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-text-subtle">{t('notification_rules_delivery_hint')}</p>
+            <div className="mt-4">
+              <Button onClick={saveNotificationRules} loading={saving}>{t('save_notification_rules')}</Button>
+            </div>
+          </Card>
+
+          <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">Telegram</h2>
             <div className="grid gap-4">
               <div>
@@ -2463,24 +2568,6 @@ export default function Settings() {
                 />
                 {t('send_update_notifications')}
               </label>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.notify_on_new_device}
-                  onChange={(e) => setSettings({ ...current, notify_on_new_device: e.target.checked })}
-                />
-                {t('notify_on_new_device')}
-              </label>
-              <p className="text-xs text-text-subtle">{t('notify_on_new_device_hint')}</p>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.notify_on_network_changes}
-                  onChange={(e) => setSettings({ ...current, notify_on_network_changes: e.target.checked })}
-                />
-                {t('notify_on_network_changes')}
-              </label>
-              <p className="text-xs text-text-subtle">{t('notify_on_network_changes_hint')}</p>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>

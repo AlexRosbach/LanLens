@@ -19,6 +19,7 @@ All notable changes to this project should be documented in this file.
 - Relaxed SNMP polling so routers, firewalls, printers and other non-switch SNMP targets can be scanned for identity/interface data even when IF-MIB details or bridge MAC tables are unavailable.
 - Linked SNMP targets now appear on matching device detail pages and CMDB export fields even when the target has no switch MAC table, using explicit device assignment or host/IP matching.
 - Added a bulk delete action on the Notifications page to clear all in-app notifications after confirmation.
+- Added a general notification rule matrix in **Settings -> Notifications** with global event rules and per-channel Telegram, webhook/Gotify and email rules for new-device and network-change events.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.

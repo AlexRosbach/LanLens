@@ -22,7 +22,7 @@ from ..database import SessionLocal
 from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, DevicePingSample, Notification, ScanRun, Segment, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
-from .notification import send_telegram_for_notification, send_webhook_for_notification
+from .notification import send_smtp_for_notification, send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
 from .device_retention import apply_device_retention
@@ -795,14 +795,56 @@ async def _send_notification_deliveries(db: Session) -> None:
         row = db.query(Setting).filter(Setting.key == key).first()
         return row.value if row and row.value is not None else ""
 
+    def rule_enabled(key: str, fallback_key: str, default: str = "false") -> bool:
+        value = get_setting(key)
+        if value == "":
+            value = get_setting(fallback_key) or default
+        return value == "true"
+
+    channel_rules = {
+        "telegram": {
+            "new_device": rule_enabled("telegram_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": rule_enabled("telegram_notify_network_changes", "notify_on_network_changes", "false"),
+        },
+        "webhook": {
+            "new_device": rule_enabled("webhook_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": rule_enabled("webhook_notify_network_changes", "notify_on_network_changes", "false"),
+        },
+        "smtp": {
+            "new_device": rule_enabled("smtp_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": rule_enabled("smtp_notify_network_changes", "notify_on_network_changes", "false"),
+        },
+    }
+
     telegram_configured = (
         get_setting("telegram_enabled") == "true"
         and bool(get_setting("telegram_bot_token"))
         and bool(get_setting("telegram_chat_id"))
+        and any(channel_rules["telegram"].values())
     )
-    webhook_configured = get_setting("webhook_enabled") == "true" and bool(get_setting("webhook_url"))
+    webhook_configured = (
+        get_setting("webhook_enabled") == "true"
+        and bool(get_setting("webhook_url"))
+        and any(channel_rules["webhook"].values())
+    )
+    smtp_configured = (
+        get_setting("smtp_enabled") == "true"
+        and bool(get_setting("smtp_host"))
+        and bool(get_setting("smtp_from_email"))
+        and bool(get_setting("smtp_to_email"))
+        and any(channel_rules["smtp"].values())
+    )
 
-    if not telegram_configured and not webhook_configured:
+    if not telegram_configured and not webhook_configured and not smtp_configured:
+        return
+
+    enabled_events = {
+        event_type
+        for rules in channel_rules.values()
+        for event_type, enabled in rules.items()
+        if enabled
+    }
+    if not enabled_events:
         return
 
     pending_filters = []
@@ -810,11 +852,13 @@ async def _send_notification_deliveries(db: Session) -> None:
         pending_filters.append(Notification.telegram_sent == False)
     if webhook_configured:
         pending_filters.append(Notification.webhook_sent == False)
+    if smtp_configured:
+        pending_filters.append(Notification.smtp_sent == False)
 
     unsent = (
         db.query(Notification)
         .options(joinedload(Notification.device))
-        .filter(Notification.event_type.in_(("new_device", "network_change")), or_(*pending_filters))
+        .filter(Notification.event_type.in_(enabled_events), or_(*pending_filters))
         .all()
     )
     if not unsent:
@@ -831,14 +875,19 @@ async def _send_notification_deliveries(db: Session) -> None:
 
     had_failure = False
     for notif in unsent:
-        if telegram_configured and not notif.telegram_sent:
+        if telegram_configured and channel_rules["telegram"].get(notif.event_type, False) and not notif.telegram_sent:
             if await send_telegram_for_notification(db, notif):
                 notif.telegram_sent = True
             else:
                 had_failure = True
-        if webhook_configured and not notif.webhook_sent:
+        if webhook_configured and channel_rules["webhook"].get(notif.event_type, False) and not notif.webhook_sent:
             if await send_webhook_for_notification(db, notif):
                 notif.webhook_sent = True
+            else:
+                had_failure = True
+        if smtp_configured and channel_rules["smtp"].get(notif.event_type, False) and not notif.smtp_sent:
+            if await send_smtp_for_notification(db, notif):
+                notif.smtp_sent = True
             else:
                 had_failure = True
 

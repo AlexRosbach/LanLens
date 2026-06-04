@@ -113,6 +113,9 @@ export default function Notifications() {
                     {item.webhook_sent && (
                       <span className="text-xs text-text-subtle">Webhook ✓</span>
                     )}
+                    {item.smtp_sent && (
+                      <span className="text-xs text-text-subtle">Email ✓</span>
+                    )}
                   </div>
                   <p className="text-sm text-text-muted leading-relaxed">{item.message}</p>
                   <p className="text-xs text-text-subtle mt-1">{formatRelativeTime(item.created_at, lang)}</p>

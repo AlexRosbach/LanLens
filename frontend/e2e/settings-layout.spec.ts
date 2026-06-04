@@ -26,8 +26,14 @@ const settings = {
   network_interface: '',
   notify_on_device_online: false,
   notify_on_device_offline: false,
-  notify_on_new_device: false,
+  notify_on_new_device: true,
   notify_on_network_changes: false,
+  telegram_notify_new_device: true,
+  telegram_notify_network_changes: false,
+  webhook_notify_new_device: true,
+  webhook_notify_network_changes: true,
+  smtp_notify_new_device: false,
+  smtp_notify_network_changes: true,
   server_url: 'https://lanlens.example.test',
   smtp_host: '',
   smtp_port: 587,
@@ -132,6 +138,9 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.route('**/api/scan-nodes**', async (route) => {
     await route.fulfill({ json: [] })
   })
+  await page.route('**/api/ignore-rules**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
   await page.route('**/api/snmp/profiles**', async (route) => {
     await route.fulfill({ json: snmpProfiles })
   })
@@ -196,4 +205,13 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.screenshot({ path: testInfo.outputPath('settings-network-discovery.png'), fullPage: false })
   await page.getByRole('heading', { name: 'Port Scan Range' }).scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('settings-port-scan-cadence.png'), fullPage: false })
+
+  await page.getByRole('button', { name: 'Notifications' }).click()
+  await expect(page.getByRole('heading', { name: 'Notification rules' })).toBeVisible()
+  await expect(page.getByText('Global', { exact: true })).toBeVisible()
+  await expect(page.getByTitle('Bot messages sent to the configured chat.')).toBeVisible()
+  await expect(page.getByText('Webhook', { exact: true })).toBeVisible()
+  await expect(page.getByText('Email', { exact: true })).toBeVisible()
+  await page.waitForTimeout(4500)
+  await page.screenshot({ path: testInfo.outputPath('settings-notification-rules.png'), fullPage: false })
 })

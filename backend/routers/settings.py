@@ -15,6 +15,7 @@ from ..schemas import (
     DeviceRetentionSettings,
     DhcpSettings,
     MessageResponse,
+    NotificationRulesSettings,
     PassiveDiscoverySettings,
     PingMonitorSettings,
     PortScanSettings,
@@ -49,7 +50,12 @@ SETTING_KEYS = [
     "snmp_poll_enabled", "snmp_poll_interval_minutes",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
+    "notify_on_network_changes",
+    "telegram_notify_new_device", "telegram_notify_network_changes",
+    "webhook_notify_new_device", "webhook_notify_network_changes",
+    "smtp_notify_new_device", "smtp_notify_network_changes",
     "webhook_url", "webhook_enabled",
+    "smtp_host", "smtp_port", "smtp_username", "smtp_password", "smtp_from_email", "smtp_to_email", "smtp_enabled", "smtp_use_tls",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
     "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav",
@@ -167,6 +173,12 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
         notify_on_new_device=_get(db, "notify_on_new_device", "true") != "false",
         notify_on_network_changes=_get(db, "notify_on_network_changes", "false") == "true",
+        telegram_notify_new_device=_get(db, "telegram_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
+        telegram_notify_network_changes=_get(db, "telegram_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
+        webhook_notify_new_device=_get(db, "webhook_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
+        webhook_notify_network_changes=_get(db, "webhook_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
+        smtp_notify_new_device=_get(db, "smtp_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
+        smtp_notify_network_changes=_get(db, "smtp_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
         server_url=_get(db, "server_url", ""),
         smtp_host=_get(db, "smtp_host", ""),
         smtp_port=int(_get(db, "smtp_port", "587") or "587"),
@@ -406,10 +418,26 @@ def update_telegram(
     _set(db, "telegram_chat_id", data.telegram_chat_id)
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
-    _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
-    _set(db, "notify_on_network_changes", "true" if data.notify_on_network_changes else "false")
     db.commit()
     return MessageResponse(message="Telegram settings updated")
+
+
+@router.put("/notification-rules", response_model=MessageResponse)
+def update_notification_rules(
+    data: NotificationRulesSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
+    _set(db, "notify_on_network_changes", "true" if data.notify_on_network_changes else "false")
+    _set(db, "telegram_notify_new_device", "true" if data.telegram_notify_new_device else "false")
+    _set(db, "telegram_notify_network_changes", "true" if data.telegram_notify_network_changes else "false")
+    _set(db, "webhook_notify_new_device", "true" if data.webhook_notify_new_device else "false")
+    _set(db, "webhook_notify_network_changes", "true" if data.webhook_notify_network_changes else "false")
+    _set(db, "smtp_notify_new_device", "true" if data.smtp_notify_new_device else "false")
+    _set(db, "smtp_notify_network_changes", "true" if data.smtp_notify_network_changes else "false")
+    db.commit()
+    return MessageResponse(message="Notification rules updated")
 
 
 @router.put("/ui", response_model=MessageResponse)

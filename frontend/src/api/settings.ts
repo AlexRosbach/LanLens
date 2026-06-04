@@ -28,6 +28,12 @@ export interface AllSettings {
   notify_on_device_offline: boolean
   notify_on_new_device: boolean
   notify_on_network_changes: boolean
+  telegram_notify_new_device: boolean
+  telegram_notify_network_changes: boolean
+  webhook_notify_new_device: boolean
+  webhook_notify_network_changes: boolean
+  smtp_notify_new_device: boolean
+  smtp_notify_network_changes: boolean
   server_url: string
   smtp_host: string
   smtp_port: number
@@ -104,9 +110,18 @@ export const settingsApi = {
     telegram_chat_id: string
     telegram_enabled: boolean
     notify_telegram_update: boolean
+  }) => apiClient.put('/settings/telegram', data).then((r) => r.data),
+
+  updateNotificationRules: (data: {
     notify_on_new_device: boolean
     notify_on_network_changes: boolean
-  }) => apiClient.put('/settings/telegram', data).then((r) => r.data),
+    telegram_notify_new_device: boolean
+    telegram_notify_network_changes: boolean
+    webhook_notify_new_device: boolean
+    webhook_notify_network_changes: boolean
+    smtp_notify_new_device: boolean
+    smtp_notify_network_changes: boolean
+  }) => apiClient.put('/settings/notification-rules', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),
 

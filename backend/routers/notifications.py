@@ -31,6 +31,7 @@ def list_notifications(
             is_read=n.is_read,
             telegram_sent=bool(n.telegram_sent),
             webhook_sent=bool(n.webhook_sent),
+            smtp_sent=bool(n.smtp_sent),
             created_at=n.created_at,
         )
         for n in notifications

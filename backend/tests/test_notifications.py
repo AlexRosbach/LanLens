@@ -13,9 +13,11 @@ from backend.routers.notifications import delete_all_notifications
 from backend.services.notification import (
     notification_device_path,
     notification_device_url,
+    send_smtp_for_notification,
     send_telegram_for_notification,
     send_webhook_for_notification,
 )
+from backend.services.scanner import _send_notification_deliveries
 
 
 class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
@@ -109,6 +111,95 @@ class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("192.0.2.20", payload["message"])
             self.assertEqual(payload["device_path"], f"/devices/{device.id}")
             self.assertEqual(payload["url"], f"https://lanlens.example/devices/{device.id}")
+        finally:
+            db.close()
+
+    async def test_network_change_smtp_uses_change_payload(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                vendor="Example",
+                device_class="computer",
+                hostname="desk-01",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            notification = Notification(
+                device_id=device.id,
+                event_type="network_change",
+                message="Network change: hostname changed (desk-01 -> desk-02)",
+            )
+            db.add_all([
+                notification,
+                Setting(key="smtp_enabled", value="true"),
+                Setting(key="smtp_host", value="smtp.example"),
+                Setting(key="smtp_from_email", value="lanlens@example.com"),
+                Setting(key="smtp_to_email", value="admin@example.com"),
+                Setting(key="server_url", value="https://lanlens.example"),
+            ])
+            db.commit()
+            db.refresh(notification)
+
+            with patch("backend.services.notification._send_smtp") as send:
+                self.assertTrue(await send_smtp_for_notification(db, notification))
+
+            msg = send.call_args.args[6]
+            self.assertEqual(msg["Subject"], "LanLens — Network Change")
+            self.assertIn("desk-02", msg.get_payload(decode=True).decode("utf-8"))
+            self.assertIn(f"https://lanlens.example/devices/{device.id}", msg.get_payload(decode=True).decode("utf-8"))
+        finally:
+            db.close()
+
+    async def test_delivery_rules_route_events_per_channel(self):
+        db = self.Session()
+        try:
+            new_device = Notification(event_type="new_device", message="New device detected")
+            network_change = Notification(event_type="network_change", message="Network change: IP changed")
+            db.add_all([
+                new_device,
+                network_change,
+                Setting(key="telegram_enabled", value="true"),
+                Setting(key="telegram_bot_token", value="test-token"),
+                Setting(key="telegram_chat_id", value="test-chat"),
+                Setting(key="telegram_notify_new_device", value="true"),
+                Setting(key="telegram_notify_network_changes", value="false"),
+                Setting(key="webhook_enabled", value="true"),
+                Setting(key="webhook_url", value="https://notify.example/message?token=test"),
+                Setting(key="webhook_notify_new_device", value="false"),
+                Setting(key="webhook_notify_network_changes", value="true"),
+                Setting(key="smtp_enabled", value="true"),
+                Setting(key="smtp_host", value="smtp.example"),
+                Setting(key="smtp_from_email", value="lanlens@example.com"),
+                Setting(key="smtp_to_email", value="admin@example.com"),
+                Setting(key="smtp_notify_new_device", value="true"),
+                Setting(key="smtp_notify_network_changes", value="true"),
+            ])
+            db.commit()
+
+            with patch("backend.services.scanner.send_telegram_for_notification", new_callable=AsyncMock) as telegram, \
+                 patch("backend.services.scanner.send_webhook_for_notification", new_callable=AsyncMock) as webhook, \
+                 patch("backend.services.scanner.send_smtp_for_notification", new_callable=AsyncMock) as smtp:
+                telegram.return_value = True
+                webhook.return_value = True
+                smtp.return_value = True
+                await _send_notification_deliveries(db)
+
+            db.refresh(new_device)
+            db.refresh(network_change)
+
+            self.assertEqual([call.args[1].event_type for call in telegram.await_args_list], ["new_device"])
+            self.assertEqual([call.args[1].event_type for call in webhook.await_args_list], ["network_change"])
+            self.assertEqual([call.args[1].event_type for call in smtp.await_args_list], ["new_device", "network_change"])
+            self.assertTrue(new_device.telegram_sent)
+            self.assertFalse(new_device.webhook_sent)
+            self.assertTrue(new_device.smtp_sent)
+            self.assertFalse(network_change.telegram_sent)
+            self.assertTrue(network_change.webhook_sent)
+            self.assertTrue(network_change.smtp_sent)
         finally:
             db.close()
 

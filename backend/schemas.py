@@ -579,6 +579,17 @@ class TelegramSettings(BaseModel):
     notify_on_network_changes: bool = False
 
 
+class NotificationRulesSettings(BaseModel):
+    notify_on_new_device: bool = True
+    notify_on_network_changes: bool = False
+    telegram_notify_new_device: bool = True
+    telegram_notify_network_changes: bool = False
+    webhook_notify_new_device: bool = True
+    webhook_notify_network_changes: bool = False
+    smtp_notify_new_device: bool = True
+    smtp_notify_network_changes: bool = False
+
+
 class WebhookSettings(BaseModel):
     webhook_url: str = ""
     webhook_enabled: bool = False
@@ -649,6 +660,12 @@ class AllSettings(BaseModel):
     notify_on_device_offline: bool = False
     notify_on_new_device: bool = True
     notify_on_network_changes: bool = False
+    telegram_notify_new_device: bool = True
+    telegram_notify_network_changes: bool = False
+    webhook_notify_new_device: bool = True
+    webhook_notify_network_changes: bool = False
+    smtp_notify_new_device: bool = True
+    smtp_notify_network_changes: bool = False
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587
@@ -708,6 +725,7 @@ class NotificationResponse(BaseModel):
     is_read: bool
     telegram_sent: bool
     webhook_sent: bool = False
+    smtp_sent: bool = False
     created_at: datetime
 
     class Config:

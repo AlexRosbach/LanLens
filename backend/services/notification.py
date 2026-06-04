@@ -484,22 +484,12 @@ async def send_smtp_for_notification(db: Session, notification) -> bool:
     except ValueError:
         port = 587
 
-    device = getattr(notification, 'device', None)
-    if device:
-        subject = f"LanLens — New Device: {device.ip_address or device.mac_address}"
-        body = (
-            f"New device detected\n\n"
-            f"IP: {device.ip_address or 'unknown'}\n"
-            f"MAC: {device.mac_address}\n"
-            f"Vendor: {device.vendor or 'Unknown'}\n"
-            f"Class: {device.device_class}\n"
-            f"Hostname: {device.hostname or '—'}"
-        )
-    else:
-        subject = "LanLens Notification"
-        body = notification.message if hasattr(notification, 'message') else str(notification)
+    subject, body = _notification_title_and_message(notification)
+    device_url = notification_device_url(db, notification)
+    if device_url:
+        body = f"{body}\n\nOpen device: {device_url}"
 
-    msg = MIMEText(body, "plain")
+    msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = from_email
     msg["To"] = to_email

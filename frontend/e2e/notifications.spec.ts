@@ -15,6 +15,7 @@ test('notifications can be deleted in bulk', async ({ page }) => {
       is_read: false,
       telegram_sent: false,
       webhook_sent: true,
+      smtp_sent: true,
       created_at: '2026-06-04T08:30:00Z',
     },
     {
@@ -27,6 +28,7 @@ test('notifications can be deleted in bulk', async ({ page }) => {
       is_read: true,
       telegram_sent: true,
       webhook_sent: false,
+      smtp_sent: false,
       created_at: '2026-06-04T08:20:00Z',
     },
   ]
