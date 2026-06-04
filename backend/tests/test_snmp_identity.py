@@ -15,6 +15,7 @@ from backend.routers.snmp import (
     _require_snmp_enabled,
     delete_profile,
     delete_switch,
+    get_device_switch_ports,
     update_switch,
 )
 from backend.services.snmp import (
@@ -37,6 +38,7 @@ from backend.services.snmp import (
     _parse_q_bridge_suffix,
     _format_snmp_error,
     _snmp_command,
+    bulk_identities_for_devices,
     detect_vendor,
     identity_for_device,
     poll_switch,
@@ -277,6 +279,57 @@ class SnmpIdentityTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_identity_uses_linked_snmp_target_without_mac_table(self):
+        db = self.Session()
+        try:
+            last_poll = datetime.utcnow()
+            device = Device(
+                mac_address="ip:192.0.2.44",
+                ip_address="192.0.2.44",
+                hostname="printer-01",
+                is_registered=True,
+            )
+            target = SnmpSwitch(
+                name="office-printer",
+                host="192.0.2.44",
+                sys_name="prn-01",
+                last_poll_at=last_poll,
+            )
+            db.add_all([device, target])
+            db.commit()
+            db.refresh(device)
+
+            identity = identity_for_device(db, device)
+
+            self.assertIsNotNone(identity)
+            self.assertEqual(identity["switch_name"], "office-printer")
+            self.assertEqual(identity["switch_host"], "192.0.2.44")
+            self.assertEqual(identity["confidence"], "target")
+            self.assertEqual(identity["last_seen_at"], last_poll.isoformat())
+        finally:
+            db.close()
+
+    def test_bulk_identity_uses_linked_snmp_target_without_mac_table(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="ip:192.0.2.45",
+                ip_address="192.0.2.45",
+                hostname="firewall-01",
+                is_registered=True,
+            )
+            target = SnmpSwitch(name="edge-firewall", host="192.0.2.45", device=device)
+            db.add_all([device, target])
+            db.commit()
+            db.refresh(device)
+
+            identities = bulk_identities_for_devices(db, [device])
+
+            self.assertEqual(identities[device.id]["switch_name"], "edge-firewall")
+            self.assertEqual(identities[device.id]["switch_host"], "192.0.2.45")
+        finally:
+            db.close()
+
     def test_delete_profile_detaches_assigned_switches(self):
         db = self.Session()
         try:
@@ -454,6 +507,38 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertFalse(result["ports"][1]["is_active"])
             self.assertEqual(result["ports"][0]["endpoints"][0]["device_id"], client_device.id)
             self.assertEqual(result["ports"][0]["endpoints"][0]["vlan"], "20")
+        finally:
+            db.close()
+
+    def test_device_ports_find_snmp_target_by_device_ip(self):
+        db = self.Session()
+        try:
+            self._enable_advanced_view(db)
+            device = Device(
+                mac_address="ip:192.0.2.60",
+                ip_address="192.0.2.60",
+                hostname="router-01",
+                is_registered=True,
+            )
+            target = SnmpSwitch(name="edge-router", host="192.0.2.60")
+            db.add_all([device, target])
+            db.commit()
+            db.refresh(device)
+            db.refresh(target)
+            db.add(SnmpInterface(
+                switch_id=target.id,
+                if_index=2,
+                name="wan0",
+                oper_status="up",
+                last_seen_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            result = get_device_switch_ports(device.id, db, None)
+
+            self.assertEqual(result["switch"]["name"], "edge-router")
+            self.assertEqual(result["ports"][0]["name"], "wan0")
+            self.assertFalse(result["has_visualization"])
         finally:
             db.close()
 

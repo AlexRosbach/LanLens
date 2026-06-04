@@ -34,7 +34,7 @@ LanLens is built for small self-hosted, homelab, and lightweight IT environments
 - Group networks into segments and keep device lists readable
 - Connect quickly through SSH, RDP, HTTP, and HTTPS shortcuts
 - Enable optional expert modules only when needed through **Settings → Features**
-- Manage SNMP targets and switch topology, including editable target name, host, profile, enabled state, optional background poll interval, and non-switch SNMP identity scans
+- Manage SNMP targets and switch topology, including editable target name, host, profile, enabled state, optional background poll interval, non-switch SNMP identity scans, and device-detail linkage by assignment or IP match
 - Maintain a clickable Services directory for self-hosted apps and device services
 - Enrich selected devices through SSH/WinRM deep scans
 - Prepare CMDB/i-doit exports and sync workflows, including reviewed CSV export

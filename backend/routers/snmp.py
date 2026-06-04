@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -365,7 +365,18 @@ def list_switch_interfaces(switch_id: int, db: Session = Depends(get_db), _: Use
 @router.get("/devices/{device_id}/ports")
 def get_device_switch_ports(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_snmp_enabled(db)
-    switch = db.query(SnmpSwitch).filter(SnmpSwitch.device_id == device_id).first()
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    filters = [SnmpSwitch.device_id == device_id]
+    if device.ip_address:
+        filters.append(SnmpSwitch.host == device.ip_address)
+    switch = (
+        db.query(SnmpSwitch)
+        .filter(or_(*filters))
+        .order_by(SnmpSwitch.device_id.is_(None).asc(), SnmpSwitch.last_poll_at.desc().nullslast(), SnmpSwitch.name.asc())
+        .first()
+    )
     if not switch:
         return {"switch": None, "has_visualization": False, "ports": []}
     return _build_switch_port_visualization(db, switch)

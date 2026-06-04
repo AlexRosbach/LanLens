@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
@@ -333,6 +334,37 @@ def _upsert_mac_entry(
     row.last_seen_at = now
 
 
+def _target_identity(switch: SnmpSwitch) -> dict[str, Any]:
+    return {
+        "switch_id": switch.id,
+        "switch_device_id": switch.device_id,
+        "switch_name": switch.name or "",
+        "switch_host": switch.host or "",
+        "if_index": None,
+        "interface_name": "",
+        "interface_alias": "",
+        "vlan": "",
+        "last_seen_at": switch.last_poll_at.isoformat() if switch.last_poll_at else "",
+        "confidence": "target",
+    }
+
+
+def _linked_target_for_device(db: Session, device: Device) -> Optional[SnmpSwitch]:
+    filters = []
+    if device.id is not None:
+        filters.append(SnmpSwitch.device_id == device.id)
+    if device.ip_address:
+        filters.append(SnmpSwitch.host == device.ip_address)
+    if not filters:
+        return None
+    return (
+        db.query(SnmpSwitch)
+        .filter(or_(*filters))
+        .order_by(SnmpSwitch.device_id.is_(None).asc(), SnmpSwitch.last_poll_at.desc().nullslast(), SnmpSwitch.name.asc())
+        .first()
+    )
+
+
 def _poll_mac_tables(
     db: Session,
     switch: SnmpSwitch,
@@ -424,8 +456,9 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
 
 
 def identity_for_device(db: Session, device: Device) -> Optional[dict[str, Any]]:
+    linked_target = _linked_target_for_device(db, device)
     if not device.mac_address or device.mac_address.startswith("ip:"):
-        return None
+        return _target_identity(linked_target) if linked_target else None
     mac = normalize_mac(device.mac_address)
     entry = (
         db.query(SnmpMacTableEntry)
@@ -434,7 +467,7 @@ def identity_for_device(db: Session, device: Device) -> Optional[dict[str, Any]]
         .first()
     )
     if not entry:
-        return None
+        return _target_identity(linked_target) if linked_target else None
     iface = None
     if entry.if_index is not None:
         iface = (
@@ -470,7 +503,9 @@ def bulk_identities_for_devices(db: Session, devices: list[Device]) -> dict[int,
         mac_to_device_id[normalize_mac(device.mac_address)] = device.id
 
     if not mac_to_device_id:
-        return {}
+        result: dict[int, dict[str, Any]] = {}
+        _add_linked_target_identities(db, devices, result)
+        return result
 
     all_macs = list(mac_to_device_id.keys())
     all_entries = (
@@ -518,4 +553,28 @@ def bulk_identities_for_devices(db: Session, devices: list[Device]) -> dict[int,
             "last_seen_at": entry.last_seen_at.isoformat() if entry.last_seen_at else "",
             "confidence": "high" if entry.if_index else "medium",
         }
+    _add_linked_target_identities(db, devices, result)
     return result
+
+
+def _add_linked_target_identities(db: Session, devices: list[Device], result: dict[int, dict[str, Any]]) -> None:
+    remaining_devices = [device for device in devices if device.id not in result]
+    if not remaining_devices:
+        return
+
+    device_ids = [device.id for device in remaining_devices]
+    ip_to_device_id = {device.ip_address: device.id for device in remaining_devices if device.ip_address}
+    filters = [SnmpSwitch.device_id.in_(device_ids)]
+    if ip_to_device_id:
+        filters.append(SnmpSwitch.host.in_(list(ip_to_device_id.keys())))
+
+    switches = (
+        db.query(SnmpSwitch)
+        .filter(or_(*filters))
+        .order_by(SnmpSwitch.device_id.is_(None).asc(), SnmpSwitch.last_poll_at.desc().nullslast(), SnmpSwitch.name.asc())
+        .all()
+    )
+    for switch in switches:
+        device_id = switch.device_id or ip_to_device_id.get(switch.host)
+        if device_id is not None and device_id not in result:
+            result[device_id] = _target_identity(switch)

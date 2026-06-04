@@ -263,6 +263,91 @@ test('device detail danger zone can archive a device manually', async ({ page })
   await page.screenshot({ path: `${screenshotDir}/device-danger-zone-archive.png`, fullPage: true })
 })
 
+test('device detail shows linked SNMP target without switch MAC table', async ({ page }) => {
+  const snmpLinkedDevice = {
+    ...device,
+    mac_address: 'ip:192.0.2.60',
+    ip_address: '192.0.2.60',
+    hostname: 'edge-router-01',
+    label: 'Edge Router',
+    device_class: 'Router',
+    vendor: 'Cisco',
+    snmp_switch: 'Edge Router SNMP',
+    snmp_switch_host: '192.0.2.60',
+    snmp_interface: null,
+    snmp_interface_alias: null,
+    snmp_vlan: null,
+    snmp_last_seen_at: '2026-06-04T08:45:00Z',
+  }
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({ json: { username: 'admin', force_password_change: false } })
+  })
+  await page.route('**/api/settings', async (route) => {
+    await route.fulfill({ json: settings })
+  })
+  await page.route('**/api/notifications/unread-count', async (route) => {
+    await route.fulfill({ json: { count: 0 } })
+  })
+  await page.route('**/api/settings/update/check', async (route) => {
+    await route.fulfill({ json: { current_version: '1.5.6', latest_version: '1.5.6', release_url: '', update_available: false } })
+  })
+  await page.route('**/api/devices/1', async (route) => {
+    await route.fulfill({ json: snmpLinkedDevice })
+  })
+  await page.route('**/api/devices/1/mark-viewed', async (route) => {
+    await route.fulfill({ json: { message: 'ok' } })
+  })
+  await page.route('**/api/devices/1/ip-history', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/timeline', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/deep-scan/**', async (route) => {
+    await route.fulfill({ json: route.request().url().includes('/config') ? {} : [] })
+  })
+  await page.route('**/api/credentials', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/devices/1/ports', async (route) => {
+    await route.fulfill({
+      json: {
+        switch: {
+          id: 12,
+          name: 'Edge Router SNMP',
+          host: '192.0.2.60',
+          device_id: 1,
+          profile_id: 10,
+          enabled: true,
+          sys_name: 'edge-router-01',
+          sys_descr: 'Cisco IOS XE Router',
+          sys_object_id: '1.3.6.1.4.1.9',
+          vendor: 'Cisco',
+          vendor_key: 'cisco',
+          vendor_notes: 'Cisco device with IF-MIB but no bridge MAC table',
+          last_poll_at: '2026-06-04T08:45:00Z',
+          last_error: 'Cisco detected. SNMP identity/interface inventory updated, but no BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available.',
+          interface_count: 3,
+          mac_count: 0,
+        },
+        has_visualization: false,
+        ports: [],
+      },
+    })
+  })
+  await page.route('**/api/devices/1/passive-discovery?**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+
+  await page.goto('/devices/1')
+
+  await expect(page.getByText('Edge Router', { exact: true })).toBeVisible()
+  await expect(page.getByText('Edge Router SNMP', { exact: true })).toBeVisible()
+  await expect(page.getByText('SNMP switch')).toBeVisible()
+  await page.screenshot({ path: `${screenshotDir}/device-snmp-target-link.png`, fullPage: true })
+})
+
 test('enabling i-doit feature does not load i-doit config before settings are saved', async ({ page }) => {
   let idoitConfigRequests = 0
 
@@ -376,7 +461,7 @@ test('settings expose device retention archive and delete controls', async ({ pa
   })
 
   await page.goto('/settings')
-  await page.getByRole('button', { name: 'Network Discovery' }).click()
+  await page.getByRole('button', { name: 'Lifecycle' }).click()
   await expect(page.getByRole('heading', { name: 'Device retention' })).toBeVisible()
   await page.getByText('Archive after inactive days').locator('..').getByRole('spinbutton').fill('14')
   await page.getByText('Delete archived after days').locator('..').getByRole('spinbutton').fill('60')
