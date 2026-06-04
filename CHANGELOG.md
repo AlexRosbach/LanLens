@@ -22,6 +22,7 @@ All notable changes to this project should be documented in this file.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.
+- Replaced the SNMP target edit row's raw enabled checkbox with a compact inline toggle that fits the Settings table action layout.
 - Reused the existing DHCP Monitor, passive discovery and network-change infrastructure; no new packages or license obligations were added.
 - Bumped backend, frontend and image metadata to 1.5.6.
 

@@ -184,6 +184,36 @@ function ToggleSwitch({
   )
 }
 
+function CompactToggle({
+  checked,
+  disabled = false,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`inline-flex h-8 w-12 items-center justify-center rounded-lg border px-2 text-xs font-medium transition-colors ${
+        checked ? 'border-primary/50 bg-primary-dim/30 text-primary' : 'border-border bg-surface2/50 text-text-subtle'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary/60 hover:text-text-base'}`}
+      aria-pressed={checked}
+      aria-label={label}
+      title={label}
+    >
+      <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
+        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${checked ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+      </span>
+    </button>
+  )
+}
+
 function IdoitExportReviewPanel() {
   const { t } = useI18n()
   const [rows, setRows] = useState<IdoitExportRow[]>([])
@@ -2218,7 +2248,7 @@ export default function Settings() {
                     <th className="px-3 py-2 font-medium">{t('interfaces')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_macs')}</th>
                     <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
-                    <th className="px-3 py-2 font-medium">{t('actions')}</th>
+                    <th className="px-3 py-2 font-medium min-w-[15rem]">{t('actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -2283,18 +2313,16 @@ export default function Settings() {
                       <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.mac_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.last_poll_at ? formatDateTime(item.last_poll_at) : '—'}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2 min-w-[15rem]">
                         <div className="flex flex-wrap items-center gap-2">
                           {isEditing ? (
                             <>
-                              <label className="flex items-center gap-2 text-xs text-text-muted">
-                                <input
-                                  type="checkbox"
-                                  checked={editingSnmpSwitchEnabled}
-                                  onChange={(event) => setEditingSnmpSwitchEnabled(event.target.checked)}
-                                />
-                                {t('enabled')}
-                              </label>
+                              <CompactToggle
+                                checked={editingSnmpSwitchEnabled}
+                                disabled={snmpLoading}
+                                onChange={setEditingSnmpSwitchEnabled}
+                                label={editingSnmpSwitchEnabled ? t('enabled') : t('disabled')}
+                              />
                               <Button size="sm" onClick={() => saveSnmpSwitch(item)} disabled={snmpLoading}>{t('save')}</Button>
                               <Button size="sm" variant="outline" onClick={cancelEditingSnmpSwitch} disabled={snmpLoading}>{t('cancel')}</Button>
                             </>
