@@ -78,7 +78,7 @@ const switchDevice = {
   purpose: 'PoE access switch for office, lab and media devices.',
   description: 'UniFi 24-port switch with SNMP topology polling enabled.',
   location: 'Network rack',
-  responsible: 'Alex',
+  responsible: 'NetOps Team',
   password_location: 'Vault',
   os_info: 'UniFi Switch OS',
   asset_tag: 'NET-SW-01',
@@ -257,7 +257,7 @@ async function mockDeviceDetail(page: Page, device: Record<string, unknown>, por
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.4', latest_version: '1.5.4', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.6', latest_version: '1.5.6', release_url: '', update_available: false } })
   })
   await page.route('**/api/devices**', async (route) => {
     if (!new URL(route.request().url()).pathname.endsWith('/api/devices')) return route.fallback()

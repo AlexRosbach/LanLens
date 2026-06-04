@@ -27,16 +27,24 @@
 
 ## Overview
 
-LanLens is a single-container Docker application that:
+LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, home lab network monitoring and lightweight device documentation. It helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, and prepare CMDB/i-doit export data without requiring a cloud account.
 
-- Periodically scans the local network via ARP broadcast
-- Identifies device vendors from MAC addresses using the offline IEEE OUI database
-- Classifies devices heuristically (Server, VM, IoT, Router, etc.)
-- Performs per-device port scans using nmap
-- Provides a React-based dark-themed web UI for management
-- Documents device services and groups them in the optional Services directory via drag-and-drop or explicit segment selection
-- Sends Telegram notifications for newly discovered devices
-- Supports SSH link, RDP file download, and web browser connection
+LanLens can:
+
+- Periodically scan the local network via ARP broadcast
+- Identify device vendors from MAC addresses using the offline IEEE OUI database
+- Classify devices heuristically and enrich classes through optional LLDP/CDP, multicast and SNMP identity evidence
+- Track online/offline state, IP history, DHCP range membership, open services and scan-detected inventory changes
+- Flag security-awareness signals such as unknown DHCP servers, ARP/MAC drift and VRRP/HSRP peers
+- Poll optional SNMP v1/v2c/v3 targets for IF-MIB inventory, common network-device identity, switch-port context and diagnostics
+- Perform per-device port scans using nmap
+- Provide a React-based dark-themed web UI for management and documentation
+- Document device services and group them in the optional Services directory via drag-and-drop or explicit segment selection
+- Send notifications through configured Telegram, webhook/Gotify and email channels
+- Support SSH link, RDP file download, and web browser connection shortcuts
+- Prepare reviewed CMDB/i-doit CSV exports and integration sync workflows
+
+LanLens stores inventory in the configured database volume. There is no product telemetry pipeline; outbound traffic is limited to features that are configured or triggered, such as update checks, notifications, CMDB/i-doit, webhooks or external database/integration targets.
 
 ---
 
@@ -80,7 +88,7 @@ Default first-run login:
 admin / admin
 ```
 
-LanLens forces a password change after the first login.
+LanLens forces a password change after the first login. For full MAC/vendor discovery, run it on a Linux host with host networking as shown in the compose file.
 
 ### Optional HTTP/HTTPS port
 
@@ -95,7 +103,7 @@ For built-in HTTPS in host-network deployments, open **Settings → System → H
 
 ### Optional Advanced View
 
-LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, or build metadata.
+LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery or build metadata.
 
 ---
 
@@ -655,14 +663,13 @@ The `TopBar` polls `GET /api/scan/status` every 2 seconds while a scan is runnin
 
 ### Docker images
 
-LanLens images are published on Docker Hub:
+LanLens images are published on Docker Hub under:
 
 ```text
-alexrosbach/lanlens:latest
-alexrosbach/lanlens:1.5.4
+alexrosbach/lanlens
 ```
 
-Use `latest` for the newest build or pin the release tag for reproducible deployments.
+Use the compose file from this repository for the expected host-network deployment model and set the image tag according to the published build you intend to run.
 
 ### docker-compose.yml Environment Variables
 
@@ -896,7 +903,7 @@ Scan Nodes are an optional and currently **untested/experimental** way to cover 
 - A Scan Node is a small Docker container deployed inside a VLAN/site with host networking and `nmap -sn`.
 - The node has no inbound API. It only needs outbound HTTPS to Central.
 - Central generates the deployment command in **Settings -> Network -> Scan Nodes** with the central URL, node name and token.
-- The generated image tag is `alexrosbach/lanlens:scan-node-latest`.
+- The generated Scan Node image reference should match the Scan Node build published for the LanLens version in use.
 - Set `LANLENS_SCAN_TARGETS` to override the node's local auto-detected IPv4 CIDR.
 - Set `LANLENS_SCAN_INTERVAL` to control the node loop interval; invalid values fall back to 300 seconds.
 - If a node does not report MAC addresses, Central uses IP-only pseudo-identifiers. IP-only matches are intentionally conservative and must not overwrite an existing device with a real MAC address.
@@ -979,13 +986,13 @@ SNMP data is most useful when the router, firewall, access point or switch expos
 
 SNMP interface polling also stores real-port statistics when the device exposes the related IF-MIB and EtherLike-MIB counters: speed, admin/oper status, unicast/non-unicast packet counters, discards, errors, unknown protocols, CRC/FCS/alignment errors, collisions and frame-too-long fragment counters. The device detail page shows the switch, port, speed and port statistics when a device is matched through the MAC table. The switch-port grid accepts common physical interface naming from multiple vendors such as Ethernet, GigabitEthernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial names. It filters common virtual interfaces such as loopback, VLAN/SVI, tunnel, bridge, LAG/bond/team, management, stack and port-channel rows so the visualization focuses on real switch/router/firewall/AP ports.
 
-![Device overview with SNMP switch port visualization](screenshots/lanlens-snmp-switch-ports.png)
+![SNMP target settings with learned network device identity](screenshots/lanlens-snmp-targets-settings.png)
 
 When an SNMP target is linked to a LanLens device and the poll returns interfaces, the device detail page shows a switch-port visualization. Each real interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, speed, CRC errors, collisions, fragments, cast packet counters, discard/error counters and learned device/MAC/VLAN context when bridge tables are available; unlabeled endpoints show the MAC once with any VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. Interface-only targets still show their SNMP port inventory with empty endpoint labels so troubleshooting remains possible even when BRIDGE-MIB/Q-BRIDGE-MIB is unavailable.
 
 MAC tables are used to identify known LanLens devices by MAC address and attach switch/port/VLAN context to those devices. Expanding routed scan targets from SNMP-learned data needs IP-to-MAC evidence, not only a bridge MAC table. That follow-up should use IP-MIB/ARP-style SNMP data or explicit operator-provided scan targets before adding routed subnets to **Settings -> Network Discovery -> Scan range**.
 
-![Device overview with SNMP interface-only switch ports](screenshots/lanlens-snmp-interface-only-ports.png)
+![SNMP poll diagnostics without exposed credentials](screenshots/lanlens-snmp-poll-diagnostics.png)
 
 The API surface is available under `/api/snmp`:
 
@@ -1021,7 +1028,7 @@ Example MariaDB compose setup:
 ```yaml
 services:
   lanlens:
-    image: alexrosbach/lanlens:1.5.3
+    image: alexrosbach/lanlens:<chosen-tag>
     environment:
       SECRET_KEY: your-secret-key-here
       DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens
