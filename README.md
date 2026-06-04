@@ -82,13 +82,13 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
 ```
 
-### 2. Generate a secret key
+### 2. Generate and write a secret key
 
 ```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
+python3 -c 'from pathlib import Path; import secrets; p=Path("docker-compose.yml"); p.write_text(p.read_text().replace("CHANGE_THIS_TO_A_LONG_RANDOM_STRING", secrets.token_hex(32)))'
 ```
 
-Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml` with the generated value, then start LanLens:
+This replaces the `SECRET_KEY` placeholder in `docker-compose.yml`. Then start LanLens:
 
 ```bash
 docker compose up -d

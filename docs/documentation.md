@@ -64,13 +64,13 @@ Download the compose file:
 curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
 ```
 
-Generate a secret key:
+Generate and write a secret key:
 
 ```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
+python3 -c 'from pathlib import Path; import secrets; p=Path("docker-compose.yml"); p.write_text(p.read_text().replace("CHANGE_THIS_TO_A_LONG_RANDOM_STRING", secrets.token_hex(32)))'
 ```
 
-Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml`, then start LanLens:
+This replaces the `SECRET_KEY` placeholder in `docker-compose.yml`. Then start LanLens:
 
 ```bash
 docker compose up -d
@@ -699,9 +699,9 @@ Any standard TZ database name: `UTC`, `Europe/Berlin`, `America/New_York`, `Asia
 
 ### "SECRET_KEY environment variable is not set"
 
-Set a proper `SECRET_KEY` in `docker-compose.yml`. Generate one with:
+Set a proper `SECRET_KEY` in `docker-compose.yml`. This command replaces the placeholder value:
 ```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
+python3 -c 'from pathlib import Path; import secrets; p=Path("docker-compose.yml"); p.write_text(p.read_text().replace("CHANGE_THIS_TO_A_LONG_RANDOM_STRING", secrets.token_hex(32)))'
 ```
 
 ### Telegram test fails
