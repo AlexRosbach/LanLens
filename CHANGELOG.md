@@ -34,8 +34,10 @@ All notable changes to this project should be documented in this file.
 - Made unknown-DHCP-server notifications honor the global network-change notification rule.
 - Validated authorized DHCP server IP and MAC entries on create/update to reject typoed allowlist identities.
 - Added best-effort per-IP throttling to unauthenticated client-error logging to reduce container log spam.
+- Made client-error throttling use the nginx-forwarded browser IP when available so one noisy proxied client does not silence error logs for everyone.
 - Kept the Notifications bulk-delete UI unchanged when the backend delete request fails.
 - Replaced the SNMP target edit row's raw enabled checkbox with a compact inline toggle that fits the Settings table action layout.
+- Avoided duplicated MAC addresses in SNMP switch-port hover details when a learned endpoint has no matched device label.
 - Treated missing BRIDGE-MIB/Q-BRIDGE-MIB MAC tables as optional SNMP diagnostics instead of marking otherwise successful interface polls as latest errors.
 - Classified unknown IP-scan-discovered switch, router, firewall and AP devices from linked SNMP target identity and interface inventory.
 - Reused the existing DHCP Monitor, passive discovery and network-change infrastructure; no new packages or license obligations were added.

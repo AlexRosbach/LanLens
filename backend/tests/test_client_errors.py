@@ -58,6 +58,37 @@ class ClientErrorLogTests(unittest.TestCase):
         self.assertTrue(response.json()["throttled"])
         self.assertEqual(len(logs.output), client_errors.CLIENT_ERROR_RATE_LIMIT)
 
+    def test_client_error_endpoint_throttles_by_forwarded_client_ip(self):
+        client = TestClient(app)
+        payload = {
+            "kind": "toast",
+            "message": "Repeated failure",
+            "path": "/settings",
+            "source": "toast.error",
+        }
+
+        with self.assertLogs("lanlens.client_errors", level=logging.WARNING) as logs:
+            for _ in range(client_errors.CLIENT_ERROR_RATE_LIMIT):
+                response = client.post(
+                    "/api/client-errors",
+                    json=payload,
+                    headers={"x-forwarded-for": "203.0.113.10, 127.0.0.1"},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("throttled", response.json())
+
+            response = client.post(
+                "/api/client-errors",
+                json=payload,
+                headers={"x-forwarded-for": "203.0.113.11, 127.0.0.1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("throttled", response.json())
+        self.assertEqual(len(logs.output), client_errors.CLIENT_ERROR_RATE_LIMIT + 1)
+        self.assertIn("client_ip=203.0.113.10", "\n".join(logs.output))
+        self.assertIn("client_ip=203.0.113.11", "\n".join(logs.output))
+
 
 if __name__ == "__main__":
     unittest.main()

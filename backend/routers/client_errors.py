@@ -47,6 +47,14 @@ def _rate_limited(client_ip: str, now: float | None = None) -> bool:
     return False
 
 
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    forwarded_ip = forwarded_for.split(",", 1)[0].strip()
+    if forwarded_ip:
+        return _clean(forwarded_ip, 80)
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("")
 def log_client_error(payload: ClientErrorLogRequest, request: Request) -> dict[str, bool]:
     """Write browser-visible errors to the backend log stream.
@@ -54,7 +62,7 @@ def log_client_error(payload: ClientErrorLogRequest, request: Request) -> dict[s
     The endpoint is intentionally lightweight so client logging still works for
     UI failures that happen before a normal authenticated API call succeeds.
     """
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_ip(request)
     if _rate_limited(client_ip):
         return {"success": True, "throttled": True}
 

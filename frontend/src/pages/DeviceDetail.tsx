@@ -134,7 +134,11 @@ function portStatsTitleLines(port: SnmpSwitchPort, t: TranslateFn) {
     for (const endpoint of port.endpoints) {
       const endpointLabel = endpoint.device_label || endpoint.mac_address
       const vlan = endpoint.vlan ? `VLAN ${endpoint.vlan}` : ''
-      lines.push(`- ${[endpointLabel, endpoint.mac_address, vlan].filter(Boolean).join(' · ')}`)
+      const endpointParts = [endpointLabel]
+      if (endpoint.device_label && endpoint.device_label.toLowerCase() !== endpoint.mac_address.toLowerCase()) {
+        endpointParts.push(endpoint.mac_address)
+      }
+      lines.push(`- ${[...endpointParts, vlan].filter(Boolean).join(' · ')}`)
     }
   } else {
     lines.push(t('switch_port_no_endpoint'))

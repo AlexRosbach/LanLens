@@ -144,6 +144,7 @@ const switchPorts = {
     const portNumber = index + 1
     const endpointMap: Record<number, Array<Record<string, string | number>>> = {
       1: [{ mac_address: '3C:52:82:10:00:01', vlan: '10', device_id: 2, device_label: 'Office AP', last_seen_at: now }],
+      2: [{ mac_address: 'AA:BB:CC:00:00:02', vlan: '10', last_seen_at: now }],
       3: [{ mac_address: '00:11:32:44:55:66', vlan: '20', device_id: 3, device_label: 'NAS-01', last_seen_at: now }],
       5: [{ mac_address: 'B8:27:EB:AA:BB:CC', vlan: '30', device_id: 4, device_label: 'Home Assistant', last_seen_at: now }],
       8: [{ mac_address: 'D8:3A:DD:44:55:66', vlan: '40', device_id: 5, device_label: 'Media Bridge', last_seen_at: now }],
@@ -296,6 +297,9 @@ test('device overview shows SNMP switch ports in context', async ({ page }) => {
   await expect(page.locator('#device-switch-ports')).toBeVisible()
   await expect(page.locator('#device-switch-ports').getByText('Office AP')).toBeVisible()
   await expect(page.locator('#device-switch-ports').getByText('Err 4/2/0')).toBeVisible()
+  const unlabeledPortTitle = await page.locator('#device-switch-ports button').filter({ hasText: 'Gi1/0/2' }).getAttribute('title')
+  expect(unlabeledPortTitle).toContain('- AA:BB:CC:00:00:02 · VLAN 10')
+  expect((unlabeledPortTitle?.match(/AA:BB:CC:00:00:02/g) ?? []).length).toBe(1)
   await page.screenshot({ path: `${screenshotDir}/lanlens-snmp-switch-ports.png`, fullPage: false })
 })
 
