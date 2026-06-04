@@ -107,3 +107,25 @@ class ScannerNetworkChangeNotificationTests(unittest.TestCase):
             self.assertEqual(len(notifications), 1)
         finally:
             db.close()
+
+    def test_mac_drift_ignores_ip_only_identifiers(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="ip:2c121c1329d386",
+                ip_address="192.0.2.10",
+                device_class="unknown",
+            )
+            db.add_all([
+                device,
+                Setting(key="notify_on_network_changes", value="true"),
+            ])
+            db.commit()
+            db.refresh(device)
+
+            _record_mac_drift_for_ip(db, device, "192.0.2.10", "66:77:88:99:AA:BB", "test")
+
+            self.assertEqual(db.query(DeviceChangeEvent).filter(DeviceChangeEvent.event_type == "mac_drift_detected").count(), 0)
+            self.assertEqual(db.query(Notification).filter(Notification.event_type == "network_change").count(), 0)
+        finally:
+            db.close()

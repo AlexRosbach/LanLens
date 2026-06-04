@@ -35,6 +35,10 @@ All notable changes to this project should be documented in this file.
 - Validated authorized DHCP server IP and MAC entries on create/update to reject typoed allowlist identities.
 - Added best-effort per-IP throttling to unauthenticated client-error logging to reduce container log spam.
 - Made client-error throttling use the nginx-forwarded browser IP when available so one noisy proxied client does not silence error logs for everyone.
+- Hardened client-error logging to redact bearer authorization headers, protect the shared rate-limit state from concurrent requests and prune stale client buckets.
+- Deduplicated passive DHCP server replies during fallback capture so repeated offer/ack packets do not inflate DHCP Monitor counters.
+- Limited notification delivery lookups to event rules for channels that are actually configured, avoiding repeated reprocessing of unsendable queued notifications.
+- Prevented MAC-drift notifications for routed scan-node/IP-only device identifiers.
 - Kept the Notifications bulk-delete UI unchanged when the backend delete request fails.
 - Replaced the SNMP target edit row's raw enabled checkbox with a compact inline toggle that fits the Settings table action layout.
 - Avoided duplicated MAC addresses in SNMP switch-port hover details when a learned endpoint has no matched device label.

@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -10,7 +11,12 @@ from backend.database import Base
 from backend.models import DhcpAuthorizedServer, DhcpObservation, Notification, Setting
 from backend.routers.dhcp_monitor import create_authorized_server, update_authorized_server
 from backend.schemas import DhcpAuthorizedServerCreate, DhcpAuthorizedServerUpdate
-from backend.services.dhcp_monitor import authorization_for_observation, notify_unknown_dhcp_servers, observation_to_response
+from backend.services.dhcp_monitor import (
+    _passive_capture_dhcp_replies,
+    authorization_for_observation,
+    notify_unknown_dhcp_servers,
+    observation_to_response,
+)
 
 
 class DhcpSecurityTests(unittest.TestCase):
@@ -83,6 +89,29 @@ class DhcpSecurityTests(unittest.TestCase):
 
             self.assertEqual(notify_unknown_dhcp_servers(db, [row]), 0)
             self.assertEqual(db.query(Notification).count(), 0)
+        finally:
+            db.close()
+
+    def test_passive_dhcp_capture_dedupes_repeated_server_replies(self):
+        db = self.Session()
+        try:
+            row = DhcpObservation(
+                server_ip="192.0.2.99",
+                server_mac="00:11:22:33:44:55",
+                message_type="offer",
+                options_json="{}",
+            )
+
+            def fake_sniff(prn, **_kwargs):
+                prn(object())
+                prn(object())
+
+            with patch("scapy.sendrecv.sniff", side_effect=fake_sniff), \
+                 patch("backend.services.dhcp_monitor._packet_to_observation", return_value=row):
+                stored = _passive_capture_dhcp_replies(db, timeout_seconds=5, packet_limit=10)
+
+            self.assertEqual(stored, 1)
+            self.assertEqual(db.query(DhcpObservation).count(), 1)
         finally:
             db.close()
 

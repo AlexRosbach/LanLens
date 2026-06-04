@@ -244,6 +244,36 @@ class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_delivery_rules_ignore_unconfigured_channels(self):
+        db = self.Session()
+        try:
+            new_device = Notification(event_type="new_device", message="New device detected")
+            db.add_all([
+                new_device,
+                Setting(key="notify_on_new_device", value="true"),
+                Setting(key="telegram_notify_new_device", value="true"),
+                Setting(key="smtp_notify_new_device", value="true"),
+                Setting(key="webhook_enabled", value="true"),
+                Setting(key="webhook_url", value="https://notify.example/message?token=test"),
+                Setting(key="webhook_notify_new_device", value="false"),
+            ])
+            db.commit()
+
+            with patch("backend.services.scanner.send_telegram_for_notification", new_callable=AsyncMock) as telegram, \
+                 patch("backend.services.scanner.send_webhook_for_notification", new_callable=AsyncMock) as webhook, \
+                 patch("backend.services.scanner.send_smtp_for_notification", new_callable=AsyncMock) as smtp:
+                await _send_notification_deliveries(db)
+
+            telegram.assert_not_awaited()
+            webhook.assert_not_awaited()
+            smtp.assert_not_awaited()
+            db.refresh(new_device)
+            self.assertFalse(new_device.telegram_sent)
+            self.assertFalse(new_device.webhook_sent)
+            self.assertFalse(new_device.smtp_sent)
+        finally:
+            db.close()
+
     async def test_network_change_telegram_escapes_html_payload(self):
         db = self.Session()
         try:

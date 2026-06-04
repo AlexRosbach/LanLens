@@ -371,11 +371,16 @@ def _passive_capture_dhcp_replies(db: Session, timeout_seconds: int, packet_limi
 
     stored = 0
     stored_rows: list[DhcpObservation] = []
+    seen: set[tuple[str | None, str | None, str | None]] = set()
 
     def handle(packet: Any) -> None:
         nonlocal stored
         row = _packet_to_observation(packet)
         if row:
+            key = (row.server_ip, row.server_mac, row.message_type)
+            if key in seen:
+                return
+            seen.add(key)
             db.add(row)
             stored_rows.append(row)
             stored += 1

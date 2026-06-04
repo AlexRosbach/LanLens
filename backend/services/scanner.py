@@ -73,7 +73,7 @@ def _pseudo_mac_for_ip(ip: str) -> str:
 
 
 def _is_ip_only_identifier(value: Optional[str]) -> bool:
-    return bool(value and value.startswith("ip:"))
+    return bool(value and value.lower().startswith("ip:"))
 
 
 def _arp_scan(targets: List[str]) -> List[DiscoveryResult]:
@@ -507,6 +507,9 @@ def _record_change(db: Session, device_id: int, event_type: str, field_name: Opt
 
 
 def _record_mac_drift_for_ip(db: Session, device: Device, ip: str, observed_mac: str, source: str) -> None:
+    previous_identifier = device.mac_address.strip() if device.mac_address else ""
+    if _is_ip_only_identifier(previous_identifier):
+        return
     previous_mac = normalize_mac(device.mac_address) if device.mac_address else None
     current_mac = normalize_mac(observed_mac) if observed_mac else None
     if not previous_mac or not current_mac or previous_mac == current_mac or _is_ip_only_identifier(previous_mac):
@@ -846,9 +849,17 @@ async def _send_notification_deliveries(db: Session) -> None:
     if not telegram_configured and not webhook_configured and not smtp_configured:
         return
 
+    configured_channel_rules = []
+    if telegram_configured:
+        configured_channel_rules.append(channel_rules["telegram"])
+    if webhook_configured:
+        configured_channel_rules.append(channel_rules["webhook"])
+    if smtp_configured:
+        configured_channel_rules.append(channel_rules["smtp"])
+
     enabled_events = {
         event_type
-        for rules in channel_rules.values()
+        for rules in configured_channel_rules
         for event_type, enabled in rules.items()
         if enabled
     }
