@@ -1,3 +1,5 @@
+import ipaddress
+import re
 import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,11 +21,31 @@ from ..services.mac_vendor import normalize_mac
 from ..services.settings_helpers import is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/dhcp-monitor", tags=["dhcp-monitor"])
+MAC_RE = re.compile(r"^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
 
 
 def _require_dhcp_monitor_enabled(db: Session) -> None:
     if not is_advanced_feature_enabled(db, "show_dhcp_monitor_nav"):
         raise HTTPException(status_code=403, detail="DHCP Monitor is disabled")
+
+
+def _normalize_server_ip(value: str | None) -> str | None:
+    if not value or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        return str(ipaddress.ip_address(text))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Server IP must be a valid IP address")
+
+
+def _normalize_server_mac(value: str | None) -> str | None:
+    if not value or not value.strip():
+        return None
+    normalized = normalize_mac(value.strip())
+    if not MAC_RE.fullmatch(normalized):
+        raise HTTPException(status_code=422, detail="Server MAC must be a valid MAC address")
+    return normalized
 
 
 @router.get("/observations", response_model=list[DhcpObservationResponse])
@@ -55,8 +77,8 @@ def create_authorized_server(
 ):
     _require_dhcp_monitor_enabled(db)
     name = payload.name.strip()
-    server_ip = payload.server_ip.strip() if payload.server_ip and payload.server_ip.strip() else None
-    server_mac = normalize_mac(payload.server_mac.strip()) if payload.server_mac and payload.server_mac.strip() else None
+    server_ip = _normalize_server_ip(payload.server_ip)
+    server_mac = _normalize_server_mac(payload.server_mac)
     if not name:
         raise HTTPException(status_code=422, detail="Name is required")
     if not server_ip and not server_mac:
@@ -91,9 +113,9 @@ def update_authorized_server(
             raise HTTPException(status_code=422, detail="Name is required")
         row.name = name
     if payload.server_ip is not None:
-        row.server_ip = payload.server_ip.strip() if payload.server_ip.strip() else None
+        row.server_ip = _normalize_server_ip(payload.server_ip)
     if payload.server_mac is not None:
-        row.server_mac = normalize_mac(payload.server_mac.strip()) if payload.server_mac.strip() else None
+        row.server_mac = _normalize_server_mac(payload.server_mac)
     if payload.enabled is not None:
         row.enabled = payload.enabled
     if payload.note is not None:

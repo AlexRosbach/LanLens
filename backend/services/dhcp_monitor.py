@@ -18,7 +18,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import DhcpAuthorizedServer, DhcpObservation, Notification
+from ..models import DhcpAuthorizedServer, DhcpObservation, Notification, Setting
 from .mac_vendor import normalize_mac
 
 logger = logging.getLogger(__name__)
@@ -176,7 +176,14 @@ def _notification_exists(db: Session, message: str) -> bool:
     )
 
 
+def _network_change_notifications_enabled(db: Session) -> bool:
+    row = db.query(Setting).filter(Setting.key == "notify_on_network_changes").first()
+    return row is not None and row.value == "true"
+
+
 def notify_unknown_dhcp_servers(db: Session, rows: list[DhcpObservation]) -> int:
+    if not _network_change_notifications_enabled(db):
+        return 0
     authorized_servers = _enabled_authorized_servers(db)
     created = 0
     for row in rows:

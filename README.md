@@ -28,6 +28,7 @@ LanLens is built for small self-hosted, homelab, and lightweight IT environments
 - Flag unknown DHCP servers, ARP/MAC drift, and VRRP/HSRP control-plane peers for network security awareness
 - Capture optional mDNS, SSDP/UPnP, and multicast observations on an adjustable interval and duration
 - Schedule optional background port scans with configurable interval and port range
+- Route notification events through global master rules plus per-channel Telegram, webhook/Gotify, and email overrides
 - Review and export a network change log with before/after values for device discoveries, state changes, IP moves, hostname changes, archive actions, and manual documentation edits
 - Archive inactive unregistered discoveries automatically and keep them in a dedicated archived view
 - Document devices with owner, location, purpose, OS, asset tag, notes, and CMDB ID

@@ -795,24 +795,32 @@ async def _send_notification_deliveries(db: Session) -> None:
         row = db.query(Setting).filter(Setting.key == key).first()
         return row.value if row and row.value is not None else ""
 
-    def rule_enabled(key: str, fallback_key: str, default: str = "false") -> bool:
+    def setting_enabled(key: str, default: str = "false") -> bool:
         value = get_setting(key)
         if value == "":
-            value = get_setting(fallback_key) or default
+            value = default
+        return value == "true"
+
+    def channel_rule_enabled(key: str, master_key: str, default: str = "false") -> bool:
+        if not setting_enabled(master_key, default):
+            return False
+        value = get_setting(key)
+        if value == "":
+            value = get_setting(master_key) or default
         return value == "true"
 
     channel_rules = {
         "telegram": {
-            "new_device": rule_enabled("telegram_notify_new_device", "notify_on_new_device", "true"),
-            "network_change": rule_enabled("telegram_notify_network_changes", "notify_on_network_changes", "false"),
+            "new_device": channel_rule_enabled("telegram_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": channel_rule_enabled("telegram_notify_network_changes", "notify_on_network_changes", "false"),
         },
         "webhook": {
-            "new_device": rule_enabled("webhook_notify_new_device", "notify_on_new_device", "true"),
-            "network_change": rule_enabled("webhook_notify_network_changes", "notify_on_network_changes", "false"),
+            "new_device": channel_rule_enabled("webhook_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": channel_rule_enabled("webhook_notify_network_changes", "notify_on_network_changes", "false"),
         },
         "smtp": {
-            "new_device": rule_enabled("smtp_notify_new_device", "notify_on_new_device", "true"),
-            "network_change": rule_enabled("smtp_notify_network_changes", "notify_on_network_changes", "false"),
+            "new_device": channel_rule_enabled("smtp_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": channel_rule_enabled("smtp_notify_network_changes", "notify_on_network_changes", "false"),
         },
     }
 

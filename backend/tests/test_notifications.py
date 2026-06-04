@@ -162,6 +162,8 @@ class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
             db.add_all([
                 new_device,
                 network_change,
+                Setting(key="notify_on_new_device", value="true"),
+                Setting(key="notify_on_network_changes", value="true"),
                 Setting(key="telegram_enabled", value="true"),
                 Setting(key="telegram_bot_token", value="test-token"),
                 Setting(key="telegram_chat_id", value="test-chat"),
@@ -200,6 +202,45 @@ class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(network_change.telegram_sent)
             self.assertTrue(network_change.webhook_sent)
             self.assertTrue(network_change.smtp_sent)
+        finally:
+            db.close()
+
+    async def test_global_notification_rules_suppress_channel_delivery(self):
+        db = self.Session()
+        try:
+            new_device = Notification(event_type="new_device", message="New device detected")
+            network_change = Notification(event_type="network_change", message="Network change: IP changed")
+            db.add_all([
+                new_device,
+                network_change,
+                Setting(key="notify_on_new_device", value="false"),
+                Setting(key="notify_on_network_changes", value="false"),
+                Setting(key="telegram_enabled", value="true"),
+                Setting(key="telegram_bot_token", value="test-token"),
+                Setting(key="telegram_chat_id", value="test-chat"),
+                Setting(key="telegram_notify_new_device", value="true"),
+                Setting(key="telegram_notify_network_changes", value="true"),
+                Setting(key="webhook_enabled", value="true"),
+                Setting(key="webhook_url", value="https://notify.example/message?token=test"),
+                Setting(key="webhook_notify_new_device", value="true"),
+                Setting(key="webhook_notify_network_changes", value="true"),
+                Setting(key="smtp_enabled", value="true"),
+                Setting(key="smtp_host", value="smtp.example"),
+                Setting(key="smtp_from_email", value="lanlens@example.com"),
+                Setting(key="smtp_to_email", value="admin@example.com"),
+                Setting(key="smtp_notify_new_device", value="true"),
+                Setting(key="smtp_notify_network_changes", value="true"),
+            ])
+            db.commit()
+
+            with patch("backend.services.scanner.send_telegram_for_notification", new_callable=AsyncMock) as telegram, \
+                 patch("backend.services.scanner.send_webhook_for_notification", new_callable=AsyncMock) as webhook, \
+                 patch("backend.services.scanner.send_smtp_for_notification", new_callable=AsyncMock) as smtp:
+                await _send_notification_deliveries(db)
+
+            telegram.assert_not_awaited()
+            webhook.assert_not_awaited()
+            smtp.assert_not_awaited()
         finally:
             db.close()
 

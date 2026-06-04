@@ -46,10 +46,14 @@ export default function Notifications() {
 
   async function deleteAllNotifications() {
     if (!confirm(t('delete_all_notifications_confirm'))) return
-    await notificationsApi.deleteAll()
-    setItems([])
-    storeMarkAllRead()
-    toast.success(t('all_notifications_deleted'))
+    try {
+      await notificationsApi.deleteAll()
+      setItems([])
+      storeMarkAllRead()
+      toast.success(t('all_notifications_deleted'))
+    } catch {
+      toast.error(t('delete_all_notifications_failed'))
+    }
   }
 
   const unread = items.filter((n) => !n.is_read).length

@@ -23,6 +23,11 @@ All notable changes to this project should be documented in this file.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.
+- Enforced global notification rules as master switches for channel delivery so queued events stay silent when the global event is disabled.
+- Made unknown-DHCP-server notifications honor the global network-change notification rule.
+- Validated authorized DHCP server IP and MAC entries on create/update to reject typoed allowlist identities.
+- Added best-effort per-IP throttling to unauthenticated client-error logging to reduce container log spam.
+- Kept the Notifications bulk-delete UI unchanged when the backend delete request fails.
 - Replaced the SNMP target edit row's raw enabled checkbox with a compact inline toggle that fits the Settings table action layout.
 - Reused the existing DHCP Monitor, passive discovery and network-change infrastructure; no new packages or license obligations were added.
 - Bumped backend, frontend and image metadata to 1.5.6.
