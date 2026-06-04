@@ -17,6 +17,8 @@ const settings = {
   port_scan_range: 'top:1000',
   port_scan_background_enabled: true,
   port_scan_interval_minutes: 120,
+  snmp_poll_enabled: true,
+  snmp_poll_interval_minutes: 90,
   telegram_bot_token: '',
   telegram_chat_id: '',
   telegram_enabled: false,
@@ -177,6 +179,7 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
   await expect(page.getByLabel('Cycle interval in minutes')).toHaveValue('15')
   await expect(page.getByLabel('Capture duration in seconds')).toHaveValue('30')
+  await expect(page.getByLabel('SNMP poll interval in minutes')).toHaveValue('90')
   await expect(page.getByText('Core Switch')).toBeVisible()
   await page.getByRole('button', { name: 'Edit' }).click()
   await expect(page.getByLabel('Switch name')).toHaveValue('Core Switch')

@@ -17,6 +17,8 @@ export interface AllSettings {
   port_scan_range: string
   port_scan_background_enabled: boolean
   port_scan_interval_minutes: number
+  snmp_poll_enabled: boolean
+  snmp_poll_interval_minutes: number
   telegram_bot_token: string
   telegram_chat_id: string
   telegram_enabled: boolean
@@ -118,6 +120,11 @@ export const settingsApi = {
     port_scan_background_enabled: boolean
     port_scan_interval_minutes: number
   }) => apiClient.put('/settings/port-scan', data).then((r) => r.data),
+
+  updateSnmpPollSettings: (data: {
+    snmp_poll_enabled: boolean
+    snmp_poll_interval_minutes: number
+  }) => apiClient.put('/settings/snmp-poll', data).then((r) => r.data),
 
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),

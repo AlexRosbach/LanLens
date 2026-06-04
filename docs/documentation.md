@@ -956,7 +956,7 @@ LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiqu
 - bridge forwarding table entries, mapped back from MAC address to interface index where the switch exposes BRIDGE-MIB or Q-BRIDGE-MIB mappings
 - detected vendor context from `sysObjectID` and `sysDescr`
 
-Existing switch targets can be edited inline in **Settings -> Network Discovery -> SNMP switch topology**. Name, host/IP, assigned profile and enabled state can be changed without deleting the learned interface or MAC-table data.
+Existing switch targets can be edited inline in **Settings -> Network Discovery -> SNMP switch topology**. Name, host/IP, assigned profile and enabled state can be changed without deleting the learned interface or MAC-table data. The same card can optionally poll enabled SNMP switches in the background at a configurable interval from 1 to 1440 minutes.
 
 Routers and firewalls may expose IF-MIB without a switch MAC table. In that case LanLens keeps the interface inventory, returns a completed poll, and records a clear warning instead of turning the whole poll into a generic failure.
 
@@ -976,6 +976,7 @@ The API surface is available under `/api/snmp`:
 - `PUT /api/snmp/switches/{switch_id}`
 - `DELETE /api/snmp/switches/{switch_id}`
 - `POST /api/snmp/switches/{switch_id}/poll`
+- `PUT /api/settings/snmp-poll`
 - `GET /api/snmp/switches/{switch_id}/interfaces`
 - `GET /api/snmp/devices/{device_id}/ports`
 - `GET /api/snmp/topology/endpoints`

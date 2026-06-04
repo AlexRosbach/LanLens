@@ -21,6 +21,7 @@ from ..schemas import (
     ScanRangeSettings,
     ScanScheduleSettings,
     ServerUrlSettings,
+    SnmpPollSettings,
     SmtpSettings,
     TelegramSettings,
     UiSettings,
@@ -30,7 +31,7 @@ from ..services.notification import send_test_message, send_update_notification,
 from ..services.https_config import apply_nginx_config, load_https_config, save_https_config
 from ..services.passive_discovery_scheduler import update_passive_discovery_schedule
 from ..services.device_retention import get_device_retention_settings
-from ..services.scheduler import update_interval, update_ping_monitor_schedule, update_port_scan_schedule
+from ..services.scheduler import update_interval, update_ping_monitor_schedule, update_port_scan_schedule, update_snmp_poll_schedule
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
 from ..services.settings_helpers import get_scan_interval_minutes
@@ -45,6 +46,7 @@ SETTING_KEYS = [
     "ping_monitor_enabled", "ping_monitor_interval_minutes",
     "device_archive_after_days", "device_delete_archived_after_days",
     "port_scan_range", "port_scan_background_enabled", "port_scan_interval_minutes",
+    "snmp_poll_enabled", "snmp_poll_interval_minutes",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
     "webhook_url", "webhook_enabled",
@@ -154,6 +156,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
         port_scan_background_enabled=_get(db, "port_scan_background_enabled", "false") == "true",
         port_scan_interval_minutes=int(_get(db, "port_scan_interval_minutes", "60") or "60"),
+        snmp_poll_enabled=_get(db, "snmp_poll_enabled", "false") == "true",
+        snmp_poll_interval_minutes=int(_get(db, "snmp_poll_interval_minutes", "60") or "60"),
         telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
@@ -373,6 +377,20 @@ def update_port_scan_settings(
     return MessageResponse(message="Port scan settings updated")
 
 
+@router.put("/snmp-poll", response_model=MessageResponse)
+def update_snmp_poll_settings(
+    data: SnmpPollSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    interval = max(1, min(1440, int(data.snmp_poll_interval_minutes or 60)))
+    _set(db, "snmp_poll_enabled", "true" if data.snmp_poll_enabled else "false")
+    _set(db, "snmp_poll_interval_minutes", str(interval))
+    db.commit()
+    update_snmp_poll_schedule()
+    return MessageResponse(message="SNMP poll settings updated")
+
+
 @router.put("/telegram", response_model=MessageResponse)
 def update_telegram(
     data: TelegramSettings,
@@ -414,6 +432,8 @@ def update_ui_settings(
     db.commit()
     update_passive_discovery_schedule()
     update_ping_monitor_schedule()
+    update_port_scan_schedule()
+    update_snmp_poll_schedule()
     return MessageResponse(message="UI settings updated")
 
 

@@ -14,6 +14,7 @@ All notable changes to this project should be documented in this file.
 - Added client-side UI error logging so visible browser/API/runtime failures are also written to the LanLens container logs.
 - Added configurable background port-scan scheduling in **Settings -> Network Discovery**, including enablement, interval and the existing port range/list.
 - Added inline editing for existing SNMP switch topology targets in **Settings -> Network Discovery**.
+- Added configurable background SNMP switch polling in **Settings -> Network Discovery**, including enablement and interval.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.

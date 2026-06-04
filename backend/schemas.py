@@ -608,6 +608,11 @@ class PortScanSettings(BaseModel):
     port_scan_interval_minutes: int = 60
 
 
+class SnmpPollSettings(BaseModel):
+    snmp_poll_enabled: bool = False
+    snmp_poll_interval_minutes: int = 60
+
+
 class SinglePortScanRequest(BaseModel):
     port: int
 
@@ -633,6 +638,8 @@ class AllSettings(BaseModel):
     port_scan_range: str = "top:1000"
     port_scan_background_enabled: bool = False
     port_scan_interval_minutes: int = 60
+    snmp_poll_enabled: bool = False
+    snmp_poll_interval_minutes: int = 60
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""
     telegram_enabled: bool = False

@@ -855,6 +855,21 @@ export default function Settings() {
     }
   }
 
+  async function saveSnmpPollSettings() {
+    setSaving(true)
+    try {
+      await settingsApi.updateSnmpPollSettings({
+        snmp_poll_enabled: current.snmp_poll_enabled,
+        snmp_poll_interval_minutes: current.snmp_poll_interval_minutes,
+      })
+      toast.success(t('snmp_poll_settings_saved'))
+    } catch {
+      toast.error(t('snmp_poll_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function saveServerUrl() {
     setSaving(true)
     try {
@@ -2083,6 +2098,29 @@ export default function Settings() {
                 <p className="text-sm text-text-subtle">{t('snmp_topology_description')}</p>
               </div>
               <Button variant="outline" onClick={loadSnmp} loading={snmpLoading}>{t('refresh')}</Button>
+            </div>
+
+            <div className="mb-4 rounded-lg border border-border bg-surface2/40 p-3">
+              <div className="grid gap-4 md:grid-cols-[1fr_12rem_auto] md:items-end">
+                <ToggleSwitch
+                  checked={current.snmp_poll_enabled}
+                  label={t('snmp_poll_background')}
+                  description={t('snmp_poll_background_hint')}
+                  onChange={(checked) => setSettings({ ...current, snmp_poll_enabled: checked })}
+                />
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('snmp_poll_interval')}</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="1440"
+                    aria-label={t('snmp_poll_interval')}
+                    value={String(current.snmp_poll_interval_minutes)}
+                    onChange={(e) => setSettings({ ...current, snmp_poll_interval_minutes: Number(e.target.value) || 60 })}
+                  />
+                </div>
+                <Button onClick={saveSnmpPollSettings} loading={saving}>{t('save_changes')}</Button>
+              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-4">

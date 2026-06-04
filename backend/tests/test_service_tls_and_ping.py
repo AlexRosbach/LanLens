@@ -11,11 +11,11 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-service-tls-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, DevicePingSample, PortScan, Service, Setting
+from backend.models import Device, DevicePingSample, PortScan, Service, Setting, SnmpProfile, SnmpSwitch
 from backend.routers.devices import _auto_check_https_certificate
 from backend.routers.services import _normalize_tls_expiry, _resolve_safe_tls_addresses, _service_tls_target
 from backend.services.scanner import PING_SAMPLE_RETENTION_PER_DEVICE, monitor_known_device_pings, record_ping_sample
-from backend.services.scheduler import get_ping_monitor_schedule, get_port_scan_schedule, _port_scan_job
+from backend.services.scheduler import get_ping_monitor_schedule, get_port_scan_schedule, get_snmp_poll_schedule, _port_scan_job, _snmp_poll_job
 from backend.services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
 
 
@@ -130,6 +130,26 @@ class ServiceTlsAndPingTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_snmp_poll_schedule_requires_advanced_view_and_clamps_interval(self):
+        db = self.Session()
+        try:
+            db.add_all([
+                Setting(key="snmp_poll_enabled", value="true"),
+                Setting(key="snmp_poll_interval_minutes", value="2000"),
+                Setting(key="advanced_view_enabled", value="false"),
+            ])
+            db.commit()
+
+            schedule = get_snmp_poll_schedule(db)
+            self.assertFalse(schedule["enabled"])
+            self.assertEqual(schedule["interval_minutes"], 1440)
+
+            db.query(Setting).filter(Setting.key == "advanced_view_enabled").one().value = "true"
+            db.commit()
+            self.assertTrue(get_snmp_poll_schedule(db)["enabled"])
+        finally:
+            db.close()
+
     def test_ping_sample_retention_keeps_latest_samples_per_device(self):
         db = self.Session()
         try:
@@ -227,6 +247,33 @@ class ServiceTlsAndPingTests(unittest.TestCase):
             self.assertEqual(db.query(PortScan).filter(PortScan.device_id == active.id).count(), 1)
             self.assertEqual(db.query(PortScan).filter(PortScan.device_id == archived.id).count(), 0)
             self.assertEqual(db.query(PortScan).filter(PortScan.device_id == invalid.id).count(), 0)
+        finally:
+            db.close()
+
+    def test_snmp_poll_monitor_polls_enabled_switches_with_profiles(self):
+        db = self.Session()
+        try:
+            profile = SnmpProfile(name="core", version="2c", community="public", port=161)
+            enabled = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile, enabled=True)
+            disabled = SnmpSwitch(name="disabled-switch", host="192.0.2.2", profile=profile, enabled=False)
+            no_profile = SnmpSwitch(name="no-profile", host="192.0.2.3", enabled=True)
+            db.add_all([profile, enabled, disabled, no_profile])
+            db.commit()
+            db.refresh(enabled)
+
+            polled_hosts = []
+
+            def fake_poll(_db, switch):
+                polled_hosts.append(switch.host)
+
+            with patch("backend.services.scheduler.SessionLocal", self.Session), patch(
+                "backend.services.snmp.poll_switch",
+                side_effect=fake_poll,
+            ) as poll:
+                asyncio.run(_snmp_poll_job())
+
+            poll.assert_called_once()
+            self.assertEqual(polled_hosts, [enabled.host])
         finally:
             db.close()
 
