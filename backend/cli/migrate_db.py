@@ -581,6 +581,7 @@ def migrate():
                 "sys_object_id VARCHAR(255), "
                 "last_poll_at DATETIME, "
                 "last_error TEXT, "
+                "last_diagnostics TEXT, "
                 "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
                 "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
                 ")"
@@ -591,6 +592,13 @@ def migrate():
             print("Migration: snmp_switches — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: snmp_switches already exists — skipped")
+
+        if _table_exists(conn, "snmp_switches") and not _column_exists(conn, "snmp_switches", "last_diagnostics"):
+            conn.execute(text("ALTER TABLE snmp_switches ADD COLUMN last_diagnostics TEXT"))
+            conn.commit()
+            print("Migration: added snmp_switches.last_diagnostics")
+        elif _table_exists(conn, "snmp_switches"):
+            print("Migration: snmp_switches.last_diagnostics already exists — skipped")
 
         if IS_SQLITE and not _index_exists(conn, "ix_snmp_switches_device_id_unique"):
             conn.execute(text(

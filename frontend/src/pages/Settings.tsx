@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
+import Modal from '../components/ui/Modal'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
@@ -25,6 +26,12 @@ interface IdoitErrorDetails {
   status_code?: number | null
   response_body?: string
   jsonrpc_error?: unknown
+}
+
+interface SnmpDiagnosticsSelection {
+  title: string
+  diagnostics: string
+  isError: boolean
 }
 
 interface IdoitMapping {
@@ -408,6 +415,7 @@ export default function Settings() {
   const [editingSnmpSwitchHost, setEditingSnmpSwitchHost] = useState('')
   const [editingSnmpSwitchProfileId, setEditingSnmpSwitchProfileId] = useState('')
   const [editingSnmpSwitchEnabled, setEditingSnmpSwitchEnabled] = useState(true)
+  const [snmpDiagnosticsSelection, setSnmpDiagnosticsSelection] = useState<SnmpDiagnosticsSelection | null>(null)
   const [passiveCaptureLoading, setPassiveCaptureLoading] = useState(false)
   const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
@@ -713,7 +721,12 @@ export default function Settings() {
   async function pollSnmpSwitch(switchId: number) {
     setSnmpLoading(true)
     try {
-      await snmpApi.pollSwitch(switchId)
+      const result = await snmpApi.pollSwitch(switchId)
+      setSnmpDiagnosticsSelection({
+        title: result.switch.name,
+        diagnostics: result.diagnostics,
+        isError: false,
+      })
       await loadSnmp()
       toast.success(t('snmp_poll_complete'))
     } catch (error) {
@@ -2329,8 +2342,8 @@ export default function Settings() {
                           <>
                             <div>{item.name}</div>
                             {item.last_error && (
-                              <div className="mt-1 max-w-md whitespace-pre-wrap rounded-md border border-danger/30 bg-danger/10 p-2 text-xs font-normal text-danger">
-                                {item.last_error}
+                              <div className="mt-1 max-w-xs truncate rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] font-normal text-danger" title={item.last_error}>
+                                {item.last_error.split('\n')[0]}
                               </div>
                             )}
                           </>
@@ -2389,6 +2402,20 @@ export default function Settings() {
                             <>
                               <Button size="sm" variant="outline" onClick={() => startEditingSnmpSwitch(item)} disabled={snmpLoading}>{t('edit')}</Button>
                               <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading || !item.enabled}>{t('poll_now')}</Button>
+                              {(item.last_diagnostics || item.last_error) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setSnmpDiagnosticsSelection({
+                                    title: item.name,
+                                    diagnostics: item.last_diagnostics || item.last_error || '',
+                                    isError: Boolean(item.last_error),
+                                  })}
+                                  disabled={snmpLoading}
+                                >
+                                  {t('details')}
+                                </Button>
+                              )}
                               <Button size="sm" variant="danger" onClick={() => deleteSnmpSwitch(item)} disabled={snmpLoading}>{t('delete')}</Button>
                             </>
                           )}
@@ -3216,6 +3243,27 @@ export default function Settings() {
       </div>
       )}
 
+      <Modal
+        open={Boolean(snmpDiagnosticsSelection)}
+        onClose={() => setSnmpDiagnosticsSelection(null)}
+        title={snmpDiagnosticsSelection ? t('snmp_diagnostics_title', { name: snmpDiagnosticsSelection.title }) : t('details')}
+        maxWidth="max-w-4xl"
+      >
+        {snmpDiagnosticsSelection && (
+          <div className="space-y-4">
+            <div className={`rounded-lg border px-3 py-2 text-sm ${
+              snmpDiagnosticsSelection.isError
+                ? 'border-danger/30 bg-danger/10 text-danger'
+                : 'border-success/30 bg-success/10 text-success'
+            }`}>
+              {snmpDiagnosticsSelection.isError ? t('snmp_diagnostics_error_hint') : t('snmp_diagnostics_success_hint')}
+            </div>
+            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-4 font-mono text-xs leading-relaxed text-text-muted">
+              {snmpDiagnosticsSelection.diagnostics}
+            </pre>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

@@ -283,6 +283,7 @@ class SnmpSwitch(Base):
     sys_object_id = Column(String(255), nullable=True)
     last_poll_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
+    last_diagnostics = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

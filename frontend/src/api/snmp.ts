@@ -44,6 +44,7 @@ export interface SnmpSwitch {
   vendor_notes?: string | null
   last_poll_at?: string | null
   last_error?: string | null
+  last_diagnostics?: string | null
   interface_count: number
   mac_count: number
 }

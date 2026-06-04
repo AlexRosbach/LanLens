@@ -85,6 +85,7 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
         "vendor_notes": vendor.notes,
         "last_poll_at": switch.last_poll_at,
         "last_error": switch.last_error,
+        "last_diagnostics": switch.last_diagnostics,
         "interface_count": interface_count if interface_count is not None else len(switch.interfaces or []),
         "mac_count": mac_count if mac_count is not None else len(switch.mac_entries or []),
     }
@@ -326,6 +327,7 @@ def poll_snmp_switch(switch_id: int, db: Session = Depends(get_db), _: User = De
         db.commit()
     except Exception as exc:
         switch.last_error = str(exc)
+        switch.last_diagnostics = str(exc)
         switch.last_poll_at = datetime.utcnow()
         db.commit()
         raise HTTPException(status_code=502, detail=str(exc))

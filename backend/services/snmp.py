@@ -485,6 +485,7 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
 
     switch.last_poll_at = now
     switch.last_error = None
+    switch.last_diagnostics = diagnostics
     _apply_target_identity_to_device(db, switch, vendor, len(indexes))
     switch.updated_at = now
     return PollResult(interfaces=len(indexes), mac_entries=mac_count, diagnostics=diagnostics)

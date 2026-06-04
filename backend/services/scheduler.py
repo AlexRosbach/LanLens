@@ -96,6 +96,7 @@ async def _snmp_poll_job():
                     from datetime import datetime
 
                     switch.last_error = str(exc)
+                    switch.last_diagnostics = str(exc)
                     switch.last_poll_at = datetime.utcnow()
                     db.commit()
                 failed += 1

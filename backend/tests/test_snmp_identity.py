@@ -187,6 +187,7 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertIn("OK: IF-MIB interface descriptions", result.diagnostics)
             self.assertIn("FAILED: BRIDGE-MIB MAC forwarding table", result.diagnostics)
             self.assertIsNone(switch.last_error)
+            self.assertIn("FAILED: BRIDGE-MIB MAC forwarding table", switch.last_diagnostics)
         finally:
             db.close()
 
@@ -231,6 +232,7 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertEqual(device.device_class, "Switch")
             self.assertEqual(device.vendor, "Cisco")
             self.assertIsNone(switch.last_error)
+            self.assertIn("FAILED: BRIDGE-MIB MAC forwarding table", switch.last_diagnostics)
         finally:
             db.close()
 
