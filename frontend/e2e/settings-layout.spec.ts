@@ -91,9 +91,9 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
 
   await expect(page.getByRole('button', { name: 'Automation' })).toBeVisible()
   await page.getByRole('button', { name: 'Automation' }).click()
-  await expect(page.getByRole('heading', { name: 'Automation', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Automation', exact: true }).first()).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Device retention' })).not.toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).not.toBeVisible()
 
   await page.screenshot({ path: testInfo.outputPath('settings-automation.png'), fullPage: false })
 
@@ -104,8 +104,11 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.screenshot({ path: testInfo.outputPath('settings-lifecycle.png'), fullPage: false })
 
   await page.getByRole('button', { name: 'Network Discovery' }).click()
-  await expect(page.getByRole('heading', { name: 'Discovery ranges' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Address ranges' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Device retention' })).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
+  await expect(page.getByLabel('Cycle interval in minutes')).toHaveValue('15')
+  await expect(page.getByLabel('Capture duration in seconds')).toHaveValue('30')
 
   await page.screenshot({ path: testInfo.outputPath('settings-network-discovery.png'), fullPage: false })
 })

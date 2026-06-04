@@ -430,6 +430,7 @@ export default function Settings() {
   }
 
   const current = settings
+  const passiveDiscoveryCaptureSeconds = Math.max(3, Math.min(120, Number(current.passive_discovery_capture_seconds) || 30))
 
   async function loadIdoitConfig() {
     // This endpoint is optional for the rest of Settings. If it fails, keep the
@@ -492,8 +493,8 @@ export default function Settings() {
   async function startPassiveDiscoveryCapture() {
     setPassiveCaptureLoading(true)
     try {
-      await passiveDiscoveryApi.capture(30)
-      setTimeout(() => loadPassiveObservations().catch(() => {}), 32000)
+      await passiveDiscoveryApi.capture(passiveDiscoveryCaptureSeconds)
+      setTimeout(() => loadPassiveObservations().catch(() => {}), (passiveDiscoveryCaptureSeconds + 2) * 1000)
       toast.success(t('multicast_discovery_capture_started'))
     } catch {
       toast.error(t('multicast_discovery_capture_failed'))
@@ -1644,45 +1645,6 @@ export default function Settings() {
           </Card>
           </div>
 
-          {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
-          <Card>
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-text-base">{t('multicast_discovery_background_title')}</h2>
-                <p className="text-sm text-text-subtle">{t('multicast_discovery_background_description')}</p>
-              </div>
-              <ToggleSwitch
-                checked={current.passive_discovery_background_enabled}
-                label={t('multicast_discovery_background')}
-                description={t('multicast_discovery_background_hint')}
-                onChange={(checked) => setSettings({ ...current, passive_discovery_background_enabled: checked })}
-              />
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={String(current.passive_discovery_interval_minutes)}
-                    onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={String(current.passive_discovery_capture_seconds)}
-                    onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
-                  />
-                </div>
-              </div>
-              <div>
-                <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
-              </div>
-            </div>
-          </Card>
-          )}
         </div>
       </div>
       )}
@@ -1845,9 +1807,49 @@ export default function Settings() {
                     {t('multicast_discovery_diagnostics_10s')}
                   </Button>
                   <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
-                    {t('multicast_discovery_capture_30s')}
+                    {t('multicast_discovery_capture_seconds', { seconds: passiveDiscoveryCaptureSeconds })}
                   </Button>
                 </div>
+              </div>
+              <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-text-base">{t('multicast_discovery_background_title')}</h3>
+                  <p className="mt-1 text-xs text-text-subtle">{t('multicast_discovery_background_description')}</p>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+                  <ToggleSwitch
+                    checked={current.passive_discovery_background_enabled}
+                    label={t('multicast_discovery_background')}
+                    description={t('multicast_discovery_background_hint')}
+                    onChange={(checked) => setSettings({ ...current, passive_discovery_background_enabled: checked })}
+                  />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="1440"
+                        aria-label={t('multicast_discovery_interval')}
+                        value={String(current.passive_discovery_interval_minutes)}
+                        onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
+                      <Input
+                        type="number"
+                        min="3"
+                        max="120"
+                        aria-label={t('multicast_discovery_duration')}
+                        value={String(current.passive_discovery_capture_seconds)}
+                        onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
+                </div>
+                <p className="mt-3 text-xs text-text-subtle">{t('multicast_discovery_schedule_hint')}</p>
               </div>
               {passiveCaptureReport && (
                 <div className="rounded-lg border border-border bg-surface2/35 p-3 text-xs text-text-subtle">
