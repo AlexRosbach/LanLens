@@ -441,6 +441,21 @@ class DeviceResponse(BaseModel):
     snmp_interface_alias: Optional[str] = None
     snmp_vlan: Optional[str] = None
     snmp_last_seen_at: Optional[str] = None
+    snmp_interface_speed_bps: Optional[int] = None
+    snmp_interface_admin_status: Optional[str] = None
+    snmp_interface_oper_status: Optional[str] = None
+    snmp_interface_in_unicast_packets: Optional[int] = None
+    snmp_interface_in_non_unicast_packets: Optional[int] = None
+    snmp_interface_out_unicast_packets: Optional[int] = None
+    snmp_interface_out_non_unicast_packets: Optional[int] = None
+    snmp_interface_in_discards: Optional[int] = None
+    snmp_interface_out_discards: Optional[int] = None
+    snmp_interface_in_errors: Optional[int] = None
+    snmp_interface_out_errors: Optional[int] = None
+    snmp_interface_unknown_protocols: Optional[int] = None
+    snmp_interface_crc_errors: Optional[int] = None
+    snmp_interface_collision_errors: Optional[int] = None
+    snmp_interface_fragment_errors: Optional[int] = None
 
     class Config:
         from_attributes = True

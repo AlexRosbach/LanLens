@@ -16,12 +16,29 @@ OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 OID_SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
 OID_SYS_NAME = "1.3.6.1.2.1.1.5.0"
 OID_IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
+OID_IF_TYPE = "1.3.6.1.2.1.2.2.1.3"
 OID_IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
 OID_IF_PHYS_ADDRESS = "1.3.6.1.2.1.2.2.1.6"
 OID_IF_ADMIN_STATUS = "1.3.6.1.2.1.2.2.1.7"
 OID_IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"
+OID_IF_IN_UCAST_PKTS = "1.3.6.1.2.1.2.2.1.11"
+OID_IF_IN_NUCAST_PKTS = "1.3.6.1.2.1.2.2.1.12"
+OID_IF_IN_DISCARDS = "1.3.6.1.2.1.2.2.1.13"
+OID_IF_IN_ERRORS = "1.3.6.1.2.1.2.2.1.14"
+OID_IF_IN_UNKNOWN_PROTOS = "1.3.6.1.2.1.2.2.1.15"
+OID_IF_OUT_UCAST_PKTS = "1.3.6.1.2.1.2.2.1.17"
+OID_IF_OUT_NUCAST_PKTS = "1.3.6.1.2.1.2.2.1.18"
+OID_IF_OUT_DISCARDS = "1.3.6.1.2.1.2.2.1.19"
+OID_IF_OUT_ERRORS = "1.3.6.1.2.1.2.2.1.20"
 OID_IF_NAME = "1.3.6.1.2.1.31.1.1.1.1"
 OID_IF_ALIAS = "1.3.6.1.2.1.31.1.1.1.18"
+OID_DOT3_STATS_ALIGNMENT_ERRORS = "1.3.6.1.2.1.10.7.2.1.2"
+OID_DOT3_STATS_FCS_ERRORS = "1.3.6.1.2.1.10.7.2.1.3"
+OID_DOT3_STATS_SINGLE_COLLISIONS = "1.3.6.1.2.1.10.7.2.1.4"
+OID_DOT3_STATS_MULTIPLE_COLLISIONS = "1.3.6.1.2.1.10.7.2.1.5"
+OID_DOT3_STATS_LATE_COLLISIONS = "1.3.6.1.2.1.10.7.2.1.8"
+OID_DOT3_STATS_EXCESSIVE_COLLISIONS = "1.3.6.1.2.1.10.7.2.1.9"
+OID_DOT3_STATS_FRAME_TOO_LONGS = "1.3.6.1.2.1.10.7.2.1.13"
 OID_DOT1D_TP_FDB_PORT = "1.3.6.1.2.1.17.4.3.1.2"
 OID_DOT1D_BASE_PORT_IF_INDEX = "1.3.6.1.2.1.17.1.4.1.2"
 OID_DOT1Q_TP_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"
@@ -286,6 +303,28 @@ def _parse_bridge_port_map(raw: dict[str, str]) -> dict[int, int]:
     return port_map
 
 
+def _parse_counter(raw: Optional[str]) -> Optional[int]:
+    if raw is None:
+        return None
+    match = re.search(r"\d+", raw)
+    return int(match.group(0)) if match else None
+
+
+def _counter_value(values: dict[str, str], if_index: int) -> Optional[int]:
+    return _parse_counter(values.get(str(if_index)))
+
+
+def _counter_sum(values: dict[str, dict[str, str]], keys: list[str], if_index: int) -> Optional[int]:
+    total = 0
+    found = False
+    for key in keys:
+        value = _counter_value(values.get(key, {}), if_index)
+        if value is not None:
+            total += value
+            found = True
+    return total if found else None
+
+
 def _merge_port_maps(*maps: dict[int, int]) -> dict[int, int]:
     merged: dict[int, int] = {}
     for port_map in maps:
@@ -305,11 +344,28 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
     row.name = values["names"].get(str(if_index)) or row.name
     row.description = values["descr"].get(str(if_index)) or row.description
     row.alias = values["alias"].get(str(if_index)) or row.alias
+    row.if_type = _counter_value(values["type"], if_index) or row.if_type
     row.admin_status = STATUS_LABELS.get(values["admin"].get(str(if_index), ""), values["admin"].get(str(if_index)))
     row.oper_status = STATUS_LABELS.get(values["oper"].get(str(if_index), ""), values["oper"].get(str(if_index)))
     speed = values["speed"].get(str(if_index))
     row.speed_bps = int(speed) if speed and speed.isdigit() else row.speed_bps
     row.phys_address = values["phys"].get(str(if_index)) or row.phys_address
+    row.in_unicast_packets = _counter_value(values["in_ucast"], if_index)
+    row.in_non_unicast_packets = _counter_value(values["in_nucast"], if_index)
+    row.out_unicast_packets = _counter_value(values["out_ucast"], if_index)
+    row.out_non_unicast_packets = _counter_value(values["out_nucast"], if_index)
+    row.in_discards = _counter_value(values["in_discards"], if_index)
+    row.out_discards = _counter_value(values["out_discards"], if_index)
+    row.in_errors = _counter_value(values["in_errors"], if_index)
+    row.out_errors = _counter_value(values["out_errors"], if_index)
+    row.unknown_protocols = _counter_value(values["unknown_protocols"], if_index)
+    row.crc_errors = _counter_sum(values, ["dot3_alignment_errors", "dot3_fcs_errors"], if_index)
+    row.collision_errors = _counter_sum(
+        values,
+        ["dot3_single_collisions", "dot3_multiple_collisions", "dot3_late_collisions", "dot3_excessive_collisions"],
+        if_index,
+    )
+    row.fragment_errors = _counter_value(values["dot3_frame_too_longs"], if_index)
     row.last_seen_at = now
 
 
@@ -346,6 +402,28 @@ def _target_identity(switch: SnmpSwitch) -> dict[str, Any]:
         "vlan": "",
         "last_seen_at": switch.last_poll_at.isoformat() if switch.last_poll_at else "",
         "confidence": "target",
+    }
+
+
+def _interface_stats(iface: Optional[SnmpInterface]) -> dict[str, Any]:
+    if not iface:
+        return {}
+    return {
+        "interface_speed_bps": iface.speed_bps,
+        "interface_admin_status": iface.admin_status or "",
+        "interface_oper_status": iface.oper_status or "",
+        "interface_in_unicast_packets": iface.in_unicast_packets,
+        "interface_in_non_unicast_packets": iface.in_non_unicast_packets,
+        "interface_out_unicast_packets": iface.out_unicast_packets,
+        "interface_out_non_unicast_packets": iface.out_non_unicast_packets,
+        "interface_in_discards": iface.in_discards,
+        "interface_out_discards": iface.out_discards,
+        "interface_in_errors": iface.in_errors,
+        "interface_out_errors": iface.out_errors,
+        "interface_unknown_protocols": iface.unknown_protocols,
+        "interface_crc_errors": iface.crc_errors,
+        "interface_collision_errors": iface.collision_errors,
+        "interface_fragment_errors": iface.fragment_errors,
     }
 
 
@@ -468,12 +546,29 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
 
     values = {
         "descr": _snmpwalk_step(profile, switch, OID_IF_DESCR, port, "IF-MIB interface descriptions", steps, required=False),
+        "type": _snmpwalk_step(profile, switch, OID_IF_TYPE, port, "IF-MIB interface types", steps, required=False),
         "speed": _snmpwalk_step(profile, switch, OID_IF_SPEED, port, "IF-MIB interface speeds", steps, required=False),
         "phys": _snmpwalk_step(profile, switch, OID_IF_PHYS_ADDRESS, port, "IF-MIB interface MAC addresses", steps, required=False),
         "admin": _snmpwalk_step(profile, switch, OID_IF_ADMIN_STATUS, port, "IF-MIB admin status", steps, required=False),
         "oper": _snmpwalk_step(profile, switch, OID_IF_OPER_STATUS, port, "IF-MIB operational status", steps, required=False),
+        "in_ucast": _snmpwalk_step(profile, switch, OID_IF_IN_UCAST_PKTS, port, "IF-MIB inbound unicast packets", steps, required=False),
+        "in_nucast": _snmpwalk_step(profile, switch, OID_IF_IN_NUCAST_PKTS, port, "IF-MIB inbound non-unicast packets", steps, required=False),
+        "in_discards": _snmpwalk_step(profile, switch, OID_IF_IN_DISCARDS, port, "IF-MIB inbound discards", steps, required=False),
+        "in_errors": _snmpwalk_step(profile, switch, OID_IF_IN_ERRORS, port, "IF-MIB inbound errors", steps, required=False),
+        "unknown_protocols": _snmpwalk_step(profile, switch, OID_IF_IN_UNKNOWN_PROTOS, port, "IF-MIB unknown protocols", steps, required=False),
+        "out_ucast": _snmpwalk_step(profile, switch, OID_IF_OUT_UCAST_PKTS, port, "IF-MIB outbound unicast packets", steps, required=False),
+        "out_nucast": _snmpwalk_step(profile, switch, OID_IF_OUT_NUCAST_PKTS, port, "IF-MIB outbound non-unicast packets", steps, required=False),
+        "out_discards": _snmpwalk_step(profile, switch, OID_IF_OUT_DISCARDS, port, "IF-MIB outbound discards", steps, required=False),
+        "out_errors": _snmpwalk_step(profile, switch, OID_IF_OUT_ERRORS, port, "IF-MIB outbound errors", steps, required=False),
         "names": _snmpwalk_step(profile, switch, OID_IF_NAME, port, "IF-MIB interface names", steps, required=False),
         "alias": _snmpwalk_step(profile, switch, OID_IF_ALIAS, port, "IF-MIB interface aliases", steps, required=False),
+        "dot3_alignment_errors": _snmpwalk_step(profile, switch, OID_DOT3_STATS_ALIGNMENT_ERRORS, port, "EtherLike-MIB alignment errors", steps, required=False),
+        "dot3_fcs_errors": _snmpwalk_step(profile, switch, OID_DOT3_STATS_FCS_ERRORS, port, "EtherLike-MIB FCS/CRC errors", steps, required=False),
+        "dot3_single_collisions": _snmpwalk_step(profile, switch, OID_DOT3_STATS_SINGLE_COLLISIONS, port, "EtherLike-MIB single collision frames", steps, required=False),
+        "dot3_multiple_collisions": _snmpwalk_step(profile, switch, OID_DOT3_STATS_MULTIPLE_COLLISIONS, port, "EtherLike-MIB multiple collision frames", steps, required=False),
+        "dot3_late_collisions": _snmpwalk_step(profile, switch, OID_DOT3_STATS_LATE_COLLISIONS, port, "EtherLike-MIB late collisions", steps, required=False),
+        "dot3_excessive_collisions": _snmpwalk_step(profile, switch, OID_DOT3_STATS_EXCESSIVE_COLLISIONS, port, "EtherLike-MIB excessive collisions", steps, required=False),
+        "dot3_frame_too_longs": _snmpwalk_step(profile, switch, OID_DOT3_STATS_FRAME_TOO_LONGS, port, "EtherLike-MIB frame-too-long fragments", steps, required=False),
     }
 
     indexes = sorted({int(key) for group in values.values() for key in group.keys() if key.isdigit()})
@@ -512,7 +607,7 @@ def identity_for_device(db: Session, device: Device) -> Optional[dict[str, Any]]
             .first()
         )
     switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == entry.switch_id).first()
-    return {
+    identity = {
         "switch_id": entry.switch_id,
         "switch_device_id": switch.device_id if switch else None,
         "switch_name": (switch.name if switch else "") or "",
@@ -524,6 +619,8 @@ def identity_for_device(db: Session, device: Device) -> Optional[dict[str, Any]]
         "last_seen_at": entry.last_seen_at.isoformat() if entry.last_seen_at else "",
         "confidence": "high" if entry.if_index else "medium",
     }
+    identity.update(_interface_stats(iface))
+    return identity
 
 
 def bulk_identities_for_devices(db: Session, devices: list[Device]) -> dict[int, dict[str, Any]]:
@@ -577,7 +674,7 @@ def bulk_identities_for_devices(db: Session, devices: list[Device]) -> dict[int,
             continue
         switch = switches.get(entry.switch_id)
         iface = ifaces.get((entry.switch_id, entry.if_index)) if entry.if_index is not None else None
-        result[device_id] = {
+        identity = {
             "switch_id": entry.switch_id,
             "switch_device_id": switch.device_id if switch else None,
             "switch_name": (switch.name if switch else "") or "",
@@ -589,6 +686,8 @@ def bulk_identities_for_devices(db: Session, devices: list[Device]) -> dict[int,
             "last_seen_at": entry.last_seen_at.isoformat() if entry.last_seen_at else "",
             "confidence": "high" if entry.if_index else "medium",
         }
+        identity.update(_interface_stats(iface))
+        result[device_id] = identity
     _add_linked_target_identities(db, devices, result)
     return result
 

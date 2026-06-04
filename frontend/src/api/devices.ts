@@ -111,6 +111,21 @@ export interface Device {
   snmp_interface_alias?: string | null
   snmp_vlan?: string | null
   snmp_last_seen_at?: string | null
+  snmp_interface_speed_bps?: number | null
+  snmp_interface_admin_status?: string | null
+  snmp_interface_oper_status?: string | null
+  snmp_interface_in_unicast_packets?: number | null
+  snmp_interface_in_non_unicast_packets?: number | null
+  snmp_interface_out_unicast_packets?: number | null
+  snmp_interface_out_non_unicast_packets?: number | null
+  snmp_interface_in_discards?: number | null
+  snmp_interface_out_discards?: number | null
+  snmp_interface_in_errors?: number | null
+  snmp_interface_out_errors?: number | null
+  snmp_interface_unknown_protocols?: number | null
+  snmp_interface_crc_errors?: number | null
+  snmp_interface_collision_errors?: number | null
+  snmp_interface_fragment_errors?: number | null
 }
 
 export interface DeviceListResponse {

@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -91,6 +92,22 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
     }
 
 
+VIRTUAL_IF_TYPES = {24, 53, 131, 135, 136, 161, 209}
+
+
+def _is_real_switch_port(iface: SnmpInterface) -> bool:
+    label = " ".join(part for part in [iface.name, iface.description, iface.alias] if part).lower()
+    if iface.if_type in VIRTUAL_IF_TYPES:
+        return False
+    if re.search(r"\b(loopback|lo\d*|null|vlan|svi|tunnel|tun\d*|gre|bvi|bridge|port-channel|po\d+)\b", label):
+        return False
+    if re.search(r"\b(gigabit|tengigabit|twentyfivegig|fortygigabit|hundredgig|fastethernet|ethernet|fa\d|gi\d|te\d|tw\d|hu\d|eth\d|wan\d|lan\d)\b", label):
+        return True
+    if iface.if_type is None:
+        return bool(label)
+    return iface.if_type in {6, 117}
+
+
 def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
     interfaces = (
         db.query(SnmpInterface)
@@ -122,7 +139,8 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
         })
 
     ports = []
-    for iface in interfaces:
+    visible_interfaces = [iface for iface in interfaces if _is_real_switch_port(iface)]
+    for iface in visible_interfaces:
         endpoints = endpoints_by_if_index.get(iface.if_index, [])
         is_active = iface.oper_status == "up" or bool(endpoints)
         ports.append({
@@ -130,9 +148,22 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
             "name": iface.name or "",
             "description": iface.description or "",
             "alias": iface.alias or "",
+            "if_type": iface.if_type,
             "admin_status": iface.admin_status or "",
             "oper_status": iface.oper_status or "",
             "speed_bps": iface.speed_bps,
+            "in_unicast_packets": iface.in_unicast_packets,
+            "in_non_unicast_packets": iface.in_non_unicast_packets,
+            "out_unicast_packets": iface.out_unicast_packets,
+            "out_non_unicast_packets": iface.out_non_unicast_packets,
+            "in_discards": iface.in_discards,
+            "out_discards": iface.out_discards,
+            "in_errors": iface.in_errors,
+            "out_errors": iface.out_errors,
+            "unknown_protocols": iface.unknown_protocols,
+            "crc_errors": iface.crc_errors,
+            "collision_errors": iface.collision_errors,
+            "fragment_errors": iface.fragment_errors,
             "is_active": is_active,
             "endpoints": endpoints,
             "last_seen_at": iface.last_seen_at,
@@ -140,7 +171,7 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
 
     return {
         "switch": _switch_response(switch, interface_count=len(interfaces), mac_count=len(mac_entries)),
-        "has_visualization": bool(interfaces),
+        "has_visualization": bool(ports),
         "ports": ports,
     }
 

@@ -587,6 +587,60 @@ class SnmpIdentityTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_switch_port_visualization_filters_virtual_ports_and_returns_stats(self):
+        db = self.Session()
+        try:
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.10")
+            db.add(switch)
+            db.commit()
+            db.refresh(switch)
+            db.add_all([
+                SnmpInterface(
+                    switch_id=switch.id,
+                    if_index=1,
+                    name="Loopback0",
+                    if_type=24,
+                    oper_status="up",
+                    last_seen_at=datetime.utcnow(),
+                ),
+                SnmpInterface(
+                    switch_id=switch.id,
+                    if_index=2,
+                    name="Vlan1",
+                    if_type=135,
+                    oper_status="up",
+                    last_seen_at=datetime.utcnow(),
+                ),
+                SnmpInterface(
+                    switch_id=switch.id,
+                    if_index=3,
+                    name="Gi1/0/1",
+                    if_type=6,
+                    oper_status="up",
+                    speed_bps=1000000000,
+                    in_unicast_packets=120,
+                    in_non_unicast_packets=8,
+                    out_unicast_packets=240,
+                    out_non_unicast_packets=12,
+                    crc_errors=2,
+                    collision_errors=1,
+                    fragment_errors=0,
+                    last_seen_at=datetime.utcnow(),
+                ),
+            ])
+            db.commit()
+
+            result = _build_switch_port_visualization(db, switch)
+
+            self.assertTrue(result["has_visualization"])
+            self.assertEqual(len(result["ports"]), 1)
+            self.assertEqual(result["ports"][0]["name"], "Gi1/0/1")
+            self.assertEqual(result["ports"][0]["speed_bps"], 1000000000)
+            self.assertEqual(result["ports"][0]["crc_errors"], 2)
+            self.assertEqual(result["ports"][0]["collision_errors"], 1)
+        finally:
+            db.close()
+
     def test_snmp_router_requires_advanced_view(self):
         db = self.Session()
         try:

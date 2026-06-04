@@ -75,9 +75,22 @@ export interface SnmpSwitchPort {
   name: string
   description: string
   alias: string
+  if_type?: number | null
   admin_status: string
   oper_status: string
   speed_bps?: number | null
+  in_unicast_packets?: number | null
+  in_non_unicast_packets?: number | null
+  out_unicast_packets?: number | null
+  out_non_unicast_packets?: number | null
+  in_discards?: number | null
+  out_discards?: number | null
+  in_errors?: number | null
+  out_errors?: number | null
+  unknown_protocols?: number | null
+  crc_errors?: number | null
+  collision_errors?: number | null
+  fragment_errors?: number | null
   is_active: boolean
   endpoints: SnmpPortEndpoint[]
   last_seen_at: string

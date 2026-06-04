@@ -159,6 +159,18 @@ const switchPorts = {
       admin_status: 'up',
       oper_status: endpoints.length > 0 ? 'up' : 'down',
       speed_bps: portNumber <= 16 ? 1_000_000_000 : 10_000_000_000,
+      in_unicast_packets: 12000 + portNumber,
+      in_non_unicast_packets: 120 + portNumber,
+      out_unicast_packets: 18000 + portNumber,
+      out_non_unicast_packets: 240 + portNumber,
+      in_discards: portNumber === 3 ? 2 : 0,
+      out_discards: 0,
+      in_errors: portNumber === 3 ? 1 : 0,
+      out_errors: 0,
+      unknown_protocols: 0,
+      crc_errors: portNumber === 3 ? 4 : 0,
+      collision_errors: portNumber === 3 ? 2 : 0,
+      fragment_errors: 0,
       is_active: endpoints.length > 0,
       endpoints,
       last_seen_at: now,
@@ -213,6 +225,18 @@ const ciscoInterfaceOnlyPorts = {
       admin_status: 'up',
       oper_status: portNumber <= 4 ? 'up' : 'down',
       speed_bps: 1_000_000_000,
+      in_unicast_packets: 2500 + portNumber,
+      in_non_unicast_packets: 20 + portNumber,
+      out_unicast_packets: 3600 + portNumber,
+      out_non_unicast_packets: 22 + portNumber,
+      in_discards: 0,
+      out_discards: 0,
+      in_errors: 0,
+      out_errors: 0,
+      unknown_protocols: 0,
+      crc_errors: portNumber === 2 ? 3 : 0,
+      collision_errors: 0,
+      fragment_errors: 0,
       is_active: portNumber <= 4,
       endpoints: [],
       last_seen_at: now,
@@ -271,6 +295,7 @@ test('device overview shows SNMP switch ports in context', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Core Switch' })).toBeVisible()
   await expect(page.locator('#device-switch-ports')).toBeVisible()
   await expect(page.locator('#device-switch-ports').getByText('Office AP')).toBeVisible()
+  await expect(page.locator('#device-switch-ports').getByText('Err 4/2/0')).toBeVisible()
   await page.screenshot({ path: `${screenshotDir}/lanlens-snmp-switch-ports.png`, fullPage: false })
 })
 

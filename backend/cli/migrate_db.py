@@ -617,10 +617,23 @@ def migrate():
                 "name VARCHAR(255), "
                 "description TEXT, "
                 "alias VARCHAR(255), "
+                "if_type INTEGER, "
                 "admin_status VARCHAR(32), "
                 "oper_status VARCHAR(32), "
                 "speed_bps INTEGER, "
                 "phys_address VARCHAR(64), "
+                "in_unicast_packets INTEGER, "
+                "in_non_unicast_packets INTEGER, "
+                "out_unicast_packets INTEGER, "
+                "out_non_unicast_packets INTEGER, "
+                "in_discards INTEGER, "
+                "out_discards INTEGER, "
+                "in_errors INTEGER, "
+                "out_errors INTEGER, "
+                "unknown_protocols INTEGER, "
+                "crc_errors INTEGER, "
+                "collision_errors INTEGER, "
+                "fragment_errors INTEGER, "
                 "last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
                 ")"
             ))
@@ -631,6 +644,28 @@ def migrate():
             print("Migration: snmp_interfaces — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: snmp_interfaces already exists — skipped")
+
+        for column, ddl in {
+            "if_type": "ALTER TABLE snmp_interfaces ADD COLUMN if_type INTEGER",
+            "in_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN in_unicast_packets INTEGER",
+            "in_non_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN in_non_unicast_packets INTEGER",
+            "out_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN out_unicast_packets INTEGER",
+            "out_non_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN out_non_unicast_packets INTEGER",
+            "in_discards": "ALTER TABLE snmp_interfaces ADD COLUMN in_discards INTEGER",
+            "out_discards": "ALTER TABLE snmp_interfaces ADD COLUMN out_discards INTEGER",
+            "in_errors": "ALTER TABLE snmp_interfaces ADD COLUMN in_errors INTEGER",
+            "out_errors": "ALTER TABLE snmp_interfaces ADD COLUMN out_errors INTEGER",
+            "unknown_protocols": "ALTER TABLE snmp_interfaces ADD COLUMN unknown_protocols INTEGER",
+            "crc_errors": "ALTER TABLE snmp_interfaces ADD COLUMN crc_errors INTEGER",
+            "collision_errors": "ALTER TABLE snmp_interfaces ADD COLUMN collision_errors INTEGER",
+            "fragment_errors": "ALTER TABLE snmp_interfaces ADD COLUMN fragment_errors INTEGER",
+        }.items():
+            if _table_exists(conn, "snmp_interfaces") and not _column_exists(conn, "snmp_interfaces", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added snmp_interfaces.{column}")
+            elif _table_exists(conn, "snmp_interfaces"):
+                print(f"Migration: snmp_interfaces.{column} already exists — skipped")
 
         if IS_SQLITE and not _table_exists(conn, "snmp_mac_table"):
             conn.execute(text(
