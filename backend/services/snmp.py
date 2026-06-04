@@ -246,6 +246,10 @@ def _snmpwalk_step(
         return {}
 
 
+def _first_value(values: dict[str, str]) -> str:
+    return next(iter(values.values()), "")
+
+
 def _snmpget(profile: SnmpProfile, host: str, oid: str, port: int = 161) -> str:
     values = _snmpwalk(profile, host, oid, port=port)
     return next(iter(values.values()), "")
@@ -376,27 +380,29 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     steps: list[PollStep] = []
     target_summary = _poll_target_summary(switch, profile, port)
 
-    try:
-        switch.sys_descr = next(iter(_snmpwalk_step(profile, switch, OID_SYS_DESCR, port, "System description", steps).values()), "")
-        switch.sys_object_id = next(iter(_snmpwalk_step(profile, switch, OID_SYS_OBJECT_ID, port, "System object ID", steps).values()), "")
-        switch.sys_name = next(iter(_snmpwalk_step(profile, switch, OID_SYS_NAME, port, "System name", steps).values()), "")
-    except RuntimeError as exc:
-        raise RuntimeError(f"{exc}\n\n{_format_poll_steps(target_summary, steps)}") from exc
+    system_values = {
+        "descr": _snmpwalk_step(profile, switch, OID_SYS_DESCR, port, "System description", steps, required=False),
+        "object_id": _snmpwalk_step(profile, switch, OID_SYS_OBJECT_ID, port, "System object ID", steps, required=False),
+        "name": _snmpwalk_step(profile, switch, OID_SYS_NAME, port, "System name", steps, required=False),
+    }
+    if not any(system_values.values()):
+        diagnostics = _format_poll_steps(target_summary, steps)
+        raise RuntimeError(f"SNMP target did not return any system identity values.\n\n{diagnostics}")
+    switch.sys_descr = _first_value(system_values["descr"]) or switch.sys_descr
+    switch.sys_object_id = _first_value(system_values["object_id"]) or switch.sys_object_id
+    switch.sys_name = _first_value(system_values["name"]) or switch.sys_name
 
     vendor = detect_vendor(switch.sys_descr or "", switch.sys_object_id or "")
 
-    try:
-        values = {
-            "descr": _snmpwalk_step(profile, switch, OID_IF_DESCR, port, "IF-MIB interface descriptions", steps),
-            "speed": _snmpwalk_step(profile, switch, OID_IF_SPEED, port, "IF-MIB interface speeds", steps),
-            "phys": _snmpwalk_step(profile, switch, OID_IF_PHYS_ADDRESS, port, "IF-MIB interface MAC addresses", steps),
-            "admin": _snmpwalk_step(profile, switch, OID_IF_ADMIN_STATUS, port, "IF-MIB admin status", steps),
-            "oper": _snmpwalk_step(profile, switch, OID_IF_OPER_STATUS, port, "IF-MIB operational status", steps),
-            "names": _snmpwalk_step(profile, switch, OID_IF_NAME, port, "IF-MIB interface names", steps),
-            "alias": _snmpwalk_step(profile, switch, OID_IF_ALIAS, port, "IF-MIB interface aliases", steps),
-        }
-    except RuntimeError as exc:
-        raise RuntimeError(f"{exc}\n\n{_format_poll_steps(target_summary, steps)}") from exc
+    values = {
+        "descr": _snmpwalk_step(profile, switch, OID_IF_DESCR, port, "IF-MIB interface descriptions", steps, required=False),
+        "speed": _snmpwalk_step(profile, switch, OID_IF_SPEED, port, "IF-MIB interface speeds", steps, required=False),
+        "phys": _snmpwalk_step(profile, switch, OID_IF_PHYS_ADDRESS, port, "IF-MIB interface MAC addresses", steps, required=False),
+        "admin": _snmpwalk_step(profile, switch, OID_IF_ADMIN_STATUS, port, "IF-MIB admin status", steps, required=False),
+        "oper": _snmpwalk_step(profile, switch, OID_IF_OPER_STATUS, port, "IF-MIB operational status", steps, required=False),
+        "names": _snmpwalk_step(profile, switch, OID_IF_NAME, port, "IF-MIB interface names", steps, required=False),
+        "alias": _snmpwalk_step(profile, switch, OID_IF_ALIAS, port, "IF-MIB interface aliases", steps, required=False),
+    }
 
     indexes = sorted({int(key) for group in values.values() for key in group.keys() if key.isdigit()})
     for if_index in indexes:
@@ -406,11 +412,13 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     diagnostics = _format_poll_steps(target_summary, steps)
 
     switch.last_poll_at = now
-    switch.last_error = (
-        None
-        if mac_count
-        else f"{vendor.label} detected. Interface inventory updated, but no BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available.\n\n{diagnostics}"
-    )
+    switch.last_error = None
+    if indexes and not mac_count:
+        switch.last_error = (
+            f"{vendor.label} detected. SNMP identity/interface inventory updated, but no "
+            f"BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available. This is expected for routers, "
+            f"firewalls, printers and other non-switch SNMP targets.\n\n{diagnostics}"
+        )
     switch.updated_at = now
     return PollResult(interfaces=len(indexes), mac_entries=mac_count, diagnostics=diagnostics)
 

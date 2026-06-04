@@ -184,7 +184,7 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertIn("SNMP poll target:", result.diagnostics)
             self.assertIn("OK: IF-MIB interface descriptions", result.diagnostics)
             self.assertIn("FAILED: BRIDGE-MIB MAC forwarding table", result.diagnostics)
-            self.assertIn("Interface inventory updated", switch.last_error)
+            self.assertIn("identity/interface inventory updated", switch.last_error)
             self.assertIn("No Such Object", switch.last_error)
         finally:
             db.close()
@@ -202,9 +202,37 @@ class SnmpIdentityTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError) as ctx:
                     poll_switch(db, switch)
 
-            self.assertIn("SNMP timeout", str(ctx.exception))
+            self.assertIn("did not return any system identity values", str(ctx.exception))
             self.assertIn("SNMP poll target:", str(ctx.exception))
             self.assertIn("FAILED: System description", str(ctx.exception))
+        finally:
+            db.close()
+
+    def test_poll_switch_accepts_non_switch_snmp_target_without_if_mib(self):
+        db = self.Session()
+        try:
+            profile = SnmpProfile(name="printer", version="2c", community="public", port=161)
+            target = SnmpSwitch(name="office-printer", host="192.0.2.44", profile=profile)
+            db.add_all([profile, target])
+            db.commit()
+            db.refresh(target)
+
+            def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                if oid == OID_SYS_DESCR:
+                    return {"": "Office Printer SNMP Agent"}
+                if oid == OID_SYS_NAME:
+                    return {"": "prn-01"}
+                raise RuntimeError("No Such Object available on this agent")
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                result = poll_switch(db, target)
+
+            self.assertEqual(result.interfaces, 0)
+            self.assertEqual(result.mac_entries, 0)
+            self.assertIn("OK: System description", result.diagnostics)
+            self.assertIn("FAILED: IF-MIB interface descriptions", result.diagnostics)
+            self.assertIsNone(target.last_error)
+            self.assertEqual(target.sys_name, "prn-01")
         finally:
             db.close()
 

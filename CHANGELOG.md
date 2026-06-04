@@ -16,6 +16,7 @@ All notable changes to this project should be documented in this file.
 - Added inline editing for existing SNMP switch topology targets in **Settings -> Network Discovery**.
 - Added configurable background SNMP switch polling in **Settings -> Network Discovery**, including enablement and interval.
 - Added detailed SNMP poll troubleshooting output with attempted OIDs, per-step result counts and sanitized target/profile context.
+- Relaxed SNMP polling so routers, firewalls, printers and other non-switch SNMP targets can be scanned for identity/interface data even when IF-MIB details or bridge MAC tables are unavailable.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.

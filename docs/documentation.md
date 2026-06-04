@@ -937,7 +937,7 @@ LanLens 1.5.2 adds a reviewed CSV export for i-doit. In **Settings → CMDB → 
 
 This workflow is deliberately file-based and does not call i-doit JSON-RPC. It is useful when operators want an AutoDoku-style review step before import, or when the i-doit environment expects CSV reconciliation instead of automated writes.
 
-The export can include SNMP-derived identity context when switches have been polled through **Settings → Network → SNMP switch topology**:
+The export can include SNMP-derived identity context when SNMP targets have been polled through **Settings → Network → SNMP targets and switch topology**:
 
 - `SNMP-Switch`
 - `SNMP-Port`
@@ -947,20 +947,20 @@ It also includes `mDNS`, `UPnP/SSDP` and `Passive Discovery` columns when passiv
 
 These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
 
-## SNMP Switch Topology Foundation
+## SNMP Targets And Switch Topology
 
-LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiquiti and generic SNMP devices, then poll inventory from the container using `snmpwalk`. The foundation release stores:
+LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiquiti and generic SNMP devices, then poll inventory from the container using `snmpwalk`. SNMP targets do not have to be switches: routers, firewalls, printers and other SNMP agents can be scanned for system identity, and interface inventory is stored when IF-MIB is available. Switch-port endpoint topology is populated only when a target exposes bridge forwarding tables. The SNMP inventory stores:
 
 - switch system name, description and object ID
 - interface index, name, description, alias, status, speed and physical address
 - bridge forwarding table entries, mapped back from MAC address to interface index where the switch exposes BRIDGE-MIB or Q-BRIDGE-MIB mappings
 - detected vendor context from `sysObjectID` and `sysDescr`
 
-Existing switch targets can be edited inline in **Settings -> Network Discovery -> SNMP switch topology**. Name, host/IP, assigned profile and enabled state can be changed without deleting the learned interface or MAC-table data. The same card can optionally poll enabled SNMP switches in the background at a configurable interval from 1 to 1440 minutes.
+Existing SNMP targets can be edited inline in **Settings -> Network Discovery -> SNMP targets and switch topology**. Name, host/IP, assigned profile and enabled state can be changed without deleting learned interface or MAC-table data. The same card can optionally poll enabled SNMP targets in the background at a configurable interval from 1 to 1440 minutes.
 
 Routers and firewalls may expose IF-MIB without a switch MAC table. In that case LanLens keeps the interface inventory, returns a completed poll, and records a clear warning instead of turning the whole poll into a generic failure.
 
-SNMP poll troubleshooting details are recorded on the switch whenever a poll fails or completes without MAC-table data. The detail includes the target host/port, switch name, selected profile name, SNMP version and SNMPv3 security mode without exposing community strings or passwords. It also lists each attempted SNMP step, the OID used, whether it succeeded, how many rows were returned, and which optional BRIDGE-MIB/Q-BRIDGE-MIB step failed or was unavailable.
+SNMP poll troubleshooting details are recorded whenever a poll fails. For switch-like targets with interfaces but no bridge MAC table, LanLens records a readable note explaining that identity/interface inventory was updated and that missing BRIDGE-MIB/Q-BRIDGE-MIB data is expected for many non-switch SNMP agents. The detail includes the target host/port, target name, selected profile name, SNMP version and SNMPv3 security mode without exposing community strings or passwords. It also lists each attempted SNMP step, the OID used, whether it succeeded, how many rows were returned, and which optional IF-MIB or BRIDGE-MIB/Q-BRIDGE-MIB step failed or was unavailable.
 
 SNMP data is most useful when the router or switch exposes bridge forwarding tables. For a UniFi router, expect the first poll to show system identity, vendor detection and interface inventory. If the UniFi device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the router and interfaces, but endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
 
