@@ -159,7 +159,7 @@ Project updates and occasional build notes are posted on [X / @itneedtoknow](htt
 
 ## Support
 
-LanLens is maintained as an independent project. If it saves you time, you can optionally support the work:
+LanLens is free and open source. If it helps you or saves you time, you can support ongoing development voluntarily. Support does not buy support priority, features, or access.
 
 <a href="https://www.buymeacoffee.com/alexrosbaci" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me a Coffee" style="height: 36px !important;width: 130px !important;" ></a>
 
