@@ -188,7 +188,7 @@ function ToggleSwitch({
         <span className="mt-1 block text-xs text-text-subtle">{description}</span>
       </span>
       <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
-        <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+        <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
       </span>
     </button>
   )
@@ -218,7 +218,7 @@ function CompactToggle({
       title={label}
     >
       <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
-        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${checked ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+        <span className={`absolute left-0 top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${checked ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
       </span>
     </button>
   )
@@ -2512,7 +2512,7 @@ export default function Settings() {
                           current[key] ? 'bg-primary' : 'bg-border'
                         }`}
                       >
-                        <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                        <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${
                           current[key] ? 'translate-x-6' : 'translate-x-1'
                         }`} />
                       </button>
