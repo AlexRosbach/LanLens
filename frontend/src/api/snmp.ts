@@ -88,6 +88,14 @@ export interface SnmpSwitchPortsResponse {
   ports: SnmpSwitchPort[]
 }
 
+export interface SnmpPollResponse {
+  message: string
+  interfaces: number
+  mac_entries: number
+  diagnostics: string
+  switch: SnmpSwitch
+}
+
 export const snmpApi = {
   listProfiles: () => apiClient.get<SnmpProfile[]>('/snmp/profiles').then((r) => r.data),
   createProfile: (data: SnmpProfileCreate) =>
@@ -99,7 +107,7 @@ export const snmpApi = {
   updateSwitch: (switchId: number, data: { name: string; host: string; profile_id: number; device_id?: number | null; enabled: boolean }) =>
     apiClient.put<SnmpSwitch>(`/snmp/switches/${switchId}`, data).then((r) => r.data),
   deleteSwitch: (switchId: number) => apiClient.delete(`/snmp/switches/${switchId}`).then((r) => r.data),
-  pollSwitch: (switchId: number) => apiClient.post(`/snmp/switches/${switchId}/poll`).then((r) => r.data),
+  pollSwitch: (switchId: number) => apiClient.post<SnmpPollResponse>(`/snmp/switches/${switchId}/poll`).then((r) => r.data),
   getDevicePorts: (deviceId: number) =>
     apiClient.get<SnmpSwitchPortsResponse>(`/snmp/devices/${deviceId}/ports`).then((r) => r.data),
   listEndpoints: () => apiClient.get<SnmpEndpoint[]>('/snmp/topology/endpoints').then((r) => r.data),

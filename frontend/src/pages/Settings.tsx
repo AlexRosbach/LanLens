@@ -2239,7 +2239,11 @@ export default function Settings() {
                         ) : (
                           <>
                             <div>{item.name}</div>
-                            {item.last_error && <div className="mt-1 max-w-xs text-xs font-normal text-danger">{item.last_error}</div>}
+                            {item.last_error && (
+                              <div className="mt-1 max-w-md whitespace-pre-wrap rounded-md border border-danger/30 bg-danger/10 p-2 text-xs font-normal text-danger">
+                                {item.last_error}
+                              </div>
+                            )}
                           </>
                         )}
                       </td>

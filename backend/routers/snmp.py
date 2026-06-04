@@ -333,6 +333,7 @@ def poll_snmp_switch(switch_id: int, db: Session = Depends(get_db), _: User = De
         "message": "SNMP poll completed",
         "interfaces": result.interfaces,
         "mac_entries": result.mac_entries,
+        "diagnostics": result.diagnostics,
         "switch": _switch_response(switch, interface_count=result.interfaces, mac_count=result.mac_entries),
     }
 

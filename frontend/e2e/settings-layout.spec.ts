@@ -96,7 +96,7 @@ const snmpSwitches = [
     vendor_key: 'cisco',
     vendor_notes: 'Cisco enterprise OID',
     last_poll_at: '2026-06-04T08:30:00Z',
-    last_error: null,
+    last_error: 'Cisco detected. Interface inventory updated, but no BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available.\n\nSNMP poll target: target=192.168.1.2:161, switch=Core Switch, profile=Core v2c, version=2c\nSNMP poll steps:\n- OK: System description (1.3.6.1.2.1.1.1.0) returned 1 rows\n- OK: IF-MIB interface names (1.3.6.1.2.1.31.1.1.1.1) returned 48 rows\n- FAILED: BRIDGE-MIB MAC forwarding table (1.3.6.1.2.1.17.4.3.1.2): No Such Object available on this agent',
     interface_count: 48,
     mac_count: 24,
   },
@@ -180,7 +180,10 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await expect(page.getByLabel('Cycle interval in minutes')).toHaveValue('15')
   await expect(page.getByLabel('Capture duration in seconds')).toHaveValue('30')
   await expect(page.getByLabel('SNMP poll interval in minutes')).toHaveValue('90')
-  await expect(page.getByText('Core Switch')).toBeVisible()
+  await expect(page.getByText('Core Switch', { exact: true })).toBeVisible()
+  await expect(page.getByText('SNMP poll steps:')).toBeVisible()
+  await page.getByText('SNMP poll steps:').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('settings-snmp-poll-diagnostics.png'), fullPage: false })
   await page.getByRole('button', { name: 'Edit' }).click()
   await expect(page.getByLabel('Switch name')).toHaveValue('Core Switch')
   await page.screenshot({ path: testInfo.outputPath('settings-snmp-switch-edit.png'), fullPage: false })

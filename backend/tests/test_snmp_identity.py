@@ -18,6 +18,20 @@ from backend.routers.snmp import (
     update_switch,
 )
 from backend.services.snmp import (
+    OID_DOT1D_BASE_PORT_IF_INDEX,
+    OID_DOT1D_TP_FDB_PORT,
+    OID_DOT1Q_BASE_PORT_IF_INDEX,
+    OID_DOT1Q_TP_FDB_PORT,
+    OID_IF_ADMIN_STATUS,
+    OID_IF_ALIAS,
+    OID_IF_DESCR,
+    OID_IF_NAME,
+    OID_IF_OPER_STATUS,
+    OID_IF_PHYS_ADDRESS,
+    OID_IF_SPEED,
+    OID_SYS_DESCR,
+    OID_SYS_NAME,
+    OID_SYS_OBJECT_ID,
     _parse_bridge_port_map,
     _parse_mac_suffix,
     _parse_q_bridge_suffix,
@@ -25,7 +39,9 @@ from backend.services.snmp import (
     _snmp_command,
     detect_vendor,
     identity_for_device,
+    poll_switch,
 )
+from unittest.mock import patch
 
 
 class SnmpIdentityTests(unittest.TestCase):
@@ -126,6 +142,71 @@ class SnmpIdentityTests(unittest.TestCase):
                 "1.3.6.1.2.1.1.5.0",
             ],
         )
+
+    def test_poll_switch_records_diagnostics_for_optional_mac_table_failures(self):
+        db = self.Session()
+        try:
+            profile = SnmpProfile(name="core", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile)
+            db.add_all([profile, switch])
+            db.commit()
+            db.refresh(switch)
+
+            def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                required = {
+                    OID_SYS_DESCR: {"": "STRING: Cisco IOS"},
+                    OID_SYS_OBJECT_ID: {"": "OID: 1.3.6.1.4.1.9.1.1"},
+                    OID_SYS_NAME: {"": "STRING: core-sw-01"},
+                    OID_IF_DESCR: {"1": "STRING: GigabitEthernet1"},
+                    OID_IF_SPEED: {"1": "INTEGER: 1000000000"},
+                    OID_IF_PHYS_ADDRESS: {"1": "STRING: 00 11 22 33 44 55"},
+                    OID_IF_ADMIN_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_OPER_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_NAME: {"1": "STRING: Gi1/0/1"},
+                    OID_IF_ALIAS: {"1": "STRING: uplink"},
+                }
+                if oid in required:
+                    return required[oid]
+                if oid in {
+                    OID_DOT1D_BASE_PORT_IF_INDEX,
+                    OID_DOT1Q_BASE_PORT_IF_INDEX,
+                    OID_DOT1D_TP_FDB_PORT,
+                    OID_DOT1Q_TP_FDB_PORT,
+                }:
+                    raise RuntimeError("No Such Object available on this agent")
+                return {}
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                result = poll_switch(db, switch)
+
+            self.assertEqual(result.interfaces, 1)
+            self.assertEqual(result.mac_entries, 0)
+            self.assertIn("SNMP poll target:", result.diagnostics)
+            self.assertIn("OK: IF-MIB interface descriptions", result.diagnostics)
+            self.assertIn("FAILED: BRIDGE-MIB MAC forwarding table", result.diagnostics)
+            self.assertIn("Interface inventory updated", switch.last_error)
+            self.assertIn("No Such Object", switch.last_error)
+        finally:
+            db.close()
+
+    def test_poll_switch_required_failure_includes_troubleshooting_steps(self):
+        db = self.Session()
+        try:
+            profile = SnmpProfile(name="core", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile)
+            db.add_all([profile, switch])
+            db.commit()
+            db.refresh(switch)
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=RuntimeError("SNMP timeout: no response")):
+                with self.assertRaises(RuntimeError) as ctx:
+                    poll_switch(db, switch)
+
+            self.assertIn("SNMP timeout", str(ctx.exception))
+            self.assertIn("SNMP poll target:", str(ctx.exception))
+            self.assertIn("FAILED: System description", str(ctx.exception))
+        finally:
+            db.close()
 
     def test_identity_uses_latest_snmp_mac_entry(self):
         db = self.Session()

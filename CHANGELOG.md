@@ -15,6 +15,7 @@ All notable changes to this project should be documented in this file.
 - Added configurable background port-scan scheduling in **Settings -> Network Discovery**, including enablement, interval and the existing port range/list.
 - Added inline editing for existing SNMP switch topology targets in **Settings -> Network Discovery**.
 - Added configurable background SNMP switch polling in **Settings -> Network Discovery**, including enablement and interval.
+- Added detailed SNMP poll troubleshooting output with attempted OIDs, per-step result counts and sanitized target/profile context.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.

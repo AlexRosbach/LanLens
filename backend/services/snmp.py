@@ -41,6 +41,16 @@ STATUS_LABELS = {
 class PollResult:
     interfaces: int
     mac_entries: int
+    diagnostics: str = ""
+
+
+@dataclass
+class PollStep:
+    label: str
+    oid: str
+    status: str
+    rows: int = 0
+    error: str = ""
 
 
 @dataclass(frozen=True)
@@ -187,6 +197,55 @@ def _optional_snmpwalk(profile: SnmpProfile, host: str, oid: str, port: int = 16
         return {}
 
 
+def _poll_target_summary(switch: SnmpSwitch, profile: SnmpProfile, port: int) -> str:
+    profile_bits = [
+        f"target={switch.host}:{port}",
+        f"switch={switch.name}",
+        f"profile={profile.name or profile.id}",
+        f"version={profile.version}",
+    ]
+    if profile.version == "3":
+        profile_bits.append(f"security={profile.security_level or 'noAuthNoPriv'}")
+        if profile.security_level in {"authNoPriv", "authPriv"}:
+            profile_bits.append(f"auth={profile.auth_protocol or 'SHA'}")
+        if profile.security_level == "authPriv":
+            profile_bits.append(f"privacy={profile.privacy_protocol or 'AES'}")
+    return "SNMP poll target: " + ", ".join(profile_bits)
+
+
+def _format_poll_steps(target: str, steps: list[PollStep]) -> str:
+    lines = [target, "SNMP poll steps:"]
+    for step in steps:
+        if step.status == "ok":
+            lines.append(f"- OK: {step.label} ({step.oid}) returned {step.rows} rows")
+        elif step.status == "skipped":
+            lines.append(f"- SKIPPED: {step.label} ({step.oid})")
+        else:
+            suffix = f": {step.error}" if step.error else ""
+            lines.append(f"- FAILED: {step.label} ({step.oid}){suffix}")
+    return "\n".join(lines)
+
+
+def _snmpwalk_step(
+    profile: SnmpProfile,
+    switch: SnmpSwitch,
+    oid: str,
+    port: int,
+    label: str,
+    steps: list[PollStep],
+    required: bool = True,
+) -> dict[str, str]:
+    try:
+        values = _snmpwalk(profile, switch.host, oid, port)
+        steps.append(PollStep(label=label, oid=oid, status="ok", rows=len(values)))
+        return values
+    except RuntimeError as exc:
+        steps.append(PollStep(label=label, oid=oid, status="failed", error=str(exc)))
+        if required:
+            raise
+        return {}
+
+
 def _snmpget(profile: SnmpProfile, host: str, oid: str, port: int = 161) -> str:
     values = _snmpwalk(profile, host, oid, port=port)
     return next(iter(values.values()), "")
@@ -270,14 +329,21 @@ def _upsert_mac_entry(
     row.last_seen_at = now
 
 
-def _poll_mac_tables(db: Session, switch: SnmpSwitch, profile: SnmpProfile, port: int, now: datetime) -> int:
+def _poll_mac_tables(
+    db: Session,
+    switch: SnmpSwitch,
+    profile: SnmpProfile,
+    port: int,
+    now: datetime,
+    steps: list[PollStep],
+) -> int:
     bridge_ports = _merge_port_maps(
-        _parse_bridge_port_map(_optional_snmpwalk(profile, switch.host, OID_DOT1D_BASE_PORT_IF_INDEX, port)),
-        _parse_bridge_port_map(_optional_snmpwalk(profile, switch.host, OID_DOT1Q_BASE_PORT_IF_INDEX, port)),
+        _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1D_BASE_PORT_IF_INDEX, port, "BRIDGE-MIB base-port map", steps, required=False)),
+        _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1Q_BASE_PORT_IF_INDEX, port, "Q-BRIDGE-MIB VLAN base-port map", steps, required=False)),
     )
     mac_count = 0
 
-    for suffix, bridge_port_value in _optional_snmpwalk(profile, switch.host, OID_DOT1D_TP_FDB_PORT, port).items():
+    for suffix, bridge_port_value in _snmpwalk_step(profile, switch, OID_DOT1D_TP_FDB_PORT, port, "BRIDGE-MIB MAC forwarding table", steps, required=False).items():
         mac = _parse_mac_suffix(suffix)
         bridge_match = re.search(r"\d+", bridge_port_value)
         if not mac or not bridge_match:
@@ -286,7 +352,7 @@ def _poll_mac_tables(db: Session, switch: SnmpSwitch, profile: SnmpProfile, port
         _upsert_mac_entry(db, switch, mac, if_index, now)
         mac_count += 1
 
-    for suffix, bridge_port_value in _optional_snmpwalk(profile, switch.host, OID_DOT1Q_TP_FDB_PORT, port).items():
+    for suffix, bridge_port_value in _snmpwalk_step(profile, switch, OID_DOT1Q_TP_FDB_PORT, port, "Q-BRIDGE-MIB VLAN MAC forwarding table", steps, required=False).items():
         vlan, mac = _parse_q_bridge_suffix(suffix)
         bridge_match = re.search(r"\d+", bridge_port_value)
         if not mac or not bridge_match:
@@ -307,35 +373,46 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     profile = switch.profile
     port = switch.profile.port or 161
     now = datetime.utcnow()
+    steps: list[PollStep] = []
+    target_summary = _poll_target_summary(switch, profile, port)
 
-    switch.sys_descr = _snmpget(profile, switch.host, OID_SYS_DESCR, port)
-    switch.sys_object_id = _snmpget(profile, switch.host, OID_SYS_OBJECT_ID, port)
-    switch.sys_name = _snmpget(profile, switch.host, OID_SYS_NAME, port)
+    try:
+        switch.sys_descr = next(iter(_snmpwalk_step(profile, switch, OID_SYS_DESCR, port, "System description", steps).values()), "")
+        switch.sys_object_id = next(iter(_snmpwalk_step(profile, switch, OID_SYS_OBJECT_ID, port, "System object ID", steps).values()), "")
+        switch.sys_name = next(iter(_snmpwalk_step(profile, switch, OID_SYS_NAME, port, "System name", steps).values()), "")
+    except RuntimeError as exc:
+        raise RuntimeError(f"{exc}\n\n{_format_poll_steps(target_summary, steps)}") from exc
+
     vendor = detect_vendor(switch.sys_descr or "", switch.sys_object_id or "")
 
-    values = {
-        "descr": _snmpwalk(profile, switch.host, OID_IF_DESCR, port),
-        "speed": _snmpwalk(profile, switch.host, OID_IF_SPEED, port),
-        "phys": _snmpwalk(profile, switch.host, OID_IF_PHYS_ADDRESS, port),
-        "admin": _snmpwalk(profile, switch.host, OID_IF_ADMIN_STATUS, port),
-        "oper": _snmpwalk(profile, switch.host, OID_IF_OPER_STATUS, port),
-        "names": _snmpwalk(profile, switch.host, OID_IF_NAME, port),
-        "alias": _snmpwalk(profile, switch.host, OID_IF_ALIAS, port),
-    }
+    try:
+        values = {
+            "descr": _snmpwalk_step(profile, switch, OID_IF_DESCR, port, "IF-MIB interface descriptions", steps),
+            "speed": _snmpwalk_step(profile, switch, OID_IF_SPEED, port, "IF-MIB interface speeds", steps),
+            "phys": _snmpwalk_step(profile, switch, OID_IF_PHYS_ADDRESS, port, "IF-MIB interface MAC addresses", steps),
+            "admin": _snmpwalk_step(profile, switch, OID_IF_ADMIN_STATUS, port, "IF-MIB admin status", steps),
+            "oper": _snmpwalk_step(profile, switch, OID_IF_OPER_STATUS, port, "IF-MIB operational status", steps),
+            "names": _snmpwalk_step(profile, switch, OID_IF_NAME, port, "IF-MIB interface names", steps),
+            "alias": _snmpwalk_step(profile, switch, OID_IF_ALIAS, port, "IF-MIB interface aliases", steps),
+        }
+    except RuntimeError as exc:
+        raise RuntimeError(f"{exc}\n\n{_format_poll_steps(target_summary, steps)}") from exc
+
     indexes = sorted({int(key) for group in values.values() for key in group.keys() if key.isdigit()})
     for if_index in indexes:
         _upsert_interface(db, switch, if_index, values, now)
 
-    mac_count = _poll_mac_tables(db, switch, profile, port, now)
+    mac_count = _poll_mac_tables(db, switch, profile, port, now, steps)
+    diagnostics = _format_poll_steps(target_summary, steps)
 
     switch.last_poll_at = now
     switch.last_error = (
         None
         if mac_count
-        else f"{vendor.label} detected. Interface inventory updated, but no BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available."
+        else f"{vendor.label} detected. Interface inventory updated, but no BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available.\n\n{diagnostics}"
     )
     switch.updated_at = now
-    return PollResult(interfaces=len(indexes), mac_entries=mac_count)
+    return PollResult(interfaces=len(indexes), mac_entries=mac_count, diagnostics=diagnostics)
 
 
 def identity_for_device(db: Session, device: Device) -> Optional[dict[str, Any]]:
