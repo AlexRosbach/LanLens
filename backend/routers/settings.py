@@ -30,7 +30,7 @@ from ..services.notification import send_test_message, send_update_notification,
 from ..services.https_config import apply_nginx_config, load_https_config, save_https_config
 from ..services.passive_discovery_scheduler import update_passive_discovery_schedule
 from ..services.device_retention import get_device_retention_settings
-from ..services.scheduler import update_interval, update_ping_monitor_schedule
+from ..services.scheduler import update_interval, update_ping_monitor_schedule, update_port_scan_schedule
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
 from ..services.settings_helpers import get_scan_interval_minutes
@@ -44,7 +44,7 @@ SETTING_KEYS = [
     "passive_discovery_background_enabled", "passive_discovery_interval_minutes", "passive_discovery_capture_seconds",
     "ping_monitor_enabled", "ping_monitor_interval_minutes",
     "device_archive_after_days", "device_delete_archived_after_days",
-    "port_scan_range",
+    "port_scan_range", "port_scan_background_enabled", "port_scan_interval_minutes",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
     "webhook_url", "webhook_enabled",
@@ -152,6 +152,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         ping_monitor_interval_minutes=int(_get(db, "ping_monitor_interval_minutes", "5") or "5"),
         **get_device_retention_settings(db),
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
+        port_scan_background_enabled=_get(db, "port_scan_background_enabled", "false") == "true",
+        port_scan_interval_minutes=int(_get(db, "port_scan_interval_minutes", "60") or "60"),
         telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
@@ -312,7 +314,7 @@ def update_port_scan_settings(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Update the global port scan range used for all device scans."""
+    """Update the global port scan range and optional background cadence."""
     spec = data.port_scan_range.strip()
     if not spec:
         raise HTTPException(status_code=400, detail="port_scan_range must not be empty")
@@ -362,8 +364,12 @@ def update_port_scan_settings(
         # Store the sanitised value so what's saved matches what gets scanned
         spec = sanitised
 
+    interval = max(1, min(1440, int(data.port_scan_interval_minutes or 60)))
     _set(db, "port_scan_range", spec)
+    _set(db, "port_scan_background_enabled", "true" if data.port_scan_background_enabled else "false")
+    _set(db, "port_scan_interval_minutes", str(interval))
     db.commit()
+    update_port_scan_schedule()
     return MessageResponse(message="Port scan settings updated")
 
 

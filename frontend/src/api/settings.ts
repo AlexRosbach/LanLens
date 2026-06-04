@@ -15,6 +15,8 @@ export interface AllSettings {
   device_archive_after_days: number
   device_delete_archived_after_days: number
   port_scan_range: string
+  port_scan_background_enabled: boolean
+  port_scan_interval_minutes: number
   telegram_bot_token: string
   telegram_chat_id: string
   telegram_enabled: boolean
@@ -111,8 +113,11 @@ export const settingsApi = {
   notifyUpdateAvailable: () =>
     apiClient.post('/settings/telegram/notify-update').then((r) => r.data),
 
-  updatePortScanSettings: (port_scan_range: string) =>
-    apiClient.put('/settings/port-scan', { port_scan_range }).then((r) => r.data),
+  updatePortScanSettings: (data: {
+    port_scan_range: string
+    port_scan_background_enabled: boolean
+    port_scan_interval_minutes: number
+  }) => apiClient.put('/settings/port-scan', data).then((r) => r.data),
 
   updateServerUrl: (server_url: string) =>
     apiClient.put('/settings/server-url', { server_url }).then((r) => r.data),

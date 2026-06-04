@@ -11,11 +11,11 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-service-tls-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, DevicePingSample, Service, Setting
+from backend.models import Device, DevicePingSample, PortScan, Service, Setting
 from backend.routers.devices import _auto_check_https_certificate
 from backend.routers.services import _normalize_tls_expiry, _resolve_safe_tls_addresses, _service_tls_target
 from backend.services.scanner import PING_SAMPLE_RETENTION_PER_DEVICE, monitor_known_device_pings, record_ping_sample
-from backend.services.scheduler import get_ping_monitor_schedule
+from backend.services.scheduler import get_ping_monitor_schedule, get_port_scan_schedule, _port_scan_job
 from backend.services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
 
 
@@ -110,6 +110,26 @@ class ServiceTlsAndPingTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_port_scan_schedule_requires_advanced_view_and_clamps_interval(self):
+        db = self.Session()
+        try:
+            db.add_all([
+                Setting(key="port_scan_background_enabled", value="true"),
+                Setting(key="port_scan_interval_minutes", value="2000"),
+                Setting(key="advanced_view_enabled", value="false"),
+            ])
+            db.commit()
+
+            schedule = get_port_scan_schedule(db)
+            self.assertFalse(schedule["enabled"])
+            self.assertEqual(schedule["interval_minutes"], 1440)
+
+            db.query(Setting).filter(Setting.key == "advanced_view_enabled").one().value = "true"
+            db.commit()
+            self.assertTrue(get_port_scan_schedule(db)["enabled"])
+        finally:
+            db.close()
+
     def test_ping_sample_retention_keeps_latest_samples_per_device(self):
         db = self.Session()
         try:
@@ -166,6 +186,47 @@ class ServiceTlsAndPingTests(unittest.TestCase):
             ping.assert_called_once_with("192.0.2.10", 1)
             self.assertEqual(db.query(DevicePingSample).filter(DevicePingSample.device_id == active.id).count(), 1)
             self.assertEqual(db.query(DevicePingSample).filter(DevicePingSample.device_id == archived.id).count(), 0)
+        finally:
+            db.close()
+
+    def test_port_scan_monitor_skips_archived_and_invalid_ip_devices(self):
+        db = self.Session()
+        try:
+            active = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.10")
+            archived = Device(
+                mac_address="00:11:22:33:44:66",
+                ip_address="192.0.2.11",
+                is_archived=True,
+            )
+            invalid = Device(mac_address="00:11:22:33:44:77", ip_address="not-an-ip")
+            db.add_all([
+                active,
+                archived,
+                invalid,
+                Setting(key="port_scan_range", value="22,443"),
+            ])
+            db.commit()
+            db.refresh(active)
+
+            with patch("backend.services.scheduler.SessionLocal", self.Session), patch(
+                "backend.routers.devices.SessionLocal",
+                self.Session,
+            ), patch(
+                "backend.routers.devices.scan_ports_async",
+                return_value={
+                    "open_ports": [{"port": 22, "protocol": "tcp", "service": "ssh", "state": "open"}],
+                    "ssh_available": True,
+                    "rdp_available": False,
+                    "http_available": False,
+                    "https_available": False,
+                },
+            ) as scan:
+                asyncio.run(_port_scan_job())
+
+            scan.assert_called_once_with("192.0.2.10", port_spec="22,443")
+            self.assertEqual(db.query(PortScan).filter(PortScan.device_id == active.id).count(), 1)
+            self.assertEqual(db.query(PortScan).filter(PortScan.device_id == archived.id).count(), 0)
+            self.assertEqual(db.query(PortScan).filter(PortScan.device_id == invalid.id).count(), 0)
         finally:
             db.close()
 

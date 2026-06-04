@@ -12,6 +12,7 @@ All notable changes to this project should be documented in this file.
 - Added passive VRRP/HSRP group awareness that summarizes recent high-availability peers from multicast discovery.
 - Added visible multicast capture cadence controls in **Settings -> Network Discovery -> Multicast protocols** and reused the configured capture duration for manual captures.
 - Added client-side UI error logging so visible browser/API/runtime failures are also written to the LanLens container logs.
+- Added configurable background port-scan scheduling in **Settings -> Network Discovery**, including enablement, interval and the existing port range/list.
 
 ### Fixes / Hardening
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.

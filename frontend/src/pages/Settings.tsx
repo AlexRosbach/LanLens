@@ -800,7 +800,11 @@ export default function Settings() {
   async function savePortScanSettings() {
     setSaving(true)
     try {
-      await settingsApi.updatePortScanSettings(current.port_scan_range)
+      await settingsApi.updatePortScanSettings({
+        port_scan_range: current.port_scan_range,
+        port_scan_background_enabled: current.port_scan_background_enabled,
+        port_scan_interval_minutes: current.port_scan_interval_minutes,
+      })
       toast.success(t('port_scan_settings_saved'))
     } catch {
       toast.error(t('port_scan_settings_save_failed'))
@@ -2196,21 +2200,42 @@ export default function Settings() {
 
           {current.advanced_view_enabled && (
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-2">{t('port_scan_range_title')}</h2>
-            <p className="text-sm text-text-subtle mb-4">
-              {t('port_range_examples')}
-            </p>
-            <div>
-              <label className="block text-sm text-text-subtle mb-1">
-                {t('port_range_list')}
-              </label>
-              <Input
-                value={current.port_scan_range}
-                onChange={(e) => setSettings({ ...current, port_scan_range: e.target.value })}
-                placeholder="top:1000"
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('port_scan_range_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('port_scan_range_description')}</p>
+              </div>
+              <ToggleSwitch
+                checked={current.port_scan_background_enabled}
+                label={t('port_scan_background')}
+                description={t('port_scan_background_hint')}
+                onChange={(checked) => setSettings({ ...current, port_scan_background_enabled: checked })}
               />
-            </div>
-            <div className="mt-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">
+                    {t('port_range_list')}
+                  </label>
+                  <Input
+                    aria-label={t('port_range_list')}
+                    value={current.port_scan_range}
+                    onChange={(e) => setSettings({ ...current, port_scan_range: e.target.value })}
+                    placeholder="top:1000"
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('port_range_examples')}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('port_scan_interval')}</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="1440"
+                    aria-label={t('port_scan_interval')}
+                    value={String(current.port_scan_interval_minutes)}
+                    onChange={(e) => setSettings({ ...current, port_scan_interval_minutes: Number(e.target.value) || 60 })}
+                  />
+                </div>
+              </div>
               <Button onClick={savePortScanSettings} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>

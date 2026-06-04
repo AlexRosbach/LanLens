@@ -604,6 +604,8 @@ class UiSettings(BaseModel):
 
 class PortScanSettings(BaseModel):
     port_scan_range: str  # e.g. "top:1000", "1-65535", "22,80,443", "1-1024,8080,8443"
+    port_scan_background_enabled: bool = False
+    port_scan_interval_minutes: int = 60
 
 
 class SinglePortScanRequest(BaseModel):
@@ -629,6 +631,8 @@ class AllSettings(BaseModel):
     device_archive_after_days: int = 0
     device_delete_archived_after_days: int = 0
     port_scan_range: str = "top:1000"
+    port_scan_background_enabled: bool = False
+    port_scan_interval_minutes: int = 60
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""
     telegram_enabled: bool = False

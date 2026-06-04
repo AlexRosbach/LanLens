@@ -309,6 +309,7 @@ Returns `DeviceListResponse` with `items`, `total`, `online`, `offline`, `unregi
 #### `POST /api/devices/{id}/scan-ports`
 
 Triggers background nmap port scan. Returns immediately with `202`-like response.
+Uses the global port range from Settings -> Network Discovery -> Port Scan Range.
 
 #### `GET /api/devices/{id}/ports`
 
@@ -417,10 +418,10 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### Port Scan Flow
 
 ```
-1. Triggered by: POST /api/devices/{id}/scan-ports OR manual
+1. Triggered by: POST /api/devices/{id}/scan-ports, the manual UI action, or the optional scheduled background job
 2. port_scanner.py: nmap.PortScanner()
-3. Arguments: "-sS -T4 --top-ports 1000" (SYN scan, fast)
-   Fallback: "-sT -T4 --top-ports 1000" (TCP connect, no root needed)
+3. Arguments: configured in Settings; default is "-sS -T4 --top-ports 1000" (SYN scan, fast)
+   Fallback: "-sT -T4 ..." (TCP connect, no root needed)
 4. Parse results: extract open ports, service names
 5. Set flags: ssh_available, rdp_available, http_available, https_available
 6. Write PortScan row to DB
