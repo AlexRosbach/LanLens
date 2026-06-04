@@ -26,7 +26,7 @@ LanLens is built for small self-hosted, homelab, and lightweight IT environments
 - Discover devices on the local Layer-2 network with ARP scanning
 - Track online/offline state, DHCP range membership, IP history, and open services
 - Flag unknown DHCP servers, ARP/MAC drift, and VRRP/HSRP control-plane peers for network security awareness
-- Capture optional mDNS, SSDP/UPnP, and multicast observations on an adjustable interval and duration
+- Capture optional mDNS, SSDP/UPnP, LLDP/CDP and multicast observations on an adjustable interval and duration, including capability-based device-class hints
 - Schedule optional background port scans with configurable interval and port range
 - Route notification events through global master rules plus per-channel Telegram, webhook/Gotify, and email overrides
 - Review and export a network change log with before/after values for device discoveries, state changes, IP moves, hostname changes, archive actions, and manual documentation edits
@@ -73,6 +73,10 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 | Multicast capture settings |
 |---|
 | ![LanLens multicast capture cadence settings](docs/screenshots/lanlens-multicast-cadence.png) |
+
+| LLDP/CDP class hints |
+|---|
+| ![LanLens passive LLDP device class hint](docs/screenshots/lanlens-passive-lldp-classification.png) |
 
 | Feature visibility |
 |---|

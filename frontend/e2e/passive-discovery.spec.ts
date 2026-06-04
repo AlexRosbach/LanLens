@@ -109,7 +109,7 @@ const device = {
   ip_history: [],
 }
 
-test('device multicast discovery shows one row for repeated observations', async ({ page }) => {
+test('device multicast discovery dedupes rows and shows LLDP class hints', async ({ page }) => {
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({ json: { username: 'admin', force_password_change: false } })
   })
@@ -184,18 +184,43 @@ test('device multicast discovery shows one row for repeated observations', async
           linked_device_id: 1,
           linked_device_label: 'Printer 01',
         },
+        {
+          id: 3,
+          protocol: 'lldp',
+          source_ip: null,
+          source_mac: 'AA:BB:CC:DD:EE:FF',
+          destination_ip: null,
+          service_name: 'lab-sg500x',
+          service_type: 'bridge',
+          summary: 'lab-sg500x · port Gi1/0/1 · bridge',
+          metadata: {
+            packet_type: 'LLDP neighbor advertisement',
+            system_name: 'lab-sg500x',
+            port_id: 'Gi1/0/1',
+            enabled_capabilities: ['bridge'],
+          },
+          inferred_device_class: 'Switch',
+          inference_confidence: 'high',
+          inference_reasons: ['LLDP bridge/switch capability advertisement'],
+          observed_at: '2026-05-31T20:27:00Z',
+          linked_device_id: 1,
+          linked_device_label: 'Printer 01',
+        },
       ],
     })
   })
 
   await page.goto('/devices/1')
 
-  await expect(page.getByText('1 unique observations')).toBeVisible()
-  await expect(page.locator('#device-passive-discovery tbody tr')).toHaveCount(1)
+  await expect(page.getByText('2 unique observations')).toBeVisible()
+  await expect(page.locator('#device-passive-discovery tbody tr')).toHaveCount(2)
+  await expect(page.locator('#device-passive-discovery').getByText('LLDP')).toBeVisible()
+  await expect(page.locator('#device-passive-discovery').getByText('Switch · high')).toBeVisible()
+  await expect(page.locator('#device-passive-discovery').getByText('lab-sg500x · port Gi1/0/1 · bridge')).toBeVisible()
   await expect(page.locator('#device-passive-discovery').getByText('Workstation · low')).toBeVisible()
   await expect(page.locator('#device-passive-discovery').getByRole('button', { name: /multicast.*details/i })).toBeVisible()
   await page.locator('#device-passive-discovery').scrollIntoViewIfNeeded()
-  await page.screenshot({ path: `${screenshotDir}/passive-discovery-dedupe.png`, fullPage: true })
+  await page.locator('#device-passive-discovery').screenshot({ path: `${screenshotDir}/passive-discovery-dedupe.png` })
   await page.locator('#device-passive-discovery').getByRole('button', { name: /multicast.*details/i }).click()
   await expect(page.getByRole('dialog', { name: 'MULTICAST observation' })).toBeVisible()
   await expect(page.getByText('Multicast discovery detail')).toBeVisible()

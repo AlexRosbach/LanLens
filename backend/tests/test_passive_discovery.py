@@ -9,7 +9,7 @@ import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
 from backend.models import Setting
-from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, ha_groups_for_observations, infer_device_class_from_observation, observation_to_response, parse_control_plane_packet, parse_mdns_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
+from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, ha_groups_for_observations, infer_device_class_from_observation, observation_to_response, parse_cdp_packet, parse_control_plane_packet, parse_lldp_packet, parse_mdns_packet, parse_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -21,10 +21,10 @@ except Exception:
 try:
     from scapy.layers.dns import DNS, DNSQR, DNSRR
     from scapy.layers.inet import IP, UDP
-    from scapy.layers.l2 import Ether
+    from scapy.layers.l2 import Ether, LLC, SNAP
     from scapy.packet import Raw
 except Exception:
-    DNS = DNSQR = DNSRR = Ether = IP = Raw = UDP = None
+    DNS = DNSQR = DNSRR = Ether = IP = LLC = Raw = SNAP = UDP = None
 
 try:
     from scapy.layers.vrrp import VRRP
@@ -152,6 +152,94 @@ class PassiveDiscoveryTests(unittest.TestCase):
         self.assertEqual(observation.destination_ip, "239.255.255.250")
         self.assertEqual(observation.service_type, "urn:schemas-upnp-org:device:MediaServer:1")
         self.assertEqual(observation.summary, "M-SEARCH urn:schemas-upnp-org:device:MediaServer:1")
+
+    @staticmethod
+    def _lldp_tlv(tlv_type: int, value: bytes) -> bytes:
+        return (((tlv_type << 9) | len(value)).to_bytes(2, "big") + value)
+
+    @staticmethod
+    def _cdp_tlv(tlv_type: int, value: bytes) -> bytes:
+        return tlv_type.to_bytes(2, "big") + (len(value) + 4).to_bytes(2, "big") + value
+
+    @unittest.skipIf(Raw is None, "scapy is not installed")
+    def test_lldp_packet_extracts_capabilities_and_infers_switch(self):
+        payload = b"".join([
+            self._lldp_tlv(1, b"\x04" + bytes.fromhex("001122334455")),
+            self._lldp_tlv(2, b"\x05Gi1/0/1"),
+            self._lldp_tlv(5, b"lab-sg500x"),
+            self._lldp_tlv(6, b"Cisco SG500X stack"),
+            self._lldp_tlv(7, (0x0004).to_bytes(2, "big") + (0x0004).to_bytes(2, "big")),
+            b"\x00\x00",
+        ])
+        packet = Ether(src="00:11:22:33:44:55", dst="01:80:C2:00:00:0E", type=0x88CC) / Raw(load=payload)
+
+        observation = parse_lldp_packet(packet)
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.protocol, "lldp")
+        self.assertEqual(observation.source_mac, "00:11:22:33:44:55")
+        self.assertEqual(observation.service_name, "lab-sg500x")
+        self.assertEqual(observation.service_type, "bridge")
+        self.assertIn("Gi1/0/1", observation.summary)
+        inference = infer_device_class_from_observation(observation)
+        self.assertEqual(inference["inferred_device_class"], "Switch")
+        self.assertEqual(inference["inference_confidence"], "high")
+
+    @unittest.skipIf(Raw is None or LLC is None or SNAP is None, "scapy is not installed")
+    def test_cdp_packet_extracts_capabilities_and_infers_switch(self):
+        cdp_body = b"\x02\xb4\x00\x00" + b"".join([
+            self._cdp_tlv(0x0001, b"lab-sg500x"),
+            self._cdp_tlv(0x0003, b"gi1/1/1"),
+            self._cdp_tlv(0x0004, (0x00000008).to_bytes(4, "big")),
+            self._cdp_tlv(0x0006, b"Cisco SG500X"),
+        ])
+        packet = (
+            Ether(src="00:11:22:33:44:55", dst="01:00:0C:CC:CC:CC")
+            / LLC(dsap=0xAA, ssap=0xAA, ctrl=3)
+            / SNAP(OUI=0x00000C, code=0x2000)
+            / Raw(load=cdp_body)
+        )
+
+        observation = parse_cdp_packet(packet)
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.protocol, "cdp")
+        self.assertEqual(observation.service_name, "lab-sg500x")
+        self.assertEqual(observation.service_type, "switch")
+        self.assertIn("gi1/1/1", observation.summary)
+        inference = infer_device_class_from_observation(observation)
+        self.assertEqual(inference["inferred_device_class"], "Switch")
+        self.assertEqual(inference["inference_confidence"], "high")
+
+    @unittest.skipIf(Raw is None, "scapy is not installed")
+    def test_multicast_passive_discovery_accepts_lldp_for_device_class_updates(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", ip_address="192.0.2.70", device_class="Unknown")
+            db.add(device)
+            db.commit()
+            payload = b"".join([
+                self._lldp_tlv(1, b"\x04" + bytes.fromhex("001122334455")),
+                self._lldp_tlv(2, b"\x05Gi1/0/1"),
+                self._lldp_tlv(5, b"lab-sg500x"),
+                self._lldp_tlv(7, (0x0004).to_bytes(2, "big") + (0x0004).to_bytes(2, "big")),
+                b"\x00\x00",
+            ])
+            packet = Ether(src="00:11:22:33:44:55", dst="01:80:C2:00:00:0E", type=0x88CC) / Raw(load=payload)
+            observation = parse_packet(packet, {"multicast"})
+
+            self.assertIsNotNone(observation)
+            self.assertEqual(find_linked_device(db, observation).id, device.id)
+            self.assertTrue(apply_passive_device_class(db, device, observation))
+            db.commit()
+
+            self.assertEqual(device.device_class, "Switch")
+        finally:
+            db.close()
+            Base.metadata.drop_all(engine)
 
     def test_passive_discovery_infers_printer_from_mdns_service(self):
         observation = PassiveDiscoveryObservation(

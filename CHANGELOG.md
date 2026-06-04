@@ -22,6 +22,7 @@ All notable changes to this project should be documented in this file.
 - Relaxed SNMP polling so routers, firewalls, printers and other non-switch SNMP targets can be scanned for identity/interface data even when IF-MIB details or bridge MAC tables are unavailable.
 - Linked SNMP targets now appear on matching device detail pages and CMDB export fields even when the target has no switch MAC table, using explicit device assignment or host/IP matching.
 - Added SNMP interface-only port visualization for linked switches when IF-MIB is available but BRIDGE-MIB/Q-BRIDGE-MIB MAC tables are not.
+- Added LLDP/CDP passive discovery parsing so linked devices can be classified from advertised switch, router, access-point, telephone and station capabilities.
 - Added a bulk delete action on the Notifications page to clear all in-app notifications after confirmation.
 - Added a general notification rule matrix in **Settings -> Notifications** with global event rules and per-channel Telegram, webhook/Gotify and email rules for new-device and network-change events.
 
