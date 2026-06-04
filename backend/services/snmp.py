@@ -349,6 +349,46 @@ def _target_identity(switch: SnmpSwitch) -> dict[str, Any]:
     }
 
 
+def _switch_like_device_class(vendor: VendorSupport, switch: SnmpSwitch, interface_count: int) -> Optional[str]:
+    text = " ".join(
+        value
+        for value in [
+            switch.name or "",
+            switch.sys_name or "",
+            switch.sys_descr or "",
+            switch.sys_object_id or "",
+        ]
+        if value
+    ).lower()
+    if not text or interface_count <= 0:
+        return None
+    if re.search(r"\b(switch|catalyst|nexus|cbs\d|sg\d|sf\d|small business)\b", text):
+        return "Switch"
+    if vendor.key == "unifi" and "usw" in text:
+        return "Switch"
+    return None
+
+
+def _linked_device_for_target(db: Session, switch: SnmpSwitch) -> Optional[Device]:
+    if switch.device_id:
+        return db.query(Device).filter(Device.id == switch.device_id).first()
+    if switch.host:
+        return db.query(Device).filter(Device.ip_address == switch.host).first()
+    return None
+
+
+def _apply_target_identity_to_device(db: Session, switch: SnmpSwitch, vendor: VendorSupport, interface_count: int) -> None:
+    device = _linked_device_for_target(db, switch)
+    if not device:
+        return
+    inferred_class = _switch_like_device_class(vendor, switch, interface_count)
+    current_class = (device.device_class or "").strip().lower()
+    if inferred_class and current_class in {"", "unknown"}:
+        device.device_class = inferred_class
+    if vendor.key != "generic" and not (device.vendor or "").strip():
+        device.vendor = vendor.label
+
+
 def _linked_target_for_device(db: Session, device: Device) -> Optional[SnmpSwitch]:
     filters = []
     if device.id is not None:
@@ -445,12 +485,7 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
 
     switch.last_poll_at = now
     switch.last_error = None
-    if indexes and not mac_count:
-        switch.last_error = (
-            f"{vendor.label} detected. SNMP identity/interface inventory updated, but no "
-            f"BRIDGE-MIB/Q-BRIDGE-MIB MAC table was available. This is expected for routers, "
-            f"firewalls, printers and other non-switch SNMP targets.\n\n{diagnostics}"
-        )
+    _apply_target_identity_to_device(db, switch, vendor, len(indexes))
     switch.updated_at = now
     return PollResult(interfaces=len(indexes), mac_entries=mac_count, diagnostics=diagnostics)
 

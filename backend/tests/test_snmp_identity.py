@@ -186,8 +186,51 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertIn("SNMP poll target:", result.diagnostics)
             self.assertIn("OK: IF-MIB interface descriptions", result.diagnostics)
             self.assertIn("FAILED: BRIDGE-MIB MAC forwarding table", result.diagnostics)
-            self.assertIn("identity/interface inventory updated", switch.last_error)
-            self.assertIn("No Such Object", switch.last_error)
+            self.assertIsNone(switch.last_error)
+        finally:
+            db.close()
+
+    def test_poll_switch_classifies_ip_scan_cisco_sg_target_as_switch_without_mac_table(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="ip:cisco-sg500x",
+                ip_address="192.0.2.10",
+                hostname="sg500x-01",
+                device_class="Unknown",
+                is_registered=True,
+            )
+            profile = SnmpProfile(name="core", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="core-sg500x", host="192.0.2.10", profile=profile)
+            db.add_all([device, profile, switch])
+            db.commit()
+            db.refresh(switch)
+
+            def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                required = {
+                    OID_SYS_DESCR: {"": "STRING: Cisco SG500X-24P 24-Port Gigabit Stackable Managed Switch"},
+                    OID_SYS_OBJECT_ID: {"": "OID: 1.3.6.1.4.1.9.6.1.89.24"},
+                    OID_SYS_NAME: {"": "STRING: core-sg500x"},
+                    OID_IF_DESCR: {"1": "STRING: GigabitEthernet1/1/1"},
+                    OID_IF_ADMIN_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_OPER_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_NAME: {"1": "STRING: gi1/1/1"},
+                }
+                if oid in required:
+                    return required[oid]
+                raise RuntimeError("No Such Object available on this agent")
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                result = poll_switch(db, switch)
+            db.flush()
+            db.refresh(device)
+            db.refresh(switch)
+
+            self.assertEqual(result.interfaces, 1)
+            self.assertEqual(result.mac_entries, 0)
+            self.assertEqual(device.device_class, "Switch")
+            self.assertEqual(device.vendor, "Cisco")
+            self.assertIsNone(switch.last_error)
         finally:
             db.close()
 
@@ -434,7 +477,7 @@ class SnmpIdentityTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_switch_port_visualization_requires_mac_table_and_links_devices(self):
+    def test_switch_port_visualization_shows_interfaces_and_links_mac_table_devices(self):
         db = self.Session()
         try:
             switch_device = Device(
@@ -476,7 +519,7 @@ class SnmpIdentityTests(unittest.TestCase):
             db.commit()
 
             empty_result = _build_switch_port_visualization(db, switch)
-            self.assertFalse(empty_result["has_visualization"])
+            self.assertTrue(empty_result["has_visualization"])
             self.assertEqual(len(empty_result["ports"]), 2)
 
             db.add(SnmpMacTableEntry(
@@ -488,7 +531,7 @@ class SnmpIdentityTests(unittest.TestCase):
             db.commit()
 
             interface_only_result = _build_switch_port_visualization(db, switch)
-            self.assertFalse(interface_only_result["has_visualization"])
+            self.assertTrue(interface_only_result["has_visualization"])
 
             db.add(SnmpMacTableEntry(
                 switch_id=switch.id,
@@ -538,7 +581,7 @@ class SnmpIdentityTests(unittest.TestCase):
 
             self.assertEqual(result["switch"]["name"], "edge-router")
             self.assertEqual(result["ports"][0]["name"], "wan0")
-            self.assertFalse(result["has_visualization"])
+            self.assertTrue(result["has_visualization"])
         finally:
             db.close()
 

@@ -18,6 +18,7 @@ All notable changes to this project should be documented in this file.
 - Added detailed SNMP poll troubleshooting output with attempted OIDs, per-step result counts and sanitized target/profile context.
 - Relaxed SNMP polling so routers, firewalls, printers and other non-switch SNMP targets can be scanned for identity/interface data even when IF-MIB details or bridge MAC tables are unavailable.
 - Linked SNMP targets now appear on matching device detail pages and CMDB export fields even when the target has no switch MAC table, using explicit device assignment or host/IP matching.
+- Added SNMP interface-only port visualization for linked switches when IF-MIB is available but BRIDGE-MIB/Q-BRIDGE-MIB MAC tables are not.
 - Added a bulk delete action on the Notifications page to clear all in-app notifications after confirmation.
 - Added a general notification rule matrix in **Settings -> Notifications** with global event rules and per-channel Telegram, webhook/Gotify and email rules for new-device and network-change events.
 
@@ -29,6 +30,8 @@ All notable changes to this project should be documented in this file.
 - Added best-effort per-IP throttling to unauthenticated client-error logging to reduce container log spam.
 - Kept the Notifications bulk-delete UI unchanged when the backend delete request fails.
 - Replaced the SNMP target edit row's raw enabled checkbox with a compact inline toggle that fits the Settings table action layout.
+- Treated missing BRIDGE-MIB/Q-BRIDGE-MIB MAC tables as optional SNMP diagnostics instead of marking otherwise successful interface polls as latest errors.
+- Classified unknown IP-scan-discovered Cisco/UniFi switch devices from linked SNMP target identity and interface inventory.
 - Reused the existing DHCP Monitor, passive discovery and network-change infrastructure; no new packages or license obligations were added.
 - Bumped backend, frontend and image metadata to 1.5.6.
 
