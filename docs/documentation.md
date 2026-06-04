@@ -546,6 +546,10 @@ Use **Export audit CSV** to download the currently filtered change history for a
 
 To route scan-detected network changes into alerting systems, enable **Settings → Notifications → Notify on network changes** together with the desired delivery channel. LanLens creates in-app notifications for scan-detected IP, hostname, online/offline and archive changes; enabled Telegram and webhook/Gotify deliveries receive the same event payloads with a device link when `server_url` is configured.
 
+### UI Error Logging
+
+LanLens forwards browser-visible UI failures to the backend log stream so operators can see them in container logs. Failed API responses, toast error messages, runtime exceptions and unhandled browser promise rejections are posted to `/api/client-errors` and logged under `lanlens.client_errors`. The payload is bounded and redacts common token, password, secret and authorization patterns before logging.
+
 ### Passive Multicast Discovery
 
 Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a manual capture or schedule background captures. The same settings card controls the background interval in minutes and the capture duration in seconds; the manual capture button uses that configured duration too.
