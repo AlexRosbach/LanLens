@@ -28,6 +28,11 @@ export interface AllSettings {
   notify_on_device_offline: boolean
   notify_on_new_device: boolean
   notify_on_network_changes: boolean
+  notify_on_ip_address_change: boolean
+  notify_on_hostname_change: boolean
+  notify_on_device_archive_change: boolean
+  notify_on_mac_drift: boolean
+  notify_on_unknown_dhcp_server: boolean
   telegram_notify_new_device: boolean
   telegram_notify_network_changes: boolean
   webhook_notify_new_device: boolean
@@ -115,6 +120,13 @@ export const settingsApi = {
   updateNotificationRules: (data: {
     notify_on_new_device: boolean
     notify_on_network_changes: boolean
+    notify_on_ip_address_change: boolean
+    notify_on_hostname_change: boolean
+    notify_on_device_online: boolean
+    notify_on_device_offline: boolean
+    notify_on_device_archive_change: boolean
+    notify_on_mac_drift: boolean
+    notify_on_unknown_dhcp_server: boolean
     telegram_notify_new_device: boolean
     telegram_notify_network_changes: boolean
     webhook_notify_new_device: boolean

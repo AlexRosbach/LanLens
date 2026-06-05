@@ -2,6 +2,14 @@
 
 All notable changes to this project should be documented in this file.
 
+## Unreleased
+
+### New Features
+- Added granular network-change notification type switches for IP address changes, hostname changes, online/offline transitions, archive state changes, MAC drift warnings and unknown DHCP servers.
+
+### Fixes / Hardening
+- Reworked the notification rules UI for mobile viewports so notification settings are stacked and no longer clipped by the desktop matrix layout.
+
 ## v1.5.6 — Network security awareness
 
 ### New Features

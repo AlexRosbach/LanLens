@@ -51,6 +51,8 @@ SETTING_KEYS = [
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
     "notify_on_network_changes",
+    "notify_on_ip_address_change", "notify_on_hostname_change", "notify_on_device_archive_change",
+    "notify_on_mac_drift", "notify_on_unknown_dhcp_server",
     "telegram_notify_new_device", "telegram_notify_network_changes",
     "webhook_notify_new_device", "webhook_notify_network_changes",
     "smtp_notify_new_device", "smtp_notify_network_changes",
@@ -169,10 +171,15 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
         notify_telegram_update=_get(db, "notify_telegram_update", "false") == "true",
         network_interface=_get(db, "network_interface", ""),
-        notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
-        notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
+        notify_on_device_online=_get(db, "notify_on_device_online", "true") != "false",
+        notify_on_device_offline=_get(db, "notify_on_device_offline", "true") != "false",
         notify_on_new_device=_get(db, "notify_on_new_device", "true") != "false",
         notify_on_network_changes=_get(db, "notify_on_network_changes", "false") == "true",
+        notify_on_ip_address_change=_get(db, "notify_on_ip_address_change", "true") != "false",
+        notify_on_hostname_change=_get(db, "notify_on_hostname_change", "true") != "false",
+        notify_on_device_archive_change=_get(db, "notify_on_device_archive_change", "true") != "false",
+        notify_on_mac_drift=_get(db, "notify_on_mac_drift", "true") != "false",
+        notify_on_unknown_dhcp_server=_get(db, "notify_on_unknown_dhcp_server", "true") != "false",
         telegram_notify_new_device=_get(db, "telegram_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
         telegram_notify_network_changes=_get(db, "telegram_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
         webhook_notify_new_device=_get(db, "webhook_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
@@ -430,6 +437,13 @@ def update_notification_rules(
 ):
     _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
     _set(db, "notify_on_network_changes", "true" if data.notify_on_network_changes else "false")
+    _set(db, "notify_on_ip_address_change", "true" if data.notify_on_ip_address_change else "false")
+    _set(db, "notify_on_hostname_change", "true" if data.notify_on_hostname_change else "false")
+    _set(db, "notify_on_device_online", "true" if data.notify_on_device_online else "false")
+    _set(db, "notify_on_device_offline", "true" if data.notify_on_device_offline else "false")
+    _set(db, "notify_on_device_archive_change", "true" if data.notify_on_device_archive_change else "false")
+    _set(db, "notify_on_mac_drift", "true" if data.notify_on_mac_drift else "false")
+    _set(db, "notify_on_unknown_dhcp_server", "true" if data.notify_on_unknown_dhcp_server else "false")
     _set(db, "telegram_notify_new_device", "true" if data.telegram_notify_new_device else "false")
     _set(db, "telegram_notify_network_changes", "true" if data.telegram_notify_network_changes else "false")
     _set(db, "webhook_notify_new_device", "true" if data.webhook_notify_new_device else "false")

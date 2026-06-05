@@ -81,6 +81,56 @@ class ScannerNetworkChangeNotificationTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_network_change_type_rules_suppress_selected_notifications(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                device_class="computer",
+                hostname="desk-01",
+            )
+            db.add_all([
+                device,
+                Setting(key="notify_on_network_changes", value="true"),
+                Setting(key="notify_on_device_offline", value="false"),
+                Setting(key="notify_on_hostname_change", value="true"),
+            ])
+            db.commit()
+            db.refresh(device)
+
+            _record_change(db, device.id, "online_state_changed", "is_online", True, False, "test")
+            _record_change(db, device.id, "hostname_changed", "hostname", "desk-01", "desk-02", "test")
+
+            notifications = db.query(Notification).filter(Notification.event_type == "network_change").all()
+            self.assertEqual(len(notifications), 1)
+            self.assertIn("hostname changed", notifications[0].message)
+        finally:
+            db.close()
+
+    def test_mac_drift_notification_respects_type_rule(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                device_class="computer",
+            )
+            db.add_all([
+                device,
+                Setting(key="notify_on_network_changes", value="true"),
+                Setting(key="notify_on_mac_drift", value="false"),
+            ])
+            db.commit()
+            db.refresh(device)
+
+            _record_mac_drift_for_ip(db, device, "192.0.2.10", "66:77:88:99:AA:BB", "test")
+
+            self.assertEqual(db.query(DeviceChangeEvent).filter(DeviceChangeEvent.event_type == "mac_drift_detected").count(), 1)
+            self.assertEqual(db.query(Notification).filter(Notification.event_type == "network_change").count(), 0)
+        finally:
+            db.close()
+
     def test_mac_drift_dedupes_pending_change_event_without_autoflush(self):
         SessionNoAutoflush = sessionmaker(bind=self.engine, autoflush=False)
         db = SessionNoAutoflush()

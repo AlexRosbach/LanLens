@@ -28,6 +28,11 @@ const settings = {
   notify_on_device_offline: false,
   notify_on_new_device: true,
   notify_on_network_changes: false,
+  notify_on_ip_address_change: true,
+  notify_on_hostname_change: true,
+  notify_on_device_archive_change: true,
+  notify_on_mac_drift: true,
+  notify_on_unknown_dhcp_server: true,
   telegram_notify_new_device: true,
   telegram_notify_network_changes: false,
   webhook_notify_new_device: true,
@@ -211,9 +216,23 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.getByRole('button', { name: 'Notifications' }).click()
   await expect(page.getByRole('heading', { name: 'Notification rules' })).toBeVisible()
   await expect(page.getByText('Global', { exact: true })).toBeVisible()
+  await expect(page.getByText('Device goes offline')).toBeVisible()
+  await expect(page.getByText('Unknown DHCP servers')).toBeVisible()
   await expect(page.getByTitle('Bot messages sent to the configured chat.')).toBeVisible()
   await expect(page.getByText('Webhook', { exact: true })).toBeVisible()
   await expect(page.getByText('Email', { exact: true })).toBeVisible()
   await page.waitForTimeout(4500)
   await page.screenshot({ path: testInfo.outputPath('settings-notification-rules.png'), fullPage: false })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByText('Device goes offline')).toBeVisible()
+  await expect(page.getByText('Unknown DHCP servers')).toBeVisible()
+  const notificationRulesWidth = await page.getByRole('heading', { name: 'Notification rules' }).evaluate((node) => {
+    const card = node.parentElement?.parentElement ?? document.body
+    return {
+      scrollWidth: card.scrollWidth,
+      clientWidth: card.clientWidth,
+    }
+  })
+  expect(notificationRulesWidth.scrollWidth).toBeLessThanOrEqual(notificationRulesWidth.clientWidth + 1)
+  await page.screenshot({ path: testInfo.outputPath('settings-notification-rules-mobile.png'), fullPage: false })
 })

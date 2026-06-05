@@ -597,6 +597,13 @@ class TelegramSettings(BaseModel):
 class NotificationRulesSettings(BaseModel):
     notify_on_new_device: bool = True
     notify_on_network_changes: bool = False
+    notify_on_ip_address_change: bool = True
+    notify_on_hostname_change: bool = True
+    notify_on_device_online: bool = True
+    notify_on_device_offline: bool = True
+    notify_on_device_archive_change: bool = True
+    notify_on_mac_drift: bool = True
+    notify_on_unknown_dhcp_server: bool = True
     telegram_notify_new_device: bool = True
     telegram_notify_network_changes: bool = False
     webhook_notify_new_device: bool = True
@@ -671,10 +678,15 @@ class AllSettings(BaseModel):
     telegram_enabled: bool = False
     notify_telegram_update: bool = False
     network_interface: Optional[str] = ""
-    notify_on_device_online: bool = False
-    notify_on_device_offline: bool = False
+    notify_on_device_online: bool = True
+    notify_on_device_offline: bool = True
     notify_on_new_device: bool = True
     notify_on_network_changes: bool = False
+    notify_on_ip_address_change: bool = True
+    notify_on_hostname_change: bool = True
+    notify_on_device_archive_change: bool = True
+    notify_on_mac_drift: bool = True
+    notify_on_unknown_dhcp_server: bool = True
     telegram_notify_new_device: bool = True
     telegram_notify_network_changes: bool = False
     webhook_notify_new_device: bool = True

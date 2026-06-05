@@ -46,6 +46,13 @@ interface IdoitMapping {
 type NotificationRuleKey =
   | 'notify_on_new_device'
   | 'notify_on_network_changes'
+  | 'notify_on_ip_address_change'
+  | 'notify_on_hostname_change'
+  | 'notify_on_device_online'
+  | 'notify_on_device_offline'
+  | 'notify_on_device_archive_change'
+  | 'notify_on_mac_drift'
+  | 'notify_on_unknown_dhcp_server'
   | 'telegram_notify_new_device'
   | 'telegram_notify_network_changes'
   | 'webhook_notify_new_device'
@@ -510,6 +517,17 @@ export default function Settings() {
       networkChangeKey: 'smtp_notify_network_changes' as NotificationRuleKey,
     },
   ]
+  const notificationRuleRows = [
+    { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
+    { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
+    { label: t('notify_on_ip_address_change'), keys: ['notify_on_ip_address_change' as NotificationRuleKey] },
+    { label: t('notify_on_hostname_change'), keys: ['notify_on_hostname_change' as NotificationRuleKey] },
+    { label: t('notify_on_device_online'), keys: ['notify_on_device_online' as NotificationRuleKey] },
+    { label: t('notify_on_device_offline'), keys: ['notify_on_device_offline' as NotificationRuleKey] },
+    { label: t('notify_on_device_archive_change'), keys: ['notify_on_device_archive_change' as NotificationRuleKey] },
+    { label: t('notify_on_mac_drift'), keys: ['notify_on_mac_drift' as NotificationRuleKey] },
+    { label: t('notify_on_unknown_dhcp_server'), keys: ['notify_on_unknown_dhcp_server' as NotificationRuleKey] },
+  ]
 
   function updateNotificationRule(key: NotificationRuleKey, checked: boolean) {
     setSettings({ ...current, [key]: checked })
@@ -844,6 +862,13 @@ export default function Settings() {
       await settingsApi.updateNotificationRules({
         notify_on_new_device: current.notify_on_new_device,
         notify_on_network_changes: current.notify_on_network_changes,
+        notify_on_ip_address_change: current.notify_on_ip_address_change,
+        notify_on_hostname_change: current.notify_on_hostname_change,
+        notify_on_device_online: current.notify_on_device_online,
+        notify_on_device_offline: current.notify_on_device_offline,
+        notify_on_device_archive_change: current.notify_on_device_archive_change,
+        notify_on_mac_drift: current.notify_on_mac_drift,
+        notify_on_unknown_dhcp_server: current.notify_on_unknown_dhcp_server,
         telegram_notify_new_device: current.telegram_notify_new_device,
         telegram_notify_network_changes: current.telegram_notify_network_changes,
         webhook_notify_new_device: current.webhook_notify_new_device,
@@ -2513,7 +2538,7 @@ export default function Settings() {
               <h2 className="text-lg font-semibold text-text-base">{t('notification_rules')}</h2>
               <p className="mt-1 text-sm text-text-subtle">{t('notification_rules_hint')}</p>
             </div>
-            <div className="overflow-hidden rounded-lg border border-border">
+            <div className="hidden overflow-hidden rounded-lg border border-border md:block">
               <div className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] bg-surface2/70 text-xs font-medium uppercase tracking-wide text-text-subtle">
                 <div className="px-3 py-2">{t('notification_event')}</div>
                 {notificationRuleChannels.map((channel) => (
@@ -2522,10 +2547,7 @@ export default function Settings() {
                   </div>
                 ))}
               </div>
-              {[
-                { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
-                { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
-              ].map((row) => (
+              {notificationRuleRows.map((row) => (
                 <div key={row.label} className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] border-t border-border bg-surface/60">
                   <div className="px-3 py-3 text-sm font-medium text-text-base">{row.label}</div>
                   {row.keys.map((key) => (
@@ -2545,6 +2567,41 @@ export default function Settings() {
                       </button>
                     </div>
                   ))}
+                  {Array.from({ length: Math.max(0, notificationRuleChannels.length - row.keys.length) }).map((_, index) => (
+                    <div key={`${row.label}-empty-${index}`} className="px-3 py-3" />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="space-y-3 md:hidden">
+              {notificationRuleRows.map((row) => (
+                <div key={row.label} className="rounded-lg border border-border bg-surface/60 p-3">
+                  <div className="text-sm font-medium text-text-base">{row.label}</div>
+                  <div className="mt-3 grid gap-2">
+                    {row.keys.map((key, index) => {
+                      const channel = row.keys.length === 1 ? null : notificationRuleChannels[index]
+                      return (
+                        <div key={key} className="flex min-h-10 items-center justify-between gap-3 rounded-md bg-surface2/60 px-3 py-2">
+                          <span className="text-xs font-medium text-text-subtle">
+                            {channel ? channel.label : t('notification_in_app')}
+                          </span>
+                          <button
+                            type="button"
+                            aria-pressed={Boolean(current[key])}
+                            aria-label={`${row.label}: ${key}`}
+                            onClick={() => updateNotificationRule(key, !current[key])}
+                            className={`relative h-6 w-11 flex-none rounded-full transition-colors ${
+                              current[key] ? 'bg-primary' : 'bg-border'
+                            }`}
+                          >
+                            <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                              current[key] ? 'translate-x-6' : 'translate-x-1'
+                            }`} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               ))}
             </div>

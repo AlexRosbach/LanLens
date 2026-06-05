@@ -50,6 +50,16 @@ PING_SAMPLE_RETENTION_PER_DEVICE = 500
 PING_LATENCY_SAMPLE_LIMIT = 256
 PING_MONITOR_SAMPLE_LIMIT = 512
 NETWORK_CHANGE_NOTIFICATIONS_CACHE_KEY = "lanlens_notify_on_network_changes"
+NETWORK_CHANGE_TYPE_NOTIFICATIONS_CACHE_KEY = "lanlens_notify_on_network_change_types"
+NETWORK_CHANGE_TYPE_SETTING_DEFAULTS = {
+    "notify_on_ip_address_change": True,
+    "notify_on_hostname_change": True,
+    "notify_on_device_online": True,
+    "notify_on_device_offline": True,
+    "notify_on_device_archive_change": True,
+    "notify_on_mac_drift": True,
+    "notify_on_unknown_dhcp_server": True,
+}
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -480,6 +490,41 @@ def _network_change_notifications_enabled(db: Session) -> bool:
     return enabled
 
 
+def _setting_enabled(db: Session, key: str, default: bool = False) -> bool:
+    row = db.query(Setting).filter(Setting.key == key).first()
+    if not row or row.value is None or row.value == "":
+        return default
+    return row.value == "true"
+
+
+def _network_change_type_setting(event_type: str, new_value=None) -> Optional[str]:
+    if event_type == "ip_changed":
+        return "notify_on_ip_address_change"
+    if event_type == "hostname_changed":
+        return "notify_on_hostname_change"
+    if event_type == "online_state_changed":
+        return "notify_on_device_online" if bool(new_value) else "notify_on_device_offline"
+    if event_type == "device_unarchived":
+        return "notify_on_device_archive_change"
+    if event_type == "mac_drift_detected":
+        return "notify_on_mac_drift"
+    if event_type == "unknown_dhcp_server":
+        return "notify_on_unknown_dhcp_server"
+    return None
+
+
+def _network_change_type_notifications_enabled(db: Session, event_type: str, new_value=None) -> bool:
+    if not _network_change_notifications_enabled(db):
+        return False
+    setting_key = _network_change_type_setting(event_type, new_value)
+    if setting_key is None:
+        return True
+    cached = db.info.setdefault(NETWORK_CHANGE_TYPE_NOTIFICATIONS_CACHE_KEY, {})
+    if setting_key not in cached:
+        cached[setting_key] = _setting_enabled(db, setting_key, NETWORK_CHANGE_TYPE_SETTING_DEFAULTS.get(setting_key, True))
+    return bool(cached[setting_key])
+
+
 def _network_change_notification_message(event_type: str, field_name: Optional[str], old_value, new_value) -> str:
     label = event_type.replace("_", " ")
     if field_name:
@@ -498,7 +543,7 @@ def _record_change(db: Session, device_id: int, event_type: str, field_name: Opt
         new_value=str(new_value) if new_value is not None else None,
         source=source,
     ))
-    if _network_change_notifications_enabled(db):
+    if _network_change_type_notifications_enabled(db, event_type, new_value):
         db.add(Notification(
             device_id=device_id,
             event_type="network_change",
@@ -547,7 +592,7 @@ def _record_mac_drift_for_ip(db: Session, device: Device, ip: str, observed_mac:
         source=source,
         message=message,
     ))
-    if _network_change_notifications_enabled(db):
+    if _network_change_type_notifications_enabled(db, "mac_drift_detected"):
         db.add(Notification(
             device_id=device.id,
             event_type="network_change",
