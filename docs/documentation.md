@@ -64,17 +64,13 @@ Download the compose file:
 curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
 ```
 
-Generate and write a secret key:
-
-```bash
-python3 -c 'from pathlib import Path; import secrets; p=Path("docker-compose.yml"); p.write_text(p.read_text().replace("CHANGE_THIS_TO_A_LONG_RANDOM_STRING", secrets.token_hex(32)))'
-```
-
-This replaces the `SECRET_KEY` placeholder in `docker-compose.yml`. Then start LanLens:
+Then start LanLens:
 
 ```bash
 docker compose up -d
 ```
+
+On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume.
 
 Open the UI:
 
@@ -675,7 +671,7 @@ Use the compose file from this repository for the expected host-network deployme
 
 ```yaml
 environment:
-  SECRET_KEY: "your-64-char-random-string"   # Required
+  SECRET_KEY: "your-64-char-random-string"   # Optional; auto-generated in /data when omitted
   DEFAULT_ADMIN_PASSWORD: "admin"             # First-run only
   TZ: "Europe/Berlin"                         # Container timezone
   DB_PATH: "/data/lanlens.db"                 # SQLite file path
@@ -697,12 +693,9 @@ Any standard TZ database name: `UTC`, `Europe/Berlin`, `America/New_York`, `Asia
 4. Run `docker exec lanlens ip route` — should show your host's routing table
 5. Run `docker exec lanlens arp -a` — should show ARP cache
 
-### "SECRET_KEY environment variable is not set"
+### Existing credentials cannot be decrypted
 
-Set a proper `SECRET_KEY` in `docker-compose.yml`. This command replaces the placeholder value:
-```bash
-python3 -c 'from pathlib import Path; import secrets; p=Path("docker-compose.yml"); p.write_text(p.read_text().replace("CHANGE_THIS_TO_A_LONG_RANDOM_STRING", secrets.token_hex(32)))'
-```
+LanLens encrypts stored credentials with a key derived from `SECRET_KEY`. When `SECRET_KEY` is omitted, the container persists a generated key at `/data/secret_key`. Keep the `lanlens_data` volume when upgrading or recreating the container. If that key is lost or changed, existing stored credentials must be re-entered.
 
 ### Telegram test fails
 

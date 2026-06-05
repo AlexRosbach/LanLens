@@ -19,12 +19,10 @@ services:
       - lanlens_data:/data  # SQLite database + persistent state
 
     environment:
-      # ── REQUIRED ────────────────────────��─────────────────��───────────────────
-      # Replace with a strong random key (min 32 chars). App refuses to start otherwise.
-      # Generate: python3 -c "import secrets; print(secrets.token_hex(32))"
-      - SECRET_KEY=CHANGE_THIS_TO_A_LONG_RANDOM_STRING
-
       # ── OPTIONAL ──────────────────────────────────────────────────────────────
+      # SECRET_KEY is generated once into the lanlens_data volume when omitted.
+      # Set it manually only if you need to restore/migrate encrypted credentials.
+      # - SECRET_KEY=your-64-char-random-string
       # Initial admin password (will be changed on first login)
       - DEFAULT_ADMIN_PASSWORD=admin
       # Host-mode HTTP port for the LanLens UI (for example 80, 8080, 7765)

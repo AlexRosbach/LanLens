@@ -86,23 +86,13 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 - Docker Compose v2
 - Linux host recommended for direct ARP scanning
 
-### 1. Download the compose file
+### 1. Start LanLens
 
 ```bash
-curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml -o docker-compose.yml && docker compose up -d
 ```
 
-### 2. Generate and write a secret key
-
-```bash
-python3 -c 'from pathlib import Path; import secrets; p=Path("docker-compose.yml"); p.write_text(p.read_text().replace("CHANGE_THIS_TO_A_LONG_RANDOM_STRING", secrets.token_hex(32)))'
-```
-
-This replaces the `SECRET_KEY` placeholder in `docker-compose.yml`. Then start LanLens:
-
-```bash
-docker compose up -d
-```
+On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume.
 
 Open:
 
@@ -128,7 +118,7 @@ Core runtime settings:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SECRET_KEY` | required | Encryption/signing key; set a strong random value |
+| `SECRET_KEY` | generated on first start | Encryption/signing key; set manually only when restoring/migrating encrypted credentials |
 | `DEFAULT_ADMIN_PASSWORD` | `admin` | Initial admin password when no user exists |
 | `LANLENS_PORT` | `7765` | HTTP port exposed by nginx |
 | `BACKEND_PORT` | `17765` | Internal FastAPI port behind nginx |

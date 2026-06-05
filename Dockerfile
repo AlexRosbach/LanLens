@@ -99,9 +99,10 @@ RUN printf '#!/bin/sh\nexec python /app/backend/cli/reset_password.py "$@"\n' \
 VOLUME ["/data"]
 
 # Environment defaults
-# SECRET_KEY MUST be overridden at runtime — the app and entrypoint both validate this
+# When SECRET_KEY is empty, the entrypoint generates a persistent key in /data.
 ENV DB_PATH=/data/lanlens.db \
     SECRET_KEY="" \
+    LANLENS_SECRET_KEY_FILE=/data/secret_key \
     DEFAULT_ADMIN_PASSWORD=admin \
     LANLENS_PORT=7765 \
     BACKEND_PORT=17765 \
