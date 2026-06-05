@@ -29,6 +29,7 @@ All notable changes to this project should be documented in this file.
 - Added a general notification rule matrix in **Settings -> Notifications** with global event rules and per-channel Telegram, webhook/Gotify and email rules for new-device and network-change events.
 
 ### Fixes / Hardening
+- Mapped additional LanLens service, open-port, TLS certificate and container/software summaries to i-doit standard category description fields by default where i-doit exposes reliable text targets.
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.
 - Enforced global notification rules as master switches for channel delivery so queued events stay silent when the global event is disabled.
 - Made unknown-DHCP-server notifications honor the global network-change notification rule.
