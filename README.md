@@ -19,7 +19,7 @@ LanLens turns a Docker host into a local network scanner that discovers MAC/IP d
 
 ---
 
-## After Two Minutes
+## Your Network at a Glance
 
 LanLens gives you a quick, local view of what is on your network:
 
