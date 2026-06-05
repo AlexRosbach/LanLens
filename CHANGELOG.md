@@ -30,7 +30,6 @@ All notable changes to this project should be documented in this file.
 
 ### Fixes / Hardening
 - Made first-run Docker setup one-command friendly by generating and persisting `SECRET_KEY` in the data volume when it is not supplied.
-- Expanded the technical documentation with a tested-functionality section covering backend tests, Playwright flows and Docker startup smoke validation.
 - Mapped additional LanLens service, open-port, TLS certificate and container/software summaries to i-doit standard category description fields by default where i-doit exposes reliable text targets.
 - Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.
 - Enforced global notification rules as master switches for channel delivery so queued events stay silent when the global event is disabled.
