@@ -1139,3 +1139,58 @@ The Docker build compiles the React frontend, stamps build metadata into the fro
 ### Versioning
 
 LanLens follows Semantic Versioning. The app version is shown in the UI and via `GET /api/health`. Detailed release history lives in [CHANGELOG.md](../CHANGELOG.md), and release-based update checks depend on populated GitHub Releases.
+
+---
+
+## Tested Functionality
+
+This section summarizes the behavior covered by the repository's automated tests and smoke validation. The screenshots generated for the public docs use sanitized demo data and documentation IP ranges.
+
+### Docker startup and one-command install
+
+Validated by container smoke tests:
+
+- The Docker image starts without a user-supplied `SECRET_KEY`.
+- The entrypoint generates a 64-character random secret at `/data/secret_key`.
+- The generated secret file is kept in the persistent data volume with `0600` permissions.
+- A subsequent start reuses the persisted secret, so encrypted credentials remain decryptable as long as the data volume is kept.
+- An explicitly supplied `SECRET_KEY` still takes precedence.
+- `GET /api/health` returns the expected version, build code, commit, branch and build timestamp.
+
+### Backend unit coverage
+
+The backend test suite covers these functional areas:
+
+- Device classification: conservative handling of generic IPP, RTSP and hostname hints; specific printer, switch and hostname classification still works.
+- Passive discovery: mDNS, SSDP/UPnP, generic multicast, LLDP, CDP, VRRP and HSRP parsing; deduplication and upsert behavior; IP-history matching; hostname enrichment; confidence-based class updates.
+- Inventory change log: list, filter, search and export behavior for recent device and infrastructure changes.
+- Notification behavior: device route URLs, bulk deletion, scanner notification caching, MAC-drift notifications and notification deduplication.
+- DHCP security awareness: authorized DHCP server matching, validation of allowlist entries, unknown-server marking, passive DHCP dedupe and network-change notification gating.
+- SNMP identity and topology: SNMP v2c/v3 command construction, vendor detection, optional MAC-table failures, linked SNMP targets without MAC tables, real-port filtering, port statistics, device port lookup and cleanup when targets or profiles are deleted.
+- TLS, services and scheduled monitoring: loopback protection for TLS targets, HTTPS port validation, TLS expiry normalization, service creation from HTTPS scans, feature-gated TLS/ping/port-scan/SNMP schedules and retention of ping samples.
+- Client-side error logging: sanitization, throttling, forwarded-client IP handling and stale rate-limit pruning.
+- Device retention: disabled defaults, automatic archive behavior and deletion after archived retention.
+- HTTPS configuration: certificate/key-pair validation, persisted HTTPS config and rejection of incomplete HTTPS enablement.
+- i-doit export: filtered CSV export, SNMP identity enrichment, TLS certificate summaries, passive discovery summaries and default mapping to standard i-doit text/category fields.
+
+### Playwright UI coverage
+
+The browser tests cover these user-visible flows:
+
+- Device passive discovery rows are deduplicated and LLDP class hints are visible.
+- Device detail danger-zone archiving is reachable and behaves as expected.
+- Device detail can show a linked SNMP target even when the target has no switch MAC table.
+- Enabling the i-doit feature does not load i-doit configuration before settings are saved.
+- Settings expose device retention archive/delete controls.
+- Settings group automation, lifecycle and network discovery controls separately.
+- Device overview renders SNMP switch-port context and interface-only SNMP ports.
+- Notifications can be deleted in bulk and the empty state is shown afterward.
+- Network Changes lists and filters inventory history.
+- Login UI errors are forwarded to the backend client-error endpoint.
+- Documentation screenshots for the dashboard, device detail and network segments are generated from believable demo data.
+
+### Manual and smoke validation notes
+
+- `docker compose config` is used to validate the compose file shape.
+- A temporary Docker volume is used for startup smoke tests so generated secrets and SQLite state do not touch a real installation.
+- Local backend test execution requires installing the Python test runner in a virtual environment; the repository source tests themselves are documented above.
