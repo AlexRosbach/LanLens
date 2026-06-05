@@ -13,7 +13,7 @@
 
 LanLens turns a Docker host into a local network scanner that discovers MAC/IP devices, builds a device inventory, and gives operators in home lab, small IT, and enterprise environments a clean web UI for documentation, security awareness, and CMDB/i-doit export workflows.
 
-[Documentation](docs/documentation.md) · [Knowledge Base](docs/knowledgebase.md) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens) · [Website](https://lanlens.org/) · [Legal Notice](https://lanlens.org/privacy.html)
+[Wiki](https://github.com/AlexRosbach/LanLens/wiki) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens) · [Website](https://lanlens.org/) · [Legal Notice](https://lanlens.org/privacy.html)
 
 </div>
 
@@ -125,14 +125,13 @@ Core runtime settings:
 | `DB_PATH` | `/data/lanlens.db` | SQLite database path |
 | `TZ` | `UTC` | Container timezone |
 
-For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [technical documentation](docs/documentation.md).
+For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki).
 
 ---
 
-## Documentation Map
+## Learn More
 
-- [Technical documentation](docs/documentation.md): architecture, deployment, configuration, API, scanning behavior, deep scan, CMDB/i-doit, SNMP, external databases, and development notes
-- [Knowledge Base / FAQ](docs/knowledgebase.md): common setup errors, scanning behavior, i-doit/CMDB troubleshooting, and Scan Node notes
+- [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 
