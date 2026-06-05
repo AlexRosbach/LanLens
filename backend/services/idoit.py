@@ -45,7 +45,7 @@ def _safe_csv_cell(value: Any) -> Any:
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 11,
+    "version": 12,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -88,13 +88,13 @@ DEFAULT_MAPPING = {
         "serial": "C__CATG__MODEL.serial",
         "memory": "C__CATG__MEMORY.title",
         "disks": "C__CATG__DRIVE.title",
-        "open_ports": "",
-        "services": "",
+        "open_ports": "C__CATG__NET_CONNECTIONS_FOLDER.description",
+        "services": "C__CATG__NET_CONNECTIONS_FOLDER.description",
         "mdns_discovery": "",
         "upnp_discovery": "",
         "passive_discovery": "",
-        "tls_certificates": "",
-        "containers": "",
+        "tls_certificates": "C__CATG__CERTIFICATE.description",
+        "containers": "C__CATG__APPLICATION.description",
         "hypervisor": "",
         "licenses": "",
         "relationships": "",

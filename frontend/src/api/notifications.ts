@@ -10,6 +10,7 @@ export interface NotificationItem {
   is_read: boolean
   telegram_sent: boolean
   webhook_sent: boolean
+  smtp_sent: boolean
   created_at: string
 }
 
@@ -21,6 +22,8 @@ export const notificationsApi = {
     apiClient.get<{ count: number }>('/notifications/unread-count').then((r) => r.data),
 
   markAllRead: () => apiClient.put('/notifications/read-all').then((r) => r.data),
+
+  deleteAll: () => apiClient.delete('/notifications').then((r) => r.data),
 
   delete: (id: number) => apiClient.delete(`/notifications/${id}`),
 }

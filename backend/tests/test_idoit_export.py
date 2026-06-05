@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import Device, PassiveDiscoveryObservation, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.models import Device, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
 from backend.services.idoit import DEFAULT_MAPPING, device_payload, get_config, build_export_rows, rows_to_export_csv
 
 
@@ -274,6 +274,51 @@ class IdoitExportCsvTest(unittest.TestCase):
             self.assertIn("Runs the workshop dashboard", fields["C__CATG__GLOBAL.description"])
             self.assertIn("Rack shelf 2, patch planned", fields["C__CATG__GLOBAL.description"])
             self.assertEqual(DEFAULT_MAPPING["fields"]["notes"], "C__CATG__GLOBAL.description")
+        finally:
+            db.close()
+
+    def test_default_idoit_payload_maps_new_inventory_to_standard_categories(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            db.add(PortScan(
+                device_id=device.id,
+                open_ports='[{"port": 443, "protocol": "tcp", "service": "https"}]',
+                scanned_at=datetime.utcnow(),
+            ))
+            db.add(Service(
+                device_id=device.id,
+                name="Admin UI",
+                service_type="web",
+                protocol="https",
+                port=443,
+                url="https://client-01.example.test",
+                tls_checked_at=datetime.utcnow(),
+                tls_status="valid",
+                tls_expires_at=datetime(2026, 7, 1, 12, 0),
+                tls_issuer="CN=Example CA",
+                tls_subject="CN=client-01.example.test",
+            ))
+            db.commit()
+
+            payload = device_payload(device, get_config(db), db)
+            fields = payload["fields"]
+
+            self.assertIn("443/tcp https", fields["C__CATG__NET_CONNECTIONS_FOLDER.description"])
+            self.assertIn("Admin UI", fields["C__CATG__NET_CONNECTIONS_FOLDER.description"])
+            self.assertIn("CN=client-01.example.test", fields["C__CATG__CERTIFICATE.description"])
+            self.assertEqual(DEFAULT_MAPPING["fields"]["open_ports"], "C__CATG__NET_CONNECTIONS_FOLDER.description")
+            self.assertEqual(DEFAULT_MAPPING["fields"]["services"], "C__CATG__NET_CONNECTIONS_FOLDER.description")
+            self.assertEqual(DEFAULT_MAPPING["fields"]["tls_certificates"], "C__CATG__CERTIFICATE.description")
+            self.assertEqual(DEFAULT_MAPPING["fields"]["containers"], "C__CATG__APPLICATION.description")
         finally:
             db.close()
 

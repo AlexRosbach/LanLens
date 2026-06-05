@@ -4,44 +4,55 @@
 
 # LanLens
 
-**Self-hosted network monitoring and documentation dashboard**
+**Self-hosted network inventory, local network scanner, and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.5-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.6-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
 
-LanLens scans your local network, identifies devices by MAC/IP, and gives you a clean web UI to document, classify, monitor, and connect to them.
+LanLens turns a Docker host into a local network scanner that discovers MAC/IP devices, builds a device inventory, and gives operators in home lab, small IT, and enterprise environments a clean web UI for documentation, security awareness, and CMDB/i-doit export workflows.
 
-[Documentation](docs/documentation.md) · [Knowledge Base](docs/knowledgebase.md) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens)
+[Wiki](https://github.com/AlexRosbach/LanLens/wiki) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens) · [Website](https://lanlens.org/) · [Legal Notice](https://lanlens.org/privacy.html)
 
 </div>
 
 ---
 
-## What LanLens Does
+## Your Network at a Glance
 
-LanLens is built for small self-hosted, homelab, and lightweight IT environments where you want network discovery plus practical documentation without a full enterprise discovery suite.
+LanLens gives you a quick, local view of what is on your network:
 
-- Discover devices on the local Layer-2 network with ARP scanning
-- Track online/offline state, DHCP range membership, IP history, and open services
-- Review and export a network change log with before/after values for device discoveries, state changes, IP moves, hostname changes, archive actions, and manual documentation edits
-- Archive inactive unregistered discoveries automatically and keep them in a dedicated archived view
-- Document devices with owner, location, purpose, OS, asset tag, notes, and CMDB ID
-- Group networks into segments and keep device lists readable
-- Connect quickly through SSH, RDP, HTTP, and HTTPS shortcuts
-- Enable optional expert modules only when needed through **Settings → Features**
-- Maintain a clickable Services directory for self-hosted apps and device services
-- Enrich selected devices through SSH/WinRM deep scans
-- Prepare CMDB/i-doit exports and sync workflows, including reviewed CSV export
-- Send Telegram, webhook, or Gotify notifications for new devices and opt-in network change events
+- Devices found by MAC/IP device discovery, with vendor hints and online/offline state
+- A practical device inventory for names, notes, owners, locations, services, ports, and history
+- Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices
+- Awareness signals for DHCP, ARP/MAC, topology, SNMP, and scan-detected changes
+- Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
+
+Why people use it:
+
+- **Fast start:** a Docker network scanner for networks from home labs to small IT and enterprise environments.
+- **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
+- **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
+
+Optional expert views add SNMP switch-port context, passive discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
 
 ---
 
-## Screenshots
+## Support
+
+LanLens is free and open source. If it helps you or saves you time, you can support ongoing development voluntarily. Support does not buy support priority, features, or access.
+
+<a href="https://www.buymeacoffee.com/alexrosbaci" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me a Coffee" height="42"></a>
+
+Legal notice and project contact information are maintained on [lanlens.org/privacy.html](https://lanlens.org/privacy.html).
+
+---
+
+## Product Screenshots
 
 The screenshots below use sanitized demo data with documentation IP ranges and example names.
 
@@ -49,27 +60,21 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 |---|---|
 | ![LanLens dashboard](docs/screenshots/lanlens-dashboard.png) | ![LanLens device detail](docs/screenshots/lanlens-device-detail.png) |
 
-| Segments | Services directory |
+| Segments | DHCP security awareness |
 |---|---|
-| ![LanLens segments](docs/screenshots/lanlens-segments.png) | ![LanLens services directory](docs/screenshots/lanlens-services.png) |
+| ![LanLens segments](docs/screenshots/lanlens-segments.png) | ![LanLens DHCP security awareness monitor](docs/screenshots/lanlens-v1.5.6-dhcp-security.png) |
 
-| Network changes |
-|---|
-| ![LanLens network change log](docs/screenshots/lanlens-network-changes.png) |
+| LLDP/CDP class hints | SNMP targets |
+|---|---|
+| ![LanLens passive LLDP device class hint](docs/screenshots/lanlens-passive-lldp-classification.png) | ![LanLens SNMP target settings and learned network device inventory](docs/screenshots/lanlens-snmp-targets-settings.png) |
 
-| Feature visibility |
-|---|
-| ![LanLens feature visibility settings](docs/screenshots/lanlens-settings-features.png) |
+| SNMP poll diagnostics | Device linked to SNMP identity |
+|---|---|
+| ![LanLens SNMP poll diagnostics without exposing credentials](docs/screenshots/lanlens-snmp-poll-diagnostics.png) | ![LanLens device detail linked to SNMP target identity](docs/screenshots/lanlens-device-snmp-target-link.png) |
 
-Feature switches hide optional expert modules and enforce the same state in the backend, including related authenticated APIs and background jobs.
-
-| CMDB / i-doit settings | Editable i-doit CSV export |
+| CMDB / i-doit settings | Reviewed i-doit CSV export |
 |---|---|
 | ![LanLens CMDB and i-doit settings](docs/screenshots/lanlens-idoit-settings.png) | ![LanLens editable i-doit CSV export](docs/screenshots/lanlens-idoit-export.png) |
-
-| SNMP switch port visualization |
-|---|
-| ![LanLens device overview with SNMP switch port visualization](docs/screenshots/lanlens-snmp-switch-ports.png) |
 
 ---
 
@@ -81,25 +86,13 @@ Feature switches hide optional expert modules and enforce the same state in the 
 - Docker Compose v2
 - Linux host recommended for direct ARP scanning
 
-### 1. Download the compose file
+### 1. Start LanLens
 
 ```bash
-curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml -o docker-compose.yml && docker compose up -d
 ```
 
-### 2. Generate a secret key
-
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
-```
-
-Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml` with the generated value.
-
-### 3. Start LanLens
-
-```bash
-docker compose up -d
-```
+On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume.
 
 Open:
 
@@ -113,7 +106,7 @@ Default first-run credentials:
 admin / admin
 ```
 
-LanLens forces a password change after the first login.
+LanLens forces a password change after the first login. For full MAC/vendor discovery, run it on a Linux host with host networking as shown in the compose file.
 
 ---
 
@@ -125,37 +118,30 @@ Core runtime settings:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SECRET_KEY` | required | Encryption/signing key; set a strong random value |
+| `SECRET_KEY` | generated on first start | Encryption/signing key; set manually only when restoring/migrating encrypted credentials |
 | `DEFAULT_ADMIN_PASSWORD` | `admin` | Initial admin password when no user exists |
 | `LANLENS_PORT` | `7765` | HTTP port exposed by nginx |
 | `BACKEND_PORT` | `17765` | Internal FastAPI port behind nginx |
 | `DB_PATH` | `/data/lanlens.db` | SQLite database path |
 | `TZ` | `UTC` | Container timezone |
 
-For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [technical documentation](docs/documentation.md).
+For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki).
 
 ---
 
-## Documentation Map
+## Learn More
 
-- [Technical documentation](docs/documentation.md): architecture, deployment, configuration, API, scanning behavior, deep scan, CMDB/i-doit, SNMP, external databases, and development notes
-- [Knowledge Base / FAQ](docs/knowledgebase.md): common setup errors, scanning behavior, i-doit/CMDB troubleshooting, and Scan Node notes
+- [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 
 ---
 
-## Releases
+## Docker Images
 
-Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens).
+Docker images are published at [`alexrosbach/lanlens`](https://hub.docker.com/r/alexrosbach/lanlens). Use the compose file in this repository for the expected host-network deployment model and required environment variables.
 
-```bash
-docker pull alexrosbach/lanlens:1.5.5
-```
-
-Use release tags for reproducible deployments. `latest` tracks the newest published build.
-
-Project updates, release notes, and occasional build notes are posted on [X / @itneedtoknow](https://x.com/itneedtoknow).
+Project updates and occasional build notes are posted on [X / @itneedtoknow](https://x.com/itneedtoknow).
 
 ---
 

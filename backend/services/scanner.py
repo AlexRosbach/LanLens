@@ -22,7 +22,7 @@ from ..database import SessionLocal
 from ..models import Device, DeviceChangeEvent, DeviceIgnoreRule, DeviceIpHistory, DevicePingSample, Notification, ScanRun, Segment, Setting
 from .device_classifier import classify_device
 from .mac_vendor import lookup_vendor, normalize_mac
-from .notification import send_telegram_for_notification, send_webhook_for_notification
+from .notification import send_smtp_for_notification, send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
 from .device_retention import apply_device_retention
@@ -73,7 +73,7 @@ def _pseudo_mac_for_ip(ip: str) -> str:
 
 
 def _is_ip_only_identifier(value: Optional[str]) -> bool:
-    return bool(value and value.startswith("ip:"))
+    return bool(value and value.lower().startswith("ip:"))
 
 
 def _arp_scan(targets: List[str]) -> List[DiscoveryResult]:
@@ -506,6 +506,55 @@ def _record_change(db: Session, device_id: int, event_type: str, field_name: Opt
         ))
 
 
+def _record_mac_drift_for_ip(db: Session, device: Device, ip: str, observed_mac: str, source: str) -> None:
+    previous_identifier = device.mac_address.strip() if device.mac_address else ""
+    if _is_ip_only_identifier(previous_identifier):
+        return
+    previous_mac = normalize_mac(device.mac_address) if device.mac_address else None
+    current_mac = normalize_mac(observed_mac) if observed_mac else None
+    if not previous_mac or not current_mac or previous_mac == current_mac or _is_ip_only_identifier(previous_mac):
+        return
+    for row in db.new:
+        if (
+            isinstance(row, DeviceChangeEvent)
+            and row.device_id == device.id
+            and row.event_type == "mac_drift_detected"
+            and row.field_name == "mac_address"
+            and row.old_value == previous_mac
+            and row.new_value == current_mac
+        ):
+            return
+    recent_duplicate = (
+        db.query(DeviceChangeEvent)
+        .filter(
+            DeviceChangeEvent.device_id == device.id,
+            DeviceChangeEvent.event_type == "mac_drift_detected",
+            DeviceChangeEvent.field_name == "mac_address",
+            DeviceChangeEvent.old_value == previous_mac,
+            DeviceChangeEvent.new_value == current_mac,
+        )
+        .first()
+    )
+    if recent_duplicate:
+        return
+    message = f"MAC drift detected for {ip}: {previous_mac} -> {current_mac}"
+    db.add(DeviceChangeEvent(
+        device_id=device.id,
+        event_type="mac_drift_detected",
+        field_name="mac_address",
+        old_value=previous_mac,
+        new_value=current_mac,
+        source=source,
+        message=message,
+    ))
+    if _network_change_notifications_enabled(db):
+        db.add(Notification(
+            device_id=device.id,
+            event_type="network_change",
+            message=f"Network security: {message}",
+        ))
+
+
 def _derive_scan_targets(db: Session) -> tuple[List[str], List[str], str, str, str]:
     # Primary scan range is ARP/L2. Additional routed targets use nmap ping scan
     # because MAC addresses are usually unavailable beyond the local broadcast
@@ -603,6 +652,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
             ):
                 existing = ip_matched_existing
+            elif existing is None and ip_matched_existing is not None and result.mac:
+                _record_mac_drift_for_ip(db, ip_matched_existing, ip, result.mac, "scan")
             mac_normalized = result.mac or (existing.mac_address if existing and existing.mac_address else _pseudo_mac_for_ip(ip))
             if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
                 existing_devices.pop(existing.mac_address, None)
@@ -747,14 +798,72 @@ async def _send_notification_deliveries(db: Session) -> None:
         row = db.query(Setting).filter(Setting.key == key).first()
         return row.value if row and row.value is not None else ""
 
+    def setting_enabled(key: str, default: str = "false") -> bool:
+        value = get_setting(key)
+        if value == "":
+            value = default
+        return value == "true"
+
+    def channel_rule_enabled(key: str, master_key: str, default: str = "false") -> bool:
+        if not setting_enabled(master_key, default):
+            return False
+        value = get_setting(key)
+        if value == "":
+            value = get_setting(master_key) or default
+        return value == "true"
+
+    channel_rules = {
+        "telegram": {
+            "new_device": channel_rule_enabled("telegram_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": channel_rule_enabled("telegram_notify_network_changes", "notify_on_network_changes", "false"),
+        },
+        "webhook": {
+            "new_device": channel_rule_enabled("webhook_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": channel_rule_enabled("webhook_notify_network_changes", "notify_on_network_changes", "false"),
+        },
+        "smtp": {
+            "new_device": channel_rule_enabled("smtp_notify_new_device", "notify_on_new_device", "true"),
+            "network_change": channel_rule_enabled("smtp_notify_network_changes", "notify_on_network_changes", "false"),
+        },
+    }
+
     telegram_configured = (
         get_setting("telegram_enabled") == "true"
         and bool(get_setting("telegram_bot_token"))
         and bool(get_setting("telegram_chat_id"))
+        and any(channel_rules["telegram"].values())
     )
-    webhook_configured = get_setting("webhook_enabled") == "true" and bool(get_setting("webhook_url"))
+    webhook_configured = (
+        get_setting("webhook_enabled") == "true"
+        and bool(get_setting("webhook_url"))
+        and any(channel_rules["webhook"].values())
+    )
+    smtp_configured = (
+        get_setting("smtp_enabled") == "true"
+        and bool(get_setting("smtp_host"))
+        and bool(get_setting("smtp_from_email"))
+        and bool(get_setting("smtp_to_email"))
+        and any(channel_rules["smtp"].values())
+    )
 
-    if not telegram_configured and not webhook_configured:
+    if not telegram_configured and not webhook_configured and not smtp_configured:
+        return
+
+    configured_channel_rules = []
+    if telegram_configured:
+        configured_channel_rules.append(channel_rules["telegram"])
+    if webhook_configured:
+        configured_channel_rules.append(channel_rules["webhook"])
+    if smtp_configured:
+        configured_channel_rules.append(channel_rules["smtp"])
+
+    enabled_events = {
+        event_type
+        for rules in configured_channel_rules
+        for event_type, enabled in rules.items()
+        if enabled
+    }
+    if not enabled_events:
         return
 
     pending_filters = []
@@ -762,11 +871,13 @@ async def _send_notification_deliveries(db: Session) -> None:
         pending_filters.append(Notification.telegram_sent == False)
     if webhook_configured:
         pending_filters.append(Notification.webhook_sent == False)
+    if smtp_configured:
+        pending_filters.append(Notification.smtp_sent == False)
 
     unsent = (
         db.query(Notification)
         .options(joinedload(Notification.device))
-        .filter(Notification.event_type.in_(("new_device", "network_change")), or_(*pending_filters))
+        .filter(Notification.event_type.in_(enabled_events), or_(*pending_filters))
         .all()
     )
     if not unsent:
@@ -783,14 +894,19 @@ async def _send_notification_deliveries(db: Session) -> None:
 
     had_failure = False
     for notif in unsent:
-        if telegram_configured and not notif.telegram_sent:
+        if telegram_configured and channel_rules["telegram"].get(notif.event_type, False) and not notif.telegram_sent:
             if await send_telegram_for_notification(db, notif):
                 notif.telegram_sent = True
             else:
                 had_failure = True
-        if webhook_configured and not notif.webhook_sent:
+        if webhook_configured and channel_rules["webhook"].get(notif.event_type, False) and not notif.webhook_sent:
             if await send_webhook_for_notification(db, notif):
                 notif.webhook_sent = True
+            else:
+                had_failure = True
+        if smtp_configured and channel_rules["smtp"].get(notif.event_type, False) and not notif.smtp_sent:
+            if await send_smtp_for_notification(db, notif):
+                notif.smtp_sent = True
             else:
                 had_failure = True
 

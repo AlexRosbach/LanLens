@@ -10,6 +10,7 @@ from ..schemas import (
     MessageResponse,
     PassiveDiscoveryObservationResponse,
     PassiveDiscoveryCaptureReportResponse,
+    PassiveDiscoveryHaGroupResponse,
     PassiveDiscoveryStatusResponse,
     PluginManifestResponse,
     PluginToggleRequest,
@@ -18,6 +19,7 @@ from ..services.passive_discovery import (
     capture_passive_discovery,
     capture_passive_discovery_report,
     deduplicate_observations,
+    ha_groups_for_observations,
     is_capture_running,
     linked_devices_for_observations,
     observation_to_response,
@@ -85,6 +87,16 @@ def list_passive_observations(
     observations = deduplicate_observations(rows, limit)
     linked_devices = linked_devices_for_observations(db, observations)
     return [observation_to_response(row, linked_device=linked_devices.get(row.id)) for row in observations]
+
+
+@passive_router.get("/ha-groups", response_model=list[PassiveDiscoveryHaGroupResponse])
+def list_passive_ha_groups(
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _require_passive_discovery_enabled(db)
+    return ha_groups_for_observations(db, limit)
 
 
 @passive_router.post("/capture", response_model=MessageResponse)

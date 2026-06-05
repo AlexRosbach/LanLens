@@ -20,6 +20,28 @@ logger = logging.getLogger(__name__)
 _capture_running = False
 _capture_lock = threading.Lock()
 
+LLDP_CAPABILITIES = {
+    0x0001: "other",
+    0x0002: "repeater",
+    0x0004: "bridge",
+    0x0008: "wlan_access_point",
+    0x0010: "router",
+    0x0020: "telephone",
+    0x0040: "docsis_cable_device",
+    0x0080: "station_only",
+}
+
+CDP_CAPABILITIES = {
+    0x00000001: "router",
+    0x00000002: "transparent_bridge",
+    0x00000004: "source_route_bridge",
+    0x00000008: "switch",
+    0x00000010: "host",
+    0x00000020: "igmp",
+    0x00000040: "repeater",
+    0x00000080: "telephone",
+}
+
 
 def is_capture_running() -> bool:
     with _capture_lock:
@@ -59,6 +81,15 @@ def _bounded_text(value: Any, max_length: int) -> str | None:
     return str(value)[:max_length]
 
 
+def _decode_wire_text(value: bytes) -> str | None:
+    text = value.decode("utf-8", errors="replace").strip("\x00\r\n\t ")
+    return text or None
+
+
+def _capability_names(mask: int, mapping: dict[int, str]) -> list[str]:
+    return [name for bit, name in mapping.items() if mask & bit]
+
+
 def _packet_addrs(packet: Any) -> tuple[str | None, str | None, str | None]:
     source_ip = destination_ip = source_mac = None
     try:
@@ -85,6 +116,16 @@ def _summary_from_metadata(protocol: str, metadata: dict[str, Any]) -> str:
         method = metadata.get("method") or metadata.get("status") or "SSDP"
         target = metadata.get("st") or metadata.get("nt") or metadata.get("usn") or ""
         return f"{method} {target}".strip()
+    if protocol in {"lldp", "cdp"}:
+        identity = metadata.get("system_name") or metadata.get("device_id") or metadata.get("chassis_id") or protocol.upper()
+        port = metadata.get("port_id") or metadata.get("port_description")
+        capabilities = metadata.get("enabled_capabilities") or metadata.get("capabilities") or []
+        parts = [str(identity)]
+        if port:
+            parts.append(f"port {port}")
+        if capabilities:
+            parts.append(", ".join(str(item) for item in capabilities[:4]))
+        return " · ".join(parts)
     return metadata.get("packet_type") or f"{protocol.upper()} packet observed"
 
 
@@ -238,6 +279,168 @@ def parse_ssdp_packet(packet: Any) -> PassiveDiscoveryObservation | None:
     return parse_ssdp_payload(bytes(packet[Raw].load), source_ip, source_mac, destination_ip)
 
 
+def _parse_lldp_chassis_id(value: bytes) -> str | None:
+    if not value:
+        return None
+    subtype = value[0]
+    body = value[1:]
+    if subtype == 4 and len(body) == 6:
+        return normalize_mac(":".join(f"{part:02x}" for part in body))
+    return _decode_wire_text(body)
+
+
+def _parse_lldp_port_id(value: bytes) -> str | None:
+    if not value:
+        return None
+    return _decode_wire_text(value[1:])
+
+
+def _parse_lldp_tlvs(payload: bytes) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"packet_type": "LLDP neighbor advertisement"}
+    index = 0
+    while index + 2 <= len(payload):
+        header = int.from_bytes(payload[index:index + 2], "big")
+        index += 2
+        tlv_type = header >> 9
+        length = header & 0x01FF
+        value = payload[index:index + length]
+        index += length
+        if tlv_type == 0:
+            break
+        if len(value) < length:
+            break
+        if tlv_type == 1:
+            metadata["chassis_id"] = _parse_lldp_chassis_id(value)
+        elif tlv_type == 2:
+            metadata["port_id"] = _parse_lldp_port_id(value)
+        elif tlv_type == 4:
+            metadata["port_description"] = _decode_wire_text(value)
+        elif tlv_type == 5:
+            metadata["system_name"] = _decode_wire_text(value)
+        elif tlv_type == 6:
+            metadata["system_description"] = _decode_wire_text(value)
+        elif tlv_type == 7 and len(value) >= 4:
+            available = int.from_bytes(value[:2], "big")
+            enabled = int.from_bytes(value[2:4], "big")
+            metadata["capabilities"] = _capability_names(available, LLDP_CAPABILITIES)
+            metadata["enabled_capabilities"] = _capability_names(enabled, LLDP_CAPABILITIES)
+    return {key: value for key, value in metadata.items() if value not in (None, [], "")}
+
+
+def parse_lldp_packet(packet: Any) -> PassiveDiscoveryObservation | None:
+    try:
+        from scapy.layers.l2 import Ether
+    except Exception:
+        return None
+    if not packet.haslayer(Ether):
+        return None
+    ether = packet[Ether]
+    if int(getattr(ether, "type", 0) or 0) != 0x88CC:
+        return None
+    source_ip, source_mac, destination_ip = _packet_addrs(packet)
+    metadata = _parse_lldp_tlvs(bytes(ether.payload))
+    if not metadata:
+        return None
+    destination_mac = normalize_mac(str(getattr(ether, "dst", "") or ""))
+    if destination_mac:
+        metadata["destination_mac"] = destination_mac
+    service_name = metadata.get("system_name") or metadata.get("chassis_id")
+    service_type = ",".join(metadata.get("enabled_capabilities") or metadata.get("capabilities") or [])
+    return PassiveDiscoveryObservation(
+        protocol="lldp",
+        source_ip=source_ip,
+        source_mac=source_mac,
+        destination_ip=destination_ip,
+        service_name=_bounded_text(service_name, 255),
+        service_type=_bounded_text(service_type, 128),
+        summary=_summary_from_metadata("lldp", metadata),
+        metadata_json=json.dumps(metadata, default=str, sort_keys=True),
+        observed_at=datetime.utcnow(),
+    )
+
+
+def _cdp_payload(packet: Any) -> bytes | None:
+    try:
+        from scapy.packet import Raw
+        if packet.haslayer(Raw):
+            return bytes(packet[Raw].load)
+    except Exception:
+        pass
+    try:
+        from scapy.layers.l2 import Ether
+        if not packet.haslayer(Ether):
+            return None
+        payload = bytes(packet[Ether].payload)
+        marker = b"\x20\x00"
+        marker_index = payload.find(marker)
+        if marker_index >= 0:
+            return payload[marker_index + len(marker):]
+        return payload
+    except Exception:
+        return None
+
+
+def _parse_cdp_tlvs(payload: bytes) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"packet_type": "CDP neighbor advertisement"}
+    if len(payload) < 4:
+        return metadata
+    metadata["version"] = int(payload[0])
+    metadata["ttl"] = int(payload[1])
+    index = 4
+    while index + 4 <= len(payload):
+        tlv_type = int.from_bytes(payload[index:index + 2], "big")
+        length = int.from_bytes(payload[index + 2:index + 4], "big")
+        if length < 4 or index + length > len(payload):
+            break
+        value = payload[index + 4:index + length]
+        index += length
+        if tlv_type == 0x0001:
+            metadata["device_id"] = _decode_wire_text(value)
+        elif tlv_type == 0x0003:
+            metadata["port_id"] = _decode_wire_text(value)
+        elif tlv_type == 0x0004 and len(value) >= 4:
+            mask = int.from_bytes(value[-4:], "big")
+            metadata["capabilities"] = _capability_names(mask, CDP_CAPABILITIES)
+            metadata["enabled_capabilities"] = metadata["capabilities"]
+        elif tlv_type == 0x0005:
+            metadata["software_version"] = _decode_wire_text(value)
+        elif tlv_type == 0x0006:
+            metadata["platform"] = _decode_wire_text(value)
+    return {key: value for key, value in metadata.items() if value not in (None, [], "")}
+
+
+def parse_cdp_packet(packet: Any) -> PassiveDiscoveryObservation | None:
+    try:
+        from scapy.layers.l2 import Ether
+    except Exception:
+        return None
+    if not packet.haslayer(Ether):
+        return None
+    ether = packet[Ether]
+    destination_mac = normalize_mac(str(getattr(ether, "dst", "") or ""))
+    if destination_mac != "01:00:0C:CC:CC:CC":
+        return None
+    payload = _cdp_payload(packet)
+    if not payload:
+        return None
+    metadata = _parse_cdp_tlvs(payload)
+    source_ip, source_mac, destination_ip = _packet_addrs(packet)
+    metadata["destination_mac"] = destination_mac
+    service_name = metadata.get("device_id") or metadata.get("platform")
+    service_type = ",".join(metadata.get("enabled_capabilities") or metadata.get("capabilities") or [])
+    return PassiveDiscoveryObservation(
+        protocol="cdp",
+        source_ip=source_ip,
+        source_mac=source_mac,
+        destination_ip=destination_ip,
+        service_name=_bounded_text(service_name, 255),
+        service_type=_bounded_text(service_type, 128),
+        summary=_summary_from_metadata("cdp", metadata),
+        metadata_json=json.dumps(metadata, default=str, sort_keys=True),
+        observed_at=datetime.utcnow(),
+    )
+
+
 def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | None:
     source_ip, source_mac, destination_ip = _packet_addrs(packet)
     if not destination_ip:
@@ -262,6 +465,7 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
         metadata = _generic_multicast_metadata(packet, destination_ip)
     else:
         metadata = {"packet_type": packet_type, "destination_ip": destination_ip}
+        metadata.update(_control_plane_metadata(packet, protocol))
     return PassiveDiscoveryObservation(
         protocol=protocol,
         source_ip=source_ip,
@@ -271,6 +475,54 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
         metadata_json=json.dumps(metadata, sort_keys=True),
         observed_at=datetime.utcnow(),
     )
+
+
+def _control_plane_metadata(packet: Any, protocol: str) -> dict[str, Any]:
+    if protocol == "vrrp":
+        return _vrrp_metadata(packet)
+    if protocol == "hsrp":
+        return _hsrp_metadata(packet)
+    return {}
+
+
+def _vrrp_metadata(packet: Any) -> dict[str, Any]:
+    try:
+        from scapy.layers.vrrp import VRRP
+    except Exception:
+        return {}
+    if not packet.haslayer(VRRP):
+        return {}
+    layer = packet[VRRP]
+    addrlist = [str(item) for item in (getattr(layer, "addrlist", None) or []) if item]
+    metadata: dict[str, Any] = {}
+    vrid = getattr(layer, "vrid", None)
+    if vrid is not None:
+        metadata["vrid"] = int(vrid)
+    if addrlist:
+        metadata["virtual_ip"] = addrlist[0]
+        metadata["virtual_ips"] = addrlist
+    return metadata
+
+
+def _hsrp_metadata(packet: Any) -> dict[str, Any]:
+    try:
+        from scapy.layers.inet import UDP
+        from scapy.packet import Raw
+    except Exception:
+        return {}
+    if not packet.haslayer(UDP) or not packet.haslayer(Raw):
+        return {}
+    udp = packet[UDP]
+    if int(getattr(udp, "dport", 0) or 0) != 1985 and int(getattr(udp, "sport", 0) or 0) != 1985:
+        return {}
+    payload = bytes(packet[Raw].load)
+    if len(payload) < 20:
+        return {}
+    virtual_ip = ".".join(str(part) for part in payload[16:20])
+    return {
+        "group": int(payload[6]),
+        "virtual_ip": virtual_ip,
+    }
 
 
 def _is_ipv4_multicast(address: str) -> bool:
@@ -307,6 +559,13 @@ def parse_packet(packet: Any, enabled_protocols: set[str]) -> PassiveDiscoveryOb
         ssdp = parse_ssdp_packet(packet)
         if ssdp:
             return ssdp
+    if "multicast" in enabled_protocols or "lldp" in enabled_protocols or "cdp" in enabled_protocols:
+        lldp = parse_lldp_packet(packet)
+        if lldp:
+            return lldp
+        cdp = parse_cdp_packet(packet)
+        if cdp:
+            return cdp
     if "multicast" in enabled_protocols:
         return parse_control_plane_packet(packet)
     return None
@@ -338,6 +597,15 @@ def observation_signature(row: PassiveDiscoveryObservation) -> tuple[Any, ...]:
             metadata.get("transport"),
             metadata.get("destination_port"),
             row.summary,
+        )
+    if row.protocol in {"lldp", "cdp"}:
+        return (
+            row.protocol,
+            source_identity,
+            row.service_name,
+            row.service_type,
+            metadata.get("port_id"),
+            metadata.get("chassis_id") or metadata.get("device_id"),
         )
     return (
         row.protocol,
@@ -408,7 +676,11 @@ def _capture_filter(enabled_protocols: set[str]) -> str:
     if "ssdp" in enabled_protocols:
         parts.append("udp port 1900")
     if "multicast" in enabled_protocols:
-        parts.append("ip multicast")
+        parts.append("(ip multicast or ether proto 0x88cc or ether dst 01:00:0c:cc:cc:cc)")
+    if "lldp" in enabled_protocols:
+        parts.append("ether proto 0x88cc")
+    if "cdp" in enabled_protocols:
+        parts.append("ether dst 01:00:0c:cc:cc:cc")
     return " or ".join(parts) or "udp port 5353 or udp port 1900"
 
 
@@ -581,10 +853,20 @@ def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metada
     for value in [row.service_name, row.service_type, row.summary, row.destination_ip]:
         if value:
             values.append(str(value))
-    for key in ("st", "nt", "usn", "server", "location", "packet_type", "method", "status"):
+    for key in (
+        "st", "nt", "usn", "server", "location", "packet_type", "method", "status",
+        "system_name", "system_description", "device_id", "platform", "software_version",
+        "port_id", "port_description", "chassis_id",
+    ):
         value = metadata.get(key)
         if value:
             values.append(str(value))
+    for key in ("capabilities", "enabled_capabilities"):
+        items = metadata.get(key) or []
+        if isinstance(items, list):
+            values.extend(str(item) for item in items if item)
+        elif items:
+            values.append(str(items))
     for key in ("questions", "answers"):
         items = metadata.get(key) or []
         if isinstance(items, list):
@@ -606,6 +888,23 @@ def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metada
 
     if protocol in {"ospf", "vrrp", "hsrp"}:
         return result("Router", "high", f"{row.protocol.upper()} control-plane multicast")
+
+    if protocol in {"lldp", "cdp"}:
+        capabilities = {
+            str(item).strip().lower().replace("-", "_").replace(" ", "_")
+            for item in (metadata.get("enabled_capabilities") or metadata.get("capabilities") or [])
+            if item
+        }
+        if any(item in capabilities for item in {"bridge", "switch", "transparent_bridge", "source_route_bridge"}):
+            return result("Switch", "high", f"{row.protocol.upper()} bridge/switch capability advertisement")
+        if "router" in capabilities:
+            return result("Router", "high", f"{row.protocol.upper()} router capability advertisement")
+        if "wlan_access_point" in capabilities or any(token in haystack for token in ("wlan access point", "access point", "aironet")):
+            return result("AP", "high", f"{row.protocol.upper()} wireless access-point capability advertisement")
+        if "telephone" in capabilities:
+            return result("VoIP", "high", f"{row.protocol.upper()} telephone capability advertisement")
+        if any(item in capabilities for item in {"station_only", "host"}):
+            return result("Workstation", "high", f"{row.protocol.upper()} station/host capability advertisement")
 
     if any(token in haystack for token in ("internetgatewaydevice", "wandevice", "wanconnectiondevice")):
         return result("Router", "high", "UPnP/SSDP gateway or router advertisement")
@@ -744,3 +1043,53 @@ def observation_to_response(row: PassiveDiscoveryObservation, db: Session | None
         "linked_device_label": _device_label(linked_device) if linked_device else None,
         **inference,
     }
+
+
+def ha_groups_for_observations(db: Session, limit: int = 100) -> list[dict[str, Any]]:
+    rows = (
+        db.query(PassiveDiscoveryObservation)
+        .filter(PassiveDiscoveryObservation.protocol.in_(("vrrp", "hsrp")))
+        .order_by(PassiveDiscoveryObservation.observed_at.desc())
+        .limit(max(1, min(limit * 10, 1000)))
+        .all()
+    )
+    linked_devices = linked_devices_for_observations(db, rows)
+    groups: dict[str, dict[str, Any]] = {}
+    seen_members: dict[str, set[tuple[str | None, str | None]]] = {}
+
+    for row in rows:
+        metadata = _metadata_for(row)
+        virtual_ip = metadata.get("virtual_ip") or metadata.get("vip")
+        group_number = metadata.get("group") or metadata.get("vrid")
+        group_identity = str(group_number or virtual_ip or row.destination_ip or "unknown")
+        group_key = f"{row.protocol}:{group_identity}"
+        device = linked_devices.get(row.id)
+        member_key = (row.source_ip, normalize_mac(row.source_mac) if row.source_mac else None)
+
+        if group_key not in groups:
+            groups[group_key] = {
+                "protocol": row.protocol,
+                "group_key": group_key,
+                "destination_ip": row.destination_ip,
+                "virtual_ip": str(virtual_ip) if virtual_ip else None,
+                "active_device_id": device.id if device else None,
+                "active_device_label": _device_label(device) if device else None,
+                "member_count": 0,
+                "observed_at": row.observed_at,
+                "members": [],
+            }
+            seen_members[group_key] = set()
+
+        if member_key in seen_members[group_key]:
+            continue
+        seen_members[group_key].add(member_key)
+        groups[group_key]["members"].append({
+            "source_ip": row.source_ip,
+            "source_mac": row.source_mac,
+            "device_id": device.id if device else None,
+            "device_label": _device_label(device) if device else None,
+            "observed_at": row.observed_at,
+        })
+        groups[group_key]["member_count"] = len(groups[group_key]["members"])
+
+    return list(groups.values())[:limit]

@@ -28,6 +28,26 @@ export interface PassiveDiscoveryObservation {
   linked_device_label?: string | null
 }
 
+export interface PassiveDiscoveryHaMember {
+  source_ip?: string | null
+  source_mac?: string | null
+  device_id?: number | null
+  device_label?: string | null
+  observed_at: string
+}
+
+export interface PassiveDiscoveryHaGroup {
+  protocol: string
+  group_key: string
+  destination_ip?: string | null
+  virtual_ip?: string | null
+  active_device_id?: number | null
+  active_device_label?: string | null
+  member_count: number
+  observed_at: string
+  members: PassiveDiscoveryHaMember[]
+}
+
 export interface PassiveDiscoveryCaptureReport {
   filter: string
   protocols: string[]
@@ -48,6 +68,8 @@ export const pluginsApi = {
 export const passiveDiscoveryApi = {
   observations: (protocol?: string) =>
     apiClient.get<PassiveDiscoveryObservation[]>('/passive-discovery/observations', { params: { protocol } }).then((r) => r.data),
+  haGroups: () =>
+    apiClient.get<PassiveDiscoveryHaGroup[]>('/passive-discovery/ha-groups').then((r) => r.data),
   capture: (seconds = 30) =>
     apiClient.post('/passive-discovery/capture', null, { params: { seconds } }).then((r) => r.data),
   diagnostics: (seconds = 10) =>

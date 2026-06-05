@@ -9,33 +9,42 @@
 5. [API Reference](#api-reference)
 6. [Scanning Logic](#scanning-logic)
 7. [Authentication](#authentication)
-8. [Telegram Integration](#telegram-integration)
-9. [Connection Launch](#connection-launch)
-10. [Docker Details](#docker-details)
-11. [CLI Tools](#cli-tools)
-12. [Frontend Structure](#frontend-structure)
-13. [Configuration Reference](#configuration-reference)
-14. [Deep Scan](#deep-scan)
-15. [Scan Nodes](#scan-nodes-experimental)
-16. [CMDB / i-doit Integrations](#cmdb--i-doit-integrations-v150)
-17. [External Database](#external-database-mariadb--postgresql)
-18. [Development Notes](#development-notes)
-19. [Troubleshooting](#troubleshooting)
+8. [Notification Rules](#notification-rules)
+9. [Telegram Integration](#telegram-integration)
+10. [Connection Launch](#connection-launch)
+11. [Docker Details](#docker-details)
+12. [CLI Tools](#cli-tools)
+13. [Frontend Structure](#frontend-structure)
+14. [Configuration Reference](#configuration-reference)
+15. [Deep Scan](#deep-scan)
+16. [Scan Nodes](#scan-nodes-experimental)
+17. [CMDB / i-doit Integrations](#cmdb--i-doit-integrations-v150)
+18. [External Database](#external-database-mariadb--postgresql)
+19. [Development Notes](#development-notes)
+20. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
-LanLens is a single-container Docker application that:
+LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. It helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, and prepare CMDB/i-doit export data without requiring a cloud account.
 
-- Periodically scans the local network via ARP broadcast
-- Identifies device vendors from MAC addresses using the offline IEEE OUI database
-- Classifies devices heuristically (Server, VM, IoT, Router, etc.)
-- Performs per-device port scans using nmap
-- Provides a React-based dark-themed web UI for management
-- Documents device services and groups them in the optional Services directory via drag-and-drop or explicit segment selection
-- Sends Telegram notifications for newly discovered devices
-- Supports SSH link, RDP file download, and web browser connection
+LanLens can:
+
+- Periodically scan the local network via ARP broadcast
+- Identify device vendors from MAC addresses using the offline IEEE OUI database
+- Classify devices heuristically and enrich classes through optional LLDP/CDP, multicast and SNMP identity evidence
+- Track online/offline state, IP history, DHCP range membership, open services and scan-detected inventory changes
+- Flag security-awareness signals such as unknown DHCP servers, ARP/MAC drift and VRRP/HSRP peers
+- Poll optional SNMP v1/v2c/v3 targets for IF-MIB inventory, common network-device identity, switch-port context and diagnostics
+- Perform per-device port scans using nmap
+- Provide a React-based dark-themed web UI for management and documentation
+- Document device services and group them in the optional Services directory via drag-and-drop or explicit segment selection
+- Send notifications through configured Telegram, webhook/Gotify and email channels
+- Support SSH link, RDP file download, and web browser connection shortcuts
+- Prepare reviewed CMDB/i-doit CSV exports and integration sync workflows
+
+LanLens stores inventory in the configured database volume. There is no product telemetry pipeline; outbound traffic is limited to features that are configured or triggered, such as update checks, notifications, CMDB/i-doit, webhooks or external database/integration targets.
 
 ---
 
@@ -55,17 +64,13 @@ Download the compose file:
 curl -O https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml
 ```
 
-Generate a secret key:
-
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
-```
-
-Replace `CHANGE_THIS_TO_A_LONG_RANDOM_STRING` in `docker-compose.yml`, then start LanLens:
+Then start LanLens:
 
 ```bash
 docker compose up -d
 ```
+
+On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume.
 
 Open the UI:
 
@@ -79,7 +84,7 @@ Default first-run login:
 admin / admin
 ```
 
-LanLens forces a password change after the first login.
+LanLens forces a password change after the first login. For full MAC/vendor discovery, run it on a Linux host with host networking as shown in the compose file.
 
 ### Optional HTTP/HTTPS port
 
@@ -94,7 +99,7 @@ For built-in HTTPS in host-network deployments, open **Settings → System → H
 
 ### Optional Advanced View
 
-LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, or build metadata.
+LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery or build metadata.
 
 ---
 
@@ -309,6 +314,7 @@ Returns `DeviceListResponse` with `items`, `total`, `online`, `offline`, `unregi
 #### `POST /api/devices/{id}/scan-ports`
 
 Triggers background nmap port scan. Returns immediately with `202`-like response.
+Uses the global port range from Settings -> Network Discovery -> Port Scan Range.
 
 #### `GET /api/devices/{id}/ports`
 
@@ -417,10 +423,10 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### Port Scan Flow
 
 ```
-1. Triggered by: POST /api/devices/{id}/scan-ports OR manual
+1. Triggered by: POST /api/devices/{id}/scan-ports, the manual UI action, or the optional scheduled background job
 2. port_scanner.py: nmap.PortScanner()
-3. Arguments: "-sS -T4 --top-ports 1000" (SYN scan, fast)
-   Fallback: "-sT -T4 --top-ports 1000" (TCP connect, no root needed)
+3. Arguments: configured in Settings; default is "-sS -T4 --top-ports 1000" (SYN scan, fast)
+   Fallback: "-sT -T4 ..." (TCP connect, no root needed)
 4. Parse results: extract open ports, service names
 5. Set flags: ssh_available, rdp_available, http_available, https_available
 6. Write PortScan row to DB
@@ -448,6 +454,12 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 
 ---
 
+## Notification Rules
+
+Use **Settings -> Notifications -> Notification rules** to choose which events are enabled globally and which external channels receive them. The matrix has one global event column and separate Telegram, webhook/Gotify and email columns, so each channel can subscribe to new-device alerts and network-change alerts independently while the global column remains the master switch for that event.
+
+Channel rules only send when the matching channel is configured and enabled in the same settings tab. Email delivery uses the SMTP settings, webhook delivery uses the configured webhook URL, and Telegram still supports separate update notifications for release checks.
+
 ## Telegram Integration
 
 ### Setup
@@ -474,9 +486,15 @@ Open LanLens to register this device.
 
 ### Failure Handling
 
-- Failed Telegram sends are logged
-- `telegram_sent = False` visible in the Notifications page
-- No automatic retry (manual retry: save settings again and trigger a new scan)
+- Failed Telegram, webhook and SMTP sends are logged.
+- The Notifications page shows successful Telegram, webhook and email deliveries on each stored in-app notification.
+- Delivery is retried by the next scan cycle after a short backoff when a configured external channel fails.
+
+### In-App Cleanup
+
+- The Notifications page can mark all visible entries as read.
+- Use **Delete all** to remove all stored in-app notifications after confirmation.
+- Bulk deletion does not change device history, network-change events, scan results, or external delivery logs; it only clears rows from the notifications list.
 
 ---
 
@@ -544,15 +562,19 @@ Each row shows the changed field plus before/after values and links to the affec
 
 Use **Export audit CSV** to download the currently filtered change history for audit or compliance review. The export uses the same event type, time range and search filters as the visible table. CSV cells are escaped before download, and the API also supports `format=json` for machine-readable audit snapshots.
 
-To route scan-detected network changes into alerting systems, enable **Settings → Notifications → Notify on network changes** together with the desired delivery channel. LanLens creates in-app notifications for scan-detected IP, hostname, online/offline and archive changes; enabled Telegram and webhook/Gotify deliveries receive the same event payloads with a device link when `server_url` is configured.
+To route scan-detected network changes into alerting systems, enable **Settings -> Notifications -> Notification rules -> Network changes** for the desired in-app and external channels. LanLens creates notifications for scan-detected IP, hostname, online/offline and archive changes; enabled Telegram, webhook/Gotify and email deliveries receive the same event payloads with a device link when `server_url` is configured.
+
+### UI Error Logging
+
+LanLens forwards browser-visible UI failures to the backend log stream so operators can see them in container logs. Failed API responses, toast error messages, runtime exceptions and unhandled browser promise rejections are posted to `/api/client-errors` and logged under `lanlens.client_errors`. The payload is bounded and redacts common token, password, secret and authorization patterns before logging.
 
 ### Passive Multicast Discovery
 
-Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a 30-second capture or schedule background captures.
+Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a manual capture or schedule background captures. The same settings card controls the background interval in minutes and the capture duration in seconds; the manual capture button uses that configured duration too.
 
-LanLens stores visible mDNS, SSDP/UPnP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. Repeated observations with the same protocol, source, destination and service identity update their latest seen timestamp instead of filling per-device lists with duplicate rows. mDNS deduplication groups recurring packets by source and advertised service type or local host name, so a device does not get duplicate-looking rows just because the mDNS question, answer or summary text changed between packets. Generic multicast deduplication intentionally ignores ephemeral source-port churn and changing MAC metadata when the source, multicast group and destination port are the same. Per-device discovery tables show unique observations that can be linked to the device's current IP, MAC address or recorded IP history. Click an observation row to inspect parsed details and the raw captured payload.
+LanLens stores visible mDNS, SSDP/UPnP, LLDP, CDP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. LLDP/CDP frames are captured with the multicast/passive-discovery module and parsed for neighbor identity, advertised port and device capabilities. Repeated observations with the same protocol, source, destination and service identity update their latest seen timestamp instead of filling per-device lists with duplicate rows. mDNS deduplication groups recurring packets by source and advertised service type or local host name, so a device does not get duplicate-looking rows just because the mDNS question, answer or summary text changed between packets. Generic multicast deduplication intentionally ignores ephemeral source-port churn and changing MAC metadata when the source, multicast group and destination port are the same. Per-device discovery tables show unique observations that can be linked to the device's current IP, MAC address or recorded IP history. Click an observation row to inspect parsed details and the raw captured payload.
 
-When a linked observation carries a high- or medium-confidence device-class inference, passive discovery can update the matched device's `device_class`. Unknown devices are filled automatically; high-confidence router, access-point, printer and similar observations may also replace broad generic classes such as `IoT` or `Workstation`. More specific existing classes are left unchanged so manually curated inventory data is not overwritten by weak service advertisements. If normal DNS discovery did not provide a usable hostname, linked mDNS observations can also fill `hostname` from advertised `.local` names.
+When a linked observation carries a high- or medium-confidence device-class inference, passive discovery can update the matched device's `device_class`. Unknown devices are filled automatically; high-confidence router, switch, access-point, printer and similar observations may also replace broad generic classes such as `IoT` or `Workstation`. LLDP/CDP bridge/switch, router, WLAN access-point, telephone and station capabilities are treated as strong class signals. More specific existing classes are left unchanged so manually curated inventory data is not overwritten by weak service advertisements. If normal DNS discovery did not provide a usable hostname, linked mDNS observations can also fill `hostname` from advertised `.local` names.
 
 Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, linked observations, device classes updated, hostnames updated, duplicates skipped and capture errors. The same card lists recent observations and links matched rows directly to device detail pages. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. If observations are stored but not linked, the source IP/MAC has not matched a known device or its IP history yet.
 
@@ -637,20 +659,19 @@ The `TopBar` polls `GET /api/scan/status` every 2 seconds while a scan is runnin
 
 ### Docker images
 
-LanLens images are published on Docker Hub:
+LanLens images are published on Docker Hub under:
 
 ```text
-alexrosbach/lanlens:latest
-alexrosbach/lanlens:1.5.4
+alexrosbach/lanlens
 ```
 
-Use `latest` for the newest build or pin the release tag for reproducible deployments.
+Use the compose file from this repository for the expected host-network deployment model and set the image tag according to the published build you intend to run.
 
 ### docker-compose.yml Environment Variables
 
 ```yaml
 environment:
-  SECRET_KEY: "your-64-char-random-string"   # Required
+  SECRET_KEY: "your-64-char-random-string"   # Optional; auto-generated in /data when omitted
   DEFAULT_ADMIN_PASSWORD: "admin"             # First-run only
   TZ: "Europe/Berlin"                         # Container timezone
   DB_PATH: "/data/lanlens.db"                 # SQLite file path
@@ -672,12 +693,9 @@ Any standard TZ database name: `UTC`, `Europe/Berlin`, `America/New_York`, `Asia
 4. Run `docker exec lanlens ip route` — should show your host's routing table
 5. Run `docker exec lanlens arp -a` — should show ARP cache
 
-### "SECRET_KEY environment variable is not set"
+### Existing credentials cannot be decrypted
 
-Set a proper `SECRET_KEY` in `docker-compose.yml`. Generate one with:
-```bash
-python3 -c "import secrets; print(secrets.token_hex(32))"
-```
+LanLens encrypts stored credentials with a key derived from `SECRET_KEY`. When `SECRET_KEY` is omitted, the container persists a generated key at `/data/secret_key`. Keep the `lanlens_data` volume when upgrading or recreating the container. If that key is lost or changed, existing stored credentials must be re-entered.
 
 ### Telegram test fails
 
@@ -878,7 +896,7 @@ Scan Nodes are an optional and currently **untested/experimental** way to cover 
 - A Scan Node is a small Docker container deployed inside a VLAN/site with host networking and `nmap -sn`.
 - The node has no inbound API. It only needs outbound HTTPS to Central.
 - Central generates the deployment command in **Settings -> Network -> Scan Nodes** with the central URL, node name and token.
-- The generated image tag is `alexrosbach/lanlens:scan-node-latest`.
+- The generated Scan Node image reference should match the Scan Node build published for the LanLens version in use.
 - Set `LANLENS_SCAN_TARGETS` to override the node's local auto-detected IPv4 CIDR.
 - Set `LANLENS_SCAN_INTERVAL` to control the node loop interval; invalid values fall back to 300 seconds.
 - If a node does not report MAC addresses, Central uses IP-only pseudo-identifiers. IP-only matches are intentionally conservative and must not overwrite an existing device with a real MAC address.
@@ -921,6 +939,9 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - purpose, description and notes -> `C__CATG__GLOBAL`
 - operating system text -> `C__CATG__OPERATING_SYSTEM.description`
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
+- open-port and documented service summaries -> `C__CATG__NET_CONNECTIONS_FOLDER.description`
+- TLS certificate summaries -> `C__CATG__CERTIFICATE.description`
+- container/software summary text -> `C__CATG__APPLICATION.description`
 
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
 
@@ -932,7 +953,7 @@ LanLens 1.5.2 adds a reviewed CSV export for i-doit. In **Settings → CMDB → 
 
 This workflow is deliberately file-based and does not call i-doit JSON-RPC. It is useful when operators want an AutoDoku-style review step before import, or when the i-doit environment expects CSV reconciliation instead of automated writes.
 
-The export can include SNMP-derived identity context when switches have been polled through **Settings → Network → SNMP switch topology**:
+The export can include SNMP-derived identity context when SNMP targets have been polled through **Settings → Network → SNMP targets and switch topology**:
 
 - `SNMP-Switch`
 - `SNMP-Port`
@@ -942,22 +963,32 @@ It also includes `mDNS`, `UPnP/SSDP` and `Passive Discovery` columns when passiv
 
 These fields make reconciliation easier in prefilled CMDB environments because a device can be checked against the physical switch port where its MAC address was last seen, instead of relying only on hostname, IP address or stale object IDs.
 
-## SNMP Switch Topology Foundation
+## SNMP Targets And Switch Topology
 
-LanLens can register SNMP v1, v2c and v3 profiles for Cisco, Sophos, UniFi/Ubiquiti and generic SNMP devices, then poll inventory from the container using `snmpwalk`. The foundation release stores:
+LanLens can register SNMP v1, v2c and v3 profiles for common SNMP network devices, then poll inventory from the container using `snmpwalk`. Vendor detection recognizes common Cisco/Meraki, UniFi/Ubiquiti, Sophos, Juniper, MikroTik, Fortinet, Aruba/HPE, Netgear, TP-Link, D-Link, Zyxel, pfSense and OPNsense identities from `sysDescr`/`sysObjectID`, while unsupported agents still fall back to generic SNMP handling. SNMP targets do not have to be switches: routers, firewalls, printers and other SNMP agents can be scanned for system identity, and interface inventory is stored when IF-MIB is available. Switch-port endpoint topology is populated only when a target exposes bridge forwarding tables. IP-scan-only devices can still be linked to an SNMP target by matching the device IP to the SNMP target host, and recognized switch/router/firewall/AP identities with interface inventory can promote an unknown linked device class to the matching class. The SNMP inventory stores:
 
 - switch system name, description and object ID
 - interface index, name, description, alias, status, speed and physical address
 - bridge forwarding table entries, mapped back from MAC address to interface index where the switch exposes BRIDGE-MIB or Q-BRIDGE-MIB mappings
 - detected vendor context from `sysObjectID` and `sysDescr`
 
-Routers and firewalls may expose IF-MIB without a switch MAC table. In that case LanLens keeps the interface inventory, returns a completed poll, and records a clear warning instead of turning the whole poll into a generic failure.
+Existing SNMP targets can be edited inline in **Settings -> Network Discovery -> SNMP targets and switch topology**. Name, host/IP, assigned profile and enabled state can be changed without deleting learned interface or MAC-table data. The same card can optionally poll enabled SNMP targets in the background at a configurable interval from 1 to 1440 minutes.
 
-SNMP data is most useful when the router or switch exposes bridge forwarding tables. For a UniFi router, expect the first poll to show system identity, vendor detection and interface inventory. If the UniFi device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the router and interfaces, but endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
+Routers, firewalls and some switches may expose IF-MIB without a BRIDGE-MIB or Q-BRIDGE-MIB MAC table. In that case LanLens keeps the interface inventory and returns a completed poll. Missing bridge tables stay visible in the poll diagnostics but are treated as optional context, not as the target's latest error.
 
-![Device overview with SNMP switch port visualization](screenshots/lanlens-snmp-switch-ports.png)
+SNMP poll troubleshooting details are stored on each target after every manual or background poll and can be opened from the target row's **Details** action. The detail includes the target host/port, target name, selected profile name, SNMP version and SNMPv3 security mode without exposing community strings or passwords. It also lists each attempted SNMP step, the OID used, whether it succeeded, how many rows were returned, and which optional IF-MIB or BRIDGE-MIB/Q-BRIDGE-MIB step failed or was unavailable. Failed polls still surface a compact latest-error badge in the table, while successful polls with optional MIB gaps keep those gaps in the details dialog instead of marking the target as failed.
 
-When an SNMP target is linked to a LanLens device and the poll returns both interfaces and MAC/VLAN table entries, the device detail page shows a switch-port visualization. Each discovered interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, learned device/MAC and VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. SNMP routers, firewalls or incomplete switch polls that only expose IF-MIB interfaces do not show the visualization, which avoids a misleading empty port map.
+SNMP data is most useful when the router, firewall, access point or switch exposes IF-MIB, EtherLike-MIB and, for endpoint mapping, bridge forwarding tables. For common SNMP-capable devices, expect the first poll to show system identity, vendor detection and interface inventory. If the device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the target and interfaces, and the SNMP target is shown on the matching device detail page when the SNMP target is explicitly assigned to the device or when its host/IP matches the device IP. Endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
+
+SNMP interface polling also stores real-port statistics when the device exposes the related IF-MIB and EtherLike-MIB counters: speed, admin/oper status, unicast/non-unicast packet counters, discards, errors, unknown protocols, CRC/FCS/alignment errors, collisions and frame-too-long fragment counters. The device detail page shows the switch, port, speed and port statistics when a device is matched through the MAC table. The switch-port grid accepts common physical interface naming from multiple vendors such as Ethernet, GigabitEthernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial names. It filters common virtual interfaces such as loopback, VLAN/SVI, tunnel, bridge, LAG/bond/team, management, stack and port-channel rows so the visualization focuses on real switch/router/firewall/AP ports.
+
+![SNMP target settings with learned network device identity](screenshots/lanlens-snmp-targets-settings.png)
+
+When an SNMP target is linked to a LanLens device and the poll returns interfaces, the device detail page shows a switch-port visualization. Each real interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, speed, CRC errors, collisions, fragments, cast packet counters, discard/error counters and learned device/MAC/VLAN context when bridge tables are available; unlabeled endpoints show the MAC once with any VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. Interface-only targets still show their SNMP port inventory with empty endpoint labels so troubleshooting remains possible even when BRIDGE-MIB/Q-BRIDGE-MIB is unavailable.
+
+MAC tables are used to identify known LanLens devices by MAC address and attach switch/port/VLAN context to those devices. Expanding routed scan targets from SNMP-learned data needs IP-to-MAC evidence, not only a bridge MAC table. That follow-up should use IP-MIB/ARP-style SNMP data or explicit operator-provided scan targets before adding routed subnets to **Settings -> Network Discovery -> Scan range**.
+
+![SNMP poll diagnostics without exposed credentials](screenshots/lanlens-snmp-poll-diagnostics.png)
 
 The API surface is available under `/api/snmp`:
 
@@ -966,14 +997,16 @@ The API surface is available under `/api/snmp`:
 - `DELETE /api/snmp/profiles/{profile_id}`
 - `GET /api/snmp/switches`
 - `POST /api/snmp/switches`
+- `PUT /api/snmp/switches/{switch_id}`
 - `DELETE /api/snmp/switches/{switch_id}`
 - `POST /api/snmp/switches/{switch_id}/poll`
+- `PUT /api/settings/snmp-poll`
 - `GET /api/snmp/switches/{switch_id}/interfaces`
 - `GET /api/snmp/devices/{device_id}/ports`
 - `GET /api/snmp/topology/endpoints`
 - `GET /api/snmp/devices/{device_id}/identity`
 
-SNMP community strings and SNMPv3 credentials are stored in the application database and masked in API responses. Protect the database volume accordingly. LLDP/CDP and a richer topology graph are intentionally left for later increments.
+SNMP community strings and SNMPv3 credentials are stored in the application database and masked in API responses. Protect the database volume accordingly. LLDP/CDP passive capability classification is available through passive discovery; a richer topology graph is intentionally left for later increments.
 
 ---
 
@@ -991,7 +1024,7 @@ Example MariaDB compose setup:
 ```yaml
 services:
   lanlens:
-    image: alexrosbach/lanlens:1.5.3
+    image: alexrosbach/lanlens:<chosen-tag>
     environment:
       SECRET_KEY: your-secret-key-here
       DATABASE_URL: mysql+pymysql://lanlens:yourpassword@mariadb:3306/lanlens

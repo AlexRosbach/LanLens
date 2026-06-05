@@ -65,6 +65,24 @@ export function formatDateTime(dateStr: string): string {
   }
 }
 
+export function formatBitsPerSecond(value?: number | null): string {
+  if (!value || value <= 0) return '—'
+  const units = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps']
+  let current = value
+  let unit = 0
+  while (current >= 1000 && unit < units.length - 1) {
+    current /= 1000
+    unit += 1
+  }
+  const digits = current >= 100 ? 0 : current >= 10 ? 1 : 2
+  return `${current.toFixed(digits).replace(/\.0+$/, '')} ${units[unit]}`
+}
+
+export function formatCounter(value?: number | null): string {
+  if (value === null || value === undefined) return '—'
+  return new Intl.NumberFormat().format(value)
+}
+
 export function formatDeviceLabel(
   device: { label: string | null; hostname: string | null; mac_address: string },
   ipOnlyLabel?: string,

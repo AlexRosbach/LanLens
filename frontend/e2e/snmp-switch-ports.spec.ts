@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const now = '2026-06-01T19:45:00Z'
 const screenshotDir = process.env.LANLENS_E2E_OUTPUT_DIR ?? 'test-results'
@@ -52,7 +52,7 @@ const settings = {
   show_tls_checks: false,
   show_ping_history: false,
   show_build_info: false,
-  app_version: '1.5.4',
+  app_version: '1.5.6',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -78,7 +78,7 @@ const switchDevice = {
   purpose: 'PoE access switch for office, lab and media devices.',
   description: 'UniFi 24-port switch with SNMP topology polling enabled.',
   location: 'Network rack',
-  responsible: 'Alex',
+  responsible: 'NetOps Team',
   password_location: 'Vault',
   os_info: 'UniFi Switch OS',
   asset_tag: 'NET-SW-01',
@@ -144,6 +144,7 @@ const switchPorts = {
     const portNumber = index + 1
     const endpointMap: Record<number, Array<Record<string, string | number>>> = {
       1: [{ mac_address: '3C:52:82:10:00:01', vlan: '10', device_id: 2, device_label: 'Office AP', last_seen_at: now }],
+      2: [{ mac_address: 'AA:BB:CC:00:00:02', vlan: '10', last_seen_at: now }],
       3: [{ mac_address: '00:11:32:44:55:66', vlan: '20', device_id: 3, device_label: 'NAS-01', last_seen_at: now }],
       5: [{ mac_address: 'B8:27:EB:AA:BB:CC', vlan: '30', device_id: 4, device_label: 'Home Assistant', last_seen_at: now }],
       8: [{ mac_address: 'D8:3A:DD:44:55:66', vlan: '40', device_id: 5, device_label: 'Media Bridge', last_seen_at: now }],
@@ -159,6 +160,18 @@ const switchPorts = {
       admin_status: 'up',
       oper_status: endpoints.length > 0 ? 'up' : 'down',
       speed_bps: portNumber <= 16 ? 1_000_000_000 : 10_000_000_000,
+      in_unicast_packets: 12000 + portNumber,
+      in_non_unicast_packets: 120 + portNumber,
+      out_unicast_packets: 18000 + portNumber,
+      out_non_unicast_packets: 240 + portNumber,
+      in_discards: portNumber === 3 ? 2 : 0,
+      out_discards: 0,
+      in_errors: portNumber === 3 ? 1 : 0,
+      out_errors: 0,
+      unknown_protocols: 0,
+      crc_errors: portNumber === 3 ? 4 : 0,
+      collision_errors: portNumber === 3 ? 2 : 0,
+      fragment_errors: 0,
       is_active: endpoints.length > 0,
       endpoints,
       last_seen_at: now,
@@ -166,7 +179,73 @@ const switchPorts = {
   }),
 }
 
-test('device overview shows SNMP switch ports in context', async ({ page }) => {
+const ciscoIpScanDevice = {
+  ...switchDevice,
+  id: 1,
+  mac_address: 'ip:cisco-sg500x',
+  ip_address: '192.168.10.30',
+  hostname: 'sg500x-01',
+  label: 'Cisco SG500X',
+  device_class: 'Switch',
+  vendor: 'Cisco',
+  purpose: 'Access switch found by IP scan and enriched by SNMP identity.',
+  description: 'Cisco SG500X with IF-MIB inventory but no exposed bridge MAC table.',
+  location: 'Lab rack',
+  os_info: 'Cisco Small Business SG500X',
+  asset_tag: 'NET-SW-30',
+  notes: 'SNMP poll found interfaces; endpoint mapping waits for BRIDGE-MIB/Q-BRIDGE-MIB.',
+}
+
+const ciscoInterfaceOnlyPorts = {
+  switch: {
+    id: 10,
+    name: 'Cisco SG500X',
+    host: '192.168.10.30',
+    device_id: null,
+    profile_id: 1,
+    enabled: true,
+    sys_name: 'sg500x-01',
+    sys_descr: 'Cisco SG500X-24P 24-Port Gigabit Stackable Managed Switch',
+    sys_object_id: '1.3.6.1.4.1.9.6.1.89.24',
+    vendor: 'Cisco',
+    vendor_key: 'cisco',
+    vendor_notes: null,
+    last_poll_at: now,
+    last_error: null,
+    interface_count: 12,
+    mac_count: 0,
+  },
+  has_visualization: true,
+  ports: Array.from({ length: 12 }, (_, index) => {
+    const portNumber = index + 1
+    return {
+      if_index: portNumber,
+      name: `Gi1/1/${portNumber}`,
+      description: `GigabitEthernet1/1/${portNumber}`,
+      alias: portNumber === 1 ? 'uplink' : '',
+      admin_status: 'up',
+      oper_status: portNumber <= 4 ? 'up' : 'down',
+      speed_bps: 1_000_000_000,
+      in_unicast_packets: 2500 + portNumber,
+      in_non_unicast_packets: 20 + portNumber,
+      out_unicast_packets: 3600 + portNumber,
+      out_non_unicast_packets: 22 + portNumber,
+      in_discards: 0,
+      out_discards: 0,
+      in_errors: 0,
+      out_errors: 0,
+      unknown_protocols: 0,
+      crc_errors: portNumber === 2 ? 3 : 0,
+      collision_errors: 0,
+      fragment_errors: 0,
+      is_active: portNumber <= 4,
+      endpoints: [],
+      last_seen_at: now,
+    }
+  }),
+}
+
+async function mockDeviceDetail(page: Page, device: Record<string, unknown>, ports: Record<string, unknown>) {
   await page.setViewportSize({ width: 1440, height: 1150 })
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({ json: { username: 'admin', force_password_change: false } })
@@ -178,14 +257,14 @@ test('device overview shows SNMP switch ports in context', async ({ page }) => {
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.4', latest_version: '1.5.4', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.6', latest_version: '1.5.6', release_url: '', update_available: false } })
   })
   await page.route('**/api/devices**', async (route) => {
     if (!new URL(route.request().url()).pathname.endsWith('/api/devices')) return route.fallback()
-    await route.fulfill({ json: { items: [switchDevice], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
+    await route.fulfill({ json: { items: [device], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
   })
   await page.route('**/api/devices/1', async (route) => {
-    await route.fulfill({ json: switchDevice })
+    await route.fulfill({ json: device })
   })
   await page.route('**/api/devices/1/mark-viewed', async (route) => {
     await route.fulfill({ json: { message: 'ok' } })
@@ -206,12 +285,31 @@ test('device overview shows SNMP switch ports in context', async ({ page }) => {
     await route.fulfill({ json: [] })
   })
   await page.route('**/api/snmp/devices/1/ports', async (route) => {
-    await route.fulfill({ json: switchPorts })
+    await route.fulfill({ json: ports })
   })
+}
+
+test('device overview shows SNMP switch ports in context', async ({ page }) => {
+  await mockDeviceDetail(page, switchDevice, switchPorts)
 
   await page.goto('/devices/1')
   await expect(page.getByRole('heading', { name: 'Core Switch' })).toBeVisible()
   await expect(page.locator('#device-switch-ports')).toBeVisible()
   await expect(page.locator('#device-switch-ports').getByText('Office AP')).toBeVisible()
+  await expect(page.locator('#device-switch-ports').getByText('Err 4/2/0')).toBeVisible()
+  const unlabeledPortTitle = await page.locator('#device-switch-ports button').filter({ hasText: 'Gi1/0/2' }).getAttribute('title')
+  expect(unlabeledPortTitle).toContain('- AA:BB:CC:00:00:02 · VLAN 10')
+  expect((unlabeledPortTitle?.match(/AA:BB:CC:00:00:02/g) ?? []).length).toBe(1)
   await page.screenshot({ path: `${screenshotDir}/lanlens-snmp-switch-ports.png`, fullPage: false })
+})
+
+test('device overview shows interface-only SNMP ports for IP scan switches', async ({ page }) => {
+  await mockDeviceDetail(page, ciscoIpScanDevice, ciscoInterfaceOnlyPorts)
+
+  await page.goto('/devices/1')
+  await expect(page.getByRole('heading', { name: 'Cisco SG500X' })).toBeVisible()
+  await expect(page.locator('#device-switch-ports')).toBeVisible()
+  await expect(page.locator('#device-switch-ports').getByText('MAC/VLAN endpoints appear when bridge tables are available.')).toBeVisible()
+  await expect(page.locator('#device-switch-ports').getByText('Gi1/1/1', { exact: true })).toBeVisible()
+  await page.screenshot({ path: `${screenshotDir}/lanlens-snmp-interface-only-ports.png`, fullPage: false })
 })

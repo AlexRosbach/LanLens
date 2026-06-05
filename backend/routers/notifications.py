@@ -31,6 +31,7 @@ def list_notifications(
             is_read=n.is_read,
             telegram_sent=bool(n.telegram_sent),
             webhook_sent=bool(n.webhook_sent),
+            smtp_sent=bool(n.smtp_sent),
             created_at=n.created_at,
         )
         for n in notifications
@@ -48,6 +49,13 @@ def mark_all_read(db: Session = Depends(get_db), _: User = Depends(get_current_u
     db.query(Notification).filter(Notification.is_read == False).update({"is_read": True})
     db.commit()
     return MessageResponse(message="All notifications marked as read")
+
+
+@router.delete("", response_model=MessageResponse)
+def delete_all_notifications(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    deleted = db.query(Notification).delete()
+    db.commit()
+    return MessageResponse(message=f"Deleted {deleted} notifications")
 
 
 @router.delete("/{notification_id}", response_model=MessageResponse)

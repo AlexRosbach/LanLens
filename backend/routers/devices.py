@@ -355,6 +355,21 @@ def _device_to_response(
         snmp_interface_alias=(snmp_identity or {}).get("interface_alias"),
         snmp_vlan=(snmp_identity or {}).get("vlan"),
         snmp_last_seen_at=(snmp_identity or {}).get("last_seen_at"),
+        snmp_interface_speed_bps=(snmp_identity or {}).get("interface_speed_bps"),
+        snmp_interface_admin_status=(snmp_identity or {}).get("interface_admin_status"),
+        snmp_interface_oper_status=(snmp_identity or {}).get("interface_oper_status"),
+        snmp_interface_in_unicast_packets=(snmp_identity or {}).get("interface_in_unicast_packets"),
+        snmp_interface_in_non_unicast_packets=(snmp_identity or {}).get("interface_in_non_unicast_packets"),
+        snmp_interface_out_unicast_packets=(snmp_identity or {}).get("interface_out_unicast_packets"),
+        snmp_interface_out_non_unicast_packets=(snmp_identity or {}).get("interface_out_non_unicast_packets"),
+        snmp_interface_in_discards=(snmp_identity or {}).get("interface_in_discards"),
+        snmp_interface_out_discards=(snmp_identity or {}).get("interface_out_discards"),
+        snmp_interface_in_errors=(snmp_identity or {}).get("interface_in_errors"),
+        snmp_interface_out_errors=(snmp_identity or {}).get("interface_out_errors"),
+        snmp_interface_unknown_protocols=(snmp_identity or {}).get("interface_unknown_protocols"),
+        snmp_interface_crc_errors=(snmp_identity or {}).get("interface_crc_errors"),
+        snmp_interface_collision_errors=(snmp_identity or {}).get("interface_collision_errors"),
+        snmp_interface_fragment_errors=(snmp_identity or {}).get("interface_fragment_errors"),
     )
 
 

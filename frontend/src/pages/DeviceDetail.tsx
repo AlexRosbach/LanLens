@@ -18,8 +18,10 @@ import Input from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
-import { formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
+import { formatBitsPerSecond, formatCounter, formatDateTime, formatDeviceLabel, formatMac, formatRelativeTime } from '../utils/formatters'
 import { dedupePassiveObservations } from '../utils/passiveDiscovery'
+
+type TranslateFn = ReturnType<typeof useI18n>['t']
 
 interface EditState {
   label: string
@@ -101,6 +103,47 @@ function DetailMetric({ label, value, tone = 'default' }: { label: string; value
 
 function portDisplayName(port: SnmpSwitchPort) {
   return port.alias || port.name || port.description || `ifIndex ${port.if_index}`
+}
+
+function portStatsTitleLines(port: SnmpSwitchPort, t: TranslateFn) {
+  const lines = [
+    portDisplayName(port),
+    `${t('col_status')}: ${port.oper_status || '—'} / ${port.admin_status || '—'}`,
+    `${t('snmp_port_speed')}: ${formatBitsPerSecond(port.speed_bps)}`,
+    `${t('snmp_port_crc_errors')}: ${formatCounter(port.crc_errors)}`,
+    `${t('snmp_port_collisions')}: ${formatCounter(port.collision_errors)}`,
+    `${t('snmp_port_fragments')}: ${formatCounter(port.fragment_errors)}`,
+    `${t('snmp_port_cast_packets')}: ${t('snmp_port_cast_packet_values', {
+      inUcast: formatCounter(port.in_unicast_packets),
+      inNucast: formatCounter(port.in_non_unicast_packets),
+      outUcast: formatCounter(port.out_unicast_packets),
+      outNucast: formatCounter(port.out_non_unicast_packets),
+    })}`,
+    `${t('snmp_port_discards_errors')}: ${t('snmp_port_discard_error_values', {
+      inDiscards: formatCounter(port.in_discards),
+      outDiscards: formatCounter(port.out_discards),
+      inErrors: formatCounter(port.in_errors),
+      outErrors: formatCounter(port.out_errors),
+    })}`,
+  ]
+  if (port.unknown_protocols !== null && port.unknown_protocols !== undefined) {
+    lines.push(`${t('snmp_port_unknown_protocols')}: ${formatCounter(port.unknown_protocols)}`)
+  }
+  if (port.endpoints.length > 0) {
+    lines.push(t('switch_port_known_endpoints'))
+    for (const endpoint of port.endpoints) {
+      const endpointLabel = endpoint.device_label || endpoint.mac_address
+      const vlan = endpoint.vlan ? `VLAN ${endpoint.vlan}` : ''
+      const endpointParts = [endpointLabel]
+      if (endpoint.device_label && endpoint.device_label.toLowerCase() !== endpoint.mac_address.toLowerCase()) {
+        endpointParts.push(endpoint.mac_address)
+      }
+      lines.push(`- ${[...endpointParts, vlan].filter(Boolean).join(' · ')}`)
+    }
+  } else {
+    lines.push(t('switch_port_no_endpoint'))
+  }
+  return lines
 }
 
 function passiveMetadataEntries(row: PassiveDiscoveryObservation) {
@@ -403,6 +446,12 @@ export default function DeviceDetail() {
   const openPortCount = device.latest_scan?.open_ports.length ?? 0
   const visibleSwitchPorts = switchPorts?.has_visualization ? switchPorts.ports : []
   const selectedPassiveMetadata = selectedPassiveObservation ? passiveMetadataEntries(selectedPassiveObservation) : []
+  const hasSnmpPortStats = Boolean(
+    device.snmp_interface_speed_bps ||
+    device.snmp_interface_crc_errors !== null && device.snmp_interface_crc_errors !== undefined ||
+    device.snmp_interface_collision_errors !== null && device.snmp_interface_collision_errors !== undefined ||
+    device.snmp_interface_fragment_errors !== null && device.snmp_interface_fragment_errors !== undefined
+  )
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
@@ -610,6 +659,8 @@ export default function DeviceDetail() {
               <InfoRow label={t('idoit_export_snmp_switch')} value={device.snmp_switch} />
               <InfoRow label={t('idoit_export_snmp_port')} value={device.snmp_interface || device.snmp_interface_alias} />
               <InfoRow label={t('idoit_export_snmp_vlan')} value={device.snmp_vlan} />
+              <InfoRow label={t('snmp_port_speed')} value={device.snmp_interface_speed_bps ? formatBitsPerSecond(device.snmp_interface_speed_bps) : null} />
+              <InfoRow label={t('snmp_port_status')} value={[device.snmp_interface_oper_status, device.snmp_interface_admin_status].filter(Boolean).join(' / ')} />
               <InfoRow label={t('snmp_last_seen')} value={device.snmp_last_seen_at ? formatRelativeTime(device.snmp_last_seen_at, lang) : null} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />
               <InfoRow label={t('os_info')} value={device.os_info} />
@@ -669,6 +720,42 @@ export default function DeviceDetail() {
               </div>
             )}
 
+            {hasSnmpPortStats && (
+              <div className="border-t border-border pt-4">
+                <h3 className="mb-3 text-sm font-semibold text-text-muted">{t('snmp_port_statistics')}</h3>
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <DetailMetric label={t('snmp_port_crc_errors')} value={formatCounter(device.snmp_interface_crc_errors)} tone={(device.snmp_interface_crc_errors ?? 0) > 0 ? 'danger' : 'default'} />
+                  <DetailMetric label={t('snmp_port_collisions')} value={formatCounter(device.snmp_interface_collision_errors)} tone={(device.snmp_interface_collision_errors ?? 0) > 0 ? 'danger' : 'default'} />
+                  <DetailMetric label={t('snmp_port_fragments')} value={formatCounter(device.snmp_interface_fragment_errors)} tone={(device.snmp_interface_fragment_errors ?? 0) > 0 ? 'danger' : 'default'} />
+                  <DetailMetric label={t('snmp_port_unknown_protocols')} value={formatCounter(device.snmp_interface_unknown_protocols)} tone={(device.snmp_interface_unknown_protocols ?? 0) > 0 ? 'primary' : 'default'} />
+                </div>
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-surface2/40 p-3">
+                    <p className="font-semibold text-text-muted">{t('snmp_port_cast_packets')}</p>
+                    <p className="mt-1 text-text-subtle">
+                      {t('snmp_port_cast_packet_values', {
+                        inUcast: formatCounter(device.snmp_interface_in_unicast_packets),
+                        inNucast: formatCounter(device.snmp_interface_in_non_unicast_packets),
+                        outUcast: formatCounter(device.snmp_interface_out_unicast_packets),
+                        outNucast: formatCounter(device.snmp_interface_out_non_unicast_packets),
+                      })}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-surface2/40 p-3">
+                    <p className="font-semibold text-text-muted">{t('snmp_port_discards_errors')}</p>
+                    <p className="mt-1 text-text-subtle">
+                      {t('snmp_port_discard_error_values', {
+                        inDiscards: formatCounter(device.snmp_interface_in_discards),
+                        outDiscards: formatCounter(device.snmp_interface_out_discards),
+                        inErrors: formatCounter(device.snmp_interface_in_errors),
+                        outErrors: formatCounter(device.snmp_interface_out_errors),
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Documentation fields */}
             {hasDocumentation && (
               <div className="border-t border-border pt-4 grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
@@ -720,17 +807,8 @@ export default function DeviceDetail() {
           <div className="grid grid-cols-4 gap-2 sm:grid-cols-8 lg:grid-cols-12">
             {visibleSwitchPorts.map((port) => {
               const linkedEndpoint = port.endpoints.find((endpoint) => endpoint.device_id)
-              const titleLines = [
-                portDisplayName(port),
-                port.oper_status ? `${t('col_status')}: ${port.oper_status}` : '',
-                port.endpoints.length > 0
-                  ? port.endpoints.map((endpoint) => {
-                    const endpointLabel = endpoint.device_label || endpoint.mac_address
-                    const vlan = endpoint.vlan ? `VLAN ${endpoint.vlan}` : ''
-                    return [endpointLabel, endpoint.mac_address, vlan].filter(Boolean).join(' · ')
-                  }).join('\n')
-                  : t('switch_port_no_endpoint'),
-              ].filter(Boolean)
+              const hasErrors = (port.crc_errors ?? 0) > 0 || (port.collision_errors ?? 0) > 0 || (port.fragment_errors ?? 0) > 0
+              const titleLines = portStatsTitleLines(port, t)
               return (
                 <button
                   key={port.if_index}
@@ -747,10 +825,16 @@ export default function DeviceDetail() {
                   <span className={`mb-1 block h-2 rounded-full ${port.is_active ? 'bg-success' : 'bg-surface2'}`} />
                   <span className="block truncate text-xs font-semibold text-text-base">{port.name || `#${port.if_index}`}</span>
                   <span className="mt-1 block truncate text-[11px] text-text-subtle">{port.alias || port.description || `ifIndex ${port.if_index}`}</span>
-                  <span className="mt-2 block truncate text-[11px] text-text-muted">
-                    {port.endpoints.length > 0
-                      ? t('switch_port_endpoint_count', { count: port.endpoints.length })
-                      : t('switch_port_empty')}
+                  <span className="mt-2 block truncate text-[11px] text-text-muted">{formatBitsPerSecond(port.speed_bps)}</span>
+                  <span className={`mt-1 block truncate text-[11px] ${hasErrors ? 'text-danger' : 'text-text-muted'}`}>
+                    {t('snmp_port_error_short', {
+                      crc: formatCounter(port.crc_errors),
+                      collisions: formatCounter(port.collision_errors),
+                      fragments: formatCounter(port.fragment_errors),
+                    })}
+                  </span>
+                  <span className="mt-1 block truncate text-[11px] text-text-muted">
+                    {port.endpoints.length > 0 ? t('switch_port_endpoint_count', { count: port.endpoints.length }) : t('switch_port_empty')}
                   </span>
                 </button>
               )

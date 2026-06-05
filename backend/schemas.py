@@ -139,7 +139,40 @@ class DhcpObservationResponse(BaseModel):
     requested_ip: Optional[str]
     lease_time: Optional[int]
     options: dict[str, Any]
+    is_authorized: bool = True
+    authorized_server_id: Optional[int] = None
+    authorized_server_name: Optional[str] = None
     observed_at: datetime
+
+
+class DhcpAuthorizedServerCreate(BaseModel):
+    name: str
+    server_ip: Optional[str] = None
+    server_mac: Optional[str] = None
+    enabled: bool = True
+    note: Optional[str] = None
+
+
+class DhcpAuthorizedServerUpdate(BaseModel):
+    name: Optional[str] = None
+    server_ip: Optional[str] = None
+    server_mac: Optional[str] = None
+    enabled: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class DhcpAuthorizedServerResponse(BaseModel):
+    id: int
+    name: str
+    server_ip: Optional[str]
+    server_mac: Optional[str]
+    enabled: bool
+    note: Optional[str]
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
 
 
 class DhcpMonitorStatusResponse(BaseModel):
@@ -196,6 +229,26 @@ class PassiveDiscoveryObservationResponse(BaseModel):
     inferred_device_class: Optional[str] = None
     inference_confidence: Optional[str] = None
     inference_reasons: List[str] = []
+
+
+class PassiveDiscoveryHaMemberResponse(BaseModel):
+    source_ip: Optional[str] = None
+    source_mac: Optional[str] = None
+    device_id: Optional[int] = None
+    device_label: Optional[str] = None
+    observed_at: datetime
+
+
+class PassiveDiscoveryHaGroupResponse(BaseModel):
+    protocol: str
+    group_key: str
+    destination_ip: Optional[str] = None
+    virtual_ip: Optional[str] = None
+    active_device_id: Optional[int] = None
+    active_device_label: Optional[str] = None
+    member_count: int
+    observed_at: datetime
+    members: List[PassiveDiscoveryHaMemberResponse] = []
 
 
 # ── Devices ───────────────────────────────────────────────────────────────────
@@ -388,6 +441,21 @@ class DeviceResponse(BaseModel):
     snmp_interface_alias: Optional[str] = None
     snmp_vlan: Optional[str] = None
     snmp_last_seen_at: Optional[str] = None
+    snmp_interface_speed_bps: Optional[int] = None
+    snmp_interface_admin_status: Optional[str] = None
+    snmp_interface_oper_status: Optional[str] = None
+    snmp_interface_in_unicast_packets: Optional[int] = None
+    snmp_interface_in_non_unicast_packets: Optional[int] = None
+    snmp_interface_out_unicast_packets: Optional[int] = None
+    snmp_interface_out_non_unicast_packets: Optional[int] = None
+    snmp_interface_in_discards: Optional[int] = None
+    snmp_interface_out_discards: Optional[int] = None
+    snmp_interface_in_errors: Optional[int] = None
+    snmp_interface_out_errors: Optional[int] = None
+    snmp_interface_unknown_protocols: Optional[int] = None
+    snmp_interface_crc_errors: Optional[int] = None
+    snmp_interface_collision_errors: Optional[int] = None
+    snmp_interface_fragment_errors: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -526,6 +594,17 @@ class TelegramSettings(BaseModel):
     notify_on_network_changes: bool = False
 
 
+class NotificationRulesSettings(BaseModel):
+    notify_on_new_device: bool = True
+    notify_on_network_changes: bool = False
+    telegram_notify_new_device: bool = True
+    telegram_notify_network_changes: bool = False
+    webhook_notify_new_device: bool = True
+    webhook_notify_network_changes: bool = False
+    smtp_notify_new_device: bool = True
+    smtp_notify_network_changes: bool = False
+
+
 class WebhookSettings(BaseModel):
     webhook_url: str = ""
     webhook_enabled: bool = False
@@ -551,6 +630,13 @@ class UiSettings(BaseModel):
 
 class PortScanSettings(BaseModel):
     port_scan_range: str  # e.g. "top:1000", "1-65535", "22,80,443", "1-1024,8080,8443"
+    port_scan_background_enabled: bool = False
+    port_scan_interval_minutes: int = 60
+
+
+class SnmpPollSettings(BaseModel):
+    snmp_poll_enabled: bool = False
+    snmp_poll_interval_minutes: int = 60
 
 
 class SinglePortScanRequest(BaseModel):
@@ -576,6 +662,10 @@ class AllSettings(BaseModel):
     device_archive_after_days: int = 0
     device_delete_archived_after_days: int = 0
     port_scan_range: str = "top:1000"
+    port_scan_background_enabled: bool = False
+    port_scan_interval_minutes: int = 60
+    snmp_poll_enabled: bool = False
+    snmp_poll_interval_minutes: int = 60
     telegram_bot_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""
     telegram_enabled: bool = False
@@ -585,6 +675,12 @@ class AllSettings(BaseModel):
     notify_on_device_offline: bool = False
     notify_on_new_device: bool = True
     notify_on_network_changes: bool = False
+    telegram_notify_new_device: bool = True
+    telegram_notify_network_changes: bool = False
+    webhook_notify_new_device: bool = True
+    webhook_notify_network_changes: bool = False
+    smtp_notify_new_device: bool = True
+    smtp_notify_network_changes: bool = False
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587
@@ -644,6 +740,7 @@ class NotificationResponse(BaseModel):
     is_read: bool
     telegram_sent: bool
     webhook_sent: bool = False
+    smtp_sent: bool = False
     created_at: datetime
 
     class Config:

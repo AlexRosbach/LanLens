@@ -3,7 +3,7 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-ARG LANLENS_APP_VERSION=1.5.5
+ARG LANLENS_APP_VERSION=1.5.6
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
@@ -29,7 +29,7 @@ RUN npm run build
 # ─── Stage 2: Runtime image ───────────────────────────────────────────────────
 FROM python:3.12-slim
 
-ARG LANLENS_APP_VERSION=1.5.5
+ARG LANLENS_APP_VERSION=1.5.6
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
@@ -99,9 +99,10 @@ RUN printf '#!/bin/sh\nexec python /app/backend/cli/reset_password.py "$@"\n' \
 VOLUME ["/data"]
 
 # Environment defaults
-# SECRET_KEY MUST be overridden at runtime — the app and entrypoint both validate this
+# When SECRET_KEY is empty, the entrypoint generates a persistent key in /data.
 ENV DB_PATH=/data/lanlens.db \
     SECRET_KEY="" \
+    LANLENS_SECRET_KEY_FILE=/data/secret_key \
     DEFAULT_ADMIN_PASSWORD=admin \
     LANLENS_PORT=7765 \
     BACKEND_PORT=17765 \

@@ -1,9 +1,10 @@
 from datetime import datetime
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -85,9 +86,49 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
         "vendor_notes": vendor.notes,
         "last_poll_at": switch.last_poll_at,
         "last_error": switch.last_error,
+        "last_diagnostics": switch.last_diagnostics,
         "interface_count": interface_count if interface_count is not None else len(switch.interfaces or []),
         "mac_count": mac_count if mac_count is not None else len(switch.mac_entries or []),
     }
+
+
+VIRTUAL_IF_TYPES = {24, 53, 131, 135, 136, 161, 209}
+PHYSICAL_PORT_IF_TYPES = {
+    6,    # ethernetCsmacd
+    22,   # propPointToPointSerial
+    23,   # ppp
+    62,   # fastEther
+    69,   # fastEtherFX
+    71,   # ieee80211
+    117,  # gigabitEthernet
+    127,  # docsCableMaclayer
+}
+
+
+def _is_real_switch_port(iface: SnmpInterface) -> bool:
+    label = " ".join(part for part in [iface.name, iface.description, iface.alias] if part).lower()
+    if iface.if_type in VIRTUAL_IF_TYPES:
+        return False
+    if re.search(
+        r"\b(loopback|lo\d*|null|vlan|svi|tunnel|tun\d*|gre|bvi|bridge|br\d*|"
+        r"port-channel|portchannel|po\d+|ae\d+|lag\d+|bond\d+|team\d+|irb|ve\d+|"
+        r"mgmt\d*|management\d*|cpu|stack|stackport|software loopback)\b",
+        label,
+    ):
+        return False
+    if re.search(
+        r"\b(gigabitethernet[-/\\.0-9]*|tengigabitethernet[-/\\.0-9]*|"
+        r"twentyfivegigabitethernet[-/\\.0-9]*|fortygigabitethernet[-/\\.0-9]*|"
+        r"hundredgigabitethernet[-/\\.0-9]*|fastethernet[-/\\.0-9]*|ethernet[-/\\.0-9]*|"
+        r"gigabit|tengigabit|twentyfivegig|fortygigabit|hundredgig|"
+        r"fa\d|gi\d|te\d|tw\d|hu\d|eth\d|ge[-/\\.0-9]*|xe[-/\\.0-9]*|et[-/\\.0-9]*|"
+        r"ether\d|port\d|xg\d|sfp\d|qsfp\d|wan\d|lan\d|radio\d|wlan\d|wifi\d|ppp\d|serial\d)\b",
+        label,
+    ):
+        return True
+    if iface.if_type is None:
+        return bool(label)
+    return iface.if_type in PHYSICAL_PORT_IF_TYPES
 
 
 def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
@@ -121,7 +162,8 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
         })
 
     ports = []
-    for iface in interfaces:
+    visible_interfaces = [iface for iface in interfaces if _is_real_switch_port(iface)]
+    for iface in visible_interfaces:
         endpoints = endpoints_by_if_index.get(iface.if_index, [])
         is_active = iface.oper_status == "up" or bool(endpoints)
         ports.append({
@@ -129,9 +171,22 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
             "name": iface.name or "",
             "description": iface.description or "",
             "alias": iface.alias or "",
+            "if_type": iface.if_type,
             "admin_status": iface.admin_status or "",
             "oper_status": iface.oper_status or "",
             "speed_bps": iface.speed_bps,
+            "in_unicast_packets": iface.in_unicast_packets,
+            "in_non_unicast_packets": iface.in_non_unicast_packets,
+            "out_unicast_packets": iface.out_unicast_packets,
+            "out_non_unicast_packets": iface.out_non_unicast_packets,
+            "in_discards": iface.in_discards,
+            "out_discards": iface.out_discards,
+            "in_errors": iface.in_errors,
+            "out_errors": iface.out_errors,
+            "unknown_protocols": iface.unknown_protocols,
+            "crc_errors": iface.crc_errors,
+            "collision_errors": iface.collision_errors,
+            "fragment_errors": iface.fragment_errors,
             "is_active": is_active,
             "endpoints": endpoints,
             "last_seen_at": iface.last_seen_at,
@@ -139,7 +194,7 @@ def _build_switch_port_visualization(db: Session, switch: SnmpSwitch) -> dict:
 
     return {
         "switch": _switch_response(switch, interface_count=len(interfaces), mac_count=len(mac_entries)),
-        "has_visualization": bool(interfaces and has_mac_vlan_context),
+        "has_visualization": bool(ports),
         "ports": ports,
     }
 
@@ -269,6 +324,38 @@ def create_switch(payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: 
     return _switch_response(switch, interface_count=0, mac_count=0)
 
 
+@router.put("/switches/{switch_id}")
+def update_switch(switch_id: int, payload: SnmpSwitchPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == switch_id).first()
+    if not switch:
+        raise HTTPException(status_code=404, detail="SNMP switch not found")
+
+    host = payload.host.strip()
+    if db.query(SnmpSwitch).filter(SnmpSwitch.host == host, SnmpSwitch.id != switch_id).first():
+        raise HTTPException(status_code=409, detail="SNMP switch host already exists")
+
+    profile = db.query(SnmpProfile).filter(SnmpProfile.id == payload.profile_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="SNMP profile not found")
+
+    device = db.query(Device).filter(Device.id == payload.device_id).first() if payload.device_id else None
+    if device and db.query(SnmpSwitch).filter(SnmpSwitch.device_id == device.id, SnmpSwitch.id != switch_id).first():
+        raise HTTPException(status_code=409, detail="Device is already assigned to another SNMP switch")
+
+    switch.name = payload.name.strip()
+    switch.host = host
+    switch.profile_id = profile.id
+    switch.device_id = device.id if device else None
+    switch.enabled = payload.enabled
+    db.commit()
+    db.refresh(switch)
+
+    interface_count = db.query(SnmpInterface).filter(SnmpInterface.switch_id == switch.id).count()
+    mac_count = db.query(SnmpMacTableEntry).filter(SnmpMacTableEntry.switch_id == switch.id).count()
+    return _switch_response(switch, interface_count=interface_count, mac_count=mac_count)
+
+
 @router.delete("/switches/{switch_id}", response_model=MessageResponse)
 def delete_switch(switch_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MessageResponse:
     _require_snmp_enabled(db)
@@ -294,6 +381,7 @@ def poll_snmp_switch(switch_id: int, db: Session = Depends(get_db), _: User = De
         db.commit()
     except Exception as exc:
         switch.last_error = str(exc)
+        switch.last_diagnostics = str(exc)
         switch.last_poll_at = datetime.utcnow()
         db.commit()
         raise HTTPException(status_code=502, detail=str(exc))
@@ -301,6 +389,7 @@ def poll_snmp_switch(switch_id: int, db: Session = Depends(get_db), _: User = De
         "message": "SNMP poll completed",
         "interfaces": result.interfaces,
         "mac_entries": result.mac_entries,
+        "diagnostics": result.diagnostics,
         "switch": _switch_response(switch, interface_count=result.interfaces, mac_count=result.mac_entries),
     }
 
@@ -332,7 +421,18 @@ def list_switch_interfaces(switch_id: int, db: Session = Depends(get_db), _: Use
 @router.get("/devices/{device_id}/ports")
 def get_device_switch_ports(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_snmp_enabled(db)
-    switch = db.query(SnmpSwitch).filter(SnmpSwitch.device_id == device_id).first()
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    filters = [SnmpSwitch.device_id == device_id]
+    if device.ip_address:
+        filters.append(SnmpSwitch.host == device.ip_address)
+    switch = (
+        db.query(SnmpSwitch)
+        .filter(or_(*filters))
+        .order_by(SnmpSwitch.device_id.is_(None).asc(), SnmpSwitch.last_poll_at.desc().nullslast(), SnmpSwitch.name.asc())
+        .first()
+    )
     if not switch:
         return {"switch": None, "has_visualization": False, "ports": []}
     return _build_switch_port_visualization(db, switch)

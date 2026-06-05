@@ -425,6 +425,15 @@ def migrate():
         conn.execute(text("UPDATE notifications SET webhook_sent = FALSE WHERE webhook_sent IS NULL"))
         conn.commit()
 
+        if not _column_exists(conn, "notifications", "smtp_sent"):
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN smtp_sent BOOLEAN NOT NULL DEFAULT FALSE"))
+            conn.commit()
+            print("Migration: added notifications.smtp_sent")
+        else:
+            print("Migration: notifications.smtp_sent already exists — skipped")
+        conn.execute(text("UPDATE notifications SET smtp_sent = FALSE WHERE smtp_sent IS NULL"))
+        conn.commit()
+
         # ── v1.5.0 ── DHCP monitor observations ────────────────────────────
         if IS_SQLITE and not _table_exists(conn, "dhcp_observations"):
             conn.execute(text(
@@ -450,6 +459,29 @@ def migrate():
             print("Migration: dhcp_observations — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: dhcp_observations already exists — skipped")
+
+        # ── v1.5.6 ── Authorized DHCP server allowlist ─────────────────────
+        if IS_SQLITE and not _table_exists(conn, "dhcp_authorized_servers"):
+            conn.execute(text(
+                "CREATE TABLE dhcp_authorized_servers ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL, "
+                "server_ip VARCHAR(45), "
+                "server_mac VARCHAR(17), "
+                "enabled BOOLEAN NOT NULL DEFAULT 1, "
+                "note TEXT, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_dhcp_authorized_servers_ip ON dhcp_authorized_servers(server_ip)"))
+            conn.execute(text("CREATE INDEX ix_dhcp_authorized_servers_mac ON dhcp_authorized_servers(server_mac)"))
+            conn.commit()
+            print("Migration: created dhcp_authorized_servers")
+        elif not IS_SQLITE:
+            print("Migration: dhcp_authorized_servers — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: dhcp_authorized_servers already exists — skipped")
 
         # ── v1.5.0 ── Generic CMDB REST sync audit logs ────────────────────
         if IS_SQLITE and not _table_exists(conn, "cmdb_sync_logs"):
@@ -549,6 +581,7 @@ def migrate():
                 "sys_object_id VARCHAR(255), "
                 "last_poll_at DATETIME, "
                 "last_error TEXT, "
+                "last_diagnostics TEXT, "
                 "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
                 "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
                 ")"
@@ -559,6 +592,13 @@ def migrate():
             print("Migration: snmp_switches — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: snmp_switches already exists — skipped")
+
+        if _table_exists(conn, "snmp_switches") and not _column_exists(conn, "snmp_switches", "last_diagnostics"):
+            conn.execute(text("ALTER TABLE snmp_switches ADD COLUMN last_diagnostics TEXT"))
+            conn.commit()
+            print("Migration: added snmp_switches.last_diagnostics")
+        elif _table_exists(conn, "snmp_switches"):
+            print("Migration: snmp_switches.last_diagnostics already exists — skipped")
 
         if IS_SQLITE and not _index_exists(conn, "ix_snmp_switches_device_id_unique"):
             conn.execute(text(
@@ -577,10 +617,23 @@ def migrate():
                 "name VARCHAR(255), "
                 "description TEXT, "
                 "alias VARCHAR(255), "
+                "if_type INTEGER, "
                 "admin_status VARCHAR(32), "
                 "oper_status VARCHAR(32), "
                 "speed_bps INTEGER, "
                 "phys_address VARCHAR(64), "
+                "in_unicast_packets INTEGER, "
+                "in_non_unicast_packets INTEGER, "
+                "out_unicast_packets INTEGER, "
+                "out_non_unicast_packets INTEGER, "
+                "in_discards INTEGER, "
+                "out_discards INTEGER, "
+                "in_errors INTEGER, "
+                "out_errors INTEGER, "
+                "unknown_protocols INTEGER, "
+                "crc_errors INTEGER, "
+                "collision_errors INTEGER, "
+                "fragment_errors INTEGER, "
                 "last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
                 ")"
             ))
@@ -591,6 +644,28 @@ def migrate():
             print("Migration: snmp_interfaces — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: snmp_interfaces already exists — skipped")
+
+        for column, ddl in {
+            "if_type": "ALTER TABLE snmp_interfaces ADD COLUMN if_type INTEGER",
+            "in_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN in_unicast_packets INTEGER",
+            "in_non_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN in_non_unicast_packets INTEGER",
+            "out_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN out_unicast_packets INTEGER",
+            "out_non_unicast_packets": "ALTER TABLE snmp_interfaces ADD COLUMN out_non_unicast_packets INTEGER",
+            "in_discards": "ALTER TABLE snmp_interfaces ADD COLUMN in_discards INTEGER",
+            "out_discards": "ALTER TABLE snmp_interfaces ADD COLUMN out_discards INTEGER",
+            "in_errors": "ALTER TABLE snmp_interfaces ADD COLUMN in_errors INTEGER",
+            "out_errors": "ALTER TABLE snmp_interfaces ADD COLUMN out_errors INTEGER",
+            "unknown_protocols": "ALTER TABLE snmp_interfaces ADD COLUMN unknown_protocols INTEGER",
+            "crc_errors": "ALTER TABLE snmp_interfaces ADD COLUMN crc_errors INTEGER",
+            "collision_errors": "ALTER TABLE snmp_interfaces ADD COLUMN collision_errors INTEGER",
+            "fragment_errors": "ALTER TABLE snmp_interfaces ADD COLUMN fragment_errors INTEGER",
+        }.items():
+            if _table_exists(conn, "snmp_interfaces") and not _column_exists(conn, "snmp_interfaces", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added snmp_interfaces.{column}")
+            elif _table_exists(conn, "snmp_interfaces"):
+                print(f"Migration: snmp_interfaces.{column} already exists — skipped")
 
         if IS_SQLITE and not _table_exists(conn, "snmp_mac_table"):
             conn.execute(text(

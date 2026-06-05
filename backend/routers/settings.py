@@ -15,12 +15,14 @@ from ..schemas import (
     DeviceRetentionSettings,
     DhcpSettings,
     MessageResponse,
+    NotificationRulesSettings,
     PassiveDiscoverySettings,
     PingMonitorSettings,
     PortScanSettings,
     ScanRangeSettings,
     ScanScheduleSettings,
     ServerUrlSettings,
+    SnmpPollSettings,
     SmtpSettings,
     TelegramSettings,
     UiSettings,
@@ -30,7 +32,7 @@ from ..services.notification import send_test_message, send_update_notification,
 from ..services.https_config import apply_nginx_config, load_https_config, save_https_config
 from ..services.passive_discovery_scheduler import update_passive_discovery_schedule
 from ..services.device_retention import get_device_retention_settings
-from ..services.scheduler import update_interval, update_ping_monitor_schedule
+from ..services.scheduler import update_interval, update_ping_monitor_schedule, update_port_scan_schedule, update_snmp_poll_schedule
 from ..services.scanner import _detect_host_network, _network_host_bounds
 from ..services.scan_targets import parse_additional_scan_targets
 from ..services.settings_helpers import get_scan_interval_minutes
@@ -44,10 +46,16 @@ SETTING_KEYS = [
     "passive_discovery_background_enabled", "passive_discovery_interval_minutes", "passive_discovery_capture_seconds",
     "ping_monitor_enabled", "ping_monitor_interval_minutes",
     "device_archive_after_days", "device_delete_archived_after_days",
-    "port_scan_range",
+    "port_scan_range", "port_scan_background_enabled", "port_scan_interval_minutes",
+    "snmp_poll_enabled", "snmp_poll_interval_minutes",
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
+    "notify_on_network_changes",
+    "telegram_notify_new_device", "telegram_notify_network_changes",
+    "webhook_notify_new_device", "webhook_notify_network_changes",
+    "smtp_notify_new_device", "smtp_notify_network_changes",
     "webhook_url", "webhook_enabled",
+    "smtp_host", "smtp_port", "smtp_username", "smtp_password", "smtp_from_email", "smtp_to_email", "smtp_enabled", "smtp_use_tls",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
     "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav",
@@ -152,6 +160,10 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         ping_monitor_interval_minutes=int(_get(db, "ping_monitor_interval_minutes", "5") or "5"),
         **get_device_retention_settings(db),
         port_scan_range=_get(db, "port_scan_range", "top:1000") or "top:1000",
+        port_scan_background_enabled=_get(db, "port_scan_background_enabled", "false") == "true",
+        port_scan_interval_minutes=int(_get(db, "port_scan_interval_minutes", "60") or "60"),
+        snmp_poll_enabled=_get(db, "snmp_poll_enabled", "false") == "true",
+        snmp_poll_interval_minutes=int(_get(db, "snmp_poll_interval_minutes", "60") or "60"),
         telegram_bot_token=_mask_secret(_get(db, "telegram_bot_token", "")),
         telegram_chat_id=_get(db, "telegram_chat_id", ""),
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
@@ -161,6 +173,12 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
         notify_on_new_device=_get(db, "notify_on_new_device", "true") != "false",
         notify_on_network_changes=_get(db, "notify_on_network_changes", "false") == "true",
+        telegram_notify_new_device=_get(db, "telegram_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
+        telegram_notify_network_changes=_get(db, "telegram_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
+        webhook_notify_new_device=_get(db, "webhook_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
+        webhook_notify_network_changes=_get(db, "webhook_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
+        smtp_notify_new_device=_get(db, "smtp_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
+        smtp_notify_network_changes=_get(db, "smtp_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
         server_url=_get(db, "server_url", ""),
         smtp_host=_get(db, "smtp_host", ""),
         smtp_port=int(_get(db, "smtp_port", "587") or "587"),
@@ -312,7 +330,7 @@ def update_port_scan_settings(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Update the global port scan range used for all device scans."""
+    """Update the global port scan range and optional background cadence."""
     spec = data.port_scan_range.strip()
     if not spec:
         raise HTTPException(status_code=400, detail="port_scan_range must not be empty")
@@ -362,9 +380,27 @@ def update_port_scan_settings(
         # Store the sanitised value so what's saved matches what gets scanned
         spec = sanitised
 
+    interval = max(1, min(1440, int(data.port_scan_interval_minutes or 60)))
     _set(db, "port_scan_range", spec)
+    _set(db, "port_scan_background_enabled", "true" if data.port_scan_background_enabled else "false")
+    _set(db, "port_scan_interval_minutes", str(interval))
     db.commit()
+    update_port_scan_schedule()
     return MessageResponse(message="Port scan settings updated")
+
+
+@router.put("/snmp-poll", response_model=MessageResponse)
+def update_snmp_poll_settings(
+    data: SnmpPollSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    interval = max(1, min(1440, int(data.snmp_poll_interval_minutes or 60)))
+    _set(db, "snmp_poll_enabled", "true" if data.snmp_poll_enabled else "false")
+    _set(db, "snmp_poll_interval_minutes", str(interval))
+    db.commit()
+    update_snmp_poll_schedule()
+    return MessageResponse(message="SNMP poll settings updated")
 
 
 @router.put("/telegram", response_model=MessageResponse)
@@ -382,10 +418,26 @@ def update_telegram(
     _set(db, "telegram_chat_id", data.telegram_chat_id)
     _set(db, "telegram_enabled", "true" if data.telegram_enabled else "false")
     _set(db, "notify_telegram_update", "true" if data.notify_telegram_update else "false")
-    _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
-    _set(db, "notify_on_network_changes", "true" if data.notify_on_network_changes else "false")
     db.commit()
     return MessageResponse(message="Telegram settings updated")
+
+
+@router.put("/notification-rules", response_model=MessageResponse)
+def update_notification_rules(
+    data: NotificationRulesSettings,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
+    _set(db, "notify_on_network_changes", "true" if data.notify_on_network_changes else "false")
+    _set(db, "telegram_notify_new_device", "true" if data.telegram_notify_new_device else "false")
+    _set(db, "telegram_notify_network_changes", "true" if data.telegram_notify_network_changes else "false")
+    _set(db, "webhook_notify_new_device", "true" if data.webhook_notify_new_device else "false")
+    _set(db, "webhook_notify_network_changes", "true" if data.webhook_notify_network_changes else "false")
+    _set(db, "smtp_notify_new_device", "true" if data.smtp_notify_new_device else "false")
+    _set(db, "smtp_notify_network_changes", "true" if data.smtp_notify_network_changes else "false")
+    db.commit()
+    return MessageResponse(message="Notification rules updated")
 
 
 @router.put("/ui", response_model=MessageResponse)
@@ -408,6 +460,8 @@ def update_ui_settings(
     db.commit()
     update_passive_discovery_schedule()
     update_ping_monitor_schedule()
+    update_port_scan_schedule()
+    update_snmp_poll_schedule()
     return MessageResponse(message="UI settings updated")
 
 

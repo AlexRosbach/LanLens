@@ -4,12 +4,13 @@ import { Link } from 'react-router-dom'
 import Button from '../components/ui/Button'
 import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
+import Modal from '../components/ui/Modal'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
-import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryObservation } from '../api/plugins'
+import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryHaGroup, type PassiveDiscoveryObservation } from '../api/plugins'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
@@ -27,6 +28,12 @@ interface IdoitErrorDetails {
   jsonrpc_error?: unknown
 }
 
+interface SnmpDiagnosticsSelection {
+  title: string
+  diagnostics: string
+  isError: boolean
+}
+
 interface IdoitMapping {
   name?: string
   version?: number
@@ -35,6 +42,16 @@ interface IdoitMapping {
   identity?: Record<string, unknown>
   fields?: Record<string, string>
 }
+
+type NotificationRuleKey =
+  | 'notify_on_new_device'
+  | 'notify_on_network_changes'
+  | 'telegram_notify_new_device'
+  | 'telegram_notify_network_changes'
+  | 'webhook_notify_new_device'
+  | 'webhook_notify_network_changes'
+  | 'smtp_notify_new_device'
+  | 'smtp_notify_network_changes'
 
 const IDOIT_MAPPING_FIELDS = [
   { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
@@ -178,7 +195,37 @@ function ToggleSwitch({
         <span className="mt-1 block text-xs text-text-subtle">{description}</span>
       </span>
       <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
-        <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+        <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
+      </span>
+    </button>
+  )
+}
+
+function CompactToggle({
+  checked,
+  disabled = false,
+  onChange,
+  label,
+}: {
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`inline-flex h-8 w-12 items-center justify-center rounded-lg border px-2 text-xs font-medium transition-colors ${
+        checked ? 'border-primary/50 bg-primary-dim/30 text-primary' : 'border-border bg-surface2/50 text-text-subtle'
+      } ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary/60 hover:text-text-base'}`}
+      aria-pressed={checked}
+      aria-label={label}
+      title={label}
+    >
+      <span className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
+        <span className={`absolute left-0 top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${checked ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
       </span>
     </button>
   )
@@ -363,10 +410,17 @@ export default function Settings() {
   const [snmpSwitchName, setSnmpSwitchName] = useState('')
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
+  const [editingSnmpSwitchId, setEditingSnmpSwitchId] = useState<number | null>(null)
+  const [editingSnmpSwitchName, setEditingSnmpSwitchName] = useState('')
+  const [editingSnmpSwitchHost, setEditingSnmpSwitchHost] = useState('')
+  const [editingSnmpSwitchProfileId, setEditingSnmpSwitchProfileId] = useState('')
+  const [editingSnmpSwitchEnabled, setEditingSnmpSwitchEnabled] = useState(true)
+  const [snmpDiagnosticsSelection, setSnmpDiagnosticsSelection] = useState<SnmpDiagnosticsSelection | null>(null)
   const [passiveCaptureLoading, setPassiveCaptureLoading] = useState(false)
   const [passiveDiagnosticLoading, setPassiveDiagnosticLoading] = useState(false)
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
   const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
+  const [passiveHaGroups, setPassiveHaGroups] = useState<PassiveDiscoveryHaGroup[]>([])
   const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'backup' | 'database' | 'cmdb'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
@@ -429,6 +483,37 @@ export default function Settings() {
   }
 
   const current = settings
+  const passiveDiscoveryCaptureSeconds = Math.max(3, Math.min(120, Number(current.passive_discovery_capture_seconds) || 30))
+  const notificationRuleChannels = [
+    {
+      label: t('notification_in_app'),
+      description: t('notification_in_app_hint'),
+      newDeviceKey: 'notify_on_new_device' as NotificationRuleKey,
+      networkChangeKey: 'notify_on_network_changes' as NotificationRuleKey,
+    },
+    {
+      label: t('notification_channel_telegram'),
+      description: t('notification_channel_telegram_hint'),
+      newDeviceKey: 'telegram_notify_new_device' as NotificationRuleKey,
+      networkChangeKey: 'telegram_notify_network_changes' as NotificationRuleKey,
+    },
+    {
+      label: t('notification_channel_webhook'),
+      description: t('notification_channel_webhook_hint'),
+      newDeviceKey: 'webhook_notify_new_device' as NotificationRuleKey,
+      networkChangeKey: 'webhook_notify_network_changes' as NotificationRuleKey,
+    },
+    {
+      label: t('notification_channel_email'),
+      description: t('notification_channel_email_hint'),
+      newDeviceKey: 'smtp_notify_new_device' as NotificationRuleKey,
+      networkChangeKey: 'smtp_notify_network_changes' as NotificationRuleKey,
+    },
+  ]
+
+  function updateNotificationRule(key: NotificationRuleKey, checked: boolean) {
+    setSettings({ ...current, [key]: checked })
+  }
 
   async function loadIdoitConfig() {
     // This endpoint is optional for the rest of Settings. If it fails, keep the
@@ -491,8 +576,8 @@ export default function Settings() {
   async function startPassiveDiscoveryCapture() {
     setPassiveCaptureLoading(true)
     try {
-      await passiveDiscoveryApi.capture(30)
-      setTimeout(() => loadPassiveObservations().catch(() => {}), 32000)
+      await passiveDiscoveryApi.capture(passiveDiscoveryCaptureSeconds)
+      setTimeout(() => loadPassiveObservations().catch(() => {}), (passiveDiscoveryCaptureSeconds + 2) * 1000)
       toast.success(t('multicast_discovery_capture_started'))
     } catch {
       toast.error(t('multicast_discovery_capture_failed'))
@@ -525,7 +610,14 @@ export default function Settings() {
   }
 
   async function loadPassiveObservations() {
-    setPassiveObservations(dedupePassiveObservations(await passiveDiscoveryApi.observations()))
+    const observations = await passiveDiscoveryApi.observations()
+    setPassiveObservations(dedupePassiveObservations(observations))
+    try {
+      const haGroups = await passiveDiscoveryApi.haGroups()
+      setPassiveHaGroups(haGroups)
+    } catch {
+      // Keep observations fresh even if HA grouping is temporarily unavailable.
+    }
   }
 
   async function createSnmpProfile() {
@@ -589,10 +681,52 @@ export default function Settings() {
     }
   }
 
+  function startEditingSnmpSwitch(item: SnmpSwitch) {
+    setEditingSnmpSwitchId(item.id)
+    setEditingSnmpSwitchName(item.name)
+    setEditingSnmpSwitchHost(item.host)
+    setEditingSnmpSwitchProfileId(item.profile_id ? String(item.profile_id) : '')
+    setEditingSnmpSwitchEnabled(item.enabled)
+  }
+
+  function cancelEditingSnmpSwitch() {
+    setEditingSnmpSwitchId(null)
+    setEditingSnmpSwitchName('')
+    setEditingSnmpSwitchHost('')
+    setEditingSnmpSwitchProfileId('')
+    setEditingSnmpSwitchEnabled(true)
+  }
+
+  async function saveSnmpSwitch(item: SnmpSwitch) {
+    if (!editingSnmpSwitchName.trim() || !editingSnmpSwitchHost.trim() || !editingSnmpSwitchProfileId) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.updateSwitch(item.id, {
+        name: editingSnmpSwitchName.trim(),
+        host: editingSnmpSwitchHost.trim(),
+        profile_id: Number(editingSnmpSwitchProfileId),
+        device_id: item.device_id ?? null,
+        enabled: editingSnmpSwitchEnabled,
+      })
+      cancelEditingSnmpSwitch()
+      await loadSnmp()
+      toast.success(t('snmp_switch_saved'))
+    } catch (error) {
+      toast.error(`${t('snmp_switch_save_failed')}: ${extractApiErrorMessage(error, t('snmp_switch_save_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
   async function pollSnmpSwitch(switchId: number) {
     setSnmpLoading(true)
     try {
-      await snmpApi.pollSwitch(switchId)
+      const result = await snmpApi.pollSwitch(switchId)
+      setSnmpDiagnosticsSelection({
+        title: result.switch.name,
+        diagnostics: result.diagnostics,
+        isError: false,
+      })
       await loadSnmp()
       toast.success(t('snmp_poll_complete'))
     } catch (error) {
@@ -693,14 +827,33 @@ export default function Settings() {
         telegram_chat_id: current.telegram_chat_id,
         telegram_enabled: current.telegram_enabled,
         notify_telegram_update: current.notify_telegram_update,
-        notify_on_new_device: current.notify_on_new_device,
-        notify_on_network_changes: current.notify_on_network_changes,
       })
       setSettings({ ...current, telegram_bot_token: current.telegram_bot_token ? '••••••••' : '' })
       setTelegramTokenDirty(false)
       toast.success(t('telegram_settings_saved'))
     } catch {
       toast.error(t('telegram_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveNotificationRules() {
+    setSaving(true)
+    try {
+      await settingsApi.updateNotificationRules({
+        notify_on_new_device: current.notify_on_new_device,
+        notify_on_network_changes: current.notify_on_network_changes,
+        telegram_notify_new_device: current.telegram_notify_new_device,
+        telegram_notify_network_changes: current.telegram_notify_network_changes,
+        webhook_notify_new_device: current.webhook_notify_new_device,
+        webhook_notify_network_changes: current.webhook_notify_network_changes,
+        smtp_notify_new_device: current.smtp_notify_new_device,
+        smtp_notify_network_changes: current.smtp_notify_network_changes,
+      })
+      toast.success(t('notification_rules_saved'))
+    } catch {
+      toast.error(t('notification_rules_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -791,10 +944,29 @@ export default function Settings() {
   async function savePortScanSettings() {
     setSaving(true)
     try {
-      await settingsApi.updatePortScanSettings(current.port_scan_range)
+      await settingsApi.updatePortScanSettings({
+        port_scan_range: current.port_scan_range,
+        port_scan_background_enabled: current.port_scan_background_enabled,
+        port_scan_interval_minutes: current.port_scan_interval_minutes,
+      })
       toast.success(t('port_scan_settings_saved'))
     } catch {
       toast.error(t('port_scan_settings_save_failed'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function saveSnmpPollSettings() {
+    setSaving(true)
+    try {
+      await settingsApi.updateSnmpPollSettings({
+        snmp_poll_enabled: current.snmp_poll_enabled,
+        snmp_poll_interval_minutes: current.snmp_poll_interval_minutes,
+      })
+      toast.success(t('snmp_poll_settings_saved'))
+    } catch {
+      toast.error(t('snmp_poll_settings_save_failed'))
     } finally {
       setSaving(false)
     }
@@ -1636,45 +1808,6 @@ export default function Settings() {
           </Card>
           </div>
 
-          {current.advanced_view_enabled && current.show_plugin_api && current.show_passive_discovery && (
-          <Card>
-            <div className="flex flex-col gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-text-base">{t('multicast_discovery_background_title')}</h2>
-                <p className="text-sm text-text-subtle">{t('multicast_discovery_background_description')}</p>
-              </div>
-              <ToggleSwitch
-                checked={current.passive_discovery_background_enabled}
-                label={t('multicast_discovery_background')}
-                description={t('multicast_discovery_background_hint')}
-                onChange={(checked) => setSettings({ ...current, passive_discovery_background_enabled: checked })}
-              />
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={String(current.passive_discovery_interval_minutes)}
-                    onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={String(current.passive_discovery_capture_seconds)}
-                    onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
-                  />
-                </div>
-              </div>
-              <div>
-                <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
-              </div>
-            </div>
-          </Card>
-          )}
         </div>
       </div>
       )}
@@ -1837,9 +1970,49 @@ export default function Settings() {
                     {t('multicast_discovery_diagnostics_10s')}
                   </Button>
                   <Button variant="outline" onClick={startPassiveDiscoveryCapture} loading={passiveCaptureLoading}>
-                    {t('multicast_discovery_capture_30s')}
+                    {t('multicast_discovery_capture_seconds', { seconds: passiveDiscoveryCaptureSeconds })}
                   </Button>
                 </div>
+              </div>
+              <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-text-base">{t('multicast_discovery_background_title')}</h3>
+                  <p className="mt-1 text-xs text-text-subtle">{t('multicast_discovery_background_description')}</p>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+                  <ToggleSwitch
+                    checked={current.passive_discovery_background_enabled}
+                    label={t('multicast_discovery_background')}
+                    description={t('multicast_discovery_background_hint')}
+                    onChange={(checked) => setSettings({ ...current, passive_discovery_background_enabled: checked })}
+                  />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_interval')}</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="1440"
+                        aria-label={t('multicast_discovery_interval')}
+                        value={String(current.passive_discovery_interval_minutes)}
+                        onChange={(e) => setSettings({ ...current, passive_discovery_interval_minutes: Number(e.target.value) || 15 })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-text-subtle mb-1">{t('multicast_discovery_duration')}</label>
+                      <Input
+                        type="number"
+                        min="3"
+                        max="120"
+                        aria-label={t('multicast_discovery_duration')}
+                        value={String(current.passive_discovery_capture_seconds)}
+                        onChange={(e) => setSettings({ ...current, passive_discovery_capture_seconds: Number(e.target.value) || 30 })}
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={savePassiveDiscoverySchedule} loading={saving}>{t('multicast_discovery_save_background')}</Button>
+                </div>
+                <p className="mt-3 text-xs text-text-subtle">{t('multicast_discovery_schedule_hint')}</p>
               </div>
               {passiveCaptureReport && (
                 <div className="rounded-lg border border-border bg-surface2/35 p-3 text-xs text-text-subtle">
@@ -1856,6 +2029,41 @@ export default function Settings() {
                   {passiveCaptureReport.errors.length > 0 && (
                     <div className="mt-2 text-danger">{passiveCaptureReport.errors.join(' · ')}</div>
                   )}
+                </div>
+              )}
+              {passiveHaGroups.length > 0 && (
+                <div className="rounded-lg border border-border bg-surface2/35 p-3">
+                  <div className="mb-3 text-sm font-medium text-text-base">{t('passive_ha_groups')}</div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
+                          <th className="py-2 pr-3 text-left font-medium">{t('multicast_discovery_protocol')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('passive_ha_group')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('passive_ha_active')}</th>
+                          <th className="py-2 pr-3 text-left font-medium">{t('passive_ha_members')}</th>
+                          <th className="py-2 text-left font-medium">{t('last_seen')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {passiveHaGroups.slice(0, 8).map((row) => (
+                          <tr key={row.group_key} className="border-b border-border last:border-0">
+                            <td className="py-2 pr-3 font-mono text-text-muted">{row.protocol.toUpperCase()}</td>
+                            <td className="py-2 pr-3 text-text-subtle">{row.virtual_ip || row.destination_ip || row.group_key}</td>
+                            <td className="py-2 pr-3 text-text-subtle">
+                              {row.active_device_id ? (
+                                <Link className="text-accent hover:underline" to={`/devices/${row.active_device_id}`}>
+                                  {row.active_device_label || `Device #${row.active_device_id}`}
+                                </Link>
+                              ) : (row.members[0]?.source_ip || row.members[0]?.source_mac || '-')}
+                            </td>
+                            <td className="py-2 pr-3 text-text-subtle">{row.member_count}</td>
+                            <td className="py-2 text-text-subtle">{formatDateTime(row.observed_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
               {passiveObservations.length > 0 && (
@@ -1994,6 +2202,29 @@ export default function Settings() {
               <Button variant="outline" onClick={loadSnmp} loading={snmpLoading}>{t('refresh')}</Button>
             </div>
 
+            <div className="mb-4 rounded-lg border border-border bg-surface2/40 p-3">
+              <div className="grid gap-4 md:grid-cols-[1fr_12rem_auto] md:items-end">
+                <ToggleSwitch
+                  checked={current.snmp_poll_enabled}
+                  label={t('snmp_poll_background')}
+                  description={t('snmp_poll_background_hint')}
+                  onChange={(checked) => setSettings({ ...current, snmp_poll_enabled: checked })}
+                />
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('snmp_poll_interval')}</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="1440"
+                    aria-label={t('snmp_poll_interval')}
+                    value={String(current.snmp_poll_interval_minutes)}
+                    onChange={(e) => setSettings({ ...current, snmp_poll_interval_minutes: Number(e.target.value) || 60 })}
+                  />
+                </div>
+                <Button onClick={saveSnmpPollSettings} loading={saving}>{t('save_changes')}</Button>
+              </div>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-4">
               <Input placeholder={t('snmp_profile_name')} value={snmpProfileName} onChange={(e) => setSnmpProfileName(e.target.value)} />
               <select className="input-field" value={snmpVersion} onChange={(e) => setSnmpVersion(e.target.value as SnmpProfileCreate['version'])}>
@@ -2084,39 +2315,114 @@ export default function Settings() {
                     <th className="px-3 py-2 font-medium">{t('name')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_host')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_sys_name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('profile')}</th>
                     <th className="px-3 py-2 font-medium">{t('vendor')}</th>
                     <th className="px-3 py-2 font-medium">{t('interfaces')}</th>
                     <th className="px-3 py-2 font-medium">{t('snmp_macs')}</th>
                     <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
-                    <th className="px-3 py-2 font-medium">{t('actions')}</th>
+                    <th className="px-3 py-2 font-medium min-w-[15rem]">{t('actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {snmpSwitches.length === 0 ? (
-                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={8}>{t('snmp_no_switches')}</td></tr>
-                  ) : snmpSwitches.map((item) => (
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={9}>{t('snmp_no_switches')}</td></tr>
+                  ) : snmpSwitches.map((item) => {
+                    const isEditing = editingSnmpSwitchId === item.id
+                    const assignedProfile = snmpProfiles.find((profile) => profile.id === item.profile_id)
+                    return (
                     <tr key={item.id}>
                       <td className="px-3 py-2 font-medium text-text-base">
-                        <div>{item.name}</div>
-                        {item.last_error && <div className="mt-1 max-w-xs text-xs font-normal text-danger">{item.last_error}</div>}
+                        {isEditing ? (
+                          <Input
+                            aria-label={t('snmp_switch_name')}
+                            value={editingSnmpSwitchName}
+                            onChange={(e) => setEditingSnmpSwitchName(e.target.value)}
+                          />
+                        ) : (
+                          <>
+                            <div>{item.name}</div>
+                            {item.last_error && (
+                              <div className="mt-1 max-w-xs truncate rounded-md border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] font-normal text-danger" title={item.last_error}>
+                                {item.last_error.split('\n')[0]}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-text-muted">{item.host}</td>
+                      <td className="px-3 py-2 text-text-muted">
+                        {isEditing ? (
+                          <Input
+                            aria-label={t('snmp_switch_host')}
+                            value={editingSnmpSwitchHost}
+                            onChange={(e) => setEditingSnmpSwitchHost(e.target.value)}
+                          />
+                        ) : item.host}
+                      </td>
                       <td className="px-3 py-2 text-text-muted">{item.sys_name || '—'}</td>
                       <td className="px-3 py-2 text-text-muted">
-                        <div>{item.vendor || '—'}</div>
-                        {item.vendor_notes && <div className="mt-1 max-w-xs text-[11px] text-text-subtle">{item.vendor_notes}</div>}
+                        {isEditing ? (
+                          <select
+                            aria-label={t('snmp_select_profile')}
+                            className="input-field min-w-[10rem]"
+                            value={editingSnmpSwitchProfileId}
+                            onChange={(e) => setEditingSnmpSwitchProfileId(e.target.value)}
+                          >
+                            <option value="">{t('snmp_select_profile')}</option>
+                            {snmpProfiles.map((profile) => (
+                              <option key={profile.id} value={profile.id}>{profile.name}</option>
+                            ))}
+                          </select>
+                        ) : (assignedProfile?.name || '—')}
+                      </td>
+                      <td className="px-3 py-2 text-text-muted">
+                        {isEditing ? '—' : (
+                          <>
+                            <div>{item.vendor || '—'}</div>
+                            {item.vendor_notes && <div className="mt-1 max-w-xs text-[11px] text-text-subtle">{item.vendor_notes}</div>}
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-text-muted">{item.interface_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.mac_count}</td>
                       <td className="px-3 py-2 text-text-muted">{item.last_poll_at ? formatDateTime(item.last_poll_at) : '—'}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading}>{t('poll_now')}</Button>
-                          <Button size="sm" variant="danger" onClick={() => deleteSnmpSwitch(item)} disabled={snmpLoading}>{t('delete')}</Button>
+                      <td className="px-3 py-2 min-w-[15rem]">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isEditing ? (
+                            <>
+                              <CompactToggle
+                                checked={editingSnmpSwitchEnabled}
+                                disabled={snmpLoading}
+                                onChange={setEditingSnmpSwitchEnabled}
+                                label={editingSnmpSwitchEnabled ? t('enabled') : t('disabled')}
+                              />
+                              <Button size="sm" onClick={() => saveSnmpSwitch(item)} disabled={snmpLoading}>{t('save')}</Button>
+                              <Button size="sm" variant="outline" onClick={cancelEditingSnmpSwitch} disabled={snmpLoading}>{t('cancel')}</Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => startEditingSnmpSwitch(item)} disabled={snmpLoading}>{t('edit')}</Button>
+                              <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading || !item.enabled}>{t('poll_now')}</Button>
+                              {(item.last_diagnostics || item.last_error) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setSnmpDiagnosticsSelection({
+                                    title: item.name,
+                                    diagnostics: item.last_diagnostics || item.last_error || '',
+                                    isError: Boolean(item.last_error),
+                                  })}
+                                  disabled={snmpLoading}
+                                >
+                                  {t('details')}
+                                </Button>
+                              )}
+                              <Button size="sm" variant="danger" onClick={() => deleteSnmpSwitch(item)} disabled={snmpLoading}>{t('delete')}</Button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -2151,21 +2457,42 @@ export default function Settings() {
 
           {current.advanced_view_enabled && (
           <Card>
-            <h2 className="text-lg font-semibold text-text-base mb-2">{t('port_scan_range_title')}</h2>
-            <p className="text-sm text-text-subtle mb-4">
-              {t('port_range_examples')}
-            </p>
-            <div>
-              <label className="block text-sm text-text-subtle mb-1">
-                {t('port_range_list')}
-              </label>
-              <Input
-                value={current.port_scan_range}
-                onChange={(e) => setSettings({ ...current, port_scan_range: e.target.value })}
-                placeholder="top:1000"
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-text-base">{t('port_scan_range_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('port_scan_range_description')}</p>
+              </div>
+              <ToggleSwitch
+                checked={current.port_scan_background_enabled}
+                label={t('port_scan_background')}
+                description={t('port_scan_background_hint')}
+                onChange={(checked) => setSettings({ ...current, port_scan_background_enabled: checked })}
               />
-            </div>
-            <div className="mt-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">
+                    {t('port_range_list')}
+                  </label>
+                  <Input
+                    aria-label={t('port_range_list')}
+                    value={current.port_scan_range}
+                    onChange={(e) => setSettings({ ...current, port_scan_range: e.target.value })}
+                    placeholder="top:1000"
+                  />
+                  <p className="mt-1 text-xs text-text-subtle">{t('port_range_examples')}</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-text-subtle mb-1">{t('port_scan_interval')}</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="1440"
+                    aria-label={t('port_scan_interval')}
+                    value={String(current.port_scan_interval_minutes)}
+                    onChange={(e) => setSettings({ ...current, port_scan_interval_minutes: Number(e.target.value) || 60 })}
+                  />
+                </div>
+              </div>
               <Button onClick={savePortScanSettings} loading={saving}>{t('save_changes')}</Button>
             </div>
           </Card>
@@ -2181,6 +2508,52 @@ export default function Settings() {
           {t('notifications')}
         </h2>
         <div className="space-y-4">
+          <Card>
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-text-base">{t('notification_rules')}</h2>
+              <p className="mt-1 text-sm text-text-subtle">{t('notification_rules_hint')}</p>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] bg-surface2/70 text-xs font-medium uppercase tracking-wide text-text-subtle">
+                <div className="px-3 py-2">{t('notification_event')}</div>
+                {notificationRuleChannels.map((channel) => (
+                  <div key={channel.label} className="px-3 py-2 text-center" title={channel.description}>
+                    {channel.label}
+                  </div>
+                ))}
+              </div>
+              {[
+                { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
+                { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
+              ].map((row) => (
+                <div key={row.label} className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] border-t border-border bg-surface/60">
+                  <div className="px-3 py-3 text-sm font-medium text-text-base">{row.label}</div>
+                  {row.keys.map((key) => (
+                    <div key={key} className="flex items-center justify-center px-3 py-3">
+                      <button
+                        type="button"
+                        aria-pressed={Boolean(current[key])}
+                        aria-label={`${row.label}: ${key}`}
+                        onClick={() => updateNotificationRule(key, !current[key])}
+                        className={`relative h-6 w-11 rounded-full transition-colors ${
+                          current[key] ? 'bg-primary' : 'bg-border'
+                        }`}
+                      >
+                        <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                          current[key] ? 'translate-x-6' : 'translate-x-1'
+                        }`} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-text-subtle">{t('notification_rules_delivery_hint')}</p>
+            <div className="mt-4">
+              <Button onClick={saveNotificationRules} loading={saving}>{t('save_notification_rules')}</Button>
+            </div>
+          </Card>
+
           <Card>
             <h2 className="text-lg font-semibold text-text-base mb-4">Telegram</h2>
             <div className="grid gap-4">
@@ -2222,24 +2595,6 @@ export default function Settings() {
                 />
                 {t('send_update_notifications')}
               </label>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.notify_on_new_device}
-                  onChange={(e) => setSettings({ ...current, notify_on_new_device: e.target.checked })}
-                />
-                {t('notify_on_new_device')}
-              </label>
-              <p className="text-xs text-text-subtle">{t('notify_on_new_device_hint')}</p>
-              <label className="flex items-center gap-2 text-sm text-text-base">
-                <input
-                  type="checkbox"
-                  checked={current.notify_on_network_changes}
-                  onChange={(e) => setSettings({ ...current, notify_on_network_changes: e.target.checked })}
-                />
-                {t('notify_on_network_changes')}
-              </label>
-              <p className="text-xs text-text-subtle">{t('notify_on_network_changes_hint')}</p>
             </div>
             <div className="mt-4 flex gap-3">
               <Button onClick={saveTelegram} loading={saving}>{t('save_changes')}</Button>
@@ -2888,6 +3243,27 @@ export default function Settings() {
       </div>
       )}
 
+      <Modal
+        open={Boolean(snmpDiagnosticsSelection)}
+        onClose={() => setSnmpDiagnosticsSelection(null)}
+        title={snmpDiagnosticsSelection ? t('snmp_diagnostics_title', { name: snmpDiagnosticsSelection.title }) : t('details')}
+        maxWidth="max-w-4xl"
+      >
+        {snmpDiagnosticsSelection && (
+          <div className="space-y-4">
+            <div className={`rounded-lg border px-3 py-2 text-sm ${
+              snmpDiagnosticsSelection.isError
+                ? 'border-danger/30 bg-danger/10 text-danger'
+                : 'border-success/30 bg-success/10 text-success'
+            }`}>
+              {snmpDiagnosticsSelection.isError ? t('snmp_diagnostics_error_hint') : t('snmp_diagnostics_success_hint')}
+            </div>
+            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background p-4 font-mono text-xs leading-relaxed text-text-muted">
+              {snmpDiagnosticsSelection.diagnostics}
+            </pre>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

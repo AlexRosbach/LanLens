@@ -283,6 +283,7 @@ class SnmpSwitch(Base):
     sys_object_id = Column(String(255), nullable=True)
     last_poll_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
+    last_diagnostics = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -305,10 +306,23 @@ class SnmpInterface(Base):
     name = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
     alias = Column(String(255), nullable=True)
+    if_type = Column(Integer, nullable=True)
     admin_status = Column(String(32), nullable=True)
     oper_status = Column(String(32), nullable=True)
     speed_bps = Column(Integer, nullable=True)
     phys_address = Column(String(64), nullable=True)
+    in_unicast_packets = Column(Integer, nullable=True)
+    in_non_unicast_packets = Column(Integer, nullable=True)
+    out_unicast_packets = Column(Integer, nullable=True)
+    out_non_unicast_packets = Column(Integer, nullable=True)
+    in_discards = Column(Integer, nullable=True)
+    out_discards = Column(Integer, nullable=True)
+    in_errors = Column(Integer, nullable=True)
+    out_errors = Column(Integer, nullable=True)
+    unknown_protocols = Column(Integer, nullable=True)
+    crc_errors = Column(Integer, nullable=True)
+    collision_errors = Column(Integer, nullable=True)
+    fragment_errors = Column(Integer, nullable=True)
     last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     switch = relationship("SnmpSwitch", back_populates="interfaces")
@@ -350,6 +364,7 @@ class Notification(Base):
     is_read = Column(Boolean, default=False)
     telegram_sent = Column(Boolean, default=False)
     webhook_sent = Column(Boolean, nullable=False, default=False, server_default=false())
+    smtp_sent = Column(Boolean, nullable=False, default=False, server_default=false())
     created_at = Column(DateTime, default=datetime.utcnow)
 
     device = relationship("Device", back_populates="notifications")
@@ -460,6 +475,24 @@ class DhcpObservation(Base):
     lease_time = Column(Integer, nullable=True)
     options_json = Column(Text, nullable=False, default="{}")
     observed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class DhcpAuthorizedServer(Base):
+    """Allowed DHCP server identity for rogue-server checks."""
+    __tablename__ = "dhcp_authorized_servers"
+    __table_args__ = (
+        Index("ix_dhcp_authorized_servers_ip", "server_ip"),
+        Index("ix_dhcp_authorized_servers_mac", "server_mac"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    server_ip = Column(String(45), nullable=True)
+    server_mac = Column(String(17), nullable=True)
+    enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PassiveDiscoveryObservation(Base):

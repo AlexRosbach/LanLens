@@ -5,16 +5,10 @@ set -e
 
 echo "Starting LanLens..."
 
-# Validate SECRET_KEY before doing anything
-if [ -z "${SECRET_KEY}" ] || [ "${SECRET_KEY}" = "CHANGE_THIS_TO_A_LONG_RANDOM_STRING" ]; then
-    echo "ERROR: SECRET_KEY environment variable is not set or still uses the placeholder value."
-    echo "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
-    echo "Then set it in docker-compose.yml or as an environment variable."
-    exit 1
-fi
-
 LANLENS_PORT="${LANLENS_PORT:-7765}"
 BACKEND_PORT="${BACKEND_PORT:-17765}"
+SECRET_KEY_FILE="${LANLENS_SECRET_KEY_FILE:-/data/secret_key}"
+SECRET_KEY_PLACEHOLDER="CHANGE_THIS_TO_A_LONG_RANDOM_STRING"
 TLS_DIR="${LANLENS_TLS_DIR:-/data/tls}"
 TLS_CONFIG="${TLS_DIR}/config.json"
 HTTPS_ENABLED="false"
@@ -25,6 +19,38 @@ HTTPS_PRIVATE_KEY="${TLS_DIR}/lanlens.key"
 
 # Ensure data directory exists (mounted volume)
 mkdir -p /data
+
+# Keep first-run setup simple while preserving encrypted data across restarts.
+# A user-provided SECRET_KEY still wins; otherwise persist one in the data volume.
+if [ -n "${SECRET_KEY}" ] && [ "${SECRET_KEY}" != "${SECRET_KEY_PLACEHOLDER}" ] && [ "${SECRET_KEY}" != "change-this" ]; then
+    if [ ${#SECRET_KEY} -lt 32 ]; then
+        echo "ERROR: SECRET_KEY is too short. Use at least 32 characters."
+        exit 1
+    fi
+else
+    mkdir -p "$(dirname "${SECRET_KEY_FILE}")"
+    if [ -s "${SECRET_KEY_FILE}" ]; then
+        SECRET_KEY="$(cat "${SECRET_KEY_FILE}")"
+        if [ "${SECRET_KEY}" = "${SECRET_KEY_PLACEHOLDER}" ] || [ "${SECRET_KEY}" = "change-this" ]; then
+            echo "ERROR: persisted SECRET_KEY at ${SECRET_KEY_FILE} uses a placeholder value."
+            echo "Remove the file to generate a new key, or set SECRET_KEY explicitly."
+            exit 1
+        fi
+    else
+        echo "Generating persistent LanLens secret key at ${SECRET_KEY_FILE}..."
+        umask 077
+        python -c 'import secrets; print(secrets.token_hex(32))' > "${SECRET_KEY_FILE}"
+        SECRET_KEY="$(cat "${SECRET_KEY_FILE}")"
+    fi
+
+    if [ ${#SECRET_KEY} -lt 32 ]; then
+        echo "ERROR: persisted SECRET_KEY at ${SECRET_KEY_FILE} is invalid."
+        echo "Remove the file to generate a new key, or set SECRET_KEY explicitly."
+        exit 1
+    fi
+
+    export SECRET_KEY
+fi
 
 # Render nginx config with the selected HTTP/HTTPS settings.
 render-lanlens-nginx

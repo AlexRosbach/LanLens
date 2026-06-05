@@ -2,6 +2,53 @@
 
 All notable changes to this project should be documented in this file.
 
+## v1.5.6 — Network security awareness
+
+### New Features
+- Added an authorized DHCP server allowlist with API and UI management for expected server IP/MAC identities.
+- Marked DHCP observations as authorized or unknown so unexpected DHCP servers stand out immediately in the DHCP Monitor.
+- Added network-change notifications for unknown DHCP server observations.
+- Added ARP/MAC drift detection for local scans and scan-node ingests when a known IP appears with a different real MAC address.
+- Added passive VRRP/HSRP group awareness that summarizes recent high-availability peers from multicast discovery.
+- Added visible multicast capture cadence controls in **Settings -> Network Discovery -> Multicast protocols** and reused the configured capture duration for manual captures.
+- Added client-side UI error logging so visible browser/API/runtime failures are also written to the LanLens container logs.
+- Added configurable background port-scan scheduling in **Settings -> Network Discovery**, including enablement, interval and the existing port range/list.
+- Added inline editing for existing SNMP switch topology targets in **Settings -> Network Discovery**.
+- Added configurable background SNMP switch polling in **Settings -> Network Discovery**, including enablement and interval.
+- Added detailed SNMP poll troubleshooting output with attempted OIDs, per-step result counts and sanitized target/profile context.
+- Added an SNMP diagnostics details dialog so successful polls and failed polls can show full troubleshooting steps without filling the target table.
+- Added SNMP real-port statistics for device detail and switch-port hover context, including speed, cast packet counters, discards, CRC/FCS errors, collisions and fragment counters where the target exposes IF-MIB/EtherLike-MIB data.
+- Generalized SNMP vendor and class detection for common SNMP network devices beyond Cisco, including Juniper, MikroTik, Fortinet, Aruba/HPE, Netgear, TP-Link, D-Link, Zyxel, pfSense, OPNsense, Sophos, UniFi/Ubiquiti and Cisco Meraki identities.
+- Expanded SNMP real-port detection for common interface names such as Ethernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial interfaces.
+- Filtered common virtual SNMP interfaces such as loopback, VLAN/SVI, tunnel, bridge, management, stack, LAG/bond/team and port-channel rows from the switch-port visualization so it focuses on real ports.
+- Relaxed SNMP polling so routers, firewalls, printers and other non-switch SNMP targets can be scanned for identity/interface data even when IF-MIB details or bridge MAC tables are unavailable.
+- Linked SNMP targets now appear on matching device detail pages and CMDB export fields even when the target has no switch MAC table, using explicit device assignment or host/IP matching.
+- Added SNMP interface-only port visualization for linked switches when IF-MIB is available but BRIDGE-MIB/Q-BRIDGE-MIB MAC tables are not.
+- Added LLDP/CDP passive discovery parsing so linked devices can be classified from advertised switch, router, access-point, telephone and station capabilities.
+- Added a bulk delete action on the Notifications page to clear all in-app notifications after confirmation.
+- Added a general notification rule matrix in **Settings -> Notifications** with global event rules and per-channel Telegram, webhook/Gotify and email rules for new-device and network-change events.
+
+### Fixes / Hardening
+- Made first-run Docker setup one-command friendly by generating and persisting `SECRET_KEY` in the data volume when it is not supplied.
+- Mapped additional LanLens service, open-port, TLS certificate and container/software summaries to i-doit standard category description fields by default where i-doit exposes reliable text targets.
+- Deduplicated repeated DHCP unknown-server and MAC-drift security notifications to avoid noisy repeat alerts.
+- Enforced global notification rules as master switches for channel delivery so queued events stay silent when the global event is disabled.
+- Made unknown-DHCP-server notifications honor the global network-change notification rule.
+- Validated authorized DHCP server IP and MAC entries on create/update to reject typoed allowlist identities.
+- Added best-effort per-IP throttling to unauthenticated client-error logging to reduce container log spam.
+- Made client-error throttling use the nginx-forwarded browser IP when available so one noisy proxied client does not silence error logs for everyone.
+- Hardened client-error logging to redact bearer authorization headers, protect the shared rate-limit state from concurrent requests and prune stale client buckets.
+- Deduplicated passive DHCP server replies during fallback capture so repeated offer/ack packets do not inflate DHCP Monitor counters.
+- Limited notification delivery lookups to event rules for channels that are actually configured, avoiding repeated reprocessing of unsendable queued notifications.
+- Prevented MAC-drift notifications for routed scan-node/IP-only device identifiers.
+- Kept the Notifications bulk-delete UI unchanged when the backend delete request fails.
+- Replaced the SNMP target edit row's raw enabled checkbox with a compact inline toggle that fits the Settings table action layout.
+- Avoided duplicated MAC addresses in SNMP switch-port hover details when a learned endpoint has no matched device label.
+- Treated missing BRIDGE-MIB/Q-BRIDGE-MIB MAC tables as optional SNMP diagnostics instead of marking otherwise successful interface polls as latest errors.
+- Classified unknown IP-scan-discovered switch, router, firewall and AP devices from linked SNMP target identity and interface inventory.
+- Reused the existing DHCP Monitor, passive discovery and network-change infrastructure; no new packages or license obligations were added.
+- Bumped backend, frontend and image metadata to 1.5.6.
+
 ## v1.5.5 — Network change log
 
 ### New Features
