@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import Device, DeviceChangeEvent, DeviceHostRelationship, DeviceIgnoreRule, Segment, Service, Setting, User
+from ..models import Device, DeviceChangeEvent, DeviceHostRelationship, DeviceIgnoreRule, PassiveDiscoveryObservation, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIgnoreRuleCreate,
     DeviceIgnoreRuleResponse,
@@ -22,6 +22,8 @@ from ..schemas import (
     TopologyResponse,
 )
 from ..services.snmp import bulk_identities_for_devices
+from ..services.mac_vendor import normalize_mac
+from ..services.passive_discovery import linked_devices_for_observations
 
 router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 ignore_router = APIRouter(prefix="/api/ignore-rules", tags=["ignore-rules"])
@@ -221,6 +223,80 @@ def get_topology(db: Session = Depends(get_db), _: User = Depends(get_current_us
                 label=port_label,
                 metadata=identity,
             ))
+    passive_rows = (
+        db.query(PassiveDiscoveryObservation)
+        .filter(PassiveDiscoveryObservation.protocol.in_(("lldp", "cdp", "stp", "ospf", "vrrp", "hsrp")))
+        .order_by(PassiveDiscoveryObservation.observed_at.desc())
+        .limit(500)
+        .all()
+    )
+    if passive_rows:
+        linked_by_row = linked_devices_for_observations(db, passive_rows)
+        devices_by_ip = {device.ip_address: device for device in devices if device.ip_address}
+        devices_by_mac = {
+            normalize_mac(device.mac_address): device
+            for device in devices
+            if device.mac_address and normalize_mac(device.mac_address)
+        }
+        devices_by_name = {
+            value.strip().lower(): device
+            for device in devices
+            for value in (device.label, device.hostname)
+            if value and value.strip()
+        }
+        seen_passive_edges: set[tuple[int, int, str, str]] = set()
+
+        def add_passive_edge(source_device: Device | None, target_device: Device | None, relationship: str, label: str, metadata: dict[str, Any]) -> None:
+            if not source_device or not target_device or source_device.id == target_device.id:
+                return
+            key = (source_device.id, target_device.id, relationship, label)
+            if key in seen_passive_edges:
+                return
+            seen_passive_edges.add(key)
+            edges.append(TopologyEdge(
+                source=source_device.id,
+                target=target_device.id,
+                relationship_type=relationship,
+                label=label,
+                metadata=metadata,
+            ))
+
+        for row in passive_rows:
+            source_device = linked_by_row.get(row.id)
+            try:
+                metadata = json.loads(row.metadata_json or "{}")
+            except Exception:
+                metadata = {}
+            protocol = (row.protocol or "").lower()
+            if protocol == "ospf":
+                for neighbor in metadata.get("neighbors") or []:
+                    target = devices_by_ip.get(str(neighbor))
+                    add_passive_edge(source_device, target, "ospf_neighbor", str(neighbor), metadata)
+                for key in ("designated_router", "backup_designated_router"):
+                    target = devices_by_ip.get(str(metadata.get(key) or ""))
+                    add_passive_edge(source_device, target, f"ospf_{key}", str(metadata.get(key) or ""), metadata)
+            elif protocol in {"vrrp", "hsrp"}:
+                virtual_ip = metadata.get("virtual_ip")
+                target = devices_by_ip.get(str(virtual_ip or ""))
+                add_passive_edge(source_device, target, f"{protocol}_virtual_ip", str(virtual_ip or row.destination_ip or protocol.upper()), metadata)
+            elif protocol == "stp":
+                root_bridge = str(metadata.get("root_bridge_id") or "")
+                root_mac = normalize_mac(root_bridge.split(".")[-1]) if "." in root_bridge else None
+                add_passive_edge(source_device, devices_by_mac.get(root_mac), "stp_root_bridge", root_bridge, metadata)
+            elif protocol in {"lldp", "cdp"}:
+                target = None
+                chassis = normalize_mac(str(metadata.get("chassis_id") or ""))
+                if chassis:
+                    target = devices_by_mac.get(chassis)
+                if not target:
+                    for key in ("system_name", "device_id"):
+                        value = str(metadata.get(key) or "").strip().lower()
+                        if value:
+                            target = devices_by_name.get(value)
+                            if target:
+                                break
+                label = str(metadata.get("port_id") or metadata.get("port_description") or protocol.upper())
+                add_passive_edge(source_device, target, f"{protocol}_advertisement", label, metadata)
     return TopologyResponse(nodes=nodes, edges=edges)
 
 

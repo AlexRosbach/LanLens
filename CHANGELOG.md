@@ -6,9 +6,13 @@ All notable changes to this project should be documented in this file.
 
 ### New Features
 - Added granular network-change notification type switches for IP address changes, hostname changes, online/offline transitions, archive state changes, MAC drift warnings and unknown DHCP servers.
+- Added STP/RSTP passive discovery parsing so bridge/root-bridge topology advertisements are stored, shown in multicast observations and can classify linked devices as switches.
+- Expanded OSPF passive discovery metadata for hello packets, including router ID, area, DR/BDR and neighbor router IDs.
+- Enriched the inventory topology API with passive control-plane edges for known OSPF neighbors, HA virtual IP peers and known LLDP/CDP/STP bridge relationships when both endpoints already exist as LanLens devices.
 
 ### Fixes / Hardening
 - Reworked the notification rules UI for mobile viewports so notification settings are stacked and no longer clipped by the desktop matrix layout.
+- Reused the existing Scapy passive-discovery dependency for STP/RSTP and OSPF parsing; no new packages or license obligations were added.
 
 ## v1.5.6 — Network security awareness
 

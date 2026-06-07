@@ -52,7 +52,7 @@ const settings = {
   show_tls_checks: true,
   show_ping_history: true,
   show_build_info: true,
-  app_version: '1.5.6',
+  app_version: '1.5.7',
   build_code: 'docs',
   build_commit: 'docs',
   build_branch: 'docs',
@@ -353,7 +353,7 @@ async function mockCommon(page: Page) {
     await route.fulfill({ json: settings })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.6', latest_version: '1.5.6', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
   })
   await page.route('**/api/notifications/unread-count', async (route) => {
     await route.fulfill({ json: { count: 0 } })

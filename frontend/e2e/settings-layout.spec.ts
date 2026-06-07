@@ -64,7 +64,7 @@ const settings = {
   show_tls_checks: true,
   show_ping_history: true,
   show_build_info: false,
-  app_version: '1.5.5',
+  app_version: '1.5.7',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -121,7 +121,7 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   })
   await page.route(/\/api\/settings(?:$|\?|\/update\/check)/, async (route) => {
     if (route.request().url().includes('/api/settings/update/check')) {
-      await route.fulfill({ json: { current_version: '1.5.6', latest_version: '1.5.6', release_url: '', update_available: false } })
+      await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
       return
     }
     await route.fulfill({ json: settings })
@@ -215,17 +215,17 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
 
   await page.getByRole('button', { name: 'Notifications' }).click()
   await expect(page.getByRole('heading', { name: 'Notification rules' })).toBeVisible()
-  await expect(page.getByText('Global', { exact: true })).toBeVisible()
-  await expect(page.getByText('Device goes offline')).toBeVisible()
-  await expect(page.getByText('Unknown DHCP servers')).toBeVisible()
+  await expect(page.getByTitle('Master switch for creating and delivering this notification event.')).toBeVisible()
+  await expect(page.getByText('Device goes offline').first()).toBeVisible()
+  await expect(page.getByText('Unknown DHCP servers').first()).toBeVisible()
   await expect(page.getByTitle('Bot messages sent to the configured chat.')).toBeVisible()
-  await expect(page.getByText('Webhook', { exact: true })).toBeVisible()
-  await expect(page.getByText('Email', { exact: true })).toBeVisible()
+  await expect(page.getByTitle('HTTP delivery to Gotify or another webhook receiver.')).toBeVisible()
+  await expect(page.getByTitle('SMTP delivery to the configured recipient.')).toBeVisible()
   await page.waitForTimeout(4500)
   await page.screenshot({ path: testInfo.outputPath('settings-notification-rules.png'), fullPage: false })
   await page.setViewportSize({ width: 390, height: 844 })
-  await expect(page.getByText('Device goes offline')).toBeVisible()
-  await expect(page.getByText('Unknown DHCP servers')).toBeVisible()
+  await expect(page.getByText('Device goes offline').nth(1)).toBeVisible()
+  await expect(page.getByText('Unknown DHCP servers').nth(1)).toBeVisible()
   const notificationRulesWidth = await page.getByRole('heading', { name: 'Notification rules' }).evaluate((node) => {
     const card = node.parentElement?.parentElement ?? document.body
     return {

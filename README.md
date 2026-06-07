@@ -6,7 +6,7 @@
 
 **Self-hosted network inventory, local network scanner, and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.6-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.7-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -26,7 +26,7 @@ LanLens gives you a quick, local view of what is on your network:
 - Devices found by MAC/IP device discovery, with vendor hints and online/offline state
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices
-- Awareness signals for DHCP, ARP/MAC, topology, SNMP, and scan-detected changes
+- Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, SNMP, and scan-detected changes
 - Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
 
 Why people use it:
@@ -35,7 +35,7 @@ Why people use it:
 - **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
 - **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
 
-Optional expert views add SNMP switch-port context, passive discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
+Optional expert views add SNMP switch-port context, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
