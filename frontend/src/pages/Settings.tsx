@@ -55,10 +55,31 @@ type NotificationRuleKey =
   | 'notify_on_unknown_dhcp_server'
   | 'telegram_notify_new_device'
   | 'telegram_notify_network_changes'
+  | 'telegram_notify_ip_address_change'
+  | 'telegram_notify_hostname_change'
+  | 'telegram_notify_device_online'
+  | 'telegram_notify_device_offline'
+  | 'telegram_notify_device_archive_change'
+  | 'telegram_notify_mac_drift'
+  | 'telegram_notify_unknown_dhcp_server'
   | 'webhook_notify_new_device'
   | 'webhook_notify_network_changes'
+  | 'webhook_notify_ip_address_change'
+  | 'webhook_notify_hostname_change'
+  | 'webhook_notify_device_online'
+  | 'webhook_notify_device_offline'
+  | 'webhook_notify_device_archive_change'
+  | 'webhook_notify_mac_drift'
+  | 'webhook_notify_unknown_dhcp_server'
   | 'smtp_notify_new_device'
   | 'smtp_notify_network_changes'
+  | 'smtp_notify_ip_address_change'
+  | 'smtp_notify_hostname_change'
+  | 'smtp_notify_device_online'
+  | 'smtp_notify_device_offline'
+  | 'smtp_notify_device_archive_change'
+  | 'smtp_notify_mac_drift'
+  | 'smtp_notify_unknown_dhcp_server'
 
 const IDOIT_MAPPING_FIELDS = [
   { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
@@ -520,13 +541,69 @@ export default function Settings() {
   const notificationRuleRows = [
     { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
     { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
-    { label: t('notify_on_ip_address_change'), keys: ['notify_on_ip_address_change' as NotificationRuleKey] },
-    { label: t('notify_on_hostname_change'), keys: ['notify_on_hostname_change' as NotificationRuleKey] },
-    { label: t('notify_on_device_online'), keys: ['notify_on_device_online' as NotificationRuleKey] },
-    { label: t('notify_on_device_offline'), keys: ['notify_on_device_offline' as NotificationRuleKey] },
-    { label: t('notify_on_device_archive_change'), keys: ['notify_on_device_archive_change' as NotificationRuleKey] },
-    { label: t('notify_on_mac_drift'), keys: ['notify_on_mac_drift' as NotificationRuleKey] },
-    { label: t('notify_on_unknown_dhcp_server'), keys: ['notify_on_unknown_dhcp_server' as NotificationRuleKey] },
+    {
+      label: t('notify_on_ip_address_change'),
+      keys: [
+        'notify_on_ip_address_change',
+        'telegram_notify_ip_address_change',
+        'webhook_notify_ip_address_change',
+        'smtp_notify_ip_address_change',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_hostname_change'),
+      keys: [
+        'notify_on_hostname_change',
+        'telegram_notify_hostname_change',
+        'webhook_notify_hostname_change',
+        'smtp_notify_hostname_change',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_device_online'),
+      keys: [
+        'notify_on_device_online',
+        'telegram_notify_device_online',
+        'webhook_notify_device_online',
+        'smtp_notify_device_online',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_device_offline'),
+      keys: [
+        'notify_on_device_offline',
+        'telegram_notify_device_offline',
+        'webhook_notify_device_offline',
+        'smtp_notify_device_offline',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_device_archive_change'),
+      keys: [
+        'notify_on_device_archive_change',
+        'telegram_notify_device_archive_change',
+        'webhook_notify_device_archive_change',
+        'smtp_notify_device_archive_change',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_mac_drift'),
+      keys: [
+        'notify_on_mac_drift',
+        'telegram_notify_mac_drift',
+        'webhook_notify_mac_drift',
+        'smtp_notify_mac_drift',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_unknown_dhcp_server'),
+      keys: [
+        'notify_on_unknown_dhcp_server',
+        'telegram_notify_unknown_dhcp_server',
+        'webhook_notify_unknown_dhcp_server',
+        'smtp_notify_unknown_dhcp_server',
+      ] as NotificationRuleKey[],
+    },
   ]
 
   function updateNotificationRule(key: NotificationRuleKey, checked: boolean) {
@@ -871,10 +948,31 @@ export default function Settings() {
         notify_on_unknown_dhcp_server: current.notify_on_unknown_dhcp_server,
         telegram_notify_new_device: current.telegram_notify_new_device,
         telegram_notify_network_changes: current.telegram_notify_network_changes,
+        telegram_notify_ip_address_change: current.telegram_notify_ip_address_change,
+        telegram_notify_hostname_change: current.telegram_notify_hostname_change,
+        telegram_notify_device_online: current.telegram_notify_device_online,
+        telegram_notify_device_offline: current.telegram_notify_device_offline,
+        telegram_notify_device_archive_change: current.telegram_notify_device_archive_change,
+        telegram_notify_mac_drift: current.telegram_notify_mac_drift,
+        telegram_notify_unknown_dhcp_server: current.telegram_notify_unknown_dhcp_server,
         webhook_notify_new_device: current.webhook_notify_new_device,
         webhook_notify_network_changes: current.webhook_notify_network_changes,
+        webhook_notify_ip_address_change: current.webhook_notify_ip_address_change,
+        webhook_notify_hostname_change: current.webhook_notify_hostname_change,
+        webhook_notify_device_online: current.webhook_notify_device_online,
+        webhook_notify_device_offline: current.webhook_notify_device_offline,
+        webhook_notify_device_archive_change: current.webhook_notify_device_archive_change,
+        webhook_notify_mac_drift: current.webhook_notify_mac_drift,
+        webhook_notify_unknown_dhcp_server: current.webhook_notify_unknown_dhcp_server,
         smtp_notify_new_device: current.smtp_notify_new_device,
         smtp_notify_network_changes: current.smtp_notify_network_changes,
+        smtp_notify_ip_address_change: current.smtp_notify_ip_address_change,
+        smtp_notify_hostname_change: current.smtp_notify_hostname_change,
+        smtp_notify_device_online: current.smtp_notify_device_online,
+        smtp_notify_device_offline: current.smtp_notify_device_offline,
+        smtp_notify_device_archive_change: current.smtp_notify_device_archive_change,
+        smtp_notify_mac_drift: current.smtp_notify_mac_drift,
+        smtp_notify_unknown_dhcp_server: current.smtp_notify_unknown_dhcp_server,
       })
       toast.success(t('notification_rules_saved'))
     } catch {

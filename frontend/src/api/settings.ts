@@ -35,10 +35,31 @@ export interface AllSettings {
   notify_on_unknown_dhcp_server: boolean
   telegram_notify_new_device: boolean
   telegram_notify_network_changes: boolean
+  telegram_notify_ip_address_change: boolean
+  telegram_notify_hostname_change: boolean
+  telegram_notify_device_online: boolean
+  telegram_notify_device_offline: boolean
+  telegram_notify_device_archive_change: boolean
+  telegram_notify_mac_drift: boolean
+  telegram_notify_unknown_dhcp_server: boolean
   webhook_notify_new_device: boolean
   webhook_notify_network_changes: boolean
+  webhook_notify_ip_address_change: boolean
+  webhook_notify_hostname_change: boolean
+  webhook_notify_device_online: boolean
+  webhook_notify_device_offline: boolean
+  webhook_notify_device_archive_change: boolean
+  webhook_notify_mac_drift: boolean
+  webhook_notify_unknown_dhcp_server: boolean
   smtp_notify_new_device: boolean
   smtp_notify_network_changes: boolean
+  smtp_notify_ip_address_change: boolean
+  smtp_notify_hostname_change: boolean
+  smtp_notify_device_online: boolean
+  smtp_notify_device_offline: boolean
+  smtp_notify_device_archive_change: boolean
+  smtp_notify_mac_drift: boolean
+  smtp_notify_unknown_dhcp_server: boolean
   server_url: string
   smtp_host: string
   smtp_port: number
@@ -129,10 +150,31 @@ export const settingsApi = {
     notify_on_unknown_dhcp_server: boolean
     telegram_notify_new_device: boolean
     telegram_notify_network_changes: boolean
+    telegram_notify_ip_address_change: boolean
+    telegram_notify_hostname_change: boolean
+    telegram_notify_device_online: boolean
+    telegram_notify_device_offline: boolean
+    telegram_notify_device_archive_change: boolean
+    telegram_notify_mac_drift: boolean
+    telegram_notify_unknown_dhcp_server: boolean
     webhook_notify_new_device: boolean
     webhook_notify_network_changes: boolean
+    webhook_notify_ip_address_change: boolean
+    webhook_notify_hostname_change: boolean
+    webhook_notify_device_online: boolean
+    webhook_notify_device_offline: boolean
+    webhook_notify_device_archive_change: boolean
+    webhook_notify_mac_drift: boolean
+    webhook_notify_unknown_dhcp_server: boolean
     smtp_notify_new_device: boolean
     smtp_notify_network_changes: boolean
+    smtp_notify_ip_address_change: boolean
+    smtp_notify_hostname_change: boolean
+    smtp_notify_device_online: boolean
+    smtp_notify_device_offline: boolean
+    smtp_notify_device_archive_change: boolean
+    smtp_notify_mac_drift: boolean
+    smtp_notify_unknown_dhcp_server: boolean
   }) => apiClient.put('/settings/notification-rules', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),

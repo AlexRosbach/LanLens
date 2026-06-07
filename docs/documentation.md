@@ -456,7 +456,7 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 
 ## Notification Rules
 
-Use **Settings -> Notifications -> Notification rules** to choose which events are enabled globally and which external channels receive them. The matrix has one global event column and separate Telegram, webhook/Gotify and email columns, so each channel can subscribe to new-device alerts and network-change alerts independently while the global column remains the master switch for that event. Network-change alerts can also be narrowed by type, including IP address changes, hostname changes, online/offline transitions, archive state changes, MAC drift warnings and unknown DHCP servers.
+Use **Settings -> Notifications -> Notification rules** to choose which events are enabled globally and which external channels receive them. The matrix has one global event column and separate Telegram, webhook/Gotify and email columns, so each channel can subscribe to new-device alerts, the network-change group and each granular network-change type independently while the global column remains the master switch for that event. Network-change alerts can be narrowed by type, including IP address changes, hostname changes, online/offline transitions, archive state changes, MAC drift warnings and unknown DHCP servers.
 
 Channel rules only send when the matching channel is configured and enabled in the same settings tab. Email delivery uses the SMTP settings, webhook delivery uses the configured webhook URL, and Telegram still supports separate update notifications for release checks.
 
@@ -562,7 +562,7 @@ Each row shows the changed field plus before/after values and links to the affec
 
 Use **Export audit CSV** to download the currently filtered change history for audit or compliance review. The export uses the same event type, time range and search filters as the visible table. CSV cells are escaped before download, and the API also supports `format=json` for machine-readable audit snapshots.
 
-To route scan-detected network changes into alerting systems, enable **Settings -> Notifications -> Notification rules -> Network changes** for the desired in-app and external channels. LanLens creates notifications for scan-detected IP, hostname, online/offline and archive changes, plus security-oriented events such as MAC drift and unknown DHCP servers. Use the per-type switches below the main rule to keep noisy events such as routine offline transitions out of notifications while preserving higher-signal events. Enabled Telegram, webhook/Gotify and email deliveries receive the same event payloads with a device link when `server_url` is configured.
+To route scan-detected network changes into alerting systems, enable **Settings -> Notifications -> Notification rules -> Network changes** for the desired in-app and external channels. LanLens creates notifications for scan-detected IP, hostname, online/offline and archive changes, plus security-oriented events such as MAC drift and unknown DHCP servers. Use the per-type switches below the main rule to keep noisy events such as routine offline transitions out of selected channels while preserving higher-signal events elsewhere. Enabled Telegram, webhook/Gotify and email deliveries receive the same event payloads with a device link when `server_url` is configured.
 
 ### UI Error Logging
 

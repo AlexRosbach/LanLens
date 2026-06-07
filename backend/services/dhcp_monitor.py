@@ -196,7 +196,7 @@ def notify_unknown_dhcp_servers(db: Session, rows: list[DhcpObservation]) -> int
             message = f"Network security: unknown DHCP server observed ({row.server_ip}, {row.server_mac})"
         if _notification_exists(db, message):
             continue
-        db.add(Notification(event_type="network_change", message=message))
+        db.add(Notification(event_type="network_change", event_subtype="unknown_dhcp_server", message=message))
         created += 1
     return created
 

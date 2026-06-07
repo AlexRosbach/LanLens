@@ -60,6 +60,15 @@ NETWORK_CHANGE_TYPE_SETTING_DEFAULTS = {
     "notify_on_mac_drift": True,
     "notify_on_unknown_dhcp_server": True,
 }
+NETWORK_CHANGE_TYPE_CHANNEL_RULES = {
+    "ip_changed": ("notify_on_ip_address_change", "notify_ip_address_change"),
+    "hostname_changed": ("notify_on_hostname_change", "notify_hostname_change"),
+    "device_online": ("notify_on_device_online", "notify_device_online"),
+    "device_offline": ("notify_on_device_offline", "notify_device_offline"),
+    "device_archive_change": ("notify_on_device_archive_change", "notify_device_archive_change"),
+    "mac_drift_detected": ("notify_on_mac_drift", "notify_mac_drift"),
+    "unknown_dhcp_server": ("notify_on_unknown_dhcp_server", "notify_unknown_dhcp_server"),
+}
 
 
 def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
@@ -498,18 +507,18 @@ def _setting_enabled(db: Session, key: str, default: bool = False) -> bool:
 
 
 def _network_change_type_setting(event_type: str, new_value=None) -> Optional[str]:
-    if event_type == "ip_changed":
-        return "notify_on_ip_address_change"
-    if event_type == "hostname_changed":
-        return "notify_on_hostname_change"
+    subtype = _network_change_notification_subtype(event_type, new_value)
+    rule = NETWORK_CHANGE_TYPE_CHANNEL_RULES.get(subtype or "")
+    return rule[0] if rule else None
+
+
+def _network_change_notification_subtype(event_type: str, new_value=None) -> Optional[str]:
     if event_type == "online_state_changed":
-        return "notify_on_device_online" if bool(new_value) else "notify_on_device_offline"
+        return "device_online" if bool(new_value) else "device_offline"
     if event_type == "device_unarchived":
-        return "notify_on_device_archive_change"
-    if event_type == "mac_drift_detected":
-        return "notify_on_mac_drift"
-    if event_type == "unknown_dhcp_server":
-        return "notify_on_unknown_dhcp_server"
+        return "device_archive_change"
+    if event_type in NETWORK_CHANGE_TYPE_CHANNEL_RULES:
+        return event_type
     return None
 
 
@@ -547,6 +556,7 @@ def _record_change(db: Session, device_id: int, event_type: str, field_name: Opt
         db.add(Notification(
             device_id=device_id,
             event_type="network_change",
+            event_subtype=_network_change_notification_subtype(event_type, new_value),
             message=_network_change_notification_message(event_type, field_name, old_value, new_value),
         ))
 
@@ -596,6 +606,7 @@ def _record_mac_drift_for_ip(db: Session, device: Device, ip: str, observed_mac:
         db.add(Notification(
             device_id=device.id,
             event_type="network_change",
+            event_subtype="mac_drift_detected",
             message=f"Network security: {message}",
         ))
 
@@ -857,18 +868,35 @@ async def _send_notification_deliveries(db: Session) -> None:
             value = get_setting(master_key) or default
         return value == "true"
 
+    def network_change_channel_rules(channel: str) -> dict[str, bool]:
+        rules = {
+            "network_change": channel_rule_enabled(
+                f"{channel}_notify_network_changes",
+                "notify_on_network_changes",
+                "false",
+            )
+        }
+        for event_subtype, (master_key, suffix) in NETWORK_CHANGE_TYPE_CHANNEL_RULES.items():
+            if not setting_enabled(master_key, "true"):
+                rules[event_subtype] = False
+                continue
+            inherited = get_setting(f"{channel}_notify_network_changes") or get_setting("notify_on_network_changes") or "false"
+            value = get_setting(f"{channel}_{suffix}") or inherited
+            rules[event_subtype] = value == "true"
+        return rules
+
     channel_rules = {
         "telegram": {
             "new_device": channel_rule_enabled("telegram_notify_new_device", "notify_on_new_device", "true"),
-            "network_change": channel_rule_enabled("telegram_notify_network_changes", "notify_on_network_changes", "false"),
+            **network_change_channel_rules("telegram"),
         },
         "webhook": {
             "new_device": channel_rule_enabled("webhook_notify_new_device", "notify_on_new_device", "true"),
-            "network_change": channel_rule_enabled("webhook_notify_network_changes", "notify_on_network_changes", "false"),
+            **network_change_channel_rules("webhook"),
         },
         "smtp": {
             "new_device": channel_rule_enabled("smtp_notify_new_device", "notify_on_new_device", "true"),
-            "network_change": channel_rule_enabled("smtp_notify_network_changes", "notify_on_network_changes", "false"),
+            **network_change_channel_rules("smtp"),
         },
     }
 
@@ -903,7 +931,7 @@ async def _send_notification_deliveries(db: Session) -> None:
         configured_channel_rules.append(channel_rules["smtp"])
 
     enabled_events = {
-        event_type
+        "network_change" if event_type in NETWORK_CHANGE_TYPE_CHANNEL_RULES else event_type
         for rules in configured_channel_rules
         for event_type, enabled in rules.items()
         if enabled
@@ -939,17 +967,18 @@ async def _send_notification_deliveries(db: Session) -> None:
 
     had_failure = False
     for notif in unsent:
-        if telegram_configured and channel_rules["telegram"].get(notif.event_type, False) and not notif.telegram_sent:
+        event_rule = notif.event_subtype if notif.event_type == "network_change" and notif.event_subtype else notif.event_type
+        if telegram_configured and channel_rules["telegram"].get(event_rule, False) and not notif.telegram_sent:
             if await send_telegram_for_notification(db, notif):
                 notif.telegram_sent = True
             else:
                 had_failure = True
-        if webhook_configured and channel_rules["webhook"].get(notif.event_type, False) and not notif.webhook_sent:
+        if webhook_configured and channel_rules["webhook"].get(event_rule, False) and not notif.webhook_sent:
             if await send_webhook_for_notification(db, notif):
                 notif.webhook_sent = True
             else:
                 had_failure = True
-        if smtp_configured and channel_rules["smtp"].get(notif.event_type, False) and not notif.smtp_sent:
+        if smtp_configured and channel_rules["smtp"].get(event_rule, False) and not notif.smtp_sent:
             if await send_smtp_for_notification(db, notif):
                 notif.smtp_sent = True
             else:
