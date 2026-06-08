@@ -52,6 +52,18 @@ Legal notice and project contact information are maintained on [lanlens.org/priv
 
 ---
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=AlexRosbach%2FLanLens&type=date&legend=top-left">
+ <picture>
+ <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=AlexRosbach/LanLens&type=date&theme=dark&legend=top-left" />
+ <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=AlexRosbach/LanLens&type=date&legend=top-left" />
+ <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=AlexRosbach/LanLens&type=date&legend=top-left" />
+ </picture>
+</a>
+
+---
+
 ## Product Screenshots
 
 The screenshots below use sanitized demo data with documentation IP ranges and example names.
