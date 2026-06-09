@@ -108,6 +108,53 @@ class ScannerNetworkChangeNotificationTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_device_archived_uses_archive_change_notification_rule(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                device_class="computer",
+            )
+            db.add_all([
+                device,
+                Setting(key="notify_on_network_changes", value="true"),
+                Setting(key="notify_on_device_archive_change", value="true"),
+            ])
+            db.commit()
+            db.refresh(device)
+
+            _record_change(db, device.id, "device_archived", "is_archived", False, True, "test")
+
+            notification = db.query(Notification).filter(Notification.event_type == "network_change").one()
+            self.assertEqual(notification.event_subtype, "device_archive_change")
+            self.assertIn("device archived", notification.message)
+        finally:
+            db.close()
+
+    def test_device_archive_notification_respects_type_rule(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                device_class="computer",
+            )
+            db.add_all([
+                device,
+                Setting(key="notify_on_network_changes", value="true"),
+                Setting(key="notify_on_device_archive_change", value="false"),
+            ])
+            db.commit()
+            db.refresh(device)
+
+            _record_change(db, device.id, "device_archived", "is_archived", False, True, "test")
+
+            self.assertEqual(db.query(DeviceChangeEvent).filter(DeviceChangeEvent.event_type == "device_archived").count(), 1)
+            self.assertEqual(db.query(Notification).filter(Notification.event_type == "network_change").count(), 0)
+        finally:
+            db.close()
+
     def test_mac_drift_notification_respects_type_rule(self):
         db = self.Session()
         try:

@@ -34,7 +34,7 @@ from ..schemas import (
 from ..services.idoit import build_object_url, get_config as get_idoit_config
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
-from ..services.scanner import _arp_scan, _get_hostname, _ping_host, record_device_ip_history, record_ping_sample
+from ..services.scanner import _arp_scan, _get_hostname, _ping_host, add_network_change_notification, record_device_ip_history, record_ping_sample
 from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
 from ..services.passive_discovery import deduplicate_observations, linked_devices_for_observations, observation_to_response
 from ..services.plugin_registry import is_plugin_enabled
@@ -240,6 +240,8 @@ def _record_change(
         source=source,
         message=message,
     ))
+    if event_type in {"device_archived", "device_unarchived"}:
+        add_network_change_notification(db, device_id, event_type, field_name, old_value, new_value)
 
 
 def _get_viewed_device_ids(db: Session, current_user: User) -> Set[int]:

@@ -13,6 +13,7 @@ All notable changes to this project should be documented in this file.
 ### Fixes / Hardening
 - Extended notification-rule channel controls to every granular network-change type, not just the two top-level notification rows.
 - Reworked the notification rules UI for mobile viewports so notification settings are stacked and no longer clipped by the desktop matrix layout.
+- Routed manual and retention-driven archive events through the granular archive notification subtype so archive rules suppress and deliver consistently.
 - Reused the existing Scapy passive-discovery dependency for STP/RSTP and OSPF parsing; no new packages or license obligations were added.
 
 ## v1.5.6 — Network security awareness

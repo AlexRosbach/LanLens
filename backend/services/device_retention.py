@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from ..models import Device, DeviceChangeEvent
+from .scanner import add_network_change_notification
 from .settings_helpers import get_setting_value
 
 DEFAULT_ARCHIVE_AFTER_DAYS = 0
@@ -66,6 +67,7 @@ def apply_device_retention(db: Session, now: datetime | None = None) -> dict[str
                 source="retention",
                 message=f"Archived after {archive_after_days} days without discovery",
             ))
+            add_network_change_notification(db, device.id, "device_archived", "is_archived", False, True)
             archived += 1
 
     delete_after_days = settings["device_delete_archived_after_days"]

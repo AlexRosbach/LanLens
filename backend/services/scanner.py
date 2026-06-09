@@ -25,7 +25,6 @@ from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_smtp_for_notification, send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
-from .device_retention import apply_device_retention
 
 logger = logging.getLogger(__name__)
 
@@ -515,7 +514,7 @@ def _network_change_type_setting(event_type: str, new_value=None) -> Optional[st
 def _network_change_notification_subtype(event_type: str, new_value=None) -> Optional[str]:
     if event_type == "online_state_changed":
         return "device_online" if bool(new_value) else "device_offline"
-    if event_type == "device_unarchived":
+    if event_type in {"device_archived", "device_unarchived"}:
         return "device_archive_change"
     if event_type in NETWORK_CHANGE_TYPE_CHANNEL_RULES:
         return event_type
@@ -541,6 +540,23 @@ def _network_change_notification_message(event_type: str, field_name: Optional[s
     return f"Network change: {label}"
 
 
+def add_network_change_notification(
+    db: Session,
+    device_id: int,
+    event_type: str,
+    field_name: Optional[str] = None,
+    old_value=None,
+    new_value=None,
+) -> None:
+    if _network_change_type_notifications_enabled(db, event_type, new_value):
+        db.add(Notification(
+            device_id=device_id,
+            event_type="network_change",
+            event_subtype=_network_change_notification_subtype(event_type, new_value),
+            message=_network_change_notification_message(event_type, field_name, old_value, new_value),
+        ))
+
+
 def _record_change(db: Session, device_id: int, event_type: str, field_name: Optional[str], old_value, new_value, source: str) -> None:
     if old_value == new_value:
         return
@@ -552,13 +568,7 @@ def _record_change(db: Session, device_id: int, event_type: str, field_name: Opt
         new_value=str(new_value) if new_value is not None else None,
         source=source,
     ))
-    if _network_change_type_notifications_enabled(db, event_type, new_value):
-        db.add(Notification(
-            device_id=device_id,
-            event_type="network_change",
-            event_subtype=_network_change_notification_subtype(event_type, new_value),
-            message=_network_change_notification_message(event_type, field_name, old_value, new_value),
-        ))
+    add_network_change_notification(db, device_id, event_type, field_name, old_value, new_value)
 
 
 def _record_mac_drift_for_ip(db: Session, device: Device, ip: str, observed_mac: str, source: str) -> None:
@@ -812,6 +822,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         scan_run.devices_offline = devices_offline
         scan_run.finished_at = datetime.utcnow()
         scan_run.status = "done"
+        from .device_retention import apply_device_retention
+
         retention_result = apply_device_retention(db, scan_reference_time)
         db.commit()
 
