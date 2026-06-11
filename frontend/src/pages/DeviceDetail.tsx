@@ -35,6 +35,7 @@ interface EditState {
   assetTag: string
   notes: string
   cmdbId: string
+  idoitSysid: string
 }
 
 function idoitStatusVariant(status?: string | null): 'success' | 'danger' | 'warning' | 'primary' | 'muted' {
@@ -71,6 +72,7 @@ function toEditState(d: Device): EditState {
     assetTag: d.asset_tag ?? '',
     notes: d.notes ?? '',
     cmdbId: d.cmdb_id ?? '',
+    idoitSysid: d.idoit_sysid ?? '',
   }
 }
 
@@ -270,6 +272,7 @@ export default function DeviceDetail() {
         asset_tag: form.assetTag.trim() || undefined,
         notes: form.notes.trim() || undefined,
         cmdb_id: form.cmdbId.trim() || undefined,
+        idoit_sysid: form.idoitSysid.trim() || null,
         is_registered: true,
       })
       setDevice(updated)
@@ -565,6 +568,9 @@ export default function DeviceDetail() {
             <div className="grid grid-cols-2 gap-3">
               <Input label={t('label')} placeholder={t('device_label_placeholder')} {...field('label')} />
               <Input label={t('asset_tag')} placeholder={t('asset_tag_placeholder')} {...field('assetTag')} />
+              {showCmdbIntegrations && device.idoit_enabled && (
+                <Input label={t('idoit_sysid')} placeholder="SYSID_12345" {...field('idoitSysid')} />
+              )}
               <div className="col-span-2 flex items-end gap-2">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-text-muted mb-1">{t('cmdb_id')}</label>

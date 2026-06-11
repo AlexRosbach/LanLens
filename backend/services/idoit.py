@@ -1404,6 +1404,12 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     if isinstance(external_id_field, str) and external_id_field.strip() and external_id_value and not fields.get(external_id_field):
         fields[external_id_field] = external_id_value
 
+    idoit_sysid = None
+    if db is not None:
+        state = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == device.id).first()
+        if state and state.idoit_sysid:
+            idoit_sysid = state.idoit_sysid.strip()
+
     sync_status_field = _sync_status_field(config)
     if sync_status_field:
         # Optional, explicit operator-selected reference field. The default is
@@ -1418,6 +1424,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
             "mac_address": device.mac_address,
             "hostname": device.hostname,
             "ip_address": device.ip_address,
+            "idoit_sysid": idoit_sysid,
         },
         "fields": fields,
     }
@@ -1599,10 +1606,18 @@ def _object_entry_title(entry: dict[str, Any]) -> str:
     return ""
 
 
+def _object_entry_sysid(entry: dict[str, Any]) -> str:
+    for key in ("sysid", "sys_id", "SYSID", "SYS-ID", "isys_obj__sysid"):
+        value = _plain_category_value(entry.get(key))
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
 def _identity_terms(payload: dict[str, Any]) -> dict[str, str]:
     identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
     result: dict[str, str] = {}
-    for key in ("cmdb_id", "mac_address", "hostname", "ip_address"):
+    for key in ("idoit_sysid", "cmdb_id", "mac_address", "hostname", "ip_address"):
         value = identity.get(key)
         if isinstance(value, str) and value.strip():
             result[key] = value.strip()
@@ -1802,12 +1817,49 @@ class IdoitClient:
                         return object_id
         return None
 
+    async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
+        """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
+        wanted = (sysid or "").strip()
+        if not wanted:
+            return None
+        filters = [
+            {"filter": {"sysid": wanted, "type": object_type}} if object_type else None,
+            {"filter": {"sysid": wanted}},
+            {"filter": {"SYSID": wanted}},
+            {"sysid": wanted},
+            {"q": wanted},
+        ]
+        seen_ids: set[str] = set()
+        for params in [item for item in filters if item]:
+            try:
+                result = await self.read_objects(params)
+            except IdoitConnectionError:
+                continue
+            for entry in _category_entries(result):
+                object_id = _object_entry_id(entry)
+                if not object_id or object_id in seen_ids:
+                    continue
+                seen_ids.add(object_id)
+                entry_sysid = _object_entry_sysid(entry)
+                if entry_sysid and entry_sysid == wanted:
+                    return object_id
+                try:
+                    upstream_sysid = await self.object_sysid(object_id)
+                except IdoitConnectionError:
+                    continue
+                if upstream_sysid and upstream_sysid.strip() == wanted:
+                    return object_id
+        return None
+
     async def find_existing_object(self, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
         """Find an existing i-doit object from stable LanLens identity fields."""
         identity = _identity_terms(payload)
         if not identity:
             return None
         object_type = payload.get("objectType") if isinstance(payload.get("objectType"), str) else None
+        sysid_match = await self.find_object_by_sysid(identity.get("idoit_sysid", ""), object_type)
+        if sysid_match:
+            return {"object_id": sysid_match, "confidence": 100, "matched_by": "idoit_sysid"}
         search_values = [
             identity.get("cmdb_id"),
             identity.get("mac_address"),

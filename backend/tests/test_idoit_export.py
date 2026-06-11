@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import Device, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.models import Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
 from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config
 
 
@@ -394,6 +394,104 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["idoit_object_id"], "42")
             self.assertEqual(device.idoit_sync.idoit_object_id, "42")
             self.assertEqual(device.idoit_sync.idoit_sysid, "SYS-42")
+        finally:
+            db.close()
+
+    async def test_match_only_uses_manual_idoit_sysid_before_other_identity(self):
+        db = self.Session()
+
+        class FakeClient:
+            def __init__(self, config):
+                self.config = config
+
+            async def login(self):
+                return {"session-id": "test"}
+
+            async def find_existing_object(self, payload):
+                self.payload = payload
+                if payload["identity"].get("idoit_sysid") == "SYS-EXISTING-42":
+                    return {"object_id": "42", "confidence": 100, "matched_by": "idoit_sysid"}
+                return None
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Client", "sysid": "SYS-EXISTING-42"}
+
+            async def object_type_title(self, object_id):
+                return "Client"
+
+            async def update_object_title(self, object_id, title):
+                return {"id": object_id, "title": title}
+
+            async def save_category_best_effort(self, object_id, category, data):
+                return {"status": "saved", "result": True}
+
+            async def cleanup_lanlens_global_description(self, object_id):
+                return None
+
+            async def object_sysid(self, object_id):
+                return "SYS-EXISTING-42"
+
+        try:
+            update_config(db, {
+                "idoit_enabled": True,
+                "idoit_base_url": "https://idoit.example.test",
+                "idoit_api_key": "secret",
+                "idoit_create_policy": "match_only",
+            })
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+                is_registered=True,
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+            db.add(IdoitDeviceSync(device_id=device.id, idoit_sysid="SYS-EXISTING-42"))
+            db.commit()
+
+            with patch("backend.services.idoit.IdoitClient", FakeClient):
+                result = await sync_device_to_idoit(db, device, mode="manual")
+
+            self.assertEqual(result["status"], "synced")
+            self.assertEqual(result["action"], "link_existing")
+            self.assertEqual(result["idoit_object_id"], "42")
+            self.assertEqual(result["idoit_sysid"], "SYS-EXISTING-42")
+            self.assertEqual(device.idoit_sync.idoit_object_id, "42")
+        finally:
+            db.close()
+
+    async def test_client_matches_existing_object_by_exact_sysid(self):
+        class FakeSearchClient(IdoitClient):
+            async def call(self, method, params=None):
+                return None
+
+            async def read_objects(self, params):
+                if params.get("filter", {}).get("sysid") == "SYS-EXISTING-42":
+                    return [{"id": "42", "title": "Existing Client"}]
+                return []
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Client", "sysid": "SYS-EXISTING-42"}
+
+        db = self.Session()
+        try:
+            cfg = get_config(db)
+            client = FakeSearchClient(cfg)
+            match = await client.find_existing_object({
+                "title": "wrong-local-title",
+                "objectType": "C__OBJTYPE__CLIENT",
+                "identity": {
+                    "idoit_sysid": "SYS-EXISTING-42",
+                    "mac_address": "00:11:22:33:44:55",
+                    "hostname": "wrong-local-title",
+                    "ip_address": "192.0.2.10",
+                },
+            })
+
+            self.assertEqual(match["object_id"], "42")
+            self.assertEqual(match["matched_by"], "idoit_sysid")
+            self.assertEqual(match["confidence"], 100)
         finally:
             db.close()
 

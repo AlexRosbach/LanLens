@@ -276,6 +276,7 @@ class DeviceUpdate(BaseModel):
     segment_id: Optional[int] = None
     cmdb_id: Optional[str] = None
     idoit_sync_enabled: Optional[bool] = None
+    idoit_sysid: Optional[str] = None
     # Documentation
     purpose: Optional[str] = None
     description: Optional[str] = None

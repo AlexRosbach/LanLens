@@ -31,7 +31,7 @@ from ..schemas import (
     PortScanResponse,
     SinglePortScanRequest,
 )
-from ..services.idoit import build_object_url, get_config as get_idoit_config
+from ..services.idoit import build_object_url, get_config as get_idoit_config, get_or_create_state
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, add_network_change_notification, record_device_ip_history, record_ping_sample
@@ -919,7 +919,10 @@ def update_device(
 
     registering_now = update.is_registered is True and not device.is_registered
 
-    for field, value in update.model_dump(exclude_unset=True).items():
+    update_fields = update.model_dump(exclude_unset=True)
+    idoit_sysid = update_fields.pop("idoit_sysid", None)
+
+    for field, value in update_fields.items():
         value = _to_naive_utc(value)
         old_value = getattr(device, field, None)
         setattr(device, field, value)
@@ -927,6 +930,15 @@ def update_device(
             _record_change(db, device.id, "device_updated", field, old_value, value, source="user")
         elif old_value != value:
             _record_change(db, device.id, "device_updated", field, "[redacted]", "[redacted]", source="user")
+
+    if "idoit_sysid" in update.model_fields_set:
+        state = get_or_create_state(db, device)
+        new_sysid = idoit_sysid.strip() if isinstance(idoit_sysid, str) else None
+        new_sysid = new_sysid or None
+        old_sysid = state.idoit_sysid
+        state.idoit_sysid = new_sysid
+        if old_sysid != new_sysid:
+            _record_change(db, device.id, "device_updated", "idoit_sysid", old_sysid, new_sysid, source="user")
 
     if registering_now:
         db.query(Notification).filter(
