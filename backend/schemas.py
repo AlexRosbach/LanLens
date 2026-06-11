@@ -276,6 +276,7 @@ class DeviceUpdate(BaseModel):
     segment_id: Optional[int] = None
     cmdb_id: Optional[str] = None
     idoit_sync_enabled: Optional[bool] = None
+    idoit_sysid: Optional[str] = None
     # Documentation
     purpose: Optional[str] = None
     description: Optional[str] = None
@@ -597,12 +598,40 @@ class TelegramSettings(BaseModel):
 class NotificationRulesSettings(BaseModel):
     notify_on_new_device: bool = True
     notify_on_network_changes: bool = False
+    notify_on_ip_address_change: bool = True
+    notify_on_hostname_change: bool = True
+    notify_on_device_online: bool = True
+    notify_on_device_offline: bool = True
+    notify_on_device_archive_change: bool = True
+    notify_on_mac_drift: bool = True
+    notify_on_unknown_dhcp_server: bool = True
     telegram_notify_new_device: bool = True
     telegram_notify_network_changes: bool = False
+    telegram_notify_ip_address_change: bool = True
+    telegram_notify_hostname_change: bool = True
+    telegram_notify_device_online: bool = True
+    telegram_notify_device_offline: bool = True
+    telegram_notify_device_archive_change: bool = True
+    telegram_notify_mac_drift: bool = True
+    telegram_notify_unknown_dhcp_server: bool = True
     webhook_notify_new_device: bool = True
     webhook_notify_network_changes: bool = False
+    webhook_notify_ip_address_change: bool = True
+    webhook_notify_hostname_change: bool = True
+    webhook_notify_device_online: bool = True
+    webhook_notify_device_offline: bool = True
+    webhook_notify_device_archive_change: bool = True
+    webhook_notify_mac_drift: bool = True
+    webhook_notify_unknown_dhcp_server: bool = True
     smtp_notify_new_device: bool = True
     smtp_notify_network_changes: bool = False
+    smtp_notify_ip_address_change: bool = True
+    smtp_notify_hostname_change: bool = True
+    smtp_notify_device_online: bool = True
+    smtp_notify_device_offline: bool = True
+    smtp_notify_device_archive_change: bool = True
+    smtp_notify_mac_drift: bool = True
+    smtp_notify_unknown_dhcp_server: bool = True
 
 
 class WebhookSettings(BaseModel):
@@ -626,6 +655,8 @@ class UiSettings(BaseModel):
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False
+    show_debug_tools: bool = False
+    debug_log_level: str = "warning"
 
 
 class PortScanSettings(BaseModel):
@@ -671,16 +702,42 @@ class AllSettings(BaseModel):
     telegram_enabled: bool = False
     notify_telegram_update: bool = False
     network_interface: Optional[str] = ""
-    notify_on_device_online: bool = False
-    notify_on_device_offline: bool = False
+    notify_on_device_online: bool = True
+    notify_on_device_offline: bool = True
     notify_on_new_device: bool = True
     notify_on_network_changes: bool = False
+    notify_on_ip_address_change: bool = True
+    notify_on_hostname_change: bool = True
+    notify_on_device_archive_change: bool = True
+    notify_on_mac_drift: bool = True
+    notify_on_unknown_dhcp_server: bool = True
     telegram_notify_new_device: bool = True
     telegram_notify_network_changes: bool = False
+    telegram_notify_ip_address_change: bool = True
+    telegram_notify_hostname_change: bool = True
+    telegram_notify_device_online: bool = True
+    telegram_notify_device_offline: bool = True
+    telegram_notify_device_archive_change: bool = True
+    telegram_notify_mac_drift: bool = True
+    telegram_notify_unknown_dhcp_server: bool = True
     webhook_notify_new_device: bool = True
     webhook_notify_network_changes: bool = False
+    webhook_notify_ip_address_change: bool = True
+    webhook_notify_hostname_change: bool = True
+    webhook_notify_device_online: bool = True
+    webhook_notify_device_offline: bool = True
+    webhook_notify_device_archive_change: bool = True
+    webhook_notify_mac_drift: bool = True
+    webhook_notify_unknown_dhcp_server: bool = True
     smtp_notify_new_device: bool = True
     smtp_notify_network_changes: bool = False
+    smtp_notify_ip_address_change: bool = True
+    smtp_notify_hostname_change: bool = True
+    smtp_notify_device_online: bool = True
+    smtp_notify_device_offline: bool = True
+    smtp_notify_device_archive_change: bool = True
+    smtp_notify_mac_drift: bool = True
+    smtp_notify_unknown_dhcp_server: bool = True
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587
@@ -706,6 +763,8 @@ class AllSettings(BaseModel):
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False
+    show_debug_tools: bool = False
+    debug_log_level: str = "warning"
     app_version: str = ""
     build_code: str = ""
     build_commit: str = ""
@@ -736,6 +795,7 @@ class NotificationResponse(BaseModel):
     device_path: Optional[str] = None
     device_url: Optional[str] = None
     event_type: str
+    event_subtype: Optional[str] = None
     message: str
     is_read: bool
     telegram_sent: bool

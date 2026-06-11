@@ -45,7 +45,7 @@ def _safe_csv_cell(value: Any) -> Any:
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 12,
+    "version": 13,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -88,13 +88,13 @@ DEFAULT_MAPPING = {
         "serial": "C__CATG__MODEL.serial",
         "memory": "C__CATG__MEMORY.title",
         "disks": "C__CATG__DRIVE.title",
-        "open_ports": "C__CATG__NET_CONNECTIONS_FOLDER.description",
-        "services": "C__CATG__NET_CONNECTIONS_FOLDER.description",
+        "open_ports": "C__CATG__NET_CONNECTIONS_FOLDER",
+        "services": "C__CATG__NET_CONNECTIONS_FOLDER",
         "mdns_discovery": "",
         "upnp_discovery": "",
         "passive_discovery": "",
-        "tls_certificates": "C__CATG__CERTIFICATE.description",
-        "containers": "C__CATG__APPLICATION.description",
+        "tls_certificates": "C__CATG__CERTIFICATE",
+        "containers": "C__CATG__APPLICATION",
         "hypervisor": "",
         "licenses": "",
         "relationships": "",
@@ -990,6 +990,44 @@ def _format_open_ports(scan: PortScan) -> str:
     return "\n".join(lines)[:3000]
 
 
+def _open_port_entries(db: Optional[Session], device: Device) -> list[dict[str, Any]]:
+    if db is None or not device.id:
+        return []
+    scan = (
+        db.query(PortScan)
+        .filter(PortScan.device_id == device.id)
+        .order_by(PortScan.scanned_at.desc())
+        .first()
+    )
+    if not scan:
+        return []
+    try:
+        ports = json.loads(scan.open_ports or "[]")
+    except Exception:
+        ports = []
+    if not isinstance(ports, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    observed = scan.scanned_at.isoformat() if scan.scanned_at else None
+    for item in ports[:80]:
+        if not isinstance(item, dict):
+            continue
+        port = item.get("port") or item.get("number") or item.get("id")
+        proto = item.get("protocol") or item.get("proto") or "tcp"
+        service = item.get("service") or item.get("name") or item.get("product") or ""
+        title = f"{port}/{proto} {service}".strip() if port else str(service or "Open port")
+        entry = {
+            "title": title[:255],
+            "port": str(port) if port not in (None, "") else None,
+            "protocol": str(proto).lower() if proto else None,
+            "service": str(service)[:255] if service else None,
+            "source": "LanLens port scan",
+            "observed_at": observed,
+        }
+        entries.append({k: v for k, v in entry.items() if v not in (None, "")})
+    return entries
+
+
 def _services_summary(device: Device) -> Optional[str]:
     services = list(device.services or [])
     if not services:
@@ -1010,6 +1048,23 @@ def _services_summary(device: Device) -> Optional[str]:
             parts.append(service.description[:180])
         lines.append("- " + " | ".join(str(part) for part in parts if part))
     return "\n".join(lines)[:4000]
+
+
+def _service_entries(device: Device) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for service in sorted(list(device.services or []), key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
+        endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
+        entry = {
+            "title": (service.name or service.service_type or "LanLens service")[:255],
+            "type": service.service_type,
+            "protocol": service.protocol,
+            "port": str(service.port) if service.port else None,
+            "url": endpoint,
+            "version": service.version,
+            "status": service.tls_status,
+        }
+        entries.append({k: v for k, v in entry.items() if v not in (None, "")})
+    return entries
 
 
 def _tls_certificates_summary(device: Device) -> Optional[str]:
@@ -1038,6 +1093,42 @@ def _tls_certificates_summary(device: Device) -> Optional[str]:
         if service.tls_error:
             lines.append(f"  error: {service.tls_error}")
     return "\n".join(lines)[:6000]
+
+
+def _tls_certificate_entries(device: Device) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    services = [
+        service for service in list(device.services or [])
+        if service.tls_status or service.tls_expires_at or service.tls_issuer or service.tls_subject or service.tls_sans or service.tls_error
+    ]
+    for service in sorted(services, key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
+        endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
+        title_parts = [service.name or "TLS certificate"]
+        if endpoint:
+            title_parts.append(endpoint)
+        entry = {
+            "title": " - ".join(title_parts)[:255],
+            "subject": service.tls_subject,
+            "issuer": service.tls_issuer,
+            "valid_to": service.tls_expires_at.isoformat() if service.tls_expires_at else None,
+            "sans": service.tls_sans,
+            "status": service.tls_status,
+            "self_signed": service.tls_self_signed,
+            "error": service.tls_error,
+        }
+        entries.append({k: v for k, v in entry.items() if v not in (None, "")})
+    return entries
+
+
+def _container_entries(container_summary: Optional[str]) -> list[dict[str, Any]]:
+    if not container_summary:
+        return []
+    entries: list[dict[str, Any]] = []
+    for line in str(container_summary).splitlines()[:80]:
+        cleaned = line.strip().lstrip("- ").strip()
+        if cleaned:
+            entries.append({"title": cleaned[:255], "source": "LanLens deep scan"})
+    return entries or [{"title": "LanLens discovered container/software", "source": "LanLens deep scan"}]
 
 
 def _passive_discovery_filters(db: Optional[Session], device: Device) -> list[Any]:
@@ -1278,13 +1369,13 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "model": model,
         "serial": serial,
         "disks": _drive_entries(disks),
-        "open_ports": _latest_open_ports(db, device),
-        "services": _services_summary(device),
+        "open_ports": _open_port_entries(db, device),
+        "services": _service_entries(device),
         "mdns_discovery": passive_discovery.get("mdns_discovery"),
         "upnp_discovery": passive_discovery.get("upnp_discovery"),
         "passive_discovery": passive_discovery.get("passive_discovery"),
-        "tls_certificates": _tls_certificates_summary(device),
-        "containers": containers,
+        "tls_certificates": _tls_certificate_entries(device),
+        "containers": _container_entries(containers),
         "hypervisor": hypervisor,
         "licenses": licenses,
         "relationships": _relationships_summary(db, device),
@@ -1313,6 +1404,12 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     if isinstance(external_id_field, str) and external_id_field.strip() and external_id_value and not fields.get(external_id_field):
         fields[external_id_field] = external_id_value
 
+    idoit_sysid = None
+    if db is not None:
+        state = db.query(IdoitDeviceSync).filter(IdoitDeviceSync.device_id == device.id).first()
+        if state and state.idoit_sysid:
+            idoit_sysid = state.idoit_sysid.strip()
+
     sync_status_field = _sync_status_field(config)
     if sync_status_field:
         # Optional, explicit operator-selected reference field. The default is
@@ -1327,6 +1424,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
             "mac_address": device.mac_address,
             "hostname": device.hostname,
             "ip_address": device.ip_address,
+            "idoit_sysid": idoit_sysid,
         },
         "fields": fields,
     }
@@ -1355,6 +1453,7 @@ def get_or_create_state(db: Session, device: Device) -> IdoitDeviceSync:
 
 
 MAX_SYNC_LOG_DETAILS_CHARS = 8000
+MAX_SYSID_SCAN_OBJECTS = 5000
 MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__NETWORK_PORT": ("mac", "title"),
     "C__CATG__IP": ("ipv4_address", "hostname"),
@@ -1371,6 +1470,9 @@ OPTIONAL_IDOIT_CATEGORY_FIELDS = {
     "C__CATG__CPU": {"manufacturer", "type", "frequency", "frequency_unit", "cores", "description"},
     "C__CATG__MEMORY": {"quantity", "manufacturer", "type", "capacity", "unit"},
     "C__CATG__DRIVE": {"serial", "mount_point", "capacity", "unit", "firmware", "drive_type"},
+    "C__CATG__NET_CONNECTIONS_FOLDER": {"port", "protocol", "service", "source", "observed_at", "type", "url", "version", "status"},
+    "C__CATG__CERTIFICATE": {"subject", "issuer", "valid_to", "sans", "status", "self_signed", "error"},
+    "C__CATG__APPLICATION": {"source"},
 }
 
 
@@ -1505,6 +1607,76 @@ def _object_entry_title(entry: dict[str, Any]) -> str:
     return ""
 
 
+def _object_entry_sysid(entry: dict[str, Any]) -> str:
+    for key in ("sysid", "sys_id", "SYSID", "SYS-ID", "isys_obj__sysid"):
+        value = _plain_category_value(entry.get(key))
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
+def _identity_terms(payload: dict[str, Any]) -> dict[str, str]:
+    identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
+    result: dict[str, str] = {}
+    for key in ("idoit_sysid", "cmdb_id", "mac_address", "hostname", "ip_address"):
+        value = identity.get(key)
+        if isinstance(value, str) and value.strip():
+            result[key] = value.strip()
+    title = payload.get("title")
+    if isinstance(title, str) and title.strip():
+        result["title"] = title.strip()
+    return result
+
+
+def _normalized_match_text(value: Any) -> str:
+    text = str(_plain_category_value(value) or "").strip().lower()
+    return re.sub(r"\s+", " ", text)
+
+
+def _normalized_match_mac(value: Any) -> str:
+    text = str(_plain_category_value(value) or "").strip()
+    normalized = normalize_mac(text)
+    if normalized:
+        return normalized.lower()
+    return re.sub(r"[^0-9a-f]", "", text.lower())
+
+
+def _category_entry_values(entry: dict[str, Any], keys: tuple[str, ...]) -> list[str]:
+    values: list[str] = []
+    for key in keys:
+        value = _plain_category_value(entry.get(key))
+        if value not in (None, ""):
+            values.append(str(value).strip())
+    return values
+
+
+def _identity_text_matches(value: Any, expected: str) -> bool:
+    value_text = _normalized_match_text(value)
+    expected_text = _normalized_match_text(expected)
+    if not value_text or not expected_text:
+        return False
+    if value_text == expected_text:
+        return True
+    raw_parts = [part.strip() for part in re.split(r"[\r\n,;|]+", str(_plain_category_value(value) or "")) if part.strip()]
+    return any(_normalized_match_text(part) == expected_text for part in raw_parts)
+
+
+def _entry_contains_identity(entry: dict[str, Any], identity: dict[str, str], field_map: dict[str, tuple[str, ...]]) -> tuple[int, Optional[str]]:
+    for identity_key, keys in field_map.items():
+        expected = identity.get(identity_key)
+        if not expected:
+            continue
+        expected_text = _normalized_match_text(expected)
+        expected_mac = _normalized_match_mac(expected) if identity_key == "mac_address" else ""
+        for value in _category_entry_values(entry, keys):
+            if identity_key == "mac_address":
+                if expected_mac and _normalized_match_mac(value) == expected_mac:
+                    return 100, identity_key
+            elif _identity_text_matches(value, expected_text):
+                return 95 if identity_key == "idoit_sysid" else 90 if identity_key in {"cmdb_id", "ip_address"} else 80, identity_key
+    return 0, None
+
+
 def _is_missing_object_error(exc: IdoitConnectionError) -> bool:
     detail = json.dumps(exc.to_detail(), default=str).lower()
     missing_markers = (
@@ -1540,6 +1712,7 @@ class IdoitClient:
         self.config = config
         self.endpoint = build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path)
         self._session_id: Optional[str] = None
+        self.last_identity_match_debug: dict[str, Any] = {}
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         headers = {"Content-Type": "application/json"}
@@ -1656,6 +1829,212 @@ class IdoitClient:
                     if object_id:
                         return object_id
         return None
+
+    async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
+        """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
+        wanted = (sysid or "").strip()
+        if not wanted:
+            return None
+        lookup_debug = {
+            "direct_candidate_count": 0,
+            "fallback_scan_performed": False,
+            "fallback_candidate_count": 0,
+            "fallback_limit": MAX_SYSID_SCAN_OBJECTS,
+            "limit_reached": False,
+            "result": None,
+        }
+        filters = [
+            {"filter": {"sysid": wanted, "type": object_type}} if object_type else None,
+            {"filter": {"sysid": wanted}},
+            {"filter": {"SYSID": wanted}},
+            {"filter": {"C__CATG__ACCOUNTING.inventory_no": wanted, "type": object_type}} if object_type else None,
+            {"filter": {"C__CATG__ACCOUNTING.inventory_no": wanted}},
+            {"filter": {"C__CATG__ACCOUNTING.inventory_number": wanted}},
+            {"sysid": wanted},
+            {"q": wanted},
+        ]
+        seen_ids: set[str] = set()
+        for params in [item for item in filters if item]:
+            try:
+                result = await self.read_objects(params)
+            except IdoitConnectionError:
+                continue
+            for entry in _category_entries(result):
+                object_id = _object_entry_id(entry)
+                if not object_id or object_id in seen_ids:
+                    continue
+                seen_ids.add(object_id)
+                lookup_debug["direct_candidate_count"] += 1
+                entry_sysid = _object_entry_sysid(entry)
+                if entry_sysid and entry_sysid == wanted:
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "object_list_sysid"}
+                    self.last_identity_match_debug["sysid_lookup"] = lookup_debug
+                    return object_id
+                try:
+                    upstream_sysid = await self.object_sysid(object_id)
+                except IdoitConnectionError:
+                    continue
+                if upstream_sysid and upstream_sysid.strip() == wanted:
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "object_sysid"}
+                    self.last_identity_match_debug["sysid_lookup"] = lookup_debug
+                    return object_id
+                category_score, category_match = await self._identity_category_score(object_id, {"idoit_sysid": wanted})
+                if category_score >= 95 and category_match == "idoit_sysid":
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "accounting_inventory_sysid"}
+                    self.last_identity_match_debug["sysid_lookup"] = lookup_debug
+                    return object_id
+        fallback_match = await self._scan_objects_for_sysid(wanted, object_type, seen_ids, lookup_debug)
+        self.last_identity_match_debug["sysid_lookup"] = lookup_debug
+        if fallback_match:
+            return fallback_match
+        return None
+
+    async def _scan_objects_for_sysid(self, wanted: str, object_type: Optional[str], seen_ids: set[str], lookup_debug: dict[str, Any]) -> Optional[str]:
+        """Bounded fallback for i-doit tenants that do not support SYSID/category filters."""
+        lookup_debug["fallback_scan_performed"] = True
+        base_queries: list[dict[str, Any]] = []
+        if object_type:
+            base_queries.extend([
+                {"filter": {"type": object_type}},
+                {"type": object_type},
+            ])
+        base_queries.append({})
+        for base_query in base_queries:
+            for object_id in await self._listed_object_ids(base_query):
+                if object_id in seen_ids:
+                    continue
+                seen_ids.add(object_id)
+                lookup_debug["fallback_candidate_count"] += 1
+                if lookup_debug["fallback_candidate_count"] > MAX_SYSID_SCAN_OBJECTS:
+                    lookup_debug["limit_reached"] = True
+                    return None
+                try:
+                    upstream_sysid = await self.object_sysid(object_id)
+                except IdoitConnectionError:
+                    continue
+                if upstream_sysid and upstream_sysid.strip() == wanted:
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "fallback_object_sysid"}
+                    return object_id
+                category_score, category_match = await self._identity_category_score(object_id, {"idoit_sysid": wanted})
+                if category_score >= 95 and category_match == "idoit_sysid":
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "fallback_accounting_inventory_sysid"}
+                    return object_id
+        return None
+
+    async def _listed_object_ids(self, base_query: dict[str, Any]) -> list[str]:
+        queries = [dict(base_query)]
+        paged_query = dict(base_query)
+        paged_query.update({"limit": min(MAX_SYSID_SCAN_OBJECTS, 500), "offset": 0})
+        queries.append(paged_query)
+        object_ids: list[str] = []
+        seen: set[str] = set()
+        for query in queries:
+            try:
+                result = await self.read_objects(query)
+            except IdoitConnectionError:
+                continue
+            entries = _category_entries(result)
+            for entry in entries:
+                object_id = _object_entry_id(entry)
+                if object_id and object_id not in seen:
+                    seen.add(object_id)
+                    object_ids.append(object_id)
+        return object_ids
+
+    async def find_existing_object(self, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Find an existing i-doit object from stable LanLens identity fields."""
+        identity = _identity_terms(payload)
+        self.last_identity_match_debug = {
+            "identity": identity,
+            "object_type": payload.get("objectType") if isinstance(payload.get("objectType"), str) else None,
+            "search_values": [],
+            "candidate_count": 0,
+            "best_candidate": None,
+            "result": None,
+        }
+        if not identity:
+            return None
+        object_type = payload.get("objectType") if isinstance(payload.get("objectType"), str) else None
+        sysid_match = await self.find_object_by_sysid(identity.get("idoit_sysid", ""), object_type)
+        if sysid_match:
+            result = {"object_id": sysid_match, "confidence": 100, "matched_by": "idoit_sysid"}
+            self.last_identity_match_debug["result"] = result
+            return result
+        search_values = [
+            identity.get("idoit_sysid"),
+            identity.get("cmdb_id"),
+            identity.get("mac_address"),
+            identity.get("ip_address"),
+            identity.get("hostname"),
+            identity.get("title"),
+        ]
+        self.last_identity_match_debug["search_values"] = [item for item in search_values if item]
+        seen_ids: set[str] = set()
+        candidates: list[tuple[str, str]] = []
+        for value in [item for item in search_values if item]:
+            filters = [
+                {"filter": {"title": value, "type": object_type}} if object_type else None,
+                {"filter": {"title": value}},
+                {"q": value},
+                {"title": value},
+            ]
+            for params in [item for item in filters if item]:
+                try:
+                    result = await self.read_objects(params)
+                except IdoitConnectionError:
+                    continue
+                for entry in _category_entries(result):
+                    object_id = _object_entry_id(entry)
+                    if not object_id or object_id in seen_ids:
+                        continue
+                    seen_ids.add(object_id)
+                    candidates.append((object_id, _object_entry_title(entry)))
+        self.last_identity_match_debug["candidate_count"] = len(candidates)
+        best: Optional[dict[str, Any]] = None
+        for object_id, title in candidates:
+            score = 0
+            matched_by = None
+            title_text = _normalized_match_text(title)
+            if title_text:
+                for key in ("title", "hostname"):
+                    if identity.get(key) and title_text == _normalized_match_text(identity[key]):
+                        score = 80 if key == "title" else 85
+                        matched_by = key
+                        break
+            category_score, category_match = await self._identity_category_score(object_id, identity)
+            if category_score > score:
+                score = category_score
+                matched_by = category_match
+            if score <= 0:
+                continue
+            candidate = {"object_id": object_id, "confidence": score, "matched_by": matched_by or "identity"}
+            if best is None or candidate["confidence"] > best["confidence"]:
+                best = candidate
+        self.last_identity_match_debug["best_candidate"] = best
+        result = best if best and best["confidence"] >= 80 else None
+        self.last_identity_match_debug["result"] = result
+        return result
+
+    async def _identity_category_score(self, object_id: str, identity: dict[str, str]) -> tuple[int, Optional[str]]:
+        checks: tuple[tuple[str, dict[str, tuple[str, ...]]], ...] = (
+            ("C__CATG__ACCOUNTING", {"idoit_sysid": ("inventory_no", "inventory_number", "inventory", "title"), "cmdb_id": ("inventory_no", "inventory_number", "inventory", "title")}),
+            ("C__CATG__NETWORK_PORT", {"mac_address": ("mac", "mac_address", "address", "title")}),
+            ("C__CATG__IP", {"ip_address": ("ipv4_address", "ip_address", "address", "title"), "hostname": ("hostname", "title", "name")}),
+            ("C__CATG__GLOBAL", {"hostname": ("title", "name"), "cmdb_id": ("purpose",)}),
+        )
+        best_score = 0
+        best_match = None
+        for category, field_map in checks:
+            try:
+                result = await self.read_category(object_id, category)
+            except IdoitConnectionError:
+                continue
+            for entry in _category_entries(result):
+                score, matched_by = _entry_contains_identity(entry, identity, field_map)
+                if score > best_score:
+                    best_score = score
+                    best_match = matched_by
+        return best_score, best_match
 
     async def object_type_title(self, object_id: str) -> str:
         result = await self.read_object(object_id)
@@ -1801,6 +2180,11 @@ def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         if not isinstance(target, str) or value is None:
             continue
         if "." not in target:
+            if target.startswith("C__CAT") and isinstance(value, list) and all(isinstance(item, dict) for item in value):
+                existing = categories.setdefault(target, [])
+                if isinstance(existing, list):
+                    existing.extend(value)
+                continue
             direct[target] = value
             continue
         category, prop = target.split(".", 1)
@@ -1885,21 +2269,21 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             else:
                 await client.update_object_title(object_id, payload["title"])
         else:
-            # Exact-title matching is only a duplicate guard before an explicit
-            # create. In match-only enterprise mode, title alone is not strong
-            # enough to update a prefilled CMDB object.
-            object_id = await client.find_object_by_title(payload["title"], payload["objectType"]) if config.create_policy == "create_missing" else None
+            match = await client.find_existing_object(payload)
+            details["identity_match"] = getattr(client, "last_identity_match_debug", {"result": match})
+            object_id = match.get("object_id") if match else None
             if object_id:
                 try:
                     await client.read_object(object_id)
                     action = "link_existing"
-                    details["link_reason"] = "Local sync state had no i-doit object id; reused an existing exact-title i-doit object instead of creating a duplicate."
+                    details["link_reason"] = "Local sync state had no i-doit object id; reused an existing i-doit object from identity matching instead of creating a duplicate."
+                    details["match"] = match
                 except IdoitConnectionError as exc:
                     if not _is_missing_object_error(exc):
                         raise
-                    details["ignored_stale_title_match"] = {
+                    details["ignored_stale_identity_match"] = {
                         "idoit_object_id": object_id,
-                        "reason": "Exact-title lookup returned an object id that i-doit no longer accepts as existing; creating a fresh object instead.",
+                        "reason": "Identity lookup returned an object id that i-doit no longer accepts as existing; creating a fresh object instead.",
                     }
                     object_id = None
             if not object_id:

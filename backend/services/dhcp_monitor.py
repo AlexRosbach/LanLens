@@ -18,8 +18,9 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import DhcpAuthorizedServer, DhcpObservation, Notification, Setting
+from ..models import DhcpAuthorizedServer, DhcpObservation, Notification
 from .mac_vendor import normalize_mac
+from .scanner import _network_change_type_notifications_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -177,8 +178,7 @@ def _notification_exists(db: Session, message: str) -> bool:
 
 
 def _network_change_notifications_enabled(db: Session) -> bool:
-    row = db.query(Setting).filter(Setting.key == "notify_on_network_changes").first()
-    return row is not None and row.value == "true"
+    return _network_change_type_notifications_enabled(db, "unknown_dhcp_server")
 
 
 def notify_unknown_dhcp_servers(db: Session, rows: list[DhcpObservation]) -> int:
@@ -196,7 +196,7 @@ def notify_unknown_dhcp_servers(db: Session, rows: list[DhcpObservation]) -> int
             message = f"Network security: unknown DHCP server observed ({row.server_ip}, {row.server_mac})"
         if _notification_exists(db, message):
             continue
-        db.add(Notification(event_type="network_change", message=message))
+        db.add(Notification(event_type="network_change", event_subtype="unknown_dhcp_server", message=message))
         created += 1
     return created
 

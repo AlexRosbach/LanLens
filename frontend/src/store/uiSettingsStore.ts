@@ -13,6 +13,8 @@ interface UiSettingsState {
   showTlsChecks: boolean
   showPingHistory: boolean
   showBuildInfo: boolean
+  showDebugTools: boolean
+  debugLogLevel: 'info' | 'warning' | 'error' | 'debug' | 'trace'
   appVersion: string
   buildCode: string
   buildCommit: string
@@ -30,6 +32,7 @@ interface UiSettingsState {
   setShowTlsChecks: (showTlsChecks: boolean) => void
   setShowPingHistory: (showPingHistory: boolean) => void
   setShowBuildInfo: (showBuildInfo: boolean) => void
+  setShowDebugTools: (showDebugTools: boolean) => void
   fetchUiSettings: () => Promise<void>
 }
 
@@ -62,6 +65,8 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   showTlsChecks: false,
   showPingHistory: false,
   showBuildInfo: false,
+  showDebugTools: false,
+  debugLogLevel: 'warning',
   appVersion: '',
   buildCode: '',
   buildCommit: '',
@@ -76,6 +81,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
     showDhcpMonitorNav: advancedViewEnabled && state.showDhcpMonitorNav,
     showTlsChecks: advancedViewEnabled && state.showTlsChecks,
     showPingHistory: advancedViewEnabled && state.showPingHistory,
+    showDebugTools: advancedViewEnabled && state.showDebugTools,
     ...normalizeFeatureGates({
       advancedViewEnabled,
       showPluginApi: state.showPluginApi,
@@ -118,6 +124,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   setShowTlsChecks: (showTlsChecks) => set({ showTlsChecks }),
   setShowPingHistory: (showPingHistory) => set({ showPingHistory }),
   setShowBuildInfo: (showBuildInfo) => set({ showBuildInfo }),
+  setShowDebugTools: (showDebugTools) => set({ showDebugTools }),
 
   fetchUiSettings: async () => {
     set({ loading: true })
@@ -142,6 +149,8 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
         showTlsChecks: settings.advanced_view_enabled && settings.show_tls_checks,
         showPingHistory: settings.advanced_view_enabled && settings.show_ping_history,
         showBuildInfo: settings.show_build_info,
+        showDebugTools: settings.advanced_view_enabled && settings.show_debug_tools,
+        debugLogLevel: settings.debug_log_level,
         appVersion: settings.app_version,
         buildCode: settings.build_code,
         buildCommit: settings.build_commit,

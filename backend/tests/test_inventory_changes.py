@@ -8,8 +8,8 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-inventory-change-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, DeviceChangeEvent, User
-from backend.routers.inventory import export_network_changes, list_network_changes
+from backend.models import Device, DeviceChangeEvent, PassiveDiscoveryObservation, User
+from backend.routers.inventory import export_network_changes, get_topology, list_network_changes
 
 
 class InventoryChangeLogTests(unittest.TestCase):
@@ -70,6 +70,47 @@ class InventoryChangeLogTests(unittest.TestCase):
             self.assertEqual(rows[0].device_ip, "192.0.2.10")
             self.assertEqual(rows[0].device_mac, "00:11:22:33:44:55")
             self.assertEqual(rows[0].device_class, "NAS")
+        finally:
+            db.close()
+
+    def test_topology_includes_passive_ospf_neighbor_edges(self):
+        db = self.Session()
+        try:
+            router_a = Device(
+                mac_address="AA:BB:CC:DD:EE:01",
+                ip_address="192.0.2.1",
+                label="router-a",
+                device_class="Router",
+            )
+            router_b = Device(
+                mac_address="AA:BB:CC:DD:EE:02",
+                ip_address="192.0.2.3",
+                label="router-b",
+                device_class="Router",
+            )
+            db.add_all([router_a, router_b])
+            db.flush()
+            db.add(PassiveDiscoveryObservation(
+                protocol="ospf",
+                source_ip="192.0.2.1",
+                source_mac="AA:BB:CC:DD:EE:01",
+                destination_ip="224.0.0.5",
+                summary="OSPF hello",
+                metadata_json='{"neighbors": ["192.0.2.3"], "router_id": "192.0.2.1", "area_id": "0.0.0.0"}',
+                observed_at=datetime.utcnow(),
+            ))
+            db.commit()
+
+            topology = get_topology(db=db, _=User(username="tester", password_hash="x"))
+
+            edges = [
+                edge for edge in topology.edges
+                if edge.relationship_type == "ospf_neighbor"
+            ]
+            self.assertEqual(len(edges), 1)
+            self.assertEqual(edges[0].source, router_a.id)
+            self.assertEqual(edges[0].target, router_b.id)
+            self.assertEqual(edges[0].label, "192.0.2.3")
         finally:
             db.close()
 

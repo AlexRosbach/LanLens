@@ -99,7 +99,7 @@ For built-in HTTPS in host-network deployments, open **Settings → System → H
 
 ### Optional Advanced View
 
-LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery or build metadata.
+LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery, debug tools or build metadata.
 
 ---
 
@@ -456,7 +456,7 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 
 ## Notification Rules
 
-Use **Settings -> Notifications -> Notification rules** to choose which events are enabled globally and which external channels receive them. The matrix has one global event column and separate Telegram, webhook/Gotify and email columns, so each channel can subscribe to new-device alerts and network-change alerts independently while the global column remains the master switch for that event.
+Use **Settings -> Notifications -> Notification rules** to choose which events are enabled globally and which external channels receive them. The matrix has one global event column and separate Telegram, webhook/Gotify and email columns, so each channel can subscribe to new-device alerts, the network-change group and each granular network-change type independently while the global column remains the master switch for that event. Network-change alerts can be narrowed by type, including IP address changes, hostname changes, online/offline transitions, archive state changes, MAC drift warnings and unknown DHCP servers.
 
 Channel rules only send when the matching channel is configured and enabled in the same settings tab. Email delivery uses the SMTP settings, webhook delivery uses the configured webhook URL, and Telegram still supports separate update notifications for release checks.
 
@@ -552,7 +552,7 @@ External reverse proxies remain the better central TLS option when the deploymen
 
 ### Advanced View
 
-The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
+The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history, operator debug tools and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
 
 ### Network Changes
 
@@ -562,7 +562,7 @@ Each row shows the changed field plus before/after values and links to the affec
 
 Use **Export audit CSV** to download the currently filtered change history for audit or compliance review. The export uses the same event type, time range and search filters as the visible table. CSV cells are escaped before download, and the API also supports `format=json` for machine-readable audit snapshots.
 
-To route scan-detected network changes into alerting systems, enable **Settings -> Notifications -> Notification rules -> Network changes** for the desired in-app and external channels. LanLens creates notifications for scan-detected IP, hostname, online/offline and archive changes; enabled Telegram, webhook/Gotify and email deliveries receive the same event payloads with a device link when `server_url` is configured.
+To route scan-detected network changes into alerting systems, enable **Settings -> Notifications -> Notification rules -> Network changes** for the desired in-app and external channels. LanLens creates notifications for scan-detected IP, hostname, online/offline and archive changes, plus security-oriented events such as MAC drift and unknown DHCP servers. Use the per-type switches below the main rule to keep noisy events such as routine offline transitions out of selected channels while preserving higher-signal events elsewhere. Enabled Telegram, webhook/Gotify and email deliveries receive the same event payloads with a device link when `server_url` is configured.
 
 ### UI Error Logging
 
@@ -572,9 +572,11 @@ LanLens forwards browser-visible UI failures to the backend log stream so operat
 
 Passive discovery is an opt-in expert module. Enable **Advanced View**, **Plugin API** and **Multicast protocol discovery** under **Settings → Features**, then use **Settings → Network Discovery → Multicast protocols** to run a manual capture or schedule background captures. The same settings card controls the background interval in minutes and the capture duration in seconds; the manual capture button uses that configured duration too.
 
-LanLens stores visible mDNS, SSDP/UPnP, LLDP, CDP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. LLDP/CDP frames are captured with the multicast/passive-discovery module and parsed for neighbor identity, advertised port and device capabilities. Repeated observations with the same protocol, source, destination and service identity update their latest seen timestamp instead of filling per-device lists with duplicate rows. mDNS deduplication groups recurring packets by source and advertised service type or local host name, so a device does not get duplicate-looking rows just because the mDNS question, answer or summary text changed between packets. Generic multicast deduplication intentionally ignores ephemeral source-port churn and changing MAC metadata when the source, multicast group and destination port are the same. Per-device discovery tables show unique observations that can be linked to the device's current IP, MAC address or recorded IP history. Click an observation row to inspect parsed details and the raw captured payload.
+LanLens stores visible mDNS, SSDP/UPnP, LLDP, CDP, STP/RSTP and generic IPv4 multicast observations. Recognized control-plane traffic such as OSPF, VRRP and HSRP is labelled explicitly; other multicast packets are still stored with source/destination addresses plus UDP ports when visible. LLDP/CDP frames are captured with the multicast/passive-discovery module and parsed for neighbor identity, advertised port and device capabilities. STP/RSTP BPDUs are parsed for root bridge, bridge ID, port ID, path cost and timing values. OSPF hello packets are parsed for router ID, area, DR/BDR and neighbor router IDs. Repeated observations with the same protocol, source, destination and service identity update their latest seen timestamp instead of filling per-device lists with duplicate rows. mDNS deduplication groups recurring packets by source and advertised service type or local host name, so a device does not get duplicate-looking rows just because the mDNS question, answer or summary text changed between packets. Generic multicast deduplication intentionally ignores ephemeral source-port churn and changing MAC metadata when the source, multicast group and destination port are the same. Per-device discovery tables show unique observations that can be linked to the device's current IP, MAC address or recorded IP history. Click an observation row to inspect parsed details and the raw captured payload.
 
-When a linked observation carries a high- or medium-confidence device-class inference, passive discovery can update the matched device's `device_class`. Unknown devices are filled automatically; high-confidence router, switch, access-point, printer and similar observations may also replace broad generic classes such as `IoT` or `Workstation`. LLDP/CDP bridge/switch, router, WLAN access-point, telephone and station capabilities are treated as strong class signals. More specific existing classes are left unchanged so manually curated inventory data is not overwritten by weak service advertisements. If normal DNS discovery did not provide a usable hostname, linked mDNS observations can also fill `hostname` from advertised `.local` names.
+When a linked observation carries a high- or medium-confidence device-class inference, passive discovery can update the matched device's `device_class`. Unknown devices are filled automatically; high-confidence router, switch, access-point, printer and similar observations may also replace broad generic classes such as `IoT` or `Workstation`. LLDP/CDP bridge/switch, router, WLAN access-point, telephone and station capabilities are treated as strong class signals, STP/RSTP bridge BPDUs are treated as switch signals, and OSPF/VRRP/HSRP control-plane traffic is treated as router evidence. More specific existing classes are left unchanged so manually curated inventory data is not overwritten by weak service advertisements. If normal DNS discovery did not provide a usable hostname, linked mDNS observations can also fill `hostname` from advertised `.local` names.
+
+The inventory topology API combines existing device, host/guest and SNMP switch-port relationships with passive topology hints when both endpoints are already known devices. OSPF hello neighbors can add `ospf_neighbor` edges, HA virtual IP observations can add VRRP/HSRP virtual-IP edges, and LLDP/CDP/STP advertisements can add layer-2 edges when the advertised chassis, bridge or device identity matches an existing LanLens device. Unknown external neighbors remain visible in the passive discovery observation metadata instead of creating synthetic inventory devices.
 
 Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, linked observations, device classes updated, hostnames updated, duplicates skipped and capture errors. The same card lists recent observations and links matched rows directly to device detail pages. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. If observations are stored but not linked, the source IP/MAC has not matched a known device or its IP history yet.
 
@@ -929,8 +931,10 @@ Security and operational boundaries:
 - Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
+- The optional **Settings → Debug** tab appears when **Debug tools** is enabled in **Settings → Features**. It can filter persistent troubleshooting logs by topic (`CMDB`, `i-doit` or all), text such as CMDB IDs/object IDs/hostnames and level (`Error`, `Warning`, `Info`, `Debug`, `Trace`) so failed sync attempts can be inspected without opening container logs.
+- In `match_only` mode, LanLens still searches for an existing i-doit object before skipping. It uses stable identity hints in this order of confidence: stored object ID, manually stored i-doit SYSID, CMDB/inventory ID, MAC address, IP address, hostname and exact object title. Manual SYSID values are also matched when the i-doit tenant stores them in Accounting/Inventory fields together with a CMDB ID. If direct SYSID/category filters return no object, LanLens falls back to a bounded object-list scan and verifies the real SYSID or Accounting/Inventory category before linking. Only unmatched devices stay in `match_required`; the policy only prevents creating new objects.
 
-Default i-doit JSON-RPC field mapping writes the LanLens values that have reliable standard-category targets:
+Default i-doit JSON-RPC field mapping writes the LanLens values that have reliable standard-category targets. In **Settings → CMDB → i-doit**, the visual field mapping editor is collapsed by default because larger category mappings can be noisy; expand it only when target fields need to be adjusted.
 
 - hostname and IP address -> `C__CATG__IP`
 - MAC address -> `C__CATG__NETWORK_PORT`
@@ -939,13 +943,13 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - purpose, description and notes -> `C__CATG__GLOBAL`
 - operating system text -> `C__CATG__OPERATING_SYSTEM.description`
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
-- open-port and documented service summaries -> `C__CATG__NET_CONNECTIONS_FOLDER.description`
-- TLS certificate summaries -> `C__CATG__CERTIFICATE.description`
-- container/software summary text -> `C__CATG__APPLICATION.description`
+- open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries
+- TLS certificate records -> structured `C__CATG__CERTIFICATE` entries with subject, issuer and validity data when available
+- container/software findings -> structured `C__CATG__APPLICATION` entries
 
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
 
-Some i-doit fields such as responsible person or location are object references in standard i-doit data models, not plain text. LanLens does not guess those object IDs automatically; operators can still add explicit custom mapping entries once the target i-doit field is known.
+Some i-doit fields such as responsible person, location and selected certificate/application attributes are object references or installation-specific dropdown values in standard i-doit data models, not plain text. LanLens sends the known plain fields and treats uncertain category fields as best-effort optional writes so an unsupported optional field does not block the whole device sync. Operators can still add explicit custom mapping entries once the target i-doit field is known.
 
 ### Editable i-doit CSV Export (v1.5.2)
 
@@ -1006,7 +1010,7 @@ The API surface is available under `/api/snmp`:
 - `GET /api/snmp/topology/endpoints`
 - `GET /api/snmp/devices/{device_id}/identity`
 
-SNMP community strings and SNMPv3 credentials are stored in the application database and masked in API responses. Protect the database volume accordingly. LLDP/CDP passive capability classification is available through passive discovery; a richer topology graph is intentionally left for later increments.
+SNMP community strings and SNMPv3 credentials are stored in the application database and masked in API responses. Protect the database volume accordingly. LLDP/CDP/STP passive capability classification and OSPF/HA topology hints are available through passive discovery; the topology API only links passive relationships when both endpoints already exist as LanLens devices.
 
 ---
 

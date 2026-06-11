@@ -151,6 +151,7 @@ export interface DeviceUpdate {
   notes?: string
   cmdb_id?: string
   idoit_sync_enabled?: boolean
+  idoit_sysid?: string | null
   ignored?: boolean
   notifications_muted?: boolean
   maintenance_until?: string | null

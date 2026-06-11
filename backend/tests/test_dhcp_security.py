@@ -92,6 +92,22 @@ class DhcpSecurityTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_unknown_dhcp_server_respects_type_notification_setting(self):
+        db = self.Session()
+        try:
+            row = DhcpObservation(server_ip="192.0.2.99", server_mac="00:11:22:33:44:55", options_json="{}")
+            db.add_all([
+                row,
+                Setting(key="notify_on_network_changes", value="true"),
+                Setting(key="notify_on_unknown_dhcp_server", value="false"),
+            ])
+            db.commit()
+
+            self.assertEqual(notify_unknown_dhcp_servers(db, [row]), 0)
+            self.assertEqual(db.query(Notification).count(), 0)
+        finally:
+            db.close()
+
     def test_passive_dhcp_capture_dedupes_repeated_server_replies(self):
         db = self.Session()
         try:

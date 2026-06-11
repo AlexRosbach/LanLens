@@ -9,7 +9,7 @@ import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
 from backend.models import Setting
-from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, ha_groups_for_observations, infer_device_class_from_observation, observation_to_response, parse_cdp_packet, parse_control_plane_packet, parse_lldp_packet, parse_mdns_packet, parse_packet, parse_ssdp_packet, parse_ssdp_payload, upsert_passive_observation
+from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, ha_groups_for_observations, infer_device_class_from_observation, observation_to_response, parse_cdp_packet, parse_control_plane_packet, parse_lldp_packet, parse_mdns_packet, parse_packet, parse_ssdp_packet, parse_ssdp_payload, parse_stp_packet, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -240,6 +240,42 @@ class PassiveDiscoveryTests(unittest.TestCase):
         finally:
             db.close()
             Base.metadata.drop_all(engine)
+
+    @unittest.skipIf(Raw is None or LLC is None, "scapy is not installed")
+    def test_stp_packet_extracts_bridge_topology_and_infers_switch(self):
+        root_bridge = bytes.fromhex("8000001122334455")
+        local_bridge = bytes.fromhex("8000aabbccddeeff")
+        bpdu = (
+            b"\x00\x00"
+            + b"\x02"
+            + b"\x02"
+            + b"\x00"
+            + root_bridge
+            + (4).to_bytes(4, "big")
+            + local_bridge
+            + (0x8001).to_bytes(2, "big")
+            + (1 * 256).to_bytes(2, "big")
+            + (20 * 256).to_bytes(2, "big")
+            + (2 * 256).to_bytes(2, "big")
+            + (15 * 256).to_bytes(2, "big")
+        )
+        packet = (
+            Ether(src="AA:BB:CC:DD:EE:FF", dst="01:80:C2:00:00:00")
+            / LLC(dsap=0x42, ssap=0x42, ctrl=3)
+            / Raw(load=bpdu)
+        )
+
+        observation = parse_stp_packet(packet)
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.protocol, "stp")
+        metadata = observation_to_response(observation)["metadata"]
+        self.assertEqual(metadata["bpdu_type_label"], "RSTP/MSTP BPDU")
+        self.assertEqual(metadata["root_bridge_id"], "32768.00:11:22:33:44:55")
+        self.assertEqual(metadata["bridge_id"], "32768.aa:bb:cc:dd:ee:ff")
+        inference = infer_device_class_from_observation(observation)
+        self.assertEqual(inference["inferred_device_class"], "Switch")
+        self.assertEqual(inference["inference_confidence"], "high")
 
     def test_passive_discovery_infers_printer_from_mdns_service(self):
         observation = PassiveDiscoveryObservation(
@@ -808,6 +844,40 @@ class PassiveDiscoveryTests(unittest.TestCase):
         metadata = observation_to_response(observation)["metadata"]
         self.assertEqual(metadata["vrid"], 10)
         self.assertEqual(metadata["virtual_ip"], "192.0.2.254")
+
+    @unittest.skipIf(Ether is None or IP is None or Raw is None, "scapy is not installed")
+    def test_ospf_hello_metadata_includes_router_area_and_neighbors(self):
+        ospf_hello = (
+            b"\x02\x01\x00\x34"
+            + bytes([192, 0, 2, 1])
+            + bytes([0, 0, 0, 0])
+            + b"\x00\x00\x00\x00"
+            + b"\x00" * 8
+            + bytes([255, 255, 255, 0])
+            + (10).to_bytes(2, "big")
+            + b"\x02"
+            + b"\x01"
+            + (40).to_bytes(4, "big")
+            + bytes([192, 0, 2, 1])
+            + bytes([192, 0, 2, 2])
+            + bytes([192, 0, 2, 3])
+        )
+        packet = (
+            Ether(src="AA:BB:CC:DD:EE:01")
+            / IP(src="192.0.2.1", dst="224.0.0.5", proto=89)
+            / Raw(load=ospf_hello)
+        )
+
+        observation = parse_control_plane_packet(packet)
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.protocol, "ospf")
+        metadata = observation_to_response(observation)["metadata"]
+        self.assertEqual(metadata["ospf_type_label"], "OSPF hello")
+        self.assertEqual(metadata["router_id"], "192.0.2.1")
+        self.assertEqual(metadata["area_id"], "0.0.0.0")
+        self.assertEqual(metadata["network_mask"], "255.255.255.0")
+        self.assertEqual(metadata["neighbors"], ["192.0.2.3"])
 
     @unittest.skipIf(Ether is None or IP is None or UDP is None or Raw is None, "scapy is not installed")
     def test_hsrp_control_plane_metadata_includes_group_identity(self):

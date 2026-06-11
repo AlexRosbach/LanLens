@@ -360,6 +360,7 @@ class Notification(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
     event_type = Column(String(32), nullable=False)
+    event_subtype = Column(String(64), nullable=True)
     message = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False)
     telegram_sent = Column(Boolean, default=False)

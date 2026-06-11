@@ -41,6 +41,16 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 TOKEN_MASK = "••••••••"
 
+NETWORK_CHANGE_TYPE_RULES = [
+    ("notify_on_ip_address_change", "notify_ip_address_change"),
+    ("notify_on_hostname_change", "notify_hostname_change"),
+    ("notify_on_device_online", "notify_device_online"),
+    ("notify_on_device_offline", "notify_device_offline"),
+    ("notify_on_device_archive_change", "notify_device_archive_change"),
+    ("notify_on_mac_drift", "notify_mac_drift"),
+    ("notify_on_unknown_dhcp_server", "notify_unknown_dhcp_server"),
+]
+
 SETTING_KEYS = [
     "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
     "passive_discovery_background_enabled", "passive_discovery_interval_minutes", "passive_discovery_capture_seconds",
@@ -51,16 +61,27 @@ SETTING_KEYS = [
     "telegram_bot_token", "telegram_chat_id", "telegram_enabled", "notify_telegram_update",
     "network_interface", "notify_on_device_online", "notify_on_device_offline", "notify_on_new_device",
     "notify_on_network_changes",
+    "notify_on_ip_address_change", "notify_on_hostname_change", "notify_on_device_archive_change",
+    "notify_on_mac_drift", "notify_on_unknown_dhcp_server",
     "telegram_notify_new_device", "telegram_notify_network_changes",
+    "telegram_notify_ip_address_change", "telegram_notify_hostname_change", "telegram_notify_device_online",
+    "telegram_notify_device_offline", "telegram_notify_device_archive_change", "telegram_notify_mac_drift",
+    "telegram_notify_unknown_dhcp_server",
     "webhook_notify_new_device", "webhook_notify_network_changes",
+    "webhook_notify_ip_address_change", "webhook_notify_hostname_change", "webhook_notify_device_online",
+    "webhook_notify_device_offline", "webhook_notify_device_archive_change", "webhook_notify_mac_drift",
+    "webhook_notify_unknown_dhcp_server",
     "smtp_notify_new_device", "smtp_notify_network_changes",
+    "smtp_notify_ip_address_change", "smtp_notify_hostname_change", "smtp_notify_device_online",
+    "smtp_notify_device_offline", "smtp_notify_device_archive_change", "smtp_notify_mac_drift",
+    "smtp_notify_unknown_dhcp_server",
     "webhook_url", "webhook_enabled",
     "smtp_host", "smtp_port", "smtp_username", "smtp_password", "smtp_from_email", "smtp_to_email", "smtp_enabled", "smtp_use_tls",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
     "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav",
     "show_plugin_api", "show_passive_discovery", "show_mdns_discovery", "show_ssdp_discovery",
-    "show_tls_checks", "show_ping_history", "show_build_info",
+    "show_tls_checks", "show_ping_history", "show_build_info", "show_debug_tools", "debug_log_level",
 ]
 
 
@@ -99,6 +120,14 @@ def _set(db: Session, key: str, value: str):
         row.updated_at = datetime.utcnow()
     else:
         db.add(Setting(key=key, value=value, updated_at=datetime.utcnow()))
+
+
+def _channel_rule_value(db: Session, channel: str, suffix: str, fallback_key: str) -> bool:
+    inherited = _get(db, f"{channel}_notify_network_changes", _get(db, "notify_on_network_changes", "false"))
+    value = _get(db, f"{channel}_{suffix}", inherited)
+    if value == "":
+        value = _get(db, fallback_key, "true")
+    return value != "false"
 
 
 async def _fetch_latest_release_info() -> tuple[str, str]:
@@ -169,16 +198,42 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         telegram_enabled=_get(db, "telegram_enabled", "false") == "true",
         notify_telegram_update=_get(db, "notify_telegram_update", "false") == "true",
         network_interface=_get(db, "network_interface", ""),
-        notify_on_device_online=_get(db, "notify_on_device_online", "false") == "true",
-        notify_on_device_offline=_get(db, "notify_on_device_offline", "false") == "true",
+        notify_on_device_online=_get(db, "notify_on_device_online", "true") != "false",
+        notify_on_device_offline=_get(db, "notify_on_device_offline", "true") != "false",
         notify_on_new_device=_get(db, "notify_on_new_device", "true") != "false",
         notify_on_network_changes=_get(db, "notify_on_network_changes", "false") == "true",
+        notify_on_ip_address_change=_get(db, "notify_on_ip_address_change", "true") != "false",
+        notify_on_hostname_change=_get(db, "notify_on_hostname_change", "true") != "false",
+        notify_on_device_archive_change=_get(db, "notify_on_device_archive_change", "true") != "false",
+        notify_on_mac_drift=_get(db, "notify_on_mac_drift", "true") != "false",
+        notify_on_unknown_dhcp_server=_get(db, "notify_on_unknown_dhcp_server", "true") != "false",
         telegram_notify_new_device=_get(db, "telegram_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
         telegram_notify_network_changes=_get(db, "telegram_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
+        telegram_notify_ip_address_change=_channel_rule_value(db, "telegram", "notify_ip_address_change", "notify_on_ip_address_change"),
+        telegram_notify_hostname_change=_channel_rule_value(db, "telegram", "notify_hostname_change", "notify_on_hostname_change"),
+        telegram_notify_device_online=_channel_rule_value(db, "telegram", "notify_device_online", "notify_on_device_online"),
+        telegram_notify_device_offline=_channel_rule_value(db, "telegram", "notify_device_offline", "notify_on_device_offline"),
+        telegram_notify_device_archive_change=_channel_rule_value(db, "telegram", "notify_device_archive_change", "notify_on_device_archive_change"),
+        telegram_notify_mac_drift=_channel_rule_value(db, "telegram", "notify_mac_drift", "notify_on_mac_drift"),
+        telegram_notify_unknown_dhcp_server=_channel_rule_value(db, "telegram", "notify_unknown_dhcp_server", "notify_on_unknown_dhcp_server"),
         webhook_notify_new_device=_get(db, "webhook_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
         webhook_notify_network_changes=_get(db, "webhook_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
+        webhook_notify_ip_address_change=_channel_rule_value(db, "webhook", "notify_ip_address_change", "notify_on_ip_address_change"),
+        webhook_notify_hostname_change=_channel_rule_value(db, "webhook", "notify_hostname_change", "notify_on_hostname_change"),
+        webhook_notify_device_online=_channel_rule_value(db, "webhook", "notify_device_online", "notify_on_device_online"),
+        webhook_notify_device_offline=_channel_rule_value(db, "webhook", "notify_device_offline", "notify_on_device_offline"),
+        webhook_notify_device_archive_change=_channel_rule_value(db, "webhook", "notify_device_archive_change", "notify_on_device_archive_change"),
+        webhook_notify_mac_drift=_channel_rule_value(db, "webhook", "notify_mac_drift", "notify_on_mac_drift"),
+        webhook_notify_unknown_dhcp_server=_channel_rule_value(db, "webhook", "notify_unknown_dhcp_server", "notify_on_unknown_dhcp_server"),
         smtp_notify_new_device=_get(db, "smtp_notify_new_device", _get(db, "notify_on_new_device", "true")) != "false",
         smtp_notify_network_changes=_get(db, "smtp_notify_network_changes", _get(db, "notify_on_network_changes", "false")) == "true",
+        smtp_notify_ip_address_change=_channel_rule_value(db, "smtp", "notify_ip_address_change", "notify_on_ip_address_change"),
+        smtp_notify_hostname_change=_channel_rule_value(db, "smtp", "notify_hostname_change", "notify_on_hostname_change"),
+        smtp_notify_device_online=_channel_rule_value(db, "smtp", "notify_device_online", "notify_on_device_online"),
+        smtp_notify_device_offline=_channel_rule_value(db, "smtp", "notify_device_offline", "notify_on_device_offline"),
+        smtp_notify_device_archive_change=_channel_rule_value(db, "smtp", "notify_device_archive_change", "notify_on_device_archive_change"),
+        smtp_notify_mac_drift=_channel_rule_value(db, "smtp", "notify_mac_drift", "notify_on_mac_drift"),
+        smtp_notify_unknown_dhcp_server=_channel_rule_value(db, "smtp", "notify_unknown_dhcp_server", "notify_on_unknown_dhcp_server"),
         server_url=_get(db, "server_url", ""),
         smtp_host=_get(db, "smtp_host", ""),
         smtp_port=int(_get(db, "smtp_port", "587") or "587"),
@@ -204,6 +259,8 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         show_tls_checks=_get(db, "show_tls_checks", "false") == "true",
         show_ping_history=_get(db, "show_ping_history", "false") == "true",
         show_build_info=_get(db, "show_build_info", "false") == "true",
+        show_debug_tools=_get(db, "show_debug_tools", "false") == "true",
+        debug_log_level=_get(db, "debug_log_level", "warning") if _get(db, "debug_log_level", "warning") in {"info", "warning", "error", "debug", "trace"} else "warning",
         app_version=APP_VERSION,
         build_code=BUILD_CODE,
         build_commit=BUILD_COMMIT,
@@ -430,12 +487,25 @@ def update_notification_rules(
 ):
     _set(db, "notify_on_new_device", "true" if data.notify_on_new_device else "false")
     _set(db, "notify_on_network_changes", "true" if data.notify_on_network_changes else "false")
+    _set(db, "notify_on_ip_address_change", "true" if data.notify_on_ip_address_change else "false")
+    _set(db, "notify_on_hostname_change", "true" if data.notify_on_hostname_change else "false")
+    _set(db, "notify_on_device_online", "true" if data.notify_on_device_online else "false")
+    _set(db, "notify_on_device_offline", "true" if data.notify_on_device_offline else "false")
+    _set(db, "notify_on_device_archive_change", "true" if data.notify_on_device_archive_change else "false")
+    _set(db, "notify_on_mac_drift", "true" if data.notify_on_mac_drift else "false")
+    _set(db, "notify_on_unknown_dhcp_server", "true" if data.notify_on_unknown_dhcp_server else "false")
     _set(db, "telegram_notify_new_device", "true" if data.telegram_notify_new_device else "false")
     _set(db, "telegram_notify_network_changes", "true" if data.telegram_notify_network_changes else "false")
+    for _, suffix in NETWORK_CHANGE_TYPE_RULES:
+        _set(db, f"telegram_{suffix}", "true" if getattr(data, f"telegram_{suffix}") else "false")
     _set(db, "webhook_notify_new_device", "true" if data.webhook_notify_new_device else "false")
     _set(db, "webhook_notify_network_changes", "true" if data.webhook_notify_network_changes else "false")
+    for _, suffix in NETWORK_CHANGE_TYPE_RULES:
+        _set(db, f"webhook_{suffix}", "true" if getattr(data, f"webhook_{suffix}") else "false")
     _set(db, "smtp_notify_new_device", "true" if data.smtp_notify_new_device else "false")
     _set(db, "smtp_notify_network_changes", "true" if data.smtp_notify_network_changes else "false")
+    for _, suffix in NETWORK_CHANGE_TYPE_RULES:
+        _set(db, f"smtp_{suffix}", "true" if getattr(data, f"smtp_{suffix}") else "false")
     db.commit()
     return MessageResponse(message="Notification rules updated")
 
@@ -457,6 +527,8 @@ def update_ui_settings(
     _set(db, "show_tls_checks", "true" if data.show_tls_checks else "false")
     _set(db, "show_ping_history", "true" if data.show_ping_history else "false")
     _set(db, "show_build_info", "true" if data.show_build_info else "false")
+    _set(db, "show_debug_tools", "true" if data.show_debug_tools else "false")
+    _set(db, "debug_log_level", data.debug_log_level if data.debug_log_level in {"info", "warning", "error", "debug", "trace"} else "warning")
     db.commit()
     update_passive_discovery_schedule()
     update_ping_monitor_schedule()

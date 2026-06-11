@@ -434,6 +434,13 @@ def migrate():
         conn.execute(text("UPDATE notifications SET smtp_sent = FALSE WHERE smtp_sent IS NULL"))
         conn.commit()
 
+        if not _column_exists(conn, "notifications", "event_subtype"):
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN event_subtype VARCHAR(64)"))
+            conn.commit()
+            print("Migration: added notifications.event_subtype")
+        else:
+            print("Migration: notifications.event_subtype already exists — skipped")
+
         # ── v1.5.0 ── DHCP monitor observations ────────────────────────────
         if IS_SQLITE and not _table_exists(conn, "dhcp_observations"):
             conn.execute(text(
