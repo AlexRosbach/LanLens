@@ -99,7 +99,7 @@ For built-in HTTPS in host-network deployments, open **Settings → System → H
 
 ### Optional Advanced View
 
-LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery or build metadata.
+LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery, debug tools or build metadata.
 
 ---
 
@@ -552,7 +552,7 @@ External reverse proxies remain the better central TLS option when the deploymen
 
 ### Advanced View
 
-The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
+The default UI is intended to stay approachable for home-network users. Advanced operational features are grouped behind **Settings → Features**. Advanced View is the master switch for expert modules; individual feature switches then control CMDB/i-doit, Services, DHCP Monitor, Plugin API, passive discovery, TLS certificate checks, ping history, operator debug tools and internal build metadata. When disabled, LanLens hides the related UI surfaces, rejects the related authenticated API calls and stops matching background jobs, while keeping stored settings and historical data intact.
 
 ### Network Changes
 
@@ -931,9 +931,10 @@ Security and operational boundaries:
 - Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
+- The optional **Settings → Debug** tab appears when **Debug tools** is enabled in **Settings → Features**. It can filter persistent troubleshooting logs by topic (`CMDB`, `i-doit` or all), text such as CMDB IDs/object IDs/hostnames and level (`Error`, `Warning`, `Info`, `Debug`, `Trace`) so failed sync attempts can be inspected without opening container logs.
 - In `match_only` mode, LanLens still searches for an existing i-doit object before skipping. It uses stable identity hints in this order of confidence: stored object ID, CMDB/inventory ID, MAC address, IP address, hostname and exact object title. Only unmatched devices stay in `match_required`; the policy only prevents creating new objects.
 
-Default i-doit JSON-RPC field mapping writes the LanLens values that have reliable standard-category targets:
+Default i-doit JSON-RPC field mapping writes the LanLens values that have reliable standard-category targets. In **Settings → CMDB → i-doit**, the visual field mapping editor is collapsed by default because larger category mappings can be noisy; expand it only when target fields need to be adjusted.
 
 - hostname and IP address -> `C__CATG__IP`
 - MAC address -> `C__CATG__NETWORK_PORT`

@@ -64,6 +64,8 @@ const settings = {
   show_tls_checks: true,
   show_ping_history: true,
   show_build_info: false,
+  show_debug_tools: false,
+  debug_log_level: 'warning',
   app_version: '1.5.7',
   build_code: 'test',
   build_commit: 'test',
@@ -73,6 +75,78 @@ const settings = {
   https_configured: false,
   https_port: 443,
   https_redirect_http: false,
+}
+
+const idoitConfig = {
+  idoit_enabled: true,
+  idoit_base_url: 'https://idoit.example.test',
+  idoit_jsonrpc_path: '/src/jsonrpc.php',
+  idoit_portal_url: 'https://idoit.example.test',
+  idoit_api_key_configured: true,
+  idoit_basic_username: '',
+  idoit_basic_password_configured: false,
+  idoit_timeout_seconds: 15,
+  idoit_default_object_type: 'C__OBJTYPE__CLIENT',
+  idoit_auto_sync_enabled: false,
+  idoit_sync_scope: 'manual',
+  idoit_create_policy: 'match_only',
+  idoit_sync_interval_minutes: 60,
+  idoit_offline_retire_days: 7,
+  idoit_sync_status_field: '',
+  idoit_mapping_json: JSON.stringify({
+    name: 'Default i-doit mapping',
+    objectType: 'C__OBJTYPE__CLIENT',
+    identity: { externalIdField: 'C__CATG__ACCOUNTING.inventory_no' },
+    fields: {
+      hostname: 'C__CATG__IP.hostname',
+      ip_address: 'C__CATG__IP.ipv4_address',
+      cmdb_id: 'C__CATG__ACCOUNTING.inventory_no',
+    },
+  }, null, 2),
+  idoit_mapping_raw: JSON.stringify({
+    name: 'Default i-doit mapping',
+    objectType: 'C__OBJTYPE__CLIENT',
+    identity: { externalIdField: 'C__CATG__ACCOUNTING.inventory_no' },
+    fields: {
+      hostname: 'C__CATG__IP.hostname',
+      ip_address: 'C__CATG__IP.ipv4_address',
+      cmdb_id: 'C__CATG__ACCOUNTING.inventory_no',
+    },
+  }, null, 2),
+  idoit_mapping_parsed: {},
+  idoit_mapping_parse_error: null,
+  mapping_errors: [],
+  scheduler: { running: false, next_run_at: null },
+}
+
+const debugLogs = {
+  topic: 'cmdb',
+  level: 'debug',
+  query: '',
+  entries: [
+    {
+      id: 'idoit-101',
+      topic: 'idoit',
+      source: 'i-doit sync',
+      level: 'error',
+      device_id: 42,
+      device_name: 'edge-fw-01',
+      mode: 'manual',
+      result: 'failure',
+      message: 'i-doit sync skipped; no confident existing object match and create policy is match-only',
+      object_id: null,
+      details: {
+        payload_hash: 'f7c33a',
+        match_required: true,
+        create_policy: 'match_only',
+        payload: {
+          title: 'edge-fw-01',
+          identity: { cmdb_id: 'CMDB-0042', mac_address: '00:11:22:33:44:55' },
+        },
+      },
+      created_at: '2026-06-11T07:35:00Z',
+    },
+  ],
 }
 
 const snmpProfiles = [
@@ -238,4 +312,78 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   })
   expect(notificationRulesWidth.scrollWidth).toBeLessThanOrEqual(notificationRulesWidth.clientWidth + 1)
   await page.screenshot({ path: testInfo.outputPath('settings-notification-rules-mobile.png'), fullPage: false })
+})
+
+test('settings debug tab filters diagnostics and cmdb mapping is collapsible', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 960 })
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({ json: { username: 'admin', force_password_change: false } })
+  })
+  await page.route(/\/api\/settings(?:$|\?|\/update\/check)/, async (route) => {
+    if (route.request().url().includes('/api/settings/update/check')) {
+      await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+      return
+    }
+    await route.fulfill({
+      json: {
+        ...settings,
+        show_cmdb_integrations: true,
+        show_plugin_api: false,
+        show_passive_discovery: false,
+        show_mdns_discovery: false,
+        show_ssdp_discovery: false,
+        show_debug_tools: true,
+        debug_log_level: 'debug',
+      },
+    })
+  })
+  await page.route('**/api/idoit/config', async (route) => {
+    await route.fulfill({ json: idoitConfig })
+  })
+  await page.route('**/api/idoit/logs**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/debug/logs**', async (route) => {
+    await route.fulfill({ json: debugLogs })
+  })
+  await page.route(/\/api\/devices(?:$|\?|\/)/, async (route) => {
+    await route.fulfill({ json: { items: [], total: 0, online: 0, offline: 0, unregistered: 0, archived: 0 } })
+  })
+  await page.route('**/api/notifications/unread-count', async (route) => {
+    await route.fulfill({ json: { count: 0 } })
+  })
+  await page.route('**/api/client-errors', async (route) => {
+    await route.fulfill({ json: { ok: true } })
+  })
+  await page.route('**/api/scan-nodes**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/profiles**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route(/\/api\/snmp\/switches(?:$|\/)/, async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/endpoints**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/topology/endpoints**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+
+  await page.goto('/settings')
+  await page.getByRole('button', { name: 'Debug' }).click()
+  await expect(page.getByRole('heading', { name: 'Debug logs' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'edge-fw-01' })).toBeVisible()
+  await expect(page.getByText('match-only')).toBeVisible()
+  await page.locator('summary', { hasText: 'Details' }).click()
+  await expect(page.getByText('CMDB-0042')).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('settings-debug-tab.png'), fullPage: false })
+
+  await page.getByRole('button', { name: 'CMDB' }).click()
+  await expect(page.getByText('Field mapping')).toBeVisible()
+  await expect(page.locator('td', { hasText: 'Hostname' })).not.toBeVisible()
+  await page.getByRole('button', { name: 'Expand' }).click()
+  await expect(page.locator('td', { hasText: 'Hostname' })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('settings-cmdb-mapping-expanded.png'), fullPage: false })
 })

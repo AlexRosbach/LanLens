@@ -85,6 +85,8 @@ export interface AllSettings {
   show_tls_checks: boolean
   show_ping_history: boolean
   show_build_info: boolean
+  show_debug_tools: boolean
+  debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace'
   app_version: string
   build_code: string
   build_commit: string
@@ -230,6 +232,8 @@ export const settingsApi = {
     show_tls_checks: boolean,
     show_ping_history: boolean,
     show_build_info: boolean,
+    show_debug_tools: boolean,
+    debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace',
   ) =>
     apiClient.put('/settings/ui', {
       advanced_view_enabled,
@@ -243,6 +247,8 @@ export const settingsApi = {
       show_tls_checks,
       show_ping_history,
       show_build_info,
+      show_debug_tools,
+      debug_log_level,
     }).then((r) => r.data),
 
   updateSmtp: (data: {

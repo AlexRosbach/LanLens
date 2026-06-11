@@ -655,6 +655,8 @@ class UiSettings(BaseModel):
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False
+    show_debug_tools: bool = False
+    debug_log_level: str = "warning"
 
 
 class PortScanSettings(BaseModel):
@@ -761,6 +763,8 @@ class AllSettings(BaseModel):
     show_tls_checks: bool = False
     show_ping_history: bool = False
     show_build_info: bool = False
+    show_debug_tools: bool = False
+    debug_log_level: str = "warning"
     app_version: str = ""
     build_code: str = ""
     build_commit: str = ""
