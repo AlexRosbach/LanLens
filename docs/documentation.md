@@ -931,6 +931,7 @@ Security and operational boundaries:
 - Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI.
+- In `match_only` mode, LanLens still searches for an existing i-doit object before skipping. It uses stable identity hints in this order of confidence: stored object ID, CMDB/inventory ID, MAC address, IP address, hostname and exact object title. Only unmatched devices stay in `match_required`; the policy only prevents creating new objects.
 
 Default i-doit JSON-RPC field mapping writes the LanLens values that have reliable standard-category targets:
 
@@ -941,13 +942,13 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - purpose, description and notes -> `C__CATG__GLOBAL`
 - operating system text -> `C__CATG__OPERATING_SYSTEM.description`
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
-- open-port and documented service summaries -> `C__CATG__NET_CONNECTIONS_FOLDER.description`
-- TLS certificate summaries -> `C__CATG__CERTIFICATE.description`
-- container/software summary text -> `C__CATG__APPLICATION.description`
+- open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries
+- TLS certificate records -> structured `C__CATG__CERTIFICATE` entries with subject, issuer and validity data when available
+- container/software findings -> structured `C__CATG__APPLICATION` entries
 
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
 
-Some i-doit fields such as responsible person or location are object references in standard i-doit data models, not plain text. LanLens does not guess those object IDs automatically; operators can still add explicit custom mapping entries once the target i-doit field is known.
+Some i-doit fields such as responsible person, location and selected certificate/application attributes are object references or installation-specific dropdown values in standard i-doit data models, not plain text. LanLens sends the known plain fields and treats uncertain category fields as best-effort optional writes so an unsupported optional field does not block the whole device sync. Operators can still add explicit custom mapping entries once the target i-doit field is known.
 
 ### Editable i-doit CSV Export (v1.5.2)
 
