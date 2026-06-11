@@ -542,6 +542,47 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_client_fallback_scans_objects_when_sysid_filters_return_nothing(self):
+        test_sysid = "SYSID_TEST_0002"
+        test_hostname = "asset-02.example.test"
+
+        class FakeSearchClient(IdoitClient):
+            async def call(self, method, params=None):
+                return None
+
+            async def read_objects(self, params):
+                if params in ({"filter": {"type": "C__OBJTYPE__VIRTUAL_SERVER"}}, {"type": "C__OBJTYPE__VIRTUAL_SERVER"}, {}):
+                    return [{"id": "84", "title": test_hostname}]
+                return []
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Virtual server"}
+
+            async def read_category(self, object_id, category):
+                if category == "C__CATG__ACCOUNTING":
+                    return [{"inventory_no": f"{test_sysid}\nDEV-0002"}]
+                return []
+
+        db = self.Session()
+        try:
+            cfg = get_config(db)
+            client = FakeSearchClient(cfg)
+            match = await client.find_existing_object({
+                "title": test_hostname,
+                "objectType": "C__OBJTYPE__VIRTUAL_SERVER",
+                "identity": {
+                    "idoit_sysid": test_sysid,
+                    "hostname": test_hostname,
+                },
+            })
+
+            self.assertEqual(match["object_id"], "84")
+            self.assertEqual(match["matched_by"], "idoit_sysid")
+            self.assertTrue(client.last_identity_match_debug["sysid_lookup"]["fallback_scan_performed"])
+            self.assertEqual(client.last_identity_match_debug["sysid_lookup"]["result"]["matched_by"], "fallback_accounting_inventory_sysid")
+        finally:
+            db.close()
+
     async def test_client_confirms_mac_identity_match_from_category(self):
         class FakeSearchClient(IdoitClient):
             async def call(self, method, params=None):

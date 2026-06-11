@@ -1453,6 +1453,7 @@ def get_or_create_state(db: Session, device: Device) -> IdoitDeviceSync:
 
 
 MAX_SYNC_LOG_DETAILS_CHARS = 8000
+MAX_SYSID_SCAN_OBJECTS = 5000
 MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__NETWORK_PORT": ("mac", "title"),
     "C__CATG__IP": ("ipv4_address", "hostname"),
@@ -1834,6 +1835,14 @@ class IdoitClient:
         wanted = (sysid or "").strip()
         if not wanted:
             return None
+        lookup_debug = {
+            "direct_candidate_count": 0,
+            "fallback_scan_performed": False,
+            "fallback_candidate_count": 0,
+            "fallback_limit": MAX_SYSID_SCAN_OBJECTS,
+            "limit_reached": False,
+            "result": None,
+        }
         filters = [
             {"filter": {"sysid": wanted, "type": object_type}} if object_type else None,
             {"filter": {"sysid": wanted}},
@@ -1855,19 +1864,82 @@ class IdoitClient:
                 if not object_id or object_id in seen_ids:
                     continue
                 seen_ids.add(object_id)
+                lookup_debug["direct_candidate_count"] += 1
                 entry_sysid = _object_entry_sysid(entry)
                 if entry_sysid and entry_sysid == wanted:
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "object_list_sysid"}
+                    self.last_identity_match_debug["sysid_lookup"] = lookup_debug
                     return object_id
                 try:
                     upstream_sysid = await self.object_sysid(object_id)
                 except IdoitConnectionError:
                     continue
                 if upstream_sysid and upstream_sysid.strip() == wanted:
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "object_sysid"}
+                    self.last_identity_match_debug["sysid_lookup"] = lookup_debug
                     return object_id
                 category_score, category_match = await self._identity_category_score(object_id, {"idoit_sysid": wanted})
                 if category_score >= 95 and category_match == "idoit_sysid":
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "accounting_inventory_sysid"}
+                    self.last_identity_match_debug["sysid_lookup"] = lookup_debug
+                    return object_id
+        fallback_match = await self._scan_objects_for_sysid(wanted, object_type, seen_ids, lookup_debug)
+        self.last_identity_match_debug["sysid_lookup"] = lookup_debug
+        if fallback_match:
+            return fallback_match
+        return None
+
+    async def _scan_objects_for_sysid(self, wanted: str, object_type: Optional[str], seen_ids: set[str], lookup_debug: dict[str, Any]) -> Optional[str]:
+        """Bounded fallback for i-doit tenants that do not support SYSID/category filters."""
+        lookup_debug["fallback_scan_performed"] = True
+        base_queries: list[dict[str, Any]] = []
+        if object_type:
+            base_queries.extend([
+                {"filter": {"type": object_type}},
+                {"type": object_type},
+            ])
+        base_queries.append({})
+        for base_query in base_queries:
+            for object_id in await self._listed_object_ids(base_query):
+                if object_id in seen_ids:
+                    continue
+                seen_ids.add(object_id)
+                lookup_debug["fallback_candidate_count"] += 1
+                if lookup_debug["fallback_candidate_count"] > MAX_SYSID_SCAN_OBJECTS:
+                    lookup_debug["limit_reached"] = True
+                    return None
+                try:
+                    upstream_sysid = await self.object_sysid(object_id)
+                except IdoitConnectionError:
+                    continue
+                if upstream_sysid and upstream_sysid.strip() == wanted:
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "fallback_object_sysid"}
+                    return object_id
+                category_score, category_match = await self._identity_category_score(object_id, {"idoit_sysid": wanted})
+                if category_score >= 95 and category_match == "idoit_sysid":
+                    lookup_debug["result"] = {"object_id": object_id, "matched_by": "fallback_accounting_inventory_sysid"}
                     return object_id
         return None
+
+    async def _listed_object_ids(self, base_query: dict[str, Any]) -> list[str]:
+        queries = [dict(base_query)]
+        paged_query = dict(base_query)
+        paged_query.update({"limit": min(MAX_SYSID_SCAN_OBJECTS, 500), "offset": 0})
+        queries.append(paged_query)
+        object_ids: list[str] = []
+        seen: set[str] = set()
+        for query in queries:
+            try:
+                result = await self.read_objects(query)
+            except IdoitConnectionError:
+                continue
+            entries = _category_entries(result)
+            for entry in entries:
+                object_id = _object_entry_id(entry)
+                if object_id and object_id not in seen:
+                    seen.add(object_id)
+                    object_ids.append(object_id)
+        return object_ids
 
     async def find_existing_object(self, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
         """Find an existing i-doit object from stable LanLens identity fields."""
