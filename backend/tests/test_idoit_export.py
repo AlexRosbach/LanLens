@@ -495,6 +495,53 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_client_matches_manual_sysid_from_accounting_inventory(self):
+        test_sysid = "SYSID_TEST_0001"
+        test_cmdb_id = "DEV-0001"
+        test_hostname = "asset-01.example.test"
+        test_mac = "02:00:00:00:00:42"
+        test_ip = "192.0.2.42"
+
+        class FakeSearchClient(IdoitClient):
+            async def call(self, method, params=None):
+                return None
+
+            async def read_objects(self, params):
+                if params.get("q") == test_sysid:
+                    return [{"id": "42", "title": test_hostname}]
+                return []
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Virtual server"}
+
+            async def read_category(self, object_id, category):
+                if category == "C__CATG__ACCOUNTING":
+                    return [{"inventory_no": f"{test_sysid}\n{test_cmdb_id}"}]
+                return []
+
+        db = self.Session()
+        try:
+            cfg = get_config(db)
+            client = FakeSearchClient(cfg)
+            match = await client.find_existing_object({
+                "title": test_hostname,
+                "objectType": "C__OBJTYPE__VIRTUAL_SERVER",
+                "identity": {
+                    "idoit_sysid": test_sysid,
+                    "cmdb_id": test_cmdb_id,
+                    "mac_address": test_mac,
+                    "hostname": test_hostname,
+                    "ip_address": test_ip,
+                },
+            })
+
+            self.assertEqual(match["object_id"], "42")
+            self.assertEqual(match["matched_by"], "idoit_sysid")
+            self.assertEqual(match["confidence"], 100)
+            self.assertEqual(client.last_identity_match_debug["result"], match)
+        finally:
+            db.close()
+
     async def test_client_confirms_mac_identity_match_from_category(self):
         class FakeSearchClient(IdoitClient):
             async def call(self, method, params=None):

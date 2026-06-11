@@ -1649,6 +1649,17 @@ def _category_entry_values(entry: dict[str, Any], keys: tuple[str, ...]) -> list
     return values
 
 
+def _identity_text_matches(value: Any, expected: str) -> bool:
+    value_text = _normalized_match_text(value)
+    expected_text = _normalized_match_text(expected)
+    if not value_text or not expected_text:
+        return False
+    if value_text == expected_text:
+        return True
+    raw_parts = [part.strip() for part in re.split(r"[\r\n,;|]+", str(_plain_category_value(value) or "")) if part.strip()]
+    return any(_normalized_match_text(part) == expected_text for part in raw_parts)
+
+
 def _entry_contains_identity(entry: dict[str, Any], identity: dict[str, str], field_map: dict[str, tuple[str, ...]]) -> tuple[int, Optional[str]]:
     for identity_key, keys in field_map.items():
         expected = identity.get(identity_key)
@@ -1660,8 +1671,8 @@ def _entry_contains_identity(entry: dict[str, Any], identity: dict[str, str], fi
             if identity_key == "mac_address":
                 if expected_mac and _normalized_match_mac(value) == expected_mac:
                     return 100, identity_key
-            elif _normalized_match_text(value) == expected_text:
-                return 90 if identity_key in {"cmdb_id", "ip_address"} else 80, identity_key
+            elif _identity_text_matches(value, expected_text):
+                return 95 if identity_key == "idoit_sysid" else 90 if identity_key in {"cmdb_id", "ip_address"} else 80, identity_key
     return 0, None
 
 
@@ -1700,6 +1711,7 @@ class IdoitClient:
         self.config = config
         self.endpoint = build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path)
         self._session_id: Optional[str] = None
+        self.last_identity_match_debug: dict[str, Any] = {}
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         headers = {"Content-Type": "application/json"}
@@ -1826,6 +1838,9 @@ class IdoitClient:
             {"filter": {"sysid": wanted, "type": object_type}} if object_type else None,
             {"filter": {"sysid": wanted}},
             {"filter": {"SYSID": wanted}},
+            {"filter": {"C__CATG__ACCOUNTING.inventory_no": wanted, "type": object_type}} if object_type else None,
+            {"filter": {"C__CATG__ACCOUNTING.inventory_no": wanted}},
+            {"filter": {"C__CATG__ACCOUNTING.inventory_number": wanted}},
             {"sysid": wanted},
             {"q": wanted},
         ]
@@ -1849,24 +1864,39 @@ class IdoitClient:
                     continue
                 if upstream_sysid and upstream_sysid.strip() == wanted:
                     return object_id
+                category_score, category_match = await self._identity_category_score(object_id, {"idoit_sysid": wanted})
+                if category_score >= 95 and category_match == "idoit_sysid":
+                    return object_id
         return None
 
     async def find_existing_object(self, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
         """Find an existing i-doit object from stable LanLens identity fields."""
         identity = _identity_terms(payload)
+        self.last_identity_match_debug = {
+            "identity": identity,
+            "object_type": payload.get("objectType") if isinstance(payload.get("objectType"), str) else None,
+            "search_values": [],
+            "candidate_count": 0,
+            "best_candidate": None,
+            "result": None,
+        }
         if not identity:
             return None
         object_type = payload.get("objectType") if isinstance(payload.get("objectType"), str) else None
         sysid_match = await self.find_object_by_sysid(identity.get("idoit_sysid", ""), object_type)
         if sysid_match:
-            return {"object_id": sysid_match, "confidence": 100, "matched_by": "idoit_sysid"}
+            result = {"object_id": sysid_match, "confidence": 100, "matched_by": "idoit_sysid"}
+            self.last_identity_match_debug["result"] = result
+            return result
         search_values = [
+            identity.get("idoit_sysid"),
             identity.get("cmdb_id"),
             identity.get("mac_address"),
             identity.get("ip_address"),
             identity.get("hostname"),
             identity.get("title"),
         ]
+        self.last_identity_match_debug["search_values"] = [item for item in search_values if item]
         seen_ids: set[str] = set()
         candidates: list[tuple[str, str]] = []
         for value in [item for item in search_values if item]:
@@ -1887,6 +1917,7 @@ class IdoitClient:
                         continue
                     seen_ids.add(object_id)
                     candidates.append((object_id, _object_entry_title(entry)))
+        self.last_identity_match_debug["candidate_count"] = len(candidates)
         best: Optional[dict[str, Any]] = None
         for object_id, title in candidates:
             score = 0
@@ -1907,11 +1938,14 @@ class IdoitClient:
             candidate = {"object_id": object_id, "confidence": score, "matched_by": matched_by or "identity"}
             if best is None or candidate["confidence"] > best["confidence"]:
                 best = candidate
-        return best if best and best["confidence"] >= 80 else None
+        self.last_identity_match_debug["best_candidate"] = best
+        result = best if best and best["confidence"] >= 80 else None
+        self.last_identity_match_debug["result"] = result
+        return result
 
     async def _identity_category_score(self, object_id: str, identity: dict[str, str]) -> tuple[int, Optional[str]]:
         checks: tuple[tuple[str, dict[str, tuple[str, ...]]], ...] = (
-            ("C__CATG__ACCOUNTING", {"cmdb_id": ("inventory_no", "inventory_number", "inventory", "title")}),
+            ("C__CATG__ACCOUNTING", {"idoit_sysid": ("inventory_no", "inventory_number", "inventory", "title"), "cmdb_id": ("inventory_no", "inventory_number", "inventory", "title")}),
             ("C__CATG__NETWORK_PORT", {"mac_address": ("mac", "mac_address", "address", "title")}),
             ("C__CATG__IP", {"ip_address": ("ipv4_address", "ip_address", "address", "title"), "hostname": ("hostname", "title", "name")}),
             ("C__CATG__GLOBAL", {"hostname": ("title", "name"), "cmdb_id": ("purpose",)}),
@@ -2164,6 +2198,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 await client.update_object_title(object_id, payload["title"])
         else:
             match = await client.find_existing_object(payload)
+            details["identity_match"] = getattr(client, "last_identity_match_debug", {"result": match})
             object_id = match.get("object_id") if match else None
             if object_id:
                 try:
