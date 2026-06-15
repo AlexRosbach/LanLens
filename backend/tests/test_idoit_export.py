@@ -616,6 +616,46 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_client_fallback_scans_objects_for_mac_identity_when_search_misses_category(self):
+        class FakeSearchClient(IdoitClient):
+            async def call(self, method, params=None):
+                return None
+
+            async def read_objects(self, params):
+                if params.get("q") or params.get("title") or params.get("filter", {}).get("title"):
+                    return []
+                if params in ({"filter": {"type": "C__OBJTYPE__CLIENT"}}, {"type": "C__OBJTYPE__CLIENT"}, {}):
+                    return [{"id": "42", "title": "Inventory object"}]
+                return []
+
+            async def read_category(self, object_id, category):
+                if category == "C__CATG__NETWORK_PORT":
+                    return [{"id": "5", "mac": "00:11:22:33:44:55"}]
+                return []
+
+        db = self.Session()
+        try:
+            cfg = get_config(db)
+            client = FakeSearchClient(cfg)
+            match = await client.find_existing_object({
+                "title": "client-01",
+                "objectType": "C__OBJTYPE__CLIENT",
+                "identity": {
+                    "mac_address": "00-11-22-33-44-55",
+                    "hostname": "client-01",
+                    "ip_address": "192.0.2.10",
+                },
+            })
+
+            self.assertEqual(match["object_id"], "42")
+            self.assertEqual(match["matched_by"], "mac_address")
+            self.assertEqual(match["confidence"], 100)
+            fallback = client.last_identity_match_debug["fallback_identity_scan"]
+            self.assertTrue(fallback["fallback_scan_performed"])
+            self.assertEqual(fallback["result"], match)
+        finally:
+            db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

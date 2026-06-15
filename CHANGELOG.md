@@ -12,6 +12,7 @@ All notable changes to this project should be documented in this file.
 - Enriched the inventory topology API with passive control-plane edges for known OSPF neighbors, HA virtual IP peers and known LLDP/CDP/STP bridge relationships when both endpoints already exist as LanLens devices.
 
 ### Fixes / Hardening
+- Extended `match_only` i-doit matching with a bounded category-verified object scan for MAC/IP/hostname/CMDB identity when direct i-doit object search does not return category-field matches.
 - Matched manual i-doit SYSID values even when the tenant stores them in Accounting/Inventory fields together with CMDB IDs, added a bounded verified object-list fallback for tenants that do not support direct SYSID filters, and added identity-match diagnostics to skipped sync logs.
 - Made the large CMDB/i-doit field mapping editor collapsible so Settings stays usable while still keeping advanced mapping controls available.
 - Matched existing i-doit objects during `match_only` sync by stable LanLens identity fields such as CMDB ID, MAC address, IP address, hostname and object title instead of requiring a previously stored i-doit object ID.

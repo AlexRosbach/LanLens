@@ -1922,11 +1922,15 @@ class IdoitClient:
         return None
 
     async def _listed_object_ids(self, base_query: dict[str, Any]) -> list[str]:
+        entries = await self._listed_object_entries(base_query)
+        return [object_id for object_id, _title in entries]
+
+    async def _listed_object_entries(self, base_query: dict[str, Any]) -> list[tuple[str, str]]:
         queries = [dict(base_query)]
         paged_query = dict(base_query)
         paged_query.update({"limit": min(MAX_SYSID_SCAN_OBJECTS, 500), "offset": 0})
         queries.append(paged_query)
-        object_ids: list[str] = []
+        objects: list[tuple[str, str]] = []
         seen: set[str] = set()
         for query in queries:
             try:
@@ -1938,8 +1942,62 @@ class IdoitClient:
                 object_id = _object_entry_id(entry)
                 if object_id and object_id not in seen:
                     seen.add(object_id)
-                    object_ids.append(object_id)
-        return object_ids
+                    objects.append((object_id, _object_entry_title(entry)))
+        return objects
+
+    async def _scan_objects_for_identity(self, identity: dict[str, str], object_type: Optional[str], seen_ids: set[str]) -> Optional[dict[str, Any]]:
+        """Bounded fallback for i-doit tenants that cannot search category fields."""
+        scan_debug = {
+            "fallback_scan_performed": True,
+            "fallback_candidate_count": 0,
+            "fallback_limit": MAX_SYSID_SCAN_OBJECTS,
+            "limit_reached": False,
+            "best_candidate": None,
+            "result": None,
+        }
+        self.last_identity_match_debug["fallback_identity_scan"] = scan_debug
+        base_queries: list[dict[str, Any]] = []
+        if object_type:
+            base_queries.extend([
+                {"filter": {"type": object_type}},
+                {"type": object_type},
+            ])
+        base_queries.append({})
+        best: Optional[dict[str, Any]] = None
+        for base_query in base_queries:
+            for object_id, title in await self._listed_object_entries(base_query):
+                if object_id in seen_ids:
+                    continue
+                seen_ids.add(object_id)
+                scan_debug["fallback_candidate_count"] += 1
+                if scan_debug["fallback_candidate_count"] > MAX_SYSID_SCAN_OBJECTS:
+                    scan_debug["limit_reached"] = True
+                    return best if best and best["confidence"] >= 80 else None
+                score = 0
+                matched_by = None
+                title_text = _normalized_match_text(title)
+                if title_text:
+                    for key in ("title", "hostname"):
+                        if identity.get(key) and title_text == _normalized_match_text(identity[key]):
+                            score = 80 if key == "title" else 85
+                            matched_by = key
+                            break
+                category_score, category_match = await self._identity_category_score(object_id, identity)
+                if category_score > score:
+                    score = category_score
+                    matched_by = category_match
+                if score <= 0:
+                    continue
+                candidate = {"object_id": object_id, "confidence": score, "matched_by": matched_by or "identity_fallback"}
+                if best is None or candidate["confidence"] > best["confidence"]:
+                    best = candidate
+                    scan_debug["best_candidate"] = candidate
+                    if candidate["confidence"] >= 95:
+                        scan_debug["result"] = candidate
+                        return candidate
+        result = best if best and best["confidence"] >= 80 else None
+        scan_debug["result"] = result
+        return result
 
     async def find_existing_object(self, payload: dict[str, Any]) -> Optional[dict[str, Any]]:
         """Find an existing i-doit object from stable LanLens identity fields."""
@@ -2012,6 +2070,8 @@ class IdoitClient:
                 best = candidate
         self.last_identity_match_debug["best_candidate"] = best
         result = best if best and best["confidence"] >= 80 else None
+        if result is None:
+            result = await self._scan_objects_for_identity(identity, object_type, seen_ids)
         self.last_identity_match_debug["result"] = result
         return result
 
