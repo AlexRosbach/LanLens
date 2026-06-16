@@ -138,18 +138,18 @@ export interface DeviceListResponse {
 }
 
 export interface DeviceUpdate {
-  label?: string
+  label?: string | null
   device_class?: string
   is_registered?: boolean
-  purpose?: string
-  description?: string
-  location?: string
-  responsible?: string
-  password_location?: string
-  os_info?: string
-  asset_tag?: string
-  notes?: string
-  cmdb_id?: string
+  purpose?: string | null
+  description?: string | null
+  location?: string | null
+  responsible?: string | null
+  password_location?: string | null
+  os_info?: string | null
+  asset_tag?: string | null
+  notes?: string | null
+  cmdb_id?: string | null
   idoit_sync_enabled?: boolean
   idoit_sysid?: string | null
   ignored?: boolean

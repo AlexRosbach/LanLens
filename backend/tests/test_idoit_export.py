@@ -551,7 +551,11 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                 return None
 
             async def read_objects(self, params):
-                if params in ({"filter": {"type": "C__OBJTYPE__VIRTUAL_SERVER"}}, {"type": "C__OBJTYPE__VIRTUAL_SERVER"}, {}):
+                if params in (
+                    {"filter": {"type": "C__OBJTYPE__VIRTUAL_SERVER"}, "limit": 500, "offset": 0},
+                    {"type": "C__OBJTYPE__VIRTUAL_SERVER", "limit": 500, "offset": 0},
+                    {"limit": 500, "offset": 0},
+                ):
                     return [{"id": "84", "title": test_hostname}]
                 return []
 
@@ -580,6 +584,50 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(match["matched_by"], "idoit_sysid")
             self.assertTrue(client.last_identity_match_debug["sysid_lookup"]["fallback_scan_performed"])
             self.assertEqual(client.last_identity_match_debug["sysid_lookup"]["result"]["matched_by"], "fallback_accounting_inventory_sysid")
+        finally:
+            db.close()
+
+    async def test_client_fallback_scans_later_object_pages_for_sysid(self):
+        test_sysid = "SYSID_1714817396"
+        test_hostname = "asset-03.example.test"
+
+        class FakeSearchClient(IdoitClient):
+            async def call(self, method, params=None):
+                return None
+
+            async def read_objects(self, params):
+                if params.get("q") == test_sysid or params.get("filter", {}).get("sysid") == test_sysid:
+                    return []
+                if params.get("limit") == 500 and params.get("offset") == 0:
+                    return [{"id": str(index), "title": f"other-{index}"} for index in range(1, 501)]
+                if params.get("limit") == 500 and params.get("offset") == 500:
+                    return [{"id": "777", "title": test_hostname}]
+                return []
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Client"}
+
+            async def read_category(self, object_id, category):
+                if object_id == "777" and category == "C__CATG__ACCOUNTING":
+                    return [{"inventory_no": test_sysid}]
+                return []
+
+        db = self.Session()
+        try:
+            cfg = get_config(db)
+            client = FakeSearchClient(cfg)
+            match = await client.find_existing_object({
+                "title": test_hostname,
+                "objectType": "C__OBJTYPE__CLIENT",
+                "identity": {
+                    "idoit_sysid": test_sysid,
+                    "hostname": test_hostname,
+                },
+            })
+
+            self.assertEqual(match["object_id"], "777")
+            self.assertEqual(match["matched_by"], "idoit_sysid")
+            self.assertTrue(client.last_identity_match_debug["sysid_lookup"]["fallback_scan_performed"])
         finally:
             db.close()
 
@@ -624,7 +672,11 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             async def read_objects(self, params):
                 if params.get("q") or params.get("title") or params.get("filter", {}).get("title"):
                     return []
-                if params in ({"filter": {"type": "C__OBJTYPE__CLIENT"}}, {"type": "C__OBJTYPE__CLIENT"}, {}):
+                if params in (
+                    {"filter": {"type": "C__OBJTYPE__CLIENT"}, "limit": 500, "offset": 0},
+                    {"type": "C__OBJTYPE__CLIENT", "limit": 500, "offset": 0},
+                    {"limit": 500, "offset": 0},
+                ):
                     return [{"id": "42", "title": "Inventory object"}]
                 return []
 

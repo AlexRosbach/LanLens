@@ -1926,23 +1926,41 @@ class IdoitClient:
         return [object_id for object_id, _title in entries]
 
     async def _listed_object_entries(self, base_query: dict[str, Any]) -> list[tuple[str, str]]:
-        queries = [dict(base_query)]
-        paged_query = dict(base_query)
-        paged_query.update({"limit": min(MAX_SYSID_SCAN_OBJECTS, 500), "offset": 0})
-        queries.append(paged_query)
         objects: list[tuple[str, str]] = []
         seen: set[str] = set()
-        for query in queries:
+
+        async def read_page(query: dict[str, Any]) -> tuple[int, int]:
             try:
                 result = await self.read_objects(query)
             except IdoitConnectionError:
-                continue
+                return 0, 0
             entries = _category_entries(result)
+            added = 0
             for entry in entries:
                 object_id = _object_entry_id(entry)
                 if object_id and object_id not in seen:
                     seen.add(object_id)
                     objects.append((object_id, _object_entry_title(entry)))
+                    added += 1
+                    if len(objects) >= MAX_SYSID_SCAN_OBJECTS:
+                        return len(entries), added
+            return len(entries), added
+
+        page_size = min(MAX_SYSID_SCAN_OBJECTS, 500)
+        for offset in range(0, MAX_SYSID_SCAN_OBJECTS, page_size):
+            if len(objects) >= MAX_SYSID_SCAN_OBJECTS:
+                break
+            paged_query = dict(base_query)
+            paged_query.update({"limit": page_size, "offset": offset})
+            entry_count, added = await read_page(paged_query)
+            if entry_count <= 0:
+                break
+            # If the tenant ignores offset and returns an already-seen page,
+            # stop instead of looping over the same objects repeatedly.
+            if added <= 0:
+                break
+            if entry_count < page_size:
+                break
         return objects
 
     async def _scan_objects_for_identity(self, identity: dict[str, str], object_type: Optional[str], seen_ids: set[str]) -> Optional[dict[str, Any]]:

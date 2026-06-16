@@ -258,20 +258,24 @@ export default function DeviceDetail() {
 
   async function handleSave() {
     if (!device || !form) return
+    const nullableText = (value: string) => {
+      const trimmed = value.trim()
+      return trimmed ? trimmed : null
+    }
     setSaving(true)
     try {
       const updated = await devicesApi.update(device.id, {
-        label: form.label.trim() || undefined,
+        label: nullableText(form.label),
         device_class: form.deviceClass.trim() || 'Unknown',
-        purpose: form.purpose.trim() || undefined,
-        description: form.description.trim() || undefined,
-        location: form.location.trim() || undefined,
-        responsible: form.responsible.trim() || undefined,
-        password_location: form.passwordLocation.trim() || undefined,
-        os_info: form.osInfo.trim() || undefined,
-        asset_tag: form.assetTag.trim() || undefined,
-        notes: form.notes.trim() || undefined,
-        cmdb_id: form.cmdbId.trim() || undefined,
+        purpose: nullableText(form.purpose),
+        description: nullableText(form.description),
+        location: nullableText(form.location),
+        responsible: nullableText(form.responsible),
+        password_location: nullableText(form.passwordLocation),
+        os_info: nullableText(form.osInfo),
+        asset_tag: nullableText(form.assetTag),
+        notes: nullableText(form.notes),
+        cmdb_id: nullableText(form.cmdbId),
         idoit_sysid: form.idoitSysid.trim() || null,
         is_registered: true,
       })
