@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
 from backend.models import Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
-from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config
+from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
 class IdoitExportCsvTest(unittest.TestCase):
@@ -750,6 +750,69 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(fallback["result"], match)
         finally:
             db.close()
+
+    async def test_sysid_lookup_records_direct_attempt_debug(self):
+        class FakeSearchClient(IdoitClient):
+            async def call(self, method, params=None):
+                return None
+
+            async def read_objects(self, params):
+                if params.get("filter", {}).get("sysid") == "SYSID_MISSING_DEBUG":
+                    return [{"id": "42", "title": "Wrong SYSID object", "sysid": "SYSID_OTHER"}]
+                return []
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Client", "sysid": "SYSID_OTHER"}
+
+            async def read_category(self, object_id, category):
+                return []
+
+        db = self.Session()
+        try:
+            cfg = get_config(db)
+            client = FakeSearchClient(cfg)
+            match = await client.find_existing_object({
+                "title": "client-01",
+                "objectType": "C__OBJTYPE__CLIENT",
+                "identity": {
+                    "idoit_sysid": "SYSID_MISSING_DEBUG",
+                    "hostname": "client-01",
+                },
+            })
+
+            self.assertIsNone(match)
+            lookup = client.last_identity_match_debug["sysid_lookup"]
+            self.assertGreaterEqual(lookup["direct_candidate_count"], 1)
+            first_candidate = next(
+                candidate
+                for attempt in lookup["attempts"]
+                for candidate in attempt["candidates"]
+                if candidate["object_id"] == "42"
+            )
+            self.assertEqual(first_candidate["entry_sysid"], "SYSID_OTHER")
+            self.assertEqual(first_candidate["object_sysid"], "SYSID_OTHER")
+            self.assertEqual(first_candidate["rejected_reason"], "no exact SYSID match on object entry, object read, or mapped identity categories")
+        finally:
+            db.close()
+
+    def test_truncated_sync_log_keeps_identity_match_debug(self):
+        details = {
+            "payload": {"title": "client-01", "fields": {f"field_{index}": "x" * 100 for index in range(120)}},
+            "identity_match": {
+                "identity": {"idoit_sysid": "SYSID_1714817396"},
+                "sysid_lookup": {"attempts": [{"candidate_count": 0}], "result": None},
+                "result": None,
+            },
+            "match_required": True,
+            "create_policy": "match_only",
+            "upstream_write_performed": False,
+        }
+
+        encoded = _safe_log_details(details)
+
+        self.assertIn("identity_match", encoded)
+        self.assertIn("SYSID_1714817396", encoded)
+        self.assertIn("match_only", encoded)
 
 
 if __name__ == "__main__":

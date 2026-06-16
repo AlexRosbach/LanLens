@@ -78,6 +78,17 @@ export interface IdoitSyncLogEntry {
   created_at: string
 }
 
+export interface IdoitSysidLookupResult {
+  ok: boolean
+  sysid: string
+  object_id?: string | null
+  object_url?: string | null
+  message?: string
+  debug?: Record<string, unknown>
+  object?: Record<string, unknown>
+  object_read_error?: Record<string, unknown>
+}
+
 export interface IdoitExportRow {
   include: boolean
   device_id?: number | null
@@ -123,6 +134,9 @@ export const idoitApi = {
   testMapping: () => apiClient.post<IdoitTestResult>('/idoit/test-mapping').then((r) => r.data),
 
   syncDevice: (id: number) => apiClient.post<IdoitTestResult>(`/idoit/devices/${id}/sync`).then((r) => r.data),
+
+  testDeviceSysid: (id: number, sysid?: string) =>
+    apiClient.post<IdoitSysidLookupResult>(`/idoit/devices/${id}/test-sysid`, sysid ? { sysid } : {}).then((r) => r.data),
 
   syncAll: () => apiClient.post<IdoitBulkSyncResult>('/idoit/sync-all').then((r) => r.data),
 

@@ -5,6 +5,7 @@ All notable changes to this project should be documented in this file.
 ## Unreleased
 
 ### New Features
+- Added a per-device i-doit SYSID lookup button that tests whether the configured SYSID resolves to a visible i-doit object before running a sync.
 - Added an opt-in Settings Debug tab behind **Settings -> Features -> Debug tools** with topic, text and level filters for persistent CMDB/i-doit troubleshooting logs.
 - Added granular network-change notification type switches for IP address changes, hostname changes, online/offline transitions, archive state changes, MAC drift warnings and unknown DHCP servers.
 - Added STP/RSTP passive discovery parsing so bridge/root-bridge topology advertisements are stored, shown in multicast observations and can classify linked devices as switches.
@@ -12,6 +13,7 @@ All notable changes to this project should be documented in this file.
 - Enriched the inventory topology API with passive control-plane edges for known OSPF neighbors, HA virtual IP peers and known LLDP/CDP/STP bridge relationships when both endpoints already exist as LanLens devices.
 
 ### Fixes / Hardening
+- Expanded i-doit match-only diagnostics so skipped sync logs keep direct SYSID lookup attempts, candidate rejections and fallback page counts even when large payload details are truncated.
 - Paginated the i-doit `match_only` fallback scan so manually entered SYSID values can match objects beyond the first i-doit object page.
 - Advanced i-doit fallback pagination by the returned page size so tenants with smaller server-side page caps do not skip objects during SYSID matching.
 - Allowed clearing device text fields such as Label, Asset Tag, CMDB ID and documentation notes from the device detail form instead of silently keeping the previous values.

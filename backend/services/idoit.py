@@ -1505,6 +1505,9 @@ def _safe_log_details(details: dict[str, Any]) -> str:
         for key in ("errors", "warnings", "upstream_write_performed"):
             if key in details:
                 summary[key] = details[key]
+        for key in ("identity_match", "match_debug", "match_required", "create_policy"):
+            if key in details:
+                summary[key] = details[key]
         if "payload" in details:
             summary["payload"] = _payload_log_summary(details["payload"])
     return json.dumps(summary, default=str, sort_keys=True)[:MAX_SYNC_LOG_DETAILS_CHARS]
@@ -1842,6 +1845,7 @@ class IdoitClient:
             "fallback_limit": MAX_SYSID_SCAN_OBJECTS,
             "limit_reached": False,
             "result": None,
+            "attempts": [],
         }
         filters = [
             {"filter": {"sysid": wanted, "type": object_type}} if object_type else None,
@@ -1855,34 +1859,60 @@ class IdoitClient:
         ]
         seen_ids: set[str] = set()
         for params in [item for item in filters if item]:
+            attempt = {
+                "params": params,
+                "candidate_count": 0,
+                "candidates": [],
+                "error": None,
+            }
+            lookup_debug["attempts"].append(attempt)
             try:
                 result = await self.read_objects(params)
-            except IdoitConnectionError:
+            except IdoitConnectionError as exc:
+                attempt["error"] = exc.to_detail()
                 continue
-            for entry in _category_entries(result):
+            entries = _category_entries(result)
+            attempt["candidate_count"] = len(entries)
+            for entry in entries:
                 object_id = _object_entry_id(entry)
                 if not object_id or object_id in seen_ids:
                     continue
                 seen_ids.add(object_id)
                 lookup_debug["direct_candidate_count"] += 1
                 entry_sysid = _object_entry_sysid(entry)
+                candidate_debug: dict[str, Any] = {
+                    "object_id": object_id,
+                    "title": _object_entry_title(entry),
+                    "entry_sysid": entry_sysid or None,
+                    "object_sysid": None,
+                    "category_score": None,
+                    "category_match": None,
+                    "rejected_reason": None,
+                }
+                if len(attempt["candidates"]) < 20:
+                    attempt["candidates"].append(candidate_debug)
                 if entry_sysid and entry_sysid == wanted:
                     lookup_debug["result"] = {"object_id": object_id, "matched_by": "object_list_sysid"}
                     self.last_identity_match_debug["sysid_lookup"] = lookup_debug
                     return object_id
                 try:
                     upstream_sysid = await self.object_sysid(object_id)
-                except IdoitConnectionError:
+                except IdoitConnectionError as exc:
+                    candidate_debug["rejected_reason"] = f"object_sysid_error: {exc.message}"
                     continue
+                candidate_debug["object_sysid"] = upstream_sysid
                 if upstream_sysid and upstream_sysid.strip() == wanted:
                     lookup_debug["result"] = {"object_id": object_id, "matched_by": "object_sysid"}
                     self.last_identity_match_debug["sysid_lookup"] = lookup_debug
                     return object_id
                 category_score, category_match = await self._identity_category_score(object_id, {"idoit_sysid": wanted})
+                candidate_debug["category_score"] = category_score
+                candidate_debug["category_match"] = category_match
                 if category_score >= 95 and category_match == "idoit_sysid":
                     lookup_debug["result"] = {"object_id": object_id, "matched_by": "accounting_inventory_sysid"}
                     self.last_identity_match_debug["sysid_lookup"] = lookup_debug
                     return object_id
+                candidate_debug["rejected_reason"] = "no exact SYSID match on object entry, object read, or mapped identity categories"
         fallback_match = await self._scan_objects_for_sysid(wanted, object_type, seen_ids, lookup_debug)
         self.last_identity_match_debug["sysid_lookup"] = lookup_debug
         if fallback_match:
@@ -1892,6 +1922,7 @@ class IdoitClient:
     async def _scan_objects_for_sysid(self, wanted: str, object_type: Optional[str], seen_ids: set[str], lookup_debug: dict[str, Any]) -> Optional[str]:
         """Bounded fallback for i-doit tenants that do not support SYSID/category filters."""
         lookup_debug["fallback_scan_performed"] = True
+        lookup_debug["fallback_pages"] = []
         base_queries: list[dict[str, Any]] = []
         if object_type:
             base_queries.extend([
@@ -1900,7 +1931,7 @@ class IdoitClient:
             ])
         base_queries.append({})
         for base_query in base_queries:
-            for object_id in await self._listed_object_ids(base_query):
+            for object_id in await self._listed_object_ids(base_query, lookup_debug["fallback_pages"]):
                 if object_id in seen_ids:
                     continue
                 seen_ids.add(object_id)
@@ -1921,19 +1952,19 @@ class IdoitClient:
                     return object_id
         return None
 
-    async def _listed_object_ids(self, base_query: dict[str, Any]) -> list[str]:
-        entries = await self._listed_object_entries(base_query)
+    async def _listed_object_ids(self, base_query: dict[str, Any], debug_pages: Optional[list[dict[str, Any]]] = None) -> list[str]:
+        entries = await self._listed_object_entries(base_query, debug_pages)
         return [object_id for object_id, _title in entries]
 
-    async def _listed_object_entries(self, base_query: dict[str, Any]) -> list[tuple[str, str]]:
+    async def _listed_object_entries(self, base_query: dict[str, Any], debug_pages: Optional[list[dict[str, Any]]] = None) -> list[tuple[str, str]]:
         objects: list[tuple[str, str]] = []
         seen: set[str] = set()
 
-        async def read_page(query: dict[str, Any]) -> tuple[int, int]:
+        async def read_page(query: dict[str, Any]) -> tuple[int, int, Optional[str]]:
             try:
                 result = await self.read_objects(query)
-            except IdoitConnectionError:
-                return 0, 0
+            except IdoitConnectionError as exc:
+                return 0, 0, exc.message
             entries = _category_entries(result)
             added = 0
             for entry in entries:
@@ -1943,8 +1974,8 @@ class IdoitClient:
                     objects.append((object_id, _object_entry_title(entry)))
                     added += 1
                     if len(objects) >= MAX_SYSID_SCAN_OBJECTS:
-                        return len(entries), added
-            return len(entries), added
+                        return len(entries), added, None
+            return len(entries), added, None
 
         page_size = min(MAX_SYSID_SCAN_OBJECTS, 500)
         offset = 0
@@ -1953,7 +1984,16 @@ class IdoitClient:
                 break
             paged_query = dict(base_query)
             paged_query.update({"limit": page_size, "offset": offset})
-            entry_count, added = await read_page(paged_query)
+            entry_count, added, error = await read_page(paged_query)
+            if debug_pages is not None and len(debug_pages) < 40:
+                debug_pages.append({
+                    "base_query": base_query,
+                    "limit": page_size,
+                    "offset": offset,
+                    "entry_count": entry_count,
+                    "new_entries": added,
+                    "error": error,
+                })
             if entry_count <= 0:
                 break
             # If the tenant ignores offset and returns an already-seen page,
@@ -1983,7 +2023,9 @@ class IdoitClient:
         base_queries.append({})
         best: Optional[dict[str, Any]] = None
         for base_query in base_queries:
-            for object_id, title in await self._listed_object_entries(base_query):
+            scan_pages: list[dict[str, Any]] = []
+            scan_debug.setdefault("fallback_pages", scan_pages)
+            for object_id, title in await self._listed_object_entries(base_query, scan_pages):
                 if object_id in seen_ids:
                     continue
                 seen_ids.add(object_id)

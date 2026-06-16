@@ -3556,6 +3556,14 @@ export default function Settings() {
                                 {Boolean(entry.details?.error) && (
                                   <pre className="mt-1 max-w-xl whitespace-pre-wrap break-words rounded bg-danger/10 p-2 text-[11px] text-danger">{JSON.stringify(entry.details?.error, null, 2)}</pre>
                                 )}
+                                {Boolean(entry.details) && (
+                                  <details className="mt-2">
+                                    <summary className="cursor-pointer text-[11px] font-medium text-primary hover:underline">{t('debug_details')}</summary>
+                                    <pre className="mt-2 max-w-3xl overflow-auto whitespace-pre-wrap break-words rounded bg-surface p-2 font-mono text-[11px] text-text-muted border border-border">
+                                      {JSON.stringify(entry.details || {}, null, 2)}
+                                    </pre>
+                                  </details>
+                                )}
                               </td>
                             </tr>
                           ))}

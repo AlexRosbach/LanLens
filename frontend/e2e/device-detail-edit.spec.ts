@@ -128,3 +128,87 @@ test('device detail saves cleared label and asset tag as null values', async ({ 
   expect(updatePayload?.label).toBeNull()
   expect(updatePayload?.asset_tag).toBeNull()
 })
+
+test('device detail can test an i-doit sysid lookup and show debug details', async ({ page }) => {
+  const cmdbSettings = {
+    ...settings,
+    advanced_view_enabled: true,
+    show_cmdb_integrations: true,
+  }
+  const idoitDevice = {
+    ...device,
+    idoit_enabled: true,
+    idoit_sync_enabled: true,
+    idoit_sync_status: 'match_required',
+    idoit_sysid: 'SYSID_1714817396',
+    idoit_last_error: 'No confident existing i-doit match found; create policy is match-only',
+  }
+
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({ json: { username: 'admin', force_password_change: false } })
+  })
+  await page.route('**/api/settings', async (route) => {
+    await route.fulfill({ json: cmdbSettings })
+  })
+  await page.route('**/api/notifications/unread-count', async (route) => {
+    await route.fulfill({ json: { count: 0 } })
+  })
+  await page.route('**/api/settings/update/check', async (route) => {
+    await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+  })
+  await page.route('**/api/client-errors', async (route) => {
+    await route.fulfill({ json: { ok: true } })
+  })
+  await page.route('**/api/devices', async (route) => {
+    await route.fulfill({ json: { items: [idoitDevice], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
+  })
+  await page.route('**/api/devices/1/mark-viewed', async (route) => {
+    await route.fulfill({ json: { message: 'ok' } })
+  })
+  await page.route('**/api/devices/1/ip-history', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/timeline', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/deep-scan/**', async (route) => {
+    await route.fulfill({ json: route.request().url().includes('/config') ? {} : [] })
+  })
+  await page.route('**/api/credentials', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1', async (route) => {
+    await route.fulfill({ json: idoitDevice })
+  })
+  await page.route('**/api/idoit/devices/1/test-sysid', async (route) => {
+    await route.fulfill({
+      json: {
+        ok: false,
+        sysid: 'SYSID_1714817396',
+        object_id: null,
+        object_url: null,
+        message: 'i-doit SYSID lookup did not find a visible object',
+        debug: {
+          direct_candidate_count: 0,
+          attempts: [
+            {
+              params: { filter: { sysid: 'SYSID_1714817396' } },
+              candidate_count: 0,
+            },
+          ],
+          fallback_scan_performed: true,
+          fallback_pages: [{ offset: 0, limit: 500, entry_count: 0, new_entries: 0 }],
+          result: null,
+        },
+      },
+    })
+  })
+
+  await page.goto('/devices/1')
+  await page.getByRole('button', { name: 'Test SYSID' }).click()
+
+  await expect(page.getByText('i-doit SYSID lookup did not find a visible object')).toBeVisible()
+  await page.getByText('Details').click()
+  await expect(page.getByText('direct_candidate_count')).toBeVisible()
+  await expect(page.locator('pre').filter({ hasText: 'SYSID_1714817396' })).toBeVisible()
+})

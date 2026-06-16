@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, DeviceIpHistoryEntry, DevicePingSample, PassiveDiscoveryObservation, devicesApi } from '../api/devices'
-import { idoitApi } from '../api/idoit'
+import { idoitApi, type IdoitSysidLookupResult } from '../api/idoit'
 import type { ChangeEvent } from '../api/inventory'
 import { servicesApi } from '../api/services'
 import { SnmpSwitchPort, SnmpSwitchPortsResponse, snmpApi } from '../api/snmp'
@@ -191,6 +191,8 @@ export default function DeviceDetail() {
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
   const [idoitSyncing, setIdoitSyncing] = useState(false)
+  const [idoitTestingSysid, setIdoitTestingSysid] = useState(false)
+  const [idoitSysidLookup, setIdoitSysidLookup] = useState<IdoitSysidLookupResult | null>(null)
   const [tlsCheckingIds, setTlsCheckingIds] = useState<number[]>([])
   const [selectedPassiveObservation, setSelectedPassiveObservation] = useState<PassiveDiscoveryObservation | null>(null)
   const sectionNavRef = useRef<HTMLDivElement | null>(null)
@@ -364,6 +366,33 @@ export default function DeviceDetail() {
       toast.error(message)
     } finally {
       setIdoitSyncing(false)
+    }
+  }
+
+  async function handleTestIdoitSysid() {
+    if (!device) return
+    const sysid = form?.idoitSysid.trim() || device.idoit_sysid || ''
+    if (!sysid.trim()) {
+      toast.error(t('idoit_sysid_lookup_missing'))
+      return
+    }
+    setIdoitTestingSysid(true)
+    try {
+      const result = await idoitApi.testDeviceSysid(device.id, sysid.trim())
+      setIdoitSysidLookup(result)
+      if (result.ok) {
+        toast.success(t('idoit_sysid_lookup_found', { objectId: result.object_id || '—' }))
+      } else {
+        toast.error(t('idoit_sysid_lookup_not_found'))
+      }
+    } catch (error) {
+      const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      const message = typeof detail === 'object' && detail && 'message' in detail
+        ? String((detail as { message?: unknown }).message)
+        : t('idoit_sysid_lookup_failed')
+      toast.error(message)
+    } finally {
+      setIdoitTestingSysid(false)
     }
   }
 
@@ -696,6 +725,7 @@ export default function DeviceDetail() {
                   <h2 className="text-sm font-semibold text-text-muted">{t('idoit_sync')}</h2>
                   <div className="flex items-center gap-2">
                     <Badge variant={idoitStatusVariant(device.idoit_sync_status)} dot>{device.idoit_sync_status || 'never_synced'}</Badge>
+                    <Button size="sm" variant="outline" onClick={handleTestIdoitSysid} loading={idoitTestingSysid}>{t('idoit_test_sysid')}</Button>
                     <Button size="sm" variant="outline" onClick={handleIdoitSyncNow} loading={idoitSyncing}>{t('idoit_sync_now')}</Button>
                   </div>
                 </div>
@@ -720,6 +750,27 @@ export default function DeviceDetail() {
                   </div>
                   <InfoRow label={t('idoit_last_sync')} value={device.idoit_last_sync_at ? formatDateTime(device.idoit_last_sync_at) : null} />
                   <InfoRow label={t('idoit_last_validation')} value={device.idoit_last_validation_at ? formatDateTime(device.idoit_last_validation_at) : null} />
+                  {idoitSysidLookup && (
+                    <div className="col-span-2 rounded-lg border border-border bg-surface2/40 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-text-subtle text-xs mb-0.5">{t('idoit_sysid_lookup_result')}</p>
+                          <p className={`text-xs font-medium ${idoitSysidLookup.ok ? 'text-success' : 'text-warning'}`}>
+                            {idoitSysidLookup.message || (idoitSysidLookup.ok ? t('idoit_sysid_lookup_found', { objectId: idoitSysidLookup.object_id || '—' }) : t('idoit_sysid_lookup_not_found'))}
+                          </p>
+                        </div>
+                        {idoitSysidLookup.object_url && (
+                          <a className="text-xs text-primary hover:underline" href={idoitSysidLookup.object_url} target="_blank" rel="noreferrer">{t('open_in_idoit')}</a>
+                        )}
+                      </div>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-[11px] font-medium text-primary hover:underline">{t('debug_details')}</summary>
+                        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-surface p-2 font-mono text-[11px] text-text-muted border border-border">
+                          {JSON.stringify(idoitSysidLookup.debug || {}, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  )}
                   {device.idoit_last_error && (
                     <div className="col-span-2">
                       <p className="text-text-subtle text-xs mb-0.5">{t('idoit_last_error')}</p>
