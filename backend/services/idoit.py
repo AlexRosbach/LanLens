@@ -1947,7 +1947,8 @@ class IdoitClient:
             return len(entries), added
 
         page_size = min(MAX_SYSID_SCAN_OBJECTS, 500)
-        for offset in range(0, MAX_SYSID_SCAN_OBJECTS, page_size):
+        offset = 0
+        while offset < MAX_SYSID_SCAN_OBJECTS:
             if len(objects) >= MAX_SYSID_SCAN_OBJECTS:
                 break
             paged_query = dict(base_query)
@@ -1959,8 +1960,7 @@ class IdoitClient:
             # stop instead of looping over the same objects repeatedly.
             if added <= 0:
                 break
-            if entry_count < page_size:
-                break
+            offset += entry_count
         return objects
 
     async def _scan_objects_for_identity(self, identity: dict[str, str], object_type: Optional[str], seen_ids: set[str]) -> Optional[dict[str, Any]]:

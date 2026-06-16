@@ -631,6 +631,49 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_client_fallback_uses_returned_page_size_for_sysid_offsets(self):
+        test_sysid = "SYSID_1714817396"
+        test_hostname = "asset-04.example.test"
+
+        class FakeSearchClient(IdoitClient):
+            async def call(self, method, params=None):
+                return None
+
+            async def read_objects(self, params):
+                if params.get("q") == test_sysid or params.get("filter", {}).get("sysid") == test_sysid:
+                    return []
+                if params.get("limit") == 500 and params.get("offset") == 0:
+                    return [{"id": str(index), "title": f"other-{index}"} for index in range(1, 101)]
+                if params.get("limit") == 500 and params.get("offset") == 100:
+                    return [{"id": "888", "title": test_hostname}]
+                return []
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Client"}
+
+            async def read_category(self, object_id, category):
+                if object_id == "888" and category == "C__CATG__ACCOUNTING":
+                    return [{"inventory_no": test_sysid}]
+                return []
+
+        db = self.Session()
+        try:
+            cfg = get_config(db)
+            client = FakeSearchClient(cfg)
+            match = await client.find_existing_object({
+                "title": test_hostname,
+                "objectType": "C__OBJTYPE__CLIENT",
+                "identity": {
+                    "idoit_sysid": test_sysid,
+                    "hostname": test_hostname,
+                },
+            })
+
+            self.assertEqual(match["object_id"], "888")
+            self.assertEqual(match["matched_by"], "idoit_sysid")
+        finally:
+            db.close()
+
     async def test_client_confirms_mac_identity_match_from_category(self):
         class FakeSearchClient(IdoitClient):
             async def call(self, method, params=None):

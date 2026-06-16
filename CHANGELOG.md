@@ -13,6 +13,7 @@ All notable changes to this project should be documented in this file.
 
 ### Fixes / Hardening
 - Paginated the i-doit `match_only` fallback scan so manually entered SYSID values can match objects beyond the first i-doit object page.
+- Advanced i-doit fallback pagination by the returned page size so tenants with smaller server-side page caps do not skip objects during SYSID matching.
 - Allowed clearing device text fields such as Label, Asset Tag, CMDB ID and documentation notes from the device detail form instead of silently keeping the previous values.
 - Extended `match_only` i-doit matching with a bounded category-verified object scan for MAC/IP/hostname/CMDB identity when direct i-doit object search does not return category-field matches.
 - Matched manual i-doit SYSID values even when the tenant stores them in Accounting/Inventory fields together with CMDB IDs, added a bounded verified object-list fallback for tenants that do not support direct SYSID filters, and added identity-match diagnostics to skipped sync logs.
