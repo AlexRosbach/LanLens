@@ -8,6 +8,7 @@ import Modal from '../components/ui/Modal'
 import Spinner from '../components/ui/Spinner'
 import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
+import { debugApi, type DebugLogEntry } from '../api/debug'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
 import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryHaGroup, type PassiveDiscoveryObservation } from '../api/plugins'
@@ -46,12 +47,40 @@ interface IdoitMapping {
 type NotificationRuleKey =
   | 'notify_on_new_device'
   | 'notify_on_network_changes'
+  | 'notify_on_ip_address_change'
+  | 'notify_on_hostname_change'
+  | 'notify_on_device_online'
+  | 'notify_on_device_offline'
+  | 'notify_on_device_archive_change'
+  | 'notify_on_mac_drift'
+  | 'notify_on_unknown_dhcp_server'
   | 'telegram_notify_new_device'
   | 'telegram_notify_network_changes'
+  | 'telegram_notify_ip_address_change'
+  | 'telegram_notify_hostname_change'
+  | 'telegram_notify_device_online'
+  | 'telegram_notify_device_offline'
+  | 'telegram_notify_device_archive_change'
+  | 'telegram_notify_mac_drift'
+  | 'telegram_notify_unknown_dhcp_server'
   | 'webhook_notify_new_device'
   | 'webhook_notify_network_changes'
+  | 'webhook_notify_ip_address_change'
+  | 'webhook_notify_hostname_change'
+  | 'webhook_notify_device_online'
+  | 'webhook_notify_device_offline'
+  | 'webhook_notify_device_archive_change'
+  | 'webhook_notify_mac_drift'
+  | 'webhook_notify_unknown_dhcp_server'
   | 'smtp_notify_new_device'
   | 'smtp_notify_network_changes'
+  | 'smtp_notify_ip_address_change'
+  | 'smtp_notify_hostname_change'
+  | 'smtp_notify_device_online'
+  | 'smtp_notify_device_offline'
+  | 'smtp_notify_device_archive_change'
+  | 'smtp_notify_mac_drift'
+  | 'smtp_notify_unknown_dhcp_server'
 
 const IDOIT_MAPPING_FIELDS = [
   { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
@@ -388,6 +417,11 @@ export default function Settings() {
   const [idoitTestError, setIdoitTestError] = useState<IdoitErrorDetails | null>(null)
   const [idoitLogs, setIdoitLogs] = useState<IdoitSyncLogEntry[]>([])
   const [idoitLogsLoading, setIdoitLogsLoading] = useState(false)
+  const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([])
+  const [debugLogsLoading, setDebugLogsLoading] = useState(false)
+  const [debugTopic, setDebugTopic] = useState<'all' | 'cmdb' | 'idoit'>('cmdb')
+  const [debugQuery, setDebugQuery] = useState('')
+  const [idoitMappingExpanded, setIdoitMappingExpanded] = useState(false)
   const [scanNodes, setScanNodes] = useState<ScanNode[]>([])
   const [scanNodesLoading, setScanNodesLoading] = useState(false)
   const [scanNodeName, setScanNodeName] = useState('')
@@ -421,7 +455,7 @@ export default function Settings() {
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
   const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
   const [passiveHaGroups, setPassiveHaGroups] = useState<PassiveDiscoveryHaGroup[]>([])
-  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'backup' | 'database' | 'cmdb'>('system')
+  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'backup' | 'database' | 'cmdb' | 'debug'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
@@ -433,6 +467,7 @@ export default function Settings() {
   const setShowTlsChecks = useUiSettingsStore((state) => state.setShowTlsChecks)
   const setShowPingHistory = useUiSettingsStore((state) => state.setShowPingHistory)
   const setShowBuildInfo = useUiSettingsStore((state) => state.setShowBuildInfo)
+  const setShowDebugTools = useUiSettingsStore((state) => state.setShowDebugTools)
   const idoitMappingState = useMemo(
     () => parseIdoitMapping(idoitConfig?.idoit_mapping_raw || '{}'),
     [idoitConfig?.idoit_mapping_raw]
@@ -454,12 +489,14 @@ export default function Settings() {
       setShowTlsChecks(data.advanced_view_enabled && data.show_tls_checks)
       setShowPingHistory(data.advanced_view_enabled && data.show_ping_history)
       setShowBuildInfo(data.show_build_info)
+      setShowDebugTools(data.advanced_view_enabled && data.show_debug_tools)
       setTelegramTokenDirty(false)
       if (data.advanced_view_enabled && data.show_plugin_api && data.show_passive_discovery) {
         loadPassiveObservations().catch(() => {})
       }
       if (data.advanced_view_enabled) {
         if (data.show_cmdb_integrations) loadIdoitConfig()
+        if (data.show_debug_tools) loadDebugLogs(data.debug_log_level).catch(() => {})
         loadScanNodes().catch(() => {})
         loadSnmp().catch(() => {})
       }
@@ -470,6 +507,9 @@ export default function Settings() {
 
   useEffect(() => {
     if (settings && (!settings.advanced_view_enabled || !settings.show_cmdb_integrations) && activeSection === 'cmdb') {
+      setActiveSection('system')
+    }
+    if (settings && (!settings.advanced_view_enabled || !settings.show_debug_tools) && activeSection === 'debug') {
       setActiveSection('system')
     }
   }, [activeSection, settings])
@@ -510,6 +550,73 @@ export default function Settings() {
       networkChangeKey: 'smtp_notify_network_changes' as NotificationRuleKey,
     },
   ]
+  const notificationRuleRows = [
+    { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
+    { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
+    {
+      label: t('notify_on_ip_address_change'),
+      keys: [
+        'notify_on_ip_address_change',
+        'telegram_notify_ip_address_change',
+        'webhook_notify_ip_address_change',
+        'smtp_notify_ip_address_change',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_hostname_change'),
+      keys: [
+        'notify_on_hostname_change',
+        'telegram_notify_hostname_change',
+        'webhook_notify_hostname_change',
+        'smtp_notify_hostname_change',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_device_online'),
+      keys: [
+        'notify_on_device_online',
+        'telegram_notify_device_online',
+        'webhook_notify_device_online',
+        'smtp_notify_device_online',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_device_offline'),
+      keys: [
+        'notify_on_device_offline',
+        'telegram_notify_device_offline',
+        'webhook_notify_device_offline',
+        'smtp_notify_device_offline',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_device_archive_change'),
+      keys: [
+        'notify_on_device_archive_change',
+        'telegram_notify_device_archive_change',
+        'webhook_notify_device_archive_change',
+        'smtp_notify_device_archive_change',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_mac_drift'),
+      keys: [
+        'notify_on_mac_drift',
+        'telegram_notify_mac_drift',
+        'webhook_notify_mac_drift',
+        'smtp_notify_mac_drift',
+      ] as NotificationRuleKey[],
+    },
+    {
+      label: t('notify_on_unknown_dhcp_server'),
+      keys: [
+        'notify_on_unknown_dhcp_server',
+        'telegram_notify_unknown_dhcp_server',
+        'webhook_notify_unknown_dhcp_server',
+        'smtp_notify_unknown_dhcp_server',
+      ] as NotificationRuleKey[],
+    },
+  ]
 
   function updateNotificationRule(key: NotificationRuleKey, checked: boolean) {
     setSettings({ ...current, [key]: checked })
@@ -540,6 +647,23 @@ export default function Settings() {
       toast.error(t('idoit_logs_load_failed'))
     } finally {
       setIdoitLogsLoading(false)
+    }
+  }
+
+  async function loadDebugLogs(levelOverride?: AllSettings['debug_log_level']) {
+    setDebugLogsLoading(true)
+    try {
+      const response = await debugApi.getLogs({
+        topic: debugTopic,
+        level: levelOverride || current.debug_log_level,
+        q: debugQuery.trim() || undefined,
+        limit: 150,
+      })
+      setDebugLogs(response.entries)
+    } catch {
+      toast.error(t('debug_logs_load_failed'))
+    } finally {
+      setDebugLogsLoading(false)
     }
   }
 
@@ -844,12 +968,40 @@ export default function Settings() {
       await settingsApi.updateNotificationRules({
         notify_on_new_device: current.notify_on_new_device,
         notify_on_network_changes: current.notify_on_network_changes,
+        notify_on_ip_address_change: current.notify_on_ip_address_change,
+        notify_on_hostname_change: current.notify_on_hostname_change,
+        notify_on_device_online: current.notify_on_device_online,
+        notify_on_device_offline: current.notify_on_device_offline,
+        notify_on_device_archive_change: current.notify_on_device_archive_change,
+        notify_on_mac_drift: current.notify_on_mac_drift,
+        notify_on_unknown_dhcp_server: current.notify_on_unknown_dhcp_server,
         telegram_notify_new_device: current.telegram_notify_new_device,
         telegram_notify_network_changes: current.telegram_notify_network_changes,
+        telegram_notify_ip_address_change: current.telegram_notify_ip_address_change,
+        telegram_notify_hostname_change: current.telegram_notify_hostname_change,
+        telegram_notify_device_online: current.telegram_notify_device_online,
+        telegram_notify_device_offline: current.telegram_notify_device_offline,
+        telegram_notify_device_archive_change: current.telegram_notify_device_archive_change,
+        telegram_notify_mac_drift: current.telegram_notify_mac_drift,
+        telegram_notify_unknown_dhcp_server: current.telegram_notify_unknown_dhcp_server,
         webhook_notify_new_device: current.webhook_notify_new_device,
         webhook_notify_network_changes: current.webhook_notify_network_changes,
+        webhook_notify_ip_address_change: current.webhook_notify_ip_address_change,
+        webhook_notify_hostname_change: current.webhook_notify_hostname_change,
+        webhook_notify_device_online: current.webhook_notify_device_online,
+        webhook_notify_device_offline: current.webhook_notify_device_offline,
+        webhook_notify_device_archive_change: current.webhook_notify_device_archive_change,
+        webhook_notify_mac_drift: current.webhook_notify_mac_drift,
+        webhook_notify_unknown_dhcp_server: current.webhook_notify_unknown_dhcp_server,
         smtp_notify_new_device: current.smtp_notify_new_device,
         smtp_notify_network_changes: current.smtp_notify_network_changes,
+        smtp_notify_ip_address_change: current.smtp_notify_ip_address_change,
+        smtp_notify_hostname_change: current.smtp_notify_hostname_change,
+        smtp_notify_device_online: current.smtp_notify_device_online,
+        smtp_notify_device_offline: current.smtp_notify_device_offline,
+        smtp_notify_device_archive_change: current.smtp_notify_device_archive_change,
+        smtp_notify_mac_drift: current.smtp_notify_mac_drift,
+        smtp_notify_unknown_dhcp_server: current.smtp_notify_unknown_dhcp_server,
       })
       toast.success(t('notification_rules_saved'))
     } catch {
@@ -1378,6 +1530,8 @@ export default function Settings() {
         current.show_tls_checks,
         current.show_ping_history,
         current.show_build_info,
+        current.show_debug_tools,
+        current.debug_log_level,
       )
       setAdvancedViewEnabled(current.advanced_view_enabled)
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
@@ -1390,6 +1544,7 @@ export default function Settings() {
       setShowTlsChecks(current.advanced_view_enabled && current.show_tls_checks)
       setShowPingHistory(current.advanced_view_enabled && current.show_ping_history)
       setShowBuildInfo(current.show_build_info)
+      setShowDebugTools(current.advanced_view_enabled && current.show_debug_tools)
       if (current.advanced_view_enabled) {
         if (current.show_cmdb_integrations) {
           loadIdoitConfig()
@@ -1397,11 +1552,17 @@ export default function Settings() {
           setIdoitConfig(null)
           setIdoitLoadError(false)
         }
+        if (current.show_debug_tools) {
+          loadDebugLogs().catch(() => {})
+        } else {
+          setDebugLogs([])
+        }
         loadScanNodes().catch(() => {})
         loadSnmp().catch(() => {})
       } else {
         setIdoitConfig(null)
         setIdoitLoadError(false)
+        setDebugLogs([])
       }
       toast.success(t('ui_settings_saved'))
     } catch {
@@ -1422,6 +1583,7 @@ export default function Settings() {
     { key: 'backup' as const, label: t('backup_restore') },
     { key: 'database' as const, label: t('database') },
     ...(current.advanced_view_enabled && current.show_cmdb_integrations ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
+    ...(current.advanced_view_enabled && current.show_debug_tools ? [{ key: 'debug' as const, label: t('debug_tab') }] : []),
   ]
 
   const featureGroups = [
@@ -1447,6 +1609,7 @@ export default function Settings() {
             show_ssdp_discovery: checked ? current.show_ssdp_discovery : false,
             show_tls_checks: checked ? current.show_tls_checks : false,
             show_ping_history: checked ? current.show_ping_history : false,
+            show_debug_tools: checked ? current.show_debug_tools : false,
           }),
         },
         {
@@ -1455,6 +1618,14 @@ export default function Settings() {
           label: t('show_build_info'),
           description: t('show_build_info_hint'),
           onChange: (checked: boolean) => setSettings({ ...current, show_build_info: checked }),
+        },
+        {
+          key: 'debug-tools',
+          checked: current.show_debug_tools,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_debug_tools'),
+          description: t('show_debug_tools_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_debug_tools: checked }),
         },
       ],
     },
@@ -1746,6 +1917,118 @@ export default function Settings() {
           <div className="flex justify-end">
             <Button onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
           </div>
+        </div>
+      </div>
+      )}
+
+      {/* ── DEBUG ─────────────────────────────────────────────────────────── */}
+      {activeSection === 'debug' && (
+      <div>
+        <h2 className="text-xs font-semibold text-text-subtle uppercase tracking-widest mb-3">
+          {t('debug_tab')}
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-base mb-1">{t('debug_title')}</h2>
+            <p className="text-sm text-text-subtle">{t('debug_description')}</p>
+          </div>
+
+          <Card>
+            <div className="grid gap-3 lg:grid-cols-[180px_180px_minmax(220px,1fr)_auto] lg:items-end">
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('debug_topic')}</label>
+                <select
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                  value={debugTopic}
+                  onChange={(e) => setDebugTopic(e.target.value as 'all' | 'cmdb' | 'idoit')}
+                >
+                  <option value="cmdb">CMDB</option>
+                  <option value="idoit">i-doit</option>
+                  <option value="all">{t('filter_all')}</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('debug_level')}</label>
+                <select
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                  value={current.debug_log_level}
+                  onChange={(e) => setSettings({ ...current, debug_log_level: e.target.value as AllSettings['debug_log_level'] })}
+                >
+                  <option value="error">Error</option>
+                  <option value="warning">Warning</option>
+                  <option value="info">Info</option>
+                  <option value="debug">Debug</option>
+                  <option value="trace">Trace</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-text-subtle mb-1">{t('debug_search')}</label>
+                <Input
+                  value={debugQuery}
+                  onChange={(e) => setDebugQuery(e.target.value)}
+                  placeholder={t('debug_search_placeholder')}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={saveUi} loading={saving}>{t('save_changes')}</Button>
+                <Button onClick={() => loadDebugLogs()} loading={debugLogsLoading}>{t('refresh')}</Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            {debugLogs.length === 0 ? (
+              <p className="text-sm text-text-subtle">{t('debug_logs_empty')}</p>
+            ) : (
+              <div className="max-h-[620px] overflow-auto rounded-lg border border-border bg-background">
+                <table className="min-w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-surface text-text-subtle">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">{t('time')}</th>
+                      <th className="px-3 py-2 font-medium">{t('debug_level')}</th>
+                      <th className="px-3 py-2 font-medium">{t('debug_topic')}</th>
+                      <th className="px-3 py-2 font-medium">{t('col_device')}</th>
+                      <th className="px-3 py-2 font-medium">{t('message')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {debugLogs.map((entry) => (
+                      <tr key={entry.id} className="align-top">
+                        <td className="whitespace-nowrap px-3 py-2 text-text-subtle">{formatDateTime(entry.created_at)}</td>
+                        <td className="px-3 py-2">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${entry.level === 'error' ? 'bg-danger/15 text-danger' : entry.level === 'warning' ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success'}`}>
+                            {entry.level}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-text-subtle">{entry.source}</td>
+                        <td className="px-3 py-2">
+                          {entry.device_id ? (
+                            <Link to={`/devices/${entry.device_id}`} className="font-medium text-primary hover:underline">
+                              {entry.device_name || `Device #${entry.device_id}`}
+                            </Link>
+                          ) : (
+                            <span className="text-text-subtle">{entry.device_name || '—'}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-text-muted">
+                          <p>{entry.message || '—'}</p>
+                          <p className="mt-1 text-[11px] text-text-subtle">
+                            {entry.mode} · {entry.result}{entry.object_id ? ` · Object ${entry.object_id}` : ''}
+                          </p>
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-[11px] font-medium text-primary hover:underline">{t('debug_details')}</summary>
+                            <pre className="mt-2 max-w-3xl overflow-auto whitespace-pre-wrap break-words rounded bg-surface p-2 font-mono text-[11px] text-text-muted border border-border">
+                              {JSON.stringify(entry.details || {}, null, 2)}
+                            </pre>
+                          </details>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         </div>
       </div>
       )}
@@ -2513,7 +2796,7 @@ export default function Settings() {
               <h2 className="text-lg font-semibold text-text-base">{t('notification_rules')}</h2>
               <p className="mt-1 text-sm text-text-subtle">{t('notification_rules_hint')}</p>
             </div>
-            <div className="overflow-hidden rounded-lg border border-border">
+            <div className="hidden overflow-hidden rounded-lg border border-border md:block">
               <div className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] bg-surface2/70 text-xs font-medium uppercase tracking-wide text-text-subtle">
                 <div className="px-3 py-2">{t('notification_event')}</div>
                 {notificationRuleChannels.map((channel) => (
@@ -2522,10 +2805,7 @@ export default function Settings() {
                   </div>
                 ))}
               </div>
-              {[
-                { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
-                { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
-              ].map((row) => (
+              {notificationRuleRows.map((row) => (
                 <div key={row.label} className="grid grid-cols-[minmax(132px,1.3fr)_repeat(4,minmax(88px,1fr))] border-t border-border bg-surface/60">
                   <div className="px-3 py-3 text-sm font-medium text-text-base">{row.label}</div>
                   {row.keys.map((key) => (
@@ -2545,6 +2825,41 @@ export default function Settings() {
                       </button>
                     </div>
                   ))}
+                  {Array.from({ length: Math.max(0, notificationRuleChannels.length - row.keys.length) }).map((_, index) => (
+                    <div key={`${row.label}-empty-${index}`} className="px-3 py-3" />
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="space-y-3 md:hidden">
+              {notificationRuleRows.map((row) => (
+                <div key={row.label} className="rounded-lg border border-border bg-surface/60 p-3">
+                  <div className="text-sm font-medium text-text-base">{row.label}</div>
+                  <div className="mt-3 grid gap-2">
+                    {row.keys.map((key, index) => {
+                      const channel = row.keys.length === 1 ? null : notificationRuleChannels[index]
+                      return (
+                        <div key={key} className="flex min-h-10 items-center justify-between gap-3 rounded-md bg-surface2/60 px-3 py-2">
+                          <span className="text-xs font-medium text-text-subtle">
+                            {channel ? channel.label : t('notification_in_app')}
+                          </span>
+                          <button
+                            type="button"
+                            aria-pressed={Boolean(current[key])}
+                            aria-label={`${row.label}: ${key}`}
+                            onClick={() => updateNotificationRule(key, !current[key])}
+                            className={`relative h-6 w-11 flex-none rounded-full transition-colors ${
+                              current[key] ? 'bg-primary' : 'bg-border'
+                            }`}
+                          >
+                            <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${
+                              current[key] ? 'translate-x-6' : 'translate-x-1'
+                            }`} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
@@ -3010,11 +3325,22 @@ export default function Settings() {
                 </div>
 
                 <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">
-                  <div className="flex flex-col gap-1 mb-4">
-                    <h3 className="text-sm font-semibold text-text-muted">{t('idoit_mapping_editor')}</h3>
-                    <p className="text-xs text-text-subtle">{t('idoit_mapping_editor_hint')}</p>
+                  <div className="mb-4 flex items-start justify-between gap-4">
+                    <div className="flex flex-col gap-1">
+                      <h3 className="text-sm font-semibold text-text-muted">{t('idoit_mapping_editor')}</h3>
+                      <p className="text-xs text-text-subtle">{t('idoit_mapping_editor_hint')}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIdoitMappingExpanded((open) => !open)}
+                    >
+                      {idoitMappingExpanded ? t('collapse') : t('expand')}
+                    </Button>
                   </div>
 
+                  {(idoitMappingExpanded || Boolean(idoitMappingState.error)) && (
+                  <>
                   {idoitMappingState.error ? (
                     <div className="rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
                       {t('idoit_mapping_json_invalid')}: {idoitMappingState.error}
@@ -3096,6 +3422,8 @@ export default function Settings() {
                         </table>
                       </div>
                     </div>
+                  )}
+                  </>
                   )}
                 </div>
 
@@ -3227,6 +3555,14 @@ export default function Settings() {
                                 )}
                                 {Boolean(entry.details?.error) && (
                                   <pre className="mt-1 max-w-xl whitespace-pre-wrap break-words rounded bg-danger/10 p-2 text-[11px] text-danger">{JSON.stringify(entry.details?.error, null, 2)}</pre>
+                                )}
+                                {Boolean(entry.details) && (
+                                  <details className="mt-2">
+                                    <summary className="cursor-pointer text-[11px] font-medium text-primary hover:underline">{t('debug_details')}</summary>
+                                    <pre className="mt-2 max-w-3xl overflow-auto whitespace-pre-wrap break-words rounded bg-surface p-2 font-mono text-[11px] text-text-muted border border-border">
+                                      {JSON.stringify(entry.details || {}, null, 2)}
+                                    </pre>
+                                  </details>
                                 )}
                               </td>
                             </tr>

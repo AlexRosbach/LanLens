@@ -126,6 +126,22 @@ def _summary_from_metadata(protocol: str, metadata: dict[str, Any]) -> str:
         if capabilities:
             parts.append(", ".join(str(item) for item in capabilities[:4]))
         return " · ".join(parts)
+    if protocol == "stp":
+        root = metadata.get("root_bridge_id") or "unknown root"
+        bridge = metadata.get("bridge_id")
+        role = metadata.get("bpdu_type_label") or "STP/RSTP"
+        parts = [role, f"root {root}"]
+        if bridge:
+            parts.append(f"bridge {bridge}")
+        return " · ".join(parts)
+    if protocol == "ospf":
+        router_id = metadata.get("router_id") or metadata.get("source_router_id") or "unknown router"
+        area = metadata.get("area_id")
+        packet_type = metadata.get("ospf_type_label") or "OSPF"
+        parts = [packet_type, f"router {router_id}"]
+        if area:
+            parts.append(f"area {area}")
+        return " · ".join(parts)
     return metadata.get("packet_type") or f"{protocol.upper()} packet observed"
 
 
@@ -441,6 +457,97 @@ def parse_cdp_packet(packet: Any) -> PassiveDiscoveryObservation | None:
     )
 
 
+def _bridge_id_text(value: bytes) -> str | None:
+    if len(value) != 8:
+        return None
+    priority = int.from_bytes(value[:2], "big")
+    mac = normalize_mac(":".join(f"{part:02x}" for part in value[2:]))
+    return f"{priority}.{mac.lower()}" if mac else str(priority)
+
+
+def _stp_payload(packet: Any) -> bytes | None:
+    try:
+        from scapy.packet import Raw
+        if packet.haslayer(Raw):
+            return bytes(packet[Raw].load)
+    except Exception:
+        pass
+    try:
+        from scapy.layers.l2 import Ether, LLC
+        if not packet.haslayer(Ether):
+            return None
+        payload = bytes(packet[Ether].payload)
+        if packet.haslayer(LLC):
+            llc = packet[LLC]
+            if int(getattr(llc, "dsap", 0) or 0) == 0x42:
+                return bytes(llc.payload)
+        return payload
+    except Exception:
+        return None
+
+
+def _parse_stp_bpdu(payload: bytes) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"packet_type": "STP/RSTP topology BPDU"}
+    if len(payload) < 4:
+        return metadata
+    metadata["protocol_id"] = int.from_bytes(payload[0:2], "big")
+    metadata["version"] = int(payload[2])
+    bpdu_type = int(payload[3])
+    metadata["bpdu_type"] = bpdu_type
+    metadata["bpdu_type_label"] = {
+        0x00: "STP configuration BPDU",
+        0x02: "RSTP/MSTP BPDU",
+        0x80: "STP topology-change notification",
+    }.get(bpdu_type, "STP/RSTP BPDU")
+    if len(payload) >= 35 and bpdu_type in {0x00, 0x02}:
+        metadata["flags"] = int(payload[4])
+        metadata["root_bridge_id"] = _bridge_id_text(payload[5:13])
+        metadata["root_path_cost"] = int.from_bytes(payload[13:17], "big")
+        metadata["bridge_id"] = _bridge_id_text(payload[17:25])
+        metadata["port_id"] = int.from_bytes(payload[25:27], "big")
+        metadata["message_age"] = int.from_bytes(payload[27:29], "big") / 256
+        metadata["max_age"] = int.from_bytes(payload[29:31], "big") / 256
+        metadata["hello_time"] = int.from_bytes(payload[31:33], "big") / 256
+        metadata["forward_delay"] = int.from_bytes(payload[33:35], "big") / 256
+    return {key: value for key, value in metadata.items() if value not in (None, [], "")}
+
+
+def parse_stp_packet(packet: Any) -> PassiveDiscoveryObservation | None:
+    try:
+        from scapy.layers.l2 import Ether, LLC
+    except Exception:
+        return None
+    if not packet.haslayer(Ether):
+        return None
+    ether = packet[Ether]
+    destination_mac = normalize_mac(str(getattr(ether, "dst", "") or ""))
+    is_stp_destination = destination_mac in {
+        "01:80:C2:00:00:00",
+        "01:80:C2:00:00:08",
+    }
+    is_stp_llc = packet.haslayer(LLC) and int(getattr(packet[LLC], "dsap", 0) or 0) == 0x42
+    if not is_stp_destination and not is_stp_llc:
+        return None
+    payload = _stp_payload(packet)
+    if not payload:
+        return None
+    metadata = _parse_stp_bpdu(payload)
+    source_ip, source_mac, destination_ip = _packet_addrs(packet)
+    metadata["destination_mac"] = destination_mac
+    service_name = metadata.get("bridge_id") or metadata.get("root_bridge_id")
+    return PassiveDiscoveryObservation(
+        protocol="stp",
+        source_ip=source_ip,
+        source_mac=source_mac,
+        destination_ip=destination_ip,
+        service_name=_bounded_text(service_name, 255),
+        service_type=_bounded_text(metadata.get("bpdu_type_label"), 128),
+        summary=_summary_from_metadata("stp", metadata),
+        metadata_json=json.dumps(metadata, default=str, sort_keys=True),
+        observed_at=datetime.utcnow(),
+    )
+
+
 def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | None:
     source_ip, source_mac, destination_ip = _packet_addrs(packet)
     if not destination_ip:
@@ -478,11 +585,65 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
 
 
 def _control_plane_metadata(packet: Any, protocol: str) -> dict[str, Any]:
+    if protocol == "ospf":
+        return _ospf_metadata(packet)
     if protocol == "vrrp":
         return _vrrp_metadata(packet)
     if protocol == "hsrp":
         return _hsrp_metadata(packet)
     return {}
+
+
+def _ospf_metadata(packet: Any) -> dict[str, Any]:
+    try:
+        from scapy.layers.inet import IP
+        from scapy.packet import Raw
+    except Exception:
+        return {}
+    if not packet.haslayer(IP) or int(getattr(packet[IP], "proto", 0) or 0) != 89:
+        return {}
+    payload = b""
+    if packet.haslayer(Raw):
+        payload = bytes(packet[Raw].load)
+    else:
+        try:
+            payload = bytes(packet[IP].payload)
+        except Exception:
+            payload = b""
+    if len(payload) < 24:
+        return {}
+    ospf_type = int(payload[1])
+    metadata: dict[str, Any] = {
+        "ospf_version": int(payload[0]),
+        "ospf_type": ospf_type,
+        "ospf_type_label": {
+            1: "OSPF hello",
+            2: "OSPF database description",
+            3: "OSPF link-state request",
+            4: "OSPF link-state update",
+            5: "OSPF link-state acknowledgement",
+        }.get(ospf_type, "OSPF packet"),
+        "packet_length": int.from_bytes(payload[2:4], "big"),
+        "router_id": ".".join(str(part) for part in payload[4:8]),
+        "area_id": ".".join(str(part) for part in payload[8:12]),
+        "auth_type": int.from_bytes(payload[14:16], "big"),
+    }
+    if ospf_type == 1 and len(payload) >= 44:
+        metadata.update({
+            "network_mask": ".".join(str(part) for part in payload[24:28]),
+            "hello_interval": int.from_bytes(payload[28:30], "big"),
+            "router_priority": int(payload[31]),
+            "dead_interval": int.from_bytes(payload[32:36], "big"),
+            "designated_router": ".".join(str(part) for part in payload[36:40]),
+            "backup_designated_router": ".".join(str(part) for part in payload[40:44]),
+        })
+        neighbors = [
+            ".".join(str(part) for part in payload[index:index + 4])
+            for index in range(44, len(payload) - 3, 4)
+        ]
+        if neighbors:
+            metadata["neighbors"] = neighbors[:32]
+    return metadata
 
 
 def _vrrp_metadata(packet: Any) -> dict[str, Any]:
@@ -566,6 +727,9 @@ def parse_packet(packet: Any, enabled_protocols: set[str]) -> PassiveDiscoveryOb
         cdp = parse_cdp_packet(packet)
         if cdp:
             return cdp
+        stp = parse_stp_packet(packet)
+        if stp:
+            return stp
     if "multicast" in enabled_protocols:
         return parse_control_plane_packet(packet)
     return None
@@ -598,14 +762,15 @@ def observation_signature(row: PassiveDiscoveryObservation) -> tuple[Any, ...]:
             metadata.get("destination_port"),
             row.summary,
         )
-    if row.protocol in {"lldp", "cdp"}:
+    if row.protocol in {"lldp", "cdp", "stp"}:
         return (
             row.protocol,
             source_identity,
             row.service_name,
             row.service_type,
             metadata.get("port_id"),
-            metadata.get("chassis_id") or metadata.get("device_id"),
+            metadata.get("chassis_id") or metadata.get("device_id") or metadata.get("bridge_id"),
+            metadata.get("root_bridge_id"),
         )
     return (
         row.protocol,
@@ -676,7 +841,7 @@ def _capture_filter(enabled_protocols: set[str]) -> str:
     if "ssdp" in enabled_protocols:
         parts.append("udp port 1900")
     if "multicast" in enabled_protocols:
-        parts.append("(ip multicast or ether proto 0x88cc or ether dst 01:00:0c:cc:cc:cc)")
+        parts.append("(ip multicast or ether proto 0x88cc or ether dst 01:00:0c:cc:cc:cc or ether dst 01:80:c2:00:00:00 or ether dst 01:80:c2:00:00:08)")
     if "lldp" in enabled_protocols:
         parts.append("ether proto 0x88cc")
     if "cdp" in enabled_protocols:
@@ -888,6 +1053,9 @@ def infer_device_class_from_observation(row: PassiveDiscoveryObservation, metada
 
     if protocol in {"ospf", "vrrp", "hsrp"}:
         return result("Router", "high", f"{row.protocol.upper()} control-plane multicast")
+
+    if protocol == "stp":
+        return result("Switch", "high", "STP/RSTP bridge topology advertisement")
 
     if protocol in {"lldp", "cdp"}:
         capabilities = {

@@ -144,11 +144,12 @@ Fix the mapping target or route the device class to a more suitable object type 
 LanLens matches in this order:
 
 1. existing linked i-doit object ID
-2. configured external reference / `cmdb_id`
-3. exact MAC address
-4. hostname or IP only as warning-level candidates
+2. manually stored i-doit SYSID
+3. configured external reference / `cmdb_id`
+4. exact MAC address
+5. hostname or IP only as warning-level candidates
 
-If matches are ambiguous, set a stable `cmdb_id` or link the object explicitly before syncing again. With the default match-only policy, unmatched devices are skipped and logged as `match_required`; LanLens does not create a new i-doit object unless create-missing is explicitly enabled.
+Use **Test SYSID** on the device detail page to check whether i-doit returns a visible object ID for a manually stored SYSID before syncing. If matches are ambiguous, set a stable `cmdb_id` or link the object explicitly before syncing again. With the default match-only policy, unmatched devices are skipped and logged as `match_required`; LanLens does not create a new i-doit object unless create-missing is explicitly enabled.
 
 ### Can SNMP switch data help with i-doit identification?
 

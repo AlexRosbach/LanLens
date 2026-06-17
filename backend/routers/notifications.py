@@ -27,6 +27,7 @@ def list_notifications(
             device_path=notification_device_path(n),
             device_url=notification_device_url(db, n),
             event_type=n.event_type,
+            event_subtype=n.event_subtype,
             message=n.message,
             is_read=n.is_read,
             telegram_sent=bool(n.telegram_sent),

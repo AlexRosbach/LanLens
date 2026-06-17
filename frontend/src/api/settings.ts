@@ -28,12 +28,38 @@ export interface AllSettings {
   notify_on_device_offline: boolean
   notify_on_new_device: boolean
   notify_on_network_changes: boolean
+  notify_on_ip_address_change: boolean
+  notify_on_hostname_change: boolean
+  notify_on_device_archive_change: boolean
+  notify_on_mac_drift: boolean
+  notify_on_unknown_dhcp_server: boolean
   telegram_notify_new_device: boolean
   telegram_notify_network_changes: boolean
+  telegram_notify_ip_address_change: boolean
+  telegram_notify_hostname_change: boolean
+  telegram_notify_device_online: boolean
+  telegram_notify_device_offline: boolean
+  telegram_notify_device_archive_change: boolean
+  telegram_notify_mac_drift: boolean
+  telegram_notify_unknown_dhcp_server: boolean
   webhook_notify_new_device: boolean
   webhook_notify_network_changes: boolean
+  webhook_notify_ip_address_change: boolean
+  webhook_notify_hostname_change: boolean
+  webhook_notify_device_online: boolean
+  webhook_notify_device_offline: boolean
+  webhook_notify_device_archive_change: boolean
+  webhook_notify_mac_drift: boolean
+  webhook_notify_unknown_dhcp_server: boolean
   smtp_notify_new_device: boolean
   smtp_notify_network_changes: boolean
+  smtp_notify_ip_address_change: boolean
+  smtp_notify_hostname_change: boolean
+  smtp_notify_device_online: boolean
+  smtp_notify_device_offline: boolean
+  smtp_notify_device_archive_change: boolean
+  smtp_notify_mac_drift: boolean
+  smtp_notify_unknown_dhcp_server: boolean
   server_url: string
   smtp_host: string
   smtp_port: number
@@ -59,6 +85,8 @@ export interface AllSettings {
   show_tls_checks: boolean
   show_ping_history: boolean
   show_build_info: boolean
+  show_debug_tools: boolean
+  debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace'
   app_version: string
   build_code: string
   build_commit: string
@@ -115,12 +143,40 @@ export const settingsApi = {
   updateNotificationRules: (data: {
     notify_on_new_device: boolean
     notify_on_network_changes: boolean
+    notify_on_ip_address_change: boolean
+    notify_on_hostname_change: boolean
+    notify_on_device_online: boolean
+    notify_on_device_offline: boolean
+    notify_on_device_archive_change: boolean
+    notify_on_mac_drift: boolean
+    notify_on_unknown_dhcp_server: boolean
     telegram_notify_new_device: boolean
     telegram_notify_network_changes: boolean
+    telegram_notify_ip_address_change: boolean
+    telegram_notify_hostname_change: boolean
+    telegram_notify_device_online: boolean
+    telegram_notify_device_offline: boolean
+    telegram_notify_device_archive_change: boolean
+    telegram_notify_mac_drift: boolean
+    telegram_notify_unknown_dhcp_server: boolean
     webhook_notify_new_device: boolean
     webhook_notify_network_changes: boolean
+    webhook_notify_ip_address_change: boolean
+    webhook_notify_hostname_change: boolean
+    webhook_notify_device_online: boolean
+    webhook_notify_device_offline: boolean
+    webhook_notify_device_archive_change: boolean
+    webhook_notify_mac_drift: boolean
+    webhook_notify_unknown_dhcp_server: boolean
     smtp_notify_new_device: boolean
     smtp_notify_network_changes: boolean
+    smtp_notify_ip_address_change: boolean
+    smtp_notify_hostname_change: boolean
+    smtp_notify_device_online: boolean
+    smtp_notify_device_offline: boolean
+    smtp_notify_device_archive_change: boolean
+    smtp_notify_mac_drift: boolean
+    smtp_notify_unknown_dhcp_server: boolean
   }) => apiClient.put('/settings/notification-rules', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),
@@ -176,6 +232,8 @@ export const settingsApi = {
     show_tls_checks: boolean,
     show_ping_history: boolean,
     show_build_info: boolean,
+    show_debug_tools: boolean,
+    debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace',
   ) =>
     apiClient.put('/settings/ui', {
       advanced_view_enabled,
@@ -189,6 +247,8 @@ export const settingsApi = {
       show_tls_checks,
       show_ping_history,
       show_build_info,
+      show_debug_tools,
+      debug_log_level,
     }).then((r) => r.data),
 
   updateSmtp: (data: {

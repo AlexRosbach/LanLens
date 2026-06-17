@@ -2,6 +2,31 @@
 
 All notable changes to this project should be documented in this file.
 
+## Unreleased
+
+### New Features
+- Added a per-device i-doit SYSID lookup button that tests whether the configured SYSID resolves to a visible i-doit object before running a sync.
+- Added an opt-in Settings Debug tab behind **Settings -> Features -> Debug tools** with topic, text and level filters for persistent CMDB/i-doit troubleshooting logs.
+- Added granular network-change notification type switches for IP address changes, hostname changes, online/offline transitions, archive state changes, MAC drift warnings and unknown DHCP servers.
+- Added STP/RSTP passive discovery parsing so bridge/root-bridge topology advertisements are stored, shown in multicast observations and can classify linked devices as switches.
+- Expanded OSPF passive discovery metadata for hello packets, including router ID, area, DR/BDR and neighbor router IDs.
+- Enriched the inventory topology API with passive control-plane edges for known OSPF neighbors, HA virtual IP peers and known LLDP/CDP/STP bridge relationships when both endpoints already exist as LanLens devices.
+
+### Fixes / Hardening
+- Expanded i-doit match-only diagnostics so skipped sync logs keep direct SYSID lookup attempts, candidate rejections and fallback page counts even when large payload details are truncated.
+- Paginated the i-doit `match_only` fallback scan so manually entered SYSID values can match objects beyond the first i-doit object page.
+- Advanced i-doit fallback pagination by the returned page size so tenants with smaller server-side page caps do not skip objects during SYSID matching.
+- Allowed clearing device text fields such as Label, Asset Tag, CMDB ID and documentation notes from the device detail form instead of silently keeping the previous values.
+- Extended `match_only` i-doit matching with a bounded category-verified object scan for MAC/IP/hostname/CMDB identity when direct i-doit object search does not return category-field matches.
+- Matched manual i-doit SYSID values even when the tenant stores them in Accounting/Inventory fields together with CMDB IDs, added a bounded verified object-list fallback for tenants that do not support direct SYSID filters, and added identity-match diagnostics to skipped sync logs.
+- Made the large CMDB/i-doit field mapping editor collapsible so Settings stays usable while still keeping advanced mapping controls available.
+- Matched existing i-doit objects during `match_only` sync by stable LanLens identity fields such as CMDB ID, MAC address, IP address, hostname and object title instead of requiring a previously stored i-doit object ID.
+- Changed the default i-doit sync mapping for open ports, services, TLS certificates and container/software findings to structured i-doit category entries instead of dumping those values into category description fields.
+- Extended notification-rule channel controls to every granular network-change type, not just the two top-level notification rows.
+- Reworked the notification rules UI for mobile viewports so notification settings are stacked and no longer clipped by the desktop matrix layout.
+- Routed manual and retention-driven archive events through the granular archive notification subtype so archive rules suppress and deliver consistently.
+- Reused the existing Scapy passive-discovery dependency for STP/RSTP and OSPF parsing; no new packages or license obligations were added.
+
 ## v1.5.6 — Network security awareness
 
 ### New Features

@@ -12,9 +12,12 @@ from ..services.idoit import (
     IdoitConfig,
     IdoitClient,
     IdoitConnectionError,
+    build_object_url,
     dry_run,
     build_export_rows,
+    device_payload,
     get_config,
+    get_or_create_state,
     rows_to_export_csv,
     sync_all_registered_devices_to_idoit,
     sync_device_to_idoit,
@@ -87,6 +90,10 @@ class IdoitExportRow(BaseModel):
 
 class IdoitExportPayload(BaseModel):
     rows: list[IdoitExportRow]
+
+
+class IdoitSysidLookupPayload(BaseModel):
+    sysid: Optional[str] = None
 
 
 def _config_response(db: Session) -> dict[str, Any]:
@@ -288,6 +295,64 @@ def dry_run_device(device_id: int, db: Session = Depends(get_db), _: User = Depe
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     return dry_run(db, device)
+
+
+@router.post("/devices/{device_id}/test-sysid")
+async def test_device_sysid_lookup(
+    device_id: int,
+    payload: Optional[IdoitSysidLookupPayload] = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _require_idoit_enabled(db)
+    cfg = get_config(db)
+    if not cfg.enabled:
+        raise HTTPException(status_code=400, detail={"message": "i-doit integration is disabled", "stage": "configuration", "endpoint": ""})
+    if not cfg.base_url or not cfg.api_key:
+        missing = []
+        if not cfg.base_url:
+            missing.append("Base URL")
+        if not cfg.api_key:
+            missing.append("API key")
+        raise HTTPException(status_code=400, detail={"message": f"Missing required i-doit setting(s): {', '.join(missing)}", "stage": "configuration", "endpoint": ""})
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    state = get_or_create_state(db, device)
+    requested_sysid = (payload.sysid if payload else None) or state.idoit_sysid or ""
+    requested_sysid = requested_sysid.strip()
+    if not requested_sysid:
+        raise HTTPException(status_code=400, detail={"message": "No i-doit SYSID is stored for this device", "stage": "configuration", "endpoint": ""})
+    valid, reason = await validate_webhook_url(cfg.base_url, "i-doit base URL")
+    if not valid:
+        raise HTTPException(status_code=400, detail=reason)
+    try:
+        client = IdoitClient(cfg)
+        await client.login()
+        payload_data = device_payload(device, cfg, db)
+        object_id = await client.find_object_by_sysid(
+            requested_sysid,
+            payload_data.get("objectType") if isinstance(payload_data.get("objectType"), str) else None,
+        )
+        debug = getattr(client, "last_identity_match_debug", {})
+        result = {
+            "ok": bool(object_id),
+            "sysid": requested_sysid,
+            "object_id": object_id,
+            "object_url": build_object_url(cfg.portal_url, object_id),
+            "message": "i-doit SYSID lookup found an existing object" if object_id else "i-doit SYSID lookup did not find a visible object",
+            "debug": debug.get("sysid_lookup", debug),
+        }
+        if object_id:
+            try:
+                result["object"] = await client.read_object(object_id)
+            except IdoitConnectionError as exc:
+                result["object_read_error"] = exc.to_detail()
+        return result
+    except IdoitConnectionError as exc:
+        raise HTTPException(status_code=502, detail=exc.to_detail())
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "sysid_lookup", "endpoint": ""})
 
 
 @router.post("/devices/{device_id}/sync")

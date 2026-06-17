@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-retention-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, DeviceChangeEvent, Setting
+from backend.models import Device, DeviceChangeEvent, Notification, Setting
 from backend.services.device_retention import apply_device_retention, get_device_retention_settings
 
 
@@ -66,6 +66,8 @@ class DeviceRetentionTests(unittest.TestCase):
                 registered,
                 Setting(key="device_archive_after_days", value="7"),
                 Setting(key="device_delete_archived_after_days", value="0"),
+                Setting(key="notify_on_network_changes", value="true"),
+                Setting(key="notify_on_device_archive_change", value="true"),
             ])
             db.commit()
 
@@ -80,6 +82,39 @@ class DeviceRetentionTests(unittest.TestCase):
             self.assertFalse(registered.is_archived)
             self.assertTrue(registered.is_online)
             self.assertEqual(db.query(DeviceChangeEvent).filter(DeviceChangeEvent.device_id == stale.id).count(), 1)
+            notification = db.query(Notification).filter(Notification.device_id == stale.id).one()
+            self.assertEqual(notification.event_type, "network_change")
+            self.assertEqual(notification.event_subtype, "device_archive_change")
+        finally:
+            db.close()
+
+    def test_archive_retention_respects_archive_notification_rule(self):
+        db = self.Session()
+        try:
+            now = datetime(2026, 6, 1, 12, 0, 0)
+            stale = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                device_class="Unknown",
+                is_online=True,
+                first_seen=now - timedelta(days=10),
+                last_seen=now - timedelta(days=8),
+            )
+            db.add_all([
+                stale,
+                Setting(key="device_archive_after_days", value="7"),
+                Setting(key="device_delete_archived_after_days", value="0"),
+                Setting(key="notify_on_network_changes", value="true"),
+                Setting(key="notify_on_device_archive_change", value="false"),
+            ])
+            db.commit()
+
+            result = apply_device_retention(db, now)
+            db.commit()
+
+            self.assertEqual(result, {"archived": 1, "deleted": 0})
+            self.assertEqual(db.query(DeviceChangeEvent).filter(DeviceChangeEvent.device_id == stale.id).count(), 1)
+            self.assertEqual(db.query(Notification).filter(Notification.device_id == stale.id).count(), 0)
         finally:
             db.close()
 

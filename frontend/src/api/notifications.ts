@@ -6,6 +6,7 @@ export interface NotificationItem {
   device_path?: string | null
   device_url?: string | null
   event_type: string
+  event_subtype?: string | null
   message: string
   is_read: boolean
   telegram_sent: boolean

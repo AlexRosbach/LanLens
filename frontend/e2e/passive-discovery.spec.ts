@@ -315,7 +315,7 @@ test('device detail shows linked SNMP target without switch MAC table', async ({
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.6', latest_version: '1.5.6', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
   })
   await page.route('**/api/devices/1', async (route) => {
     await route.fulfill({ json: snmpLinkedDevice })
