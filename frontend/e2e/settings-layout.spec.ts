@@ -245,6 +245,12 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.route('**/api/snmp/topology/endpoints**', async (route) => {
     await route.fulfill({ json: [] })
   })
+  await page.route('**/api/snmp/custom-queries**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/custom-results**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
 
   await page.goto('/settings')
 

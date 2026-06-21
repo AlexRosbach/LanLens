@@ -987,6 +987,8 @@ SNMP data is most useful when the router, firewall, access point or switch expos
 
 SNMP interface polling also stores real-port statistics when the device exposes the related IF-MIB and EtherLike-MIB counters: speed, admin/oper status, unicast/non-unicast packet counters, discards, errors, unknown protocols, CRC/FCS/alignment errors, collisions and frame-too-long fragment counters. The device detail page shows the switch, port, speed and port statistics when a device is matched through the MAC table. The switch-port grid accepts common physical interface naming from multiple vendors such as Ethernet, GigabitEthernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial names. It filters common virtual interfaces such as loopback, VLAN/SVI, tunnel, bridge, LAG/bond/team, management, stack and port-channel rows so the visualization focuses on real switch/router/firewall/AP ports.
 
+Custom SNMP queries extend the fixed switch/interface polling for heterogeneous environments. In **Settings -> Network Discovery -> SNMP targets and switch topology**, operators can add arbitrary numeric OIDs as scalar reads or table walks, assign a target tag, choose a value type and keep the latest values per SNMP target. A target tag matches `*`, the linked device class, linked device vendor, detected SNMP vendor key/label or the target name/system name. This covers practical profiles such as `switch` interface extras, `printer` toner/status OIDs or `UPS` battery/runtime OIDs without polling every custom OID against every SNMP device. Custom queries run when the existing manual or background SNMP poll runs, and can also be triggered from the target row with **Custom OIDs**.
+
 ![SNMP target settings with learned network device identity](screenshots/lanlens-snmp-targets-settings.png)
 
 When an SNMP target is linked to a LanLens device and the poll returns interfaces, the device detail page shows a switch-port visualization. Each real interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, speed, CRC errors, collisions, fragments, cast packet counters, discard/error counters and learned device/MAC/VLAN context when bridge tables are available; unlabeled endpoints show the MAC once with any VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. Interface-only targets still show their SNMP port inventory with empty endpoint labels so troubleshooting remains possible even when BRIDGE-MIB/Q-BRIDGE-MIB is unavailable.
@@ -1005,6 +1007,12 @@ The API surface is available under `/api/snmp`:
 - `PUT /api/snmp/switches/{switch_id}`
 - `DELETE /api/snmp/switches/{switch_id}`
 - `POST /api/snmp/switches/{switch_id}/poll`
+- `GET /api/snmp/custom-queries`
+- `POST /api/snmp/custom-queries`
+- `PUT /api/snmp/custom-queries/{query_id}`
+- `DELETE /api/snmp/custom-queries/{query_id}`
+- `POST /api/snmp/switches/{switch_id}/custom-queries/poll`
+- `GET /api/snmp/custom-results`
 - `PUT /api/settings/snmp-poll`
 - `GET /api/snmp/switches/{switch_id}/interfaces`
 - `GET /api/snmp/devices/{device_id}/ports`

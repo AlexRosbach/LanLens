@@ -6,6 +6,8 @@ All notable changes to this project should be documented in this file.
 
 ### New Features
 - Fresh installs now detect the primary host IPv4 subnet, persist it as the initial ARP scan range and start an immediate first-run network scan so the dashboard can populate without opening Settings first.
+- Added custom SNMP OID/table polling for V 1.5.8: operators can define arbitrary OIDs, scope them to target tags/device classes such as switch, printer, UPS or `*`, store the latest values per SNMP target and run them during the existing SNMP poll cadence.
+- Added Settings UI and API endpoints for custom SNMP queries and latest custom SNMP results so heterogeneous SNMP devices can expose useful data without hardcoding every vendor-specific MIB into LanLens.
 
 ## v1.5.7 — i-doit matching, notifications and passive topology
 

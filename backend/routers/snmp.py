@@ -9,10 +9,10 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch, User
+from ..models import Device, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch, User
 from ..schemas import MessageResponse
 from ..services.settings_helpers import is_advanced_view_enabled
-from ..services.snmp import detect_vendor, identity_for_device, poll_switch
+from ..services.snmp import detect_vendor, identity_for_device, poll_custom_queries, poll_switch
 
 router = APIRouter(prefix="/api/snmp", tags=["snmp"])
 
@@ -21,6 +21,9 @@ SNMP_VERSIONS = {"1", "2c", "3"}
 SNMP_V3_SECURITY_LEVELS = {"noAuthNoPriv", "authNoPriv", "authPriv"}
 SNMP_AUTH_PROTOCOLS = {"MD5", "SHA"}
 SNMP_PRIVACY_PROTOCOLS = {"DES", "AES"}
+SNMP_CUSTOM_QUERY_TYPES = {"scalar", "table"}
+SNMP_CUSTOM_VALUE_TYPES = {"text", "integer", "counter", "gauge", "numeric"}
+SNMP_OID_RE = re.compile(r"^\d+(?:\.\d+)*(?:\.0)?$")
 
 
 def _require_snmp_enabled(db: Session) -> None:
@@ -47,6 +50,15 @@ class SnmpSwitchPayload(BaseModel):
     host: str = Field(..., min_length=1, max_length=255)
     profile_id: int
     device_id: Optional[int] = None
+    enabled: bool = True
+
+
+class SnmpCustomQueryPayload(BaseModel):
+    name: str = Field(..., min_length=2, max_length=128)
+    target_tag: str = Field(default="*", max_length=64)
+    oid: str = Field(..., min_length=3, max_length=255)
+    query_type: str = "scalar"
+    value_type: str = "text"
     enabled: bool = True
 
 
@@ -90,6 +102,58 @@ def _switch_response(switch: SnmpSwitch, interface_count: Optional[int] = None, 
         "interface_count": interface_count if interface_count is not None else len(switch.interfaces or []),
         "mac_count": mac_count if mac_count is not None else len(switch.mac_entries or []),
     }
+
+
+def _custom_query_response(query: SnmpCustomQuery) -> dict:
+    return {
+        "id": query.id,
+        "name": query.name,
+        "target_tag": query.target_tag or "*",
+        "oid": query.oid,
+        "query_type": query.query_type,
+        "value_type": query.value_type,
+        "enabled": query.enabled,
+        "created_at": query.created_at,
+        "updated_at": query.updated_at,
+    }
+
+
+def _custom_result_response(row: SnmpCustomResult, query: Optional[SnmpCustomQuery], switch: Optional[SnmpSwitch], device: Optional[Device]) -> dict:
+    return {
+        "id": row.id,
+        "query_id": row.query_id,
+        "query_name": query.name if query else "",
+        "target_tag": (query.target_tag if query else "") or "*",
+        "switch_id": row.switch_id,
+        "switch_name": switch.name if switch else "",
+        "switch_host": switch.host if switch else "",
+        "device_id": row.device_id,
+        "device_label": (device.label or device.hostname or device.ip_address or device.mac_address) if device else "",
+        "oid": row.oid,
+        "oid_suffix": row.oid_suffix or "",
+        "value": row.value or "",
+        "numeric_value": row.numeric_value,
+        "status": row.status,
+        "error": row.error,
+        "polled_at": row.polled_at,
+    }
+
+
+def _validate_custom_query_payload(payload: SnmpCustomQueryPayload, db: Session, query_id: Optional[int] = None) -> None:
+    oid = payload.oid.strip().lstrip(".")
+    query_type = payload.query_type.strip().lower()
+    value_type = payload.value_type.strip().lower()
+    if not SNMP_OID_RE.match(oid):
+        raise HTTPException(status_code=400, detail="SNMP OID must be numeric, for example 1.3.6.1.2.1.1.5.0")
+    if query_type not in SNMP_CUSTOM_QUERY_TYPES:
+        raise HTTPException(status_code=400, detail="SNMP custom query type must be scalar or table")
+    if value_type not in SNMP_CUSTOM_VALUE_TYPES:
+        raise HTTPException(status_code=400, detail="SNMP custom value type is invalid")
+    existing = db.query(SnmpCustomQuery).filter(SnmpCustomQuery.name == payload.name.strip())
+    if query_id is not None:
+        existing = existing.filter(SnmpCustomQuery.id != query_id)
+    if existing.first():
+        raise HTTPException(status_code=409, detail="SNMP custom query name already exists")
 
 
 VIRTUAL_IF_TYPES = {24, 53, 131, 135, 136, 161, 209}
@@ -266,6 +330,103 @@ def delete_profile(profile_id: int, db: Session = Depends(get_db), _: User = Dep
     db.delete(profile)
     db.commit()
     return MessageResponse(message="SNMP profile deleted")
+
+
+@router.get("/custom-queries")
+def list_custom_queries(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    return [
+        _custom_query_response(query)
+        for query in db.query(SnmpCustomQuery).order_by(SnmpCustomQuery.name.asc()).all()
+    ]
+
+
+@router.post("/custom-queries")
+def create_custom_query(payload: SnmpCustomQueryPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    _validate_custom_query_payload(payload, db)
+    query = SnmpCustomQuery(
+        name=payload.name.strip(),
+        target_tag=payload.target_tag.strip() or "*",
+        oid=payload.oid.strip().lstrip("."),
+        query_type=payload.query_type.strip().lower(),
+        value_type=payload.value_type.strip().lower(),
+        enabled=payload.enabled,
+    )
+    db.add(query)
+    db.commit()
+    db.refresh(query)
+    return _custom_query_response(query)
+
+
+@router.put("/custom-queries/{query_id}")
+def update_custom_query(query_id: int, payload: SnmpCustomQueryPayload, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    query = db.query(SnmpCustomQuery).filter(SnmpCustomQuery.id == query_id).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="SNMP custom query not found")
+    _validate_custom_query_payload(payload, db, query_id=query_id)
+    query.name = payload.name.strip()
+    query.target_tag = payload.target_tag.strip() or "*"
+    query.oid = payload.oid.strip().lstrip(".")
+    query.query_type = payload.query_type.strip().lower()
+    query.value_type = payload.value_type.strip().lower()
+    query.enabled = payload.enabled
+    db.commit()
+    db.refresh(query)
+    return _custom_query_response(query)
+
+
+@router.delete("/custom-queries/{query_id}", response_model=MessageResponse)
+def delete_custom_query(query_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MessageResponse:
+    _require_snmp_enabled(db)
+    query = db.query(SnmpCustomQuery).filter(SnmpCustomQuery.id == query_id).first()
+    if not query:
+        raise HTTPException(status_code=404, detail="SNMP custom query not found")
+    db.delete(query)
+    db.commit()
+    return MessageResponse(message="SNMP custom query deleted")
+
+
+@router.post("/switches/{switch_id}/custom-queries/poll")
+def poll_snmp_custom_queries_for_switch(switch_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_snmp_enabled(db)
+    switch = db.query(SnmpSwitch).filter(SnmpSwitch.id == switch_id).first()
+    if not switch:
+        raise HTTPException(status_code=404, detail="SNMP switch not found")
+    if not switch.enabled:
+        raise HTTPException(status_code=400, detail="SNMP switch is disabled")
+    try:
+        result = poll_custom_queries(db, switch)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"message": "SNMP custom queries completed", **result}
+
+
+@router.get("/custom-results")
+def list_custom_results(
+    switch_id: Optional[int] = None,
+    device_id: Optional[int] = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _require_snmp_enabled(db)
+    limit = max(1, min(limit, 1000))
+    query = (
+        db.query(SnmpCustomResult, SnmpCustomQuery, SnmpSwitch, Device)
+        .join(SnmpCustomQuery, SnmpCustomResult.query_id == SnmpCustomQuery.id)
+        .join(SnmpSwitch, SnmpCustomResult.switch_id == SnmpSwitch.id)
+        .outerjoin(Device, SnmpCustomResult.device_id == Device.id)
+    )
+    if switch_id is not None:
+        query = query.filter(SnmpCustomResult.switch_id == switch_id)
+    if device_id is not None:
+        query = query.filter(SnmpCustomResult.device_id == device_id)
+    rows = query.order_by(SnmpCustomResult.polled_at.desc()).limit(limit).all()
+    return [_custom_result_response(row, custom_query, switch, device) for row, custom_query, switch, device in rows]
 
 
 @router.get("/switches")

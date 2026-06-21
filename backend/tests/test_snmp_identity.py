@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, Setting, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from backend.models import Device, Setting, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
 from backend.routers.snmp import (
     SnmpSwitchPayload,
     _build_switch_port_visualization,
@@ -42,6 +42,7 @@ from backend.services.snmp import (
     bulk_identities_for_devices,
     detect_vendor,
     identity_for_device,
+    poll_custom_queries,
     poll_switch,
 )
 from unittest.mock import patch
@@ -78,6 +79,52 @@ class SnmpIdentityTests(unittest.TestCase):
     def test_detects_supported_snmp_vendors(self):
         self.assertEqual(detect_vendor("Cisco IOS Software", "1.3.6.1.4.1.9.1.516").key, "cisco")
         self.assertEqual(detect_vendor("UniFi Switch", "1.3.6.1.4.1.41112.1.6").key, "unifi")
+
+    def test_polls_custom_queries_for_matching_device_class(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="ip:printer-01",
+                ip_address="192.0.2.50",
+                hostname="printer-01",
+                device_class="Printer",
+            )
+            profile = SnmpProfile(name="office", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="printer-snmp", host="192.0.2.50", profile=profile, device=device)
+            toner = SnmpCustomQuery(
+                name="Printer toner",
+                target_tag="printer",
+                oid="1.3.6.1.2.1.43.11.1.1.9",
+                query_type="table",
+                value_type="integer",
+            )
+            ups = SnmpCustomQuery(
+                name="UPS runtime",
+                target_tag="ups",
+                oid="1.3.6.1.2.1.33.1.2.3.0",
+                query_type="scalar",
+                value_type="integer",
+            )
+            db.add_all([device, profile, switch, toner, ups])
+            db.commit()
+            db.refresh(switch)
+
+            def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                self.assertEqual(oid, "1.3.6.1.2.1.43.11.1.1.9")
+                return {"1.1": "INTEGER: 71"}
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                result = poll_custom_queries(db, switch)
+
+            self.assertEqual(result, {"matched": 1, "stored": 1, "failed": 0})
+            row = db.query(SnmpCustomResult).one()
+            self.assertEqual(row.query_id, toner.id)
+            self.assertEqual(row.device_id, device.id)
+            self.assertEqual(row.oid_suffix, "1.1")
+            self.assertEqual(row.value, "71")
+            self.assertEqual(row.numeric_value, 71)
+        finally:
+            db.close()
         self.assertEqual(detect_vendor("SFOS Sophos Firewall", "1.3.6.1.4.1.2604.5").key, "sophos")
         self.assertEqual(detect_vendor("Juniper Networks JUNOS", "1.3.6.1.4.1.2636.1.1").key, "juniper")
         self.assertEqual(detect_vendor("MikroTik RouterOS", "1.3.6.1.4.1.14988.1").key, "mikrotik")
