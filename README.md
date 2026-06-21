@@ -104,7 +104,7 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 curl -fsSL https://raw.githubusercontent.com/AlexRosbach/LanLens/main/docker-compose.yml -o docker-compose.yml && docker compose up -d
 ```
 
-On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume.
+On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume. On a fresh database without a configured scan range, LanLens also detects the primary host IPv4 subnet, stores it as the initial scan range and starts an immediate ARP scan so the dashboard can populate without manual Settings work.
 
 Open:
 
@@ -124,7 +124,7 @@ LanLens forces a password change after the first login. For full MAC/vendor disc
 
 ## Deployment Notes
 
-LanLens uses `network_mode: host` by default because local ARP discovery needs raw network access on the host interface. Bridge mode can serve the UI, but direct ARP/MAC discovery will not work the same way.
+LanLens uses `network_mode: host` by default because local ARP discovery and first-run subnet detection need raw network access on the host interface. Bridge mode can serve the UI, but direct ARP/MAC discovery will not work the same way and may require manually configured scan targets.
 
 Core runtime settings:
 

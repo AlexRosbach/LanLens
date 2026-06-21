@@ -4,6 +4,9 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
+### New Features
+- Fresh installs now detect the primary host IPv4 subnet, persist it as the initial ARP scan range and start an immediate first-run network scan so the dashboard can populate without opening Settings first.
+
 ## v1.5.7 — i-doit matching, notifications and passive topology
 
 ### New Features

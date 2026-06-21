@@ -1,7 +1,7 @@
 import os
 
 APP_VERSION = os.getenv("LANLENS_APP_VERSION", "1.5.8")
-BUILD_CODE = os.getenv("LANLENS_BUILD_CODE", "20260621.1102")
+BUILD_CODE = os.getenv("LANLENS_BUILD_CODE", "20260621.1821")
 BUILD_COMMIT = os.getenv("LANLENS_BUILD_COMMIT", "unknown")
 BUILD_BRANCH = os.getenv("LANLENS_BUILD_BRANCH", "unknown")
 BUILD_CREATED = os.getenv("LANLENS_BUILD_CREATED", "unknown")

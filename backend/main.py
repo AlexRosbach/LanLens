@@ -11,6 +11,8 @@ from .models import TokenBlacklist
 from .routers import admin, auth, auto_scan_rules, client_errors, cmdb, connect, credentials, debug, deep_scan, devices, dhcp_monitor, idoit, inventory, notifications, plugins, scan, scan_nodes, segments, services, snmp
 from .routers import settings as settings_router
 from .services import deep_scan_scheduler, idoit_scheduler, passive_discovery_scheduler, scheduler
+from .services.initial_discovery import prepare_initial_scan_bootstrap
+from .services.scanner import run_scan
 from .services.settings_helpers import get_scan_interval_minutes
 from .version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 
@@ -62,12 +64,14 @@ def _cleanup_expired_tokens(db_session) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    run_initial_scan = False
     db = SessionLocal()
     try:
         interval = get_scan_interval_minutes(db)
         from .services.idoit import get_config as get_idoit_config
         idoit_interval = get_idoit_config(db).sync_interval_minutes
         _cleanup_expired_tokens(db)
+        run_initial_scan = prepare_initial_scan_bootstrap(db)
     finally:
         db.close()
 
@@ -75,6 +79,10 @@ async def lifespan(app: FastAPI):
     deep_scan_scheduler.start_deep_scan_scheduler()
     idoit_scheduler.start_idoit_scheduler(idoit_interval)
     passive_discovery_scheduler.start_passive_discovery_scheduler()
+    if run_initial_scan:
+        import asyncio
+
+        asyncio.create_task(run_scan(scan_type="initial"))
     logger.info(f"LanLens started — scan interval: {interval} min")
     yield
     scheduler.stop_scheduler()

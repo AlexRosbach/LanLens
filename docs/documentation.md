@@ -70,7 +70,7 @@ Then start LanLens:
 docker compose up -d
 ```
 
-On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume.
+On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume. If the database is fresh and no scan range exists yet, LanLens detects the primary host IPv4 subnet, stores the resulting host range in **Settings -> Network Discovery**, and starts one immediate ARP scan.
 
 Open the UI:
 
@@ -84,7 +84,7 @@ Default first-run login:
 admin / admin
 ```
 
-LanLens forces a password change after the first login. For full MAC/vendor discovery, run it on a Linux host with host networking as shown in the compose file.
+LanLens forces a password change after the first login. For full MAC/vendor discovery and automatic first-run subnet detection, run it on a Linux host with host networking as shown in the compose file.
 
 ### Optional HTTP/HTTPS port
 
@@ -401,13 +401,14 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### ARP Scan Flow
 
 ```
-1. APScheduler triggers run_scan() every N minutes
-2. scanner.py reads scan_start/scan_end plus optional scan_additional_targets from DB settings
-3. scan_start/scan_end are summarized into ARP targets for the directly reachable Layer-2 network
-4. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=target)
+1. On a fresh database, startup detection persists the primary host subnet as scan_start/scan_end and queues one immediate `initial` scan
+2. APScheduler triggers run_scan() every N minutes after that
+3. scanner.py reads scan_start/scan_end plus optional scan_additional_targets from DB settings
+4. scan_start/scan_end are summarized into ARP targets for the directly reachable Layer-2 network
+5. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=target)
    srp() with timeout=3s
-5. Optional routed scan targets are scanned with `nmap -sn -oX - <target>`
-6. For each discovered host:
+6. Optional routed scan targets are scanned with `nmap -sn -oX - <target>`
+7. For each discovered host:
    a. Normalize MAC to XX:XX:XX:XX:XX:XX when available
    b. Routed hosts without MAC receive a stable internal `ip:` identifier and are displayed as IP-only discoveries
    c. mac_vendor.py: manuf.MacParser().get_manuf(mac) → vendor string when a real MAC exists
