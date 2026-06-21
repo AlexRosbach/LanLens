@@ -4,6 +4,8 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
+## v1.5.7 — i-doit matching, notifications and passive topology
+
 ### New Features
 - Added a per-device i-doit SYSID lookup button that tests whether the configured SYSID resolves to a visible i-doit object before running a sync.
 - Added an opt-in Settings Debug tab behind **Settings -> Features -> Debug tools** with topic, text and level filters for persistent CMDB/i-doit troubleshooting logs.
