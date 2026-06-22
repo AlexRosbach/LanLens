@@ -79,6 +79,13 @@ class SnmpIdentityTests(unittest.TestCase):
     def test_detects_supported_snmp_vendors(self):
         self.assertEqual(detect_vendor("Cisco IOS Software", "1.3.6.1.4.1.9.1.516").key, "cisco")
         self.assertEqual(detect_vendor("UniFi Switch", "1.3.6.1.4.1.41112.1.6").key, "unifi")
+        self.assertEqual(detect_vendor("SFOS Sophos Firewall", "1.3.6.1.4.1.2604.5").key, "sophos")
+        self.assertEqual(detect_vendor("Juniper Networks JUNOS", "1.3.6.1.4.1.2636.1.1").key, "juniper")
+        self.assertEqual(detect_vendor("MikroTik RouterOS", "1.3.6.1.4.1.14988.1").key, "mikrotik")
+        self.assertEqual(detect_vendor("Fortinet FortiGate", "1.3.6.1.4.1.12356.101").key, "fortinet")
+        self.assertEqual(detect_vendor("Aruba CX Switch", "1.3.6.1.4.1.11.2.3.7.11").key, "aruba")
+        self.assertEqual(detect_vendor("NETGEAR Smart Managed Switch", "1.3.6.1.4.1.4526.100").key, "netgear")
+        self.assertEqual(detect_vendor("Other", "1.3.6.1.4.1.999").key, "generic")
 
     def test_polls_custom_queries_for_matching_device_class(self):
         db = self.Session()
@@ -125,13 +132,6 @@ class SnmpIdentityTests(unittest.TestCase):
             self.assertEqual(row.numeric_value, 71)
         finally:
             db.close()
-        self.assertEqual(detect_vendor("SFOS Sophos Firewall", "1.3.6.1.4.1.2604.5").key, "sophos")
-        self.assertEqual(detect_vendor("Juniper Networks JUNOS", "1.3.6.1.4.1.2636.1.1").key, "juniper")
-        self.assertEqual(detect_vendor("MikroTik RouterOS", "1.3.6.1.4.1.14988.1").key, "mikrotik")
-        self.assertEqual(detect_vendor("Fortinet FortiGate", "1.3.6.1.4.1.12356.101").key, "fortinet")
-        self.assertEqual(detect_vendor("Aruba CX Switch", "1.3.6.1.4.1.11.2.3.7.11").key, "aruba")
-        self.assertEqual(detect_vendor("NETGEAR Smart Managed Switch", "1.3.6.1.4.1.4526.100").key, "netgear")
-        self.assertEqual(detect_vendor("Other", "1.3.6.1.4.1.999").key, "generic")
 
     def test_formats_snmp_timeout_with_actionable_hint(self):
         message = _format_snmp_error("192.0.2.1", 161, "Timeout: No Response from 192.0.2.1:161")

@@ -358,7 +358,9 @@ def _is_ignored_detection_interface(iface: str) -> bool:
     name = iface.lower()
     if name == "lo":
         return True
-    return name.startswith(("docker", "br-", "veth", "virbr", "tailscale", "zt", "wg"))
+    if name.startswith(("docker", "br-", "bridge", "veth", "virbr", "tailscale", "zt", "wg")):
+        return True
+    return name.startswith("br") and name[2:].isdigit()
 
 
 def _is_ignored_detection_network(network: ipaddress.IPv4Network) -> bool:

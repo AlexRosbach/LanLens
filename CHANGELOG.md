@@ -9,6 +9,10 @@ All notable changes to this project should be documented in this file.
 - Added custom SNMP OID/table polling for V 1.5.8: operators can define arbitrary OIDs, scope them to target tags/device classes such as switch, printer, UPS or `*`, store the latest values per SNMP target and run them during the existing SNMP poll cadence.
 - Added Settings UI and API endpoints for custom SNMP queries and latest custom SNMP results so heterogeneous SNMP devices can expose useful data without hardcoding every vendor-specific MIB into LanLens.
 
+### Fixes / Hardening
+- Ignored common Linux bridge interfaces such as `br0` and `bridge0` during first-run subnet detection so Docker hosts prefer the real LAN interface.
+- Limited the Settings SNMP custom-result request to the visible result count and kept SNMP vendor detection coverage in the dedicated vendor test.
+
 ## v1.5.7 — i-doit matching, notifications and passive topology
 
 ### New Features

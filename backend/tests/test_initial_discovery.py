@@ -117,6 +117,8 @@ class InitialDiscoveryTests(unittest.TestCase):
     def test_detection_helpers_ignore_virtual_or_unusable_networks(self):
         self.assertTrue(_is_ignored_detection_interface("docker0"))
         self.assertTrue(_is_ignored_detection_interface("br-a1b2"))
+        self.assertTrue(_is_ignored_detection_interface("br0"))
+        self.assertTrue(_is_ignored_detection_interface("bridge0"))
         self.assertFalse(_is_ignored_detection_interface("eth0"))
         self.assertTrue(_is_ignored_detection_network(ipaddress.IPv4Network("169.254.10.0/24")))
         self.assertTrue(_is_ignored_detection_network(ipaddress.IPv4Network("0.0.0.0/0")))

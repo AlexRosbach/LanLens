@@ -166,7 +166,7 @@ export const snmpApi = {
   deleteCustomQuery: (queryId: number) => apiClient.delete(`/snmp/custom-queries/${queryId}`).then((r) => r.data),
   pollCustomQueries: (switchId: number) =>
     apiClient.post<{ message: string; matched: number; stored: number; failed: number }>(`/snmp/switches/${switchId}/custom-queries/poll`).then((r) => r.data),
-  listCustomResults: () => apiClient.get<SnmpCustomResult[]>('/snmp/custom-results').then((r) => r.data),
+  listCustomResults: (limit = 20) => apiClient.get<SnmpCustomResult[]>('/snmp/custom-results', { params: { limit } }).then((r) => r.data),
   getDevicePorts: (deviceId: number) =>
     apiClient.get<SnmpSwitchPortsResponse>(`/snmp/devices/${deviceId}/ports`).then((r) => r.data),
   listEndpoints: () => apiClient.get<SnmpEndpoint[]>('/snmp/topology/endpoints').then((r) => r.data),
