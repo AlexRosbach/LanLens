@@ -133,6 +133,41 @@ class SnmpIdentityTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_custom_query_poll_reuses_linked_device_lookup(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="ip:printer-02",
+                ip_address="192.0.2.51",
+                hostname="printer-02",
+                device_class="Printer",
+            )
+            profile = SnmpProfile(name="office", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="printer-snmp", host="192.0.2.51", profile=profile, device=device)
+            toner = SnmpCustomQuery(
+                name="Printer toner",
+                target_tag="printer",
+                oid="1.3.6.1.2.1.43.11.1.1.9",
+                query_type="table",
+                value_type="integer",
+            )
+            db.add_all([device, profile, switch, toner])
+            db.commit()
+            db.refresh(switch)
+
+            with patch("backend.services.snmp._linked_device_for_target", return_value=device) as linked_lookup:
+                with patch(
+                    "backend.services.snmp._snmpwalk",
+                    return_value={"1.1": "INTEGER: 71", "1.2": "INTEGER: 68", "1.3": "INTEGER: 54"},
+                ):
+                    result = poll_custom_queries(db, switch)
+
+            self.assertEqual(result, {"matched": 1, "stored": 3, "failed": 0})
+            self.assertEqual(linked_lookup.call_count, 1)
+            self.assertEqual({row.device_id for row in db.query(SnmpCustomResult).all()}, {device.id})
+        finally:
+            db.close()
+
     def test_formats_snmp_timeout_with_actionable_hint(self):
         message = _format_snmp_error("192.0.2.1", 161, "Timeout: No Response from 192.0.2.1:161")
 

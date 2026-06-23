@@ -355,7 +355,7 @@ def _numeric_snmp_value(raw: str) -> Optional[float]:
     return float(match.group(0)) if match else None
 
 
-def _target_tags_for_switch(db: Session, switch: SnmpSwitch) -> set[str]:
+def _target_tags_for_switch(switch: SnmpSwitch, linked_device: Optional[Device] = None) -> set[str]:
     tags = {"*"}
     vendor = detect_vendor(switch.sys_descr or "", switch.sys_object_id or "")
     tags.update({vendor.key.lower(), vendor.label.lower()})
@@ -364,7 +364,6 @@ def _target_tags_for_switch(db: Session, switch: SnmpSwitch) -> set[str]:
     if switch.sys_name:
         tags.add(switch.sys_name.lower())
 
-    linked_device = _linked_device_for_target(db, switch)
     if linked_device:
         if linked_device.device_class:
             tags.add(linked_device.device_class.lower())
@@ -373,11 +372,11 @@ def _target_tags_for_switch(db: Session, switch: SnmpSwitch) -> set[str]:
     return {tag.strip() for tag in tags if tag and tag.strip()}
 
 
-def _custom_query_matches(db: Session, switch: SnmpSwitch, query: SnmpCustomQuery) -> bool:
+def _custom_query_matches(query: SnmpCustomQuery, target_tags: set[str]) -> bool:
     target_tag = (query.target_tag or "").strip().lower()
     if not target_tag or target_tag == "*":
         return True
-    return target_tag in _target_tags_for_switch(db, switch)
+    return target_tag in target_tags
 
 
 def _upsert_custom_result(
@@ -388,6 +387,7 @@ def _upsert_custom_result(
     value: str,
     status: str,
     now: datetime,
+    linked_device: Optional[Device] = None,
     error: str = "",
 ) -> None:
     clean_value = _clean_snmp_value(value)
@@ -408,7 +408,6 @@ def _upsert_custom_result(
             oid_suffix=oid_suffix,
         )
         db.add(row)
-    linked_device = _linked_device_for_target(db, switch)
     row.device_id = linked_device.id if linked_device else None
     row.oid = query.oid
     row.value = clean_value
@@ -435,22 +434,24 @@ def poll_custom_queries(db: Session, switch: SnmpSwitch) -> dict[str, int]:
     matched = 0
     stored = 0
     failed = 0
+    linked_device = _linked_device_for_target(db, switch)
+    target_tags = _target_tags_for_switch(switch, linked_device)
     for query in queries:
-        if not _custom_query_matches(db, switch, query):
+        if not _custom_query_matches(query, target_tags):
             continue
         matched += 1
         try:
             values = _snmpwalk(profile, switch.host, query.oid, port)
             if query.query_type == "scalar":
                 value = next(iter(values.values()), "")
-                _upsert_custom_result(db, query, switch, "", value, "ok", now)
+                _upsert_custom_result(db, query, switch, "", value, "ok", now, linked_device)
                 stored += 1
             else:
                 for suffix, value in values.items():
-                    _upsert_custom_result(db, query, switch, suffix or "", value, "ok", now)
+                    _upsert_custom_result(db, query, switch, suffix or "", value, "ok", now, linked_device)
                     stored += 1
         except RuntimeError as exc:
-            _upsert_custom_result(db, query, switch, "", "", "error", now, error=str(exc))
+            _upsert_custom_result(db, query, switch, "", "", "error", now, linked_device, error=str(exc))
             failed += 1
     return {"matched": matched, "stored": stored, "failed": failed}
 
