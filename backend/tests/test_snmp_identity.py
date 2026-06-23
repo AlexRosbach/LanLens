@@ -9,6 +9,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-123
 
 from backend.database import Base
 from backend.models import Device, Setting, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from backend.services import snmp as snmp_service
 from backend.routers.snmp import (
     SnmpSwitchPayload,
     _build_switch_port_visualization,
@@ -309,14 +310,16 @@ class SnmpIdentityTests(unittest.TestCase):
                     return required[oid]
                 raise RuntimeError("No Such Object available on this agent")
 
-            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
-                result = poll_switch(db, switch)
+            with patch("backend.services.snmp._linked_device_for_target", wraps=snmp_service._linked_device_for_target) as linked_lookup:
+                with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                    result = poll_switch(db, switch)
             db.flush()
             db.refresh(device)
             db.refresh(switch)
 
             self.assertEqual(result.interfaces, 1)
             self.assertEqual(result.mac_entries, 0)
+            self.assertEqual(linked_lookup.call_count, 1)
             self.assertEqual(device.device_class, "Switch")
             self.assertEqual(device.vendor, "Cisco")
             self.assertIsNone(switch.last_error)

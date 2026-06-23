@@ -2794,6 +2794,7 @@ export default function Settings() {
                   <option value="integer">{t('snmp_custom_value_integer')}</option>
                   <option value="counter">{t('snmp_custom_value_counter')}</option>
                   <option value="gauge">{t('snmp_custom_value_gauge')}</option>
+                  <option value="numeric">{t('snmp_custom_value_numeric')}</option>
                 </select>
                 <Button onClick={createSnmpCustomQuery} loading={snmpLoading}>{t('add')}</Button>
               </div>

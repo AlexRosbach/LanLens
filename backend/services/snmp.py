@@ -417,7 +417,12 @@ def _upsert_custom_result(
     row.polled_at = now
 
 
-def poll_custom_queries(db: Session, switch: SnmpSwitch) -> dict[str, int]:
+def poll_custom_queries(
+    db: Session,
+    switch: SnmpSwitch,
+    linked_device: Optional[Device] = None,
+    linked_device_loaded: bool = False,
+) -> dict[str, int]:
     """Poll enabled custom queries that match this target's class/tag."""
     if not switch.profile:
         raise RuntimeError("SNMP switch has no profile assigned")
@@ -434,7 +439,8 @@ def poll_custom_queries(db: Session, switch: SnmpSwitch) -> dict[str, int]:
     matched = 0
     stored = 0
     failed = 0
-    linked_device = _linked_device_for_target(db, switch)
+    if not linked_device_loaded:
+        linked_device = _linked_device_for_target(db, switch)
     target_tags = _target_tags_for_switch(switch, linked_device)
     for query in queries:
         if not _custom_query_matches(query, target_tags):
@@ -649,16 +655,24 @@ def _linked_device_for_target(db: Session, switch: SnmpSwitch) -> Optional[Devic
     return None
 
 
-def _apply_target_identity_to_device(db: Session, switch: SnmpSwitch, vendor: VendorSupport, interface_count: int) -> None:
-    device = _linked_device_for_target(db, switch)
+def _apply_target_identity_to_device(
+    db: Session,
+    switch: SnmpSwitch,
+    vendor: VendorSupport,
+    interface_count: int,
+    linked_device: Optional[Device] = None,
+    linked_device_loaded: bool = False,
+) -> Optional[Device]:
+    device = linked_device if linked_device_loaded else _linked_device_for_target(db, switch)
     if not device:
-        return
+        return None
     inferred_class = _network_device_class(vendor, switch, interface_count)
     current_class = (device.device_class or "").strip().lower()
     if inferred_class and current_class in {"", "unknown"}:
         device.device_class = inferred_class
     if vendor.key != "generic" and not (device.vendor or "").strip():
         device.vendor = vendor.label
+    return device
 
 
 def _linked_target_for_device(db: Session, device: Device) -> Optional[SnmpSwitch]:
@@ -775,8 +789,9 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     switch.last_poll_at = now
     switch.last_error = None
     switch.last_diagnostics = diagnostics
-    _apply_target_identity_to_device(db, switch, vendor, len(indexes))
-    custom_summary = poll_custom_queries(db, switch)
+    linked_device = _linked_device_for_target(db, switch)
+    _apply_target_identity_to_device(db, switch, vendor, len(indexes), linked_device, linked_device_loaded=True)
+    custom_summary = poll_custom_queries(db, switch, linked_device, linked_device_loaded=True)
     if custom_summary["matched"]:
         diagnostics = (
             f"{diagnostics}\n"
