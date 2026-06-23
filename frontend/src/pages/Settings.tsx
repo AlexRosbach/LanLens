@@ -2842,7 +2842,7 @@ export default function Settings() {
                         <td className="px-3 py-2 font-medium text-text-base">{row.query_name}</td>
                         <td className="px-3 py-2 text-text-muted">{row.switch_name || row.switch_host}</td>
                         <td className="px-3 py-2 font-mono text-text-muted">{row.oid_suffix ? `${row.oid}.${row.oid_suffix}` : row.oid}</td>
-                        <td className={row.status === 'error' ? 'px-3 py-2 text-danger' : 'px-3 py-2 text-text-muted'}>{row.status === 'error' ? (row.error || 'error') : row.value}</td>
+                        <td className={row.status === 'error' ? 'px-3 py-2 text-danger' : 'px-3 py-2 text-text-muted'}>{row.status === 'error' ? (row.error || t('error')) : row.value}</td>
                         <td className="px-3 py-2 text-text-muted">{formatDateTime(row.polled_at)}</td>
                       </tr>
                     ))}
