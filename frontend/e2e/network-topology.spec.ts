@@ -147,6 +147,19 @@ const topology = {
       snmp_interface: 'eth1',
       snmp_vlan: '30',
     },
+    ...Array.from({ length: 16 }, (_, index) => ({
+      id: 10 + index,
+      label: `Desk Client ${String(index + 1).padStart(2, '0')}`,
+      ip_address: `10.0.40.${20 + index}`,
+      device_class: 'Client',
+      is_online: index % 4 !== 0,
+      segment_id: 40,
+      segment_name: 'Clients',
+      service_count: 0,
+      snmp_switch: 'Access Switch 1',
+      snmp_interface: `eth${index + 2}`,
+      snmp_vlan: '40',
+    })),
   ],
   edges: [
     { source: 1, target: 2, relationship_type: 'snmp_port', label: 'ge-0/0/1', metadata: { vlan: '10' } },
@@ -154,6 +167,13 @@ const topology = {
     { source: 2, target: 4, relationship_type: 'snmp_port', label: 'ge-0/1/1', metadata: { vlan: '20' } },
     { source: 3, target: 5, relationship_type: 'snmp_port', label: 'eth1', metadata: { vlan: '30' } },
     { source: 1, target: 2, relationship_type: 'ospf_neighbor', label: '10.0.0.2', metadata: { router_id: '10.0.0.1' } },
+    ...Array.from({ length: 16 }, (_, index) => ({
+      source: 3,
+      target: 10 + index,
+      relationship_type: 'snmp_port',
+      label: `eth${index + 2}`,
+      metadata: { vlan: '40' },
+    })),
   ],
 }
 
@@ -205,7 +225,7 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
     await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
   })
   await page.route(/\/api\/devices(?:$|\?)/, async (route) => {
-    await route.fulfill({ json: { items: [], total: 5, online: 4, offline: 1, unregistered: 0, archived: 0 } })
+    await route.fulfill({ json: { items: [], total: 21, online: 16, offline: 5, unregistered: 0, archived: 0 } })
   })
   await page.route('**/api/inventory/topology', async (route) => {
     await route.fulfill({ json: topology })
@@ -224,10 +244,10 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
   await expect(page.getByText('ge-0/1/1').first()).toBeVisible()
   await expect(page.getByText('SNMP context')).toBeVisible()
   await page.getByRole('button', { name: 'Zoom in' }).click()
-  await expect(page.getByText('128%')).toBeVisible()
+  await expect(page.getByText('116%')).toBeVisible()
   await page.getByTestId('topology-map').hover()
   await page.mouse.wheel(0, 240)
-  await expect(page.getByText('112%')).toBeVisible()
+  await expect(page.getByText('100%')).toBeVisible()
   const mapBox = await page.getByTestId('topology-map').boundingBox()
   if (!mapBox) throw new Error('Topology map did not render')
   await page.mouse.move(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 2)
@@ -235,6 +255,20 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
   await page.mouse.move(mapBox.x + mapBox.width / 2 + 80, mapBox.y + mapBox.height / 2 + 40)
   await page.mouse.up()
   await page.getByRole('button', { name: 'Reset map view' }).click()
+  const nodeBoxes = await page.getByTestId('topology-node').evaluateAll((nodes) => (
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+    }).filter((rect) => rect.right > 0 && rect.left < window.innerWidth && rect.bottom > 0 && rect.top < window.innerHeight)
+  ))
+  for (let index = 0; index < nodeBoxes.length; index += 1) {
+    for (let otherIndex = index + 1; otherIndex < nodeBoxes.length; otherIndex += 1) {
+      const a = nodeBoxes[index]
+      const b = nodeBoxes[otherIndex]
+      const overlaps = a.left < b.right - 4 && a.right > b.left + 4 && a.top < b.bottom - 4 && a.bottom > b.top + 4
+      expect(overlaps, `Topology cards ${index} and ${otherIndex} should not overlap`).toBe(false)
+    }
+  }
   await page.getByText('NAS-01').first().click()
   await expect(page.getByText('Core Switch · ge-0/1/1')).toBeVisible()
   await expect(page.getByText('NAS-01 came online through switch-port evidence')).toBeVisible()

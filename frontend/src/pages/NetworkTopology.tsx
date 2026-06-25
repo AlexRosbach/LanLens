@@ -24,12 +24,16 @@ type MapViewport = {
   scale: number
 }
 
-const CANVAS_WIDTH = 1360
-const CANVAS_HEIGHT = 760
+const CANVAS_WIDTH = 1700
+const CANVAS_HEIGHT = 1100
 const MIN_ZOOM = 0.48
 const MAX_ZOOM = 1.75
 const ZOOM_STEP = 0.16
-const DEFAULT_VIEWPORT: MapViewport = { x: -82, y: -64, scale: 1.12 }
+const DEFAULT_VIEWPORT: MapViewport = { x: -130, y: -80, scale: 1 }
+const NODE_CARD_WIDTH = 188
+const NODE_CARD_HEIGHT = 88
+const NODE_MIN_GAP = 262
+const ROW_GAP = 120
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
@@ -106,19 +110,27 @@ function buildPositions(nodes: TopologyNode[], edges: TopologyEdge[], endpoints:
     }
   }
 
-  const placeRow = (row: PositionedNode[], y: number, inset = 150) => {
+  const placeGrid = (row: PositionedNode[], startY: number, inset = 150) => {
     const sorted = [...row].sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label))
+    const usableWidth = CANVAS_WIDTH - inset * 2
+    const perLine = Math.max(1, Math.floor(usableWidth / NODE_MIN_GAP))
+    const lineCount = Math.max(1, Math.ceil(sorted.length / perLine))
+
     sorted.forEach((node, index) => {
-      const gap = (CANVAS_WIDTH - inset * 2) / Math.max(sorted.length, 1)
-      node.x = inset + gap * index + gap / 2
-      node.y = y
+      const line = Math.floor(index / perLine)
+      const lineStart = line * perLine
+      const lineLength = Math.min(perLine, sorted.length - lineStart)
+      const gap = usableWidth / Math.max(lineLength, 1)
+      node.x = inset + gap * (index - lineStart) + gap / 2
+      node.y = startY + line * ROW_GAP
     })
+    return startY + (lineCount - 1) * ROW_GAP
   }
 
-  placeRow(buckets.infra, 120, 320)
-  placeRow(buckets.core, 310, 420)
-  placeRow(buckets.switch, 520, 210)
-  placeRow(buckets.endpoint, 680, 130)
+  const infraBottom = placeGrid(buckets.infra, 150, 360)
+  const coreBottom = placeGrid(buckets.core, Math.max(325, infraBottom + 175), 500)
+  const switchBottom = placeGrid(buckets.switch, Math.max(500, coreBottom + 175), 230)
+  placeGrid(buckets.endpoint, Math.max(660, switchBottom + 160), 170)
 
   return [...buckets.infra, ...buckets.core, ...buckets.switch, ...buckets.endpoint]
 }
@@ -391,7 +403,7 @@ export default function NetworkTopology() {
                 ref={svgRef}
                 data-testid="topology-map"
                 viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
-                className="h-[540px] w-full cursor-grab touch-none bg-surface2/40 active:cursor-grabbing"
+                className="h-[620px] w-full cursor-grab touch-none bg-surface2/40 active:cursor-grabbing"
                 onWheel={onWheel}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
@@ -439,7 +451,13 @@ export default function NetworkTopology() {
                         onClick={() => setSelectedId(node.id)}
                         onPointerDown={(event) => event.stopPropagation()}
                       >
-                        <foreignObject x={node.x - 88} y={node.y - 44} width="176" height="88">
+                        <foreignObject
+                          data-testid="topology-node"
+                          x={node.x - NODE_CARD_WIDTH / 2}
+                          y={node.y - NODE_CARD_HEIGHT / 2}
+                          width={NODE_CARD_WIDTH}
+                          height={NODE_CARD_HEIGHT}
+                        >
                           <div
                             className={`h-[86px] rounded-lg border bg-surface p-2 shadow-sm transition-colors ${selectedNode ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'}`}
                           >
