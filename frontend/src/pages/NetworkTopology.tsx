@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { PointerEvent, WheelEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -18,8 +18,22 @@ type PositionedNode = TopologyNode & {
   degree: number
 }
 
-const CANVAS_WIDTH = 960
-const CANVAS_HEIGHT = 520
+type MapViewport = {
+  x: number
+  y: number
+  scale: number
+}
+
+const CANVAS_WIDTH = 1360
+const CANVAS_HEIGHT = 760
+const MIN_ZOOM = 0.48
+const MAX_ZOOM = 1.75
+const ZOOM_STEP = 0.16
+const DEFAULT_VIEWPORT: MapViewport = { x: -82, y: -64, scale: 1.12 }
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
 
 function normalize(value?: string | null) {
   return (value || '').trim().toLowerCase()
@@ -92,7 +106,7 @@ function buildPositions(nodes: TopologyNode[], edges: TopologyEdge[], endpoints:
     }
   }
 
-  const placeRow = (row: PositionedNode[], y: number, inset = 100) => {
+  const placeRow = (row: PositionedNode[], y: number, inset = 150) => {
     const sorted = [...row].sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label))
     sorted.forEach((node, index) => {
       const gap = (CANVAS_WIDTH - inset * 2) / Math.max(sorted.length, 1)
@@ -101,10 +115,10 @@ function buildPositions(nodes: TopologyNode[], edges: TopologyEdge[], endpoints:
     })
   }
 
-  placeRow(buckets.infra, 88, 220)
-  placeRow(buckets.core, 210, 300)
-  placeRow(buckets.switch, 335, 135)
-  placeRow(buckets.endpoint, 455, 70)
+  placeRow(buckets.infra, 120, 320)
+  placeRow(buckets.core, 310, 420)
+  placeRow(buckets.switch, 520, 210)
+  placeRow(buckets.endpoint, 680, 130)
 
   return [...buckets.infra, ...buckets.core, ...buckets.switch, ...buckets.endpoint]
 }
@@ -145,6 +159,15 @@ export default function NetworkTopology() {
   const [segment, setSegment] = useState('')
   const [deviceClass, setDeviceClass] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [viewport, setViewport] = useState<MapViewport>(DEFAULT_VIEWPORT)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+  } | null>(null)
 
   async function load() {
     setLoading(true)
@@ -192,6 +215,69 @@ export default function NetworkTopology() {
   const selectedChanges = selected ? changes.filter((change) => change.device_id === selected.id) : []
   const snmpEdgeCount = topology.edges.filter((edge) => edge.relationship_type === 'snmp_port').length
   const passiveEdgeCount = topology.edges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'host_guest').length
+  const zoomPercent = Math.round(viewport.scale * 100)
+
+  function zoomMap(nextScale: number, pivotX = CANVAS_WIDTH / 2, pivotY = CANVAS_HEIGHT / 2) {
+    setViewport((current) => {
+      const scale = clamp(nextScale, MIN_ZOOM, MAX_ZOOM)
+      const ratio = scale / current.scale
+      return {
+        scale,
+        x: pivotX - (pivotX - current.x) * ratio,
+        y: pivotY - (pivotY - current.y) * ratio,
+      }
+    })
+  }
+
+  function resetMap() {
+    setViewport(DEFAULT_VIEWPORT)
+  }
+
+  function svgPoint(event: Pick<PointerEvent<SVGSVGElement>, 'clientX' | 'clientY'> | Pick<WheelEvent<SVGSVGElement>, 'clientX' | 'clientY'>) {
+    const bounds = svgRef.current?.getBoundingClientRect()
+    if (!bounds) return { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 }
+    return {
+      x: ((event.clientX - bounds.left) / bounds.width) * CANVAS_WIDTH,
+      y: ((event.clientY - bounds.top) / bounds.height) * CANVAS_HEIGHT,
+    }
+  }
+
+  function onWheel(event: WheelEvent<SVGSVGElement>) {
+    event.preventDefault()
+    const point = svgPoint(event)
+    const direction = event.deltaY > 0 ? -1 : 1
+    zoomMap(viewport.scale + direction * ZOOM_STEP, point.x, point.y)
+  }
+
+  function onPointerDown(event: PointerEvent<SVGSVGElement>) {
+    if (event.button !== 0) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: viewport.x,
+      originY: viewport.y,
+    }
+  }
+
+  function onPointerMove(event: PointerEvent<SVGSVGElement>) {
+    const drag = dragRef.current
+    const bounds = svgRef.current?.getBoundingClientRect()
+    if (!drag || drag.pointerId !== event.pointerId || !bounds) return
+    const dx = ((event.clientX - drag.startX) / bounds.width) * CANVAS_WIDTH
+    const dy = ((event.clientY - drag.startY) / bounds.height) * CANVAS_HEIGHT
+    setViewport((current) => ({ ...current, x: drag.originX + dx, y: drag.originY + dy }))
+  }
+
+  function onPointerUp(event: PointerEvent<SVGSVGElement>) {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+    }
+  }
 
   if (!advancedViewEnabled || !showNetworkTopologyNav) {
     return (
@@ -267,71 +353,118 @@ export default function NetworkTopology() {
                 <p className="text-sm font-semibold text-text-base">{t('topology_map')}</p>
                 <p className="text-xs text-text-subtle">{t('topology_map_hint')}</p>
               </div>
-              <div className="flex flex-wrap gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
                 <Badge variant="success">{t('healthy_links')}</Badge>
                 <Badge variant="primary">{t('passive_edges')}</Badge>
                 <Badge variant="warning">{t('host_edges')}</Badge>
+                <div className="ml-1 flex items-center overflow-hidden rounded-lg border border-border bg-surface2">
+                  <button
+                    type="button"
+                    aria-label={t('zoom_out')}
+                    onClick={() => zoomMap(viewport.scale - ZOOM_STEP)}
+                    className="h-8 w-8 border-r border-border text-sm font-semibold text-text-base hover:bg-surface"
+                  >
+                    -
+                  </button>
+                  <span className="min-w-[52px] px-2 text-center text-[11px] font-medium text-text-muted">{zoomPercent}%</span>
+                  <button
+                    type="button"
+                    aria-label={t('zoom_in')}
+                    onClick={() => zoomMap(viewport.scale + ZOOM_STEP)}
+                    className="h-8 w-8 border-l border-border text-sm font-semibold text-text-base hover:bg-surface"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('reset_map_view')}
+                    onClick={resetMap}
+                    className="h-8 border-l border-border px-2 text-[11px] font-medium text-text-muted hover:bg-surface hover:text-text-base"
+                  >
+                    {t('reset')}
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="overflow-auto">
-              <svg viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`} className="min-h-[440px] w-full min-w-[760px] bg-surface2/40">
+            <div className="overflow-hidden">
+              <svg
+                ref={svgRef}
+                data-testid="topology-map"
+                viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
+                className="h-[540px] w-full cursor-grab touch-none bg-surface2/40 active:cursor-grabbing"
+                onWheel={onWheel}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+              >
                 <defs>
                   <pattern id="topology-grid" width="32" height="32" patternUnits="userSpaceOnUse">
                     <path d="M 32 0 L 0 0 0 32" fill="none" stroke="currentColor" strokeOpacity="0.06" />
                   </pattern>
                 </defs>
                 <rect width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="url(#topology-grid)" className="text-text-muted" />
-                {visibleEdges.map((edge, index) => {
-                  const source = positionedById.get(edge.source)
-                  const target = positionedById.get(edge.target)
-                  if (!source || !target) return null
-                  const midX = (source.x + target.x) / 2
-                  const midY = (source.y + target.y) / 2
-                  const color = relationTone(edge, target)
-                  return (
-                    <g key={`${edge.source}-${edge.target}-${edge.relationship_type}-${index}`}>
-                      <path
-                        d={`M ${source.x} ${source.y} C ${source.x} ${midY}, ${target.x} ${midY}, ${target.x} ${target.y}`}
-                        fill="none"
-                        stroke={color}
-                        strokeWidth={edge.relationship_type === 'snmp_port' ? 2.4 : 1.6}
-                        strokeDasharray={edge.relationship_type === 'snmp_port' ? undefined : '7 5'}
-                        opacity={0.84}
-                      />
-                      <foreignObject x={midX - 44} y={midY - 12} width="88" height="24">
-                        <div className="truncate rounded-md border border-border bg-surface px-1.5 py-0.5 text-center text-[10px] font-medium text-text-muted shadow-sm">
-                          {relationLabel(edge)}
-                        </div>
-                      </foreignObject>
-                    </g>
-                  )
-                })}
-                {positioned.map((node) => {
-                  const selectedNode = selected?.id === node.id
-                  return (
-                    <g key={node.id} className="cursor-pointer" onClick={() => setSelectedId(node.id)}>
-                      <foreignObject x={node.x - 76} y={node.y - 35} width="152" height="70">
-                        <div
-                          className={`h-[68px] rounded-lg border bg-surface p-2 shadow-sm transition-colors ${selectedNode ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'}`}
-                        >
-                          <div className="flex items-start gap-2">
-                            <div className={`rounded-md p-1.5 ${node.kind === 'core' ? 'bg-primary-dim text-primary' : node.kind === 'infra' ? 'bg-warning-dim text-warning' : 'bg-surface2 text-text-muted'}`}>
-                              <DeviceIcon kind={node.kind} />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-semibold text-text-base">{node.label}</p>
-                              <p className="truncate text-[10px] text-text-subtle">{node.ip_address || node.device_class || t('unknown')}</p>
-                              <div className="mt-1 flex items-center gap-1">
-                                <span className={`h-1.5 w-1.5 rounded-full ${node.is_online ? 'bg-success' : 'bg-danger'}`} />
-                                <span className="truncate text-[10px] text-text-subtle">{node.segment_name || node.device_class || t('unknown')}</span>
+                <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.scale})`}>
+                  {visibleEdges.map((edge, index) => {
+                    const source = positionedById.get(edge.source)
+                    const target = positionedById.get(edge.target)
+                    if (!source || !target) return null
+                    const midX = (source.x + target.x) / 2
+                    const midY = (source.y + target.y) / 2
+                    const color = relationTone(edge, target)
+                    return (
+                      <g key={`${edge.source}-${edge.target}-${edge.relationship_type}-${index}`}>
+                        <path
+                          d={`M ${source.x} ${source.y} C ${source.x} ${midY}, ${target.x} ${midY}, ${target.x} ${target.y}`}
+                          fill="none"
+                          stroke={color}
+                          strokeWidth={edge.relationship_type === 'snmp_port' ? 2.4 : 1.6}
+                          strokeDasharray={edge.relationship_type === 'snmp_port' ? undefined : '7 5'}
+                          opacity={0.84}
+                        />
+                        <foreignObject x={midX - 52} y={midY - 12} width="104" height="24">
+                          <div className="truncate rounded-md border border-border bg-surface px-1.5 py-0.5 text-center text-[10px] font-medium text-text-muted shadow-sm">
+                            {relationLabel(edge)}
+                          </div>
+                        </foreignObject>
+                      </g>
+                    )
+                  })}
+                  {positioned.map((node) => {
+                    const selectedNode = selected?.id === node.id
+                    return (
+                      <g
+                        key={node.id}
+                        className="cursor-pointer"
+                        onClick={() => setSelectedId(node.id)}
+                        onPointerDown={(event) => event.stopPropagation()}
+                      >
+                        <foreignObject x={node.x - 88} y={node.y - 44} width="176" height="88">
+                          <div
+                            className={`h-[86px] rounded-lg border bg-surface p-2 shadow-sm transition-colors ${selectedNode ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'}`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <div className={`rounded-md p-1.5 ${node.kind === 'core' ? 'bg-primary-dim text-primary' : node.kind === 'infra' ? 'bg-warning-dim text-warning' : 'bg-surface2 text-text-muted'}`}>
+                                <DeviceIcon kind={node.kind} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-semibold text-text-base">{node.label}</p>
+                                <p className="truncate text-[10px] text-text-subtle">{node.ip_address || node.device_class || t('unknown')}</p>
+                                <div className="mt-1 flex items-center gap-1">
+                                  <span className={`h-1.5 w-1.5 rounded-full ${node.is_online ? 'bg-success' : 'bg-danger'}`} />
+                                  <span className="truncate text-[10px] text-text-subtle">{node.segment_name || node.device_class || t('unknown')}</span>
+                                </div>
+                                {node.endpoint_count > 0 && (
+                                  <p className="mt-1 truncate text-[10px] text-text-subtle">{node.endpoint_count} {t('learned_endpoints')}</p>
+                                )}
                               </div>
                             </div>
                           </div>
-                        </div>
-                      </foreignObject>
-                    </g>
-                  )
-                })}
+                        </foreignObject>
+                      </g>
+                    )
+                  })}
+                </g>
               </svg>
             </div>
             <div className="grid gap-3 border-t border-border px-4 py-3 text-xs text-text-subtle md:grid-cols-4">
