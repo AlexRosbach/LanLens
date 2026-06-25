@@ -467,6 +467,7 @@ export default function Settings() {
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const setShowNetworkTopologyNav = useUiSettingsStore((state) => state.setShowNetworkTopologyNav)
   const setShowPluginApi = useUiSettingsStore((state) => state.setShowPluginApi)
   const setShowPassiveDiscovery = useUiSettingsStore((state) => state.setShowPassiveDiscovery)
   const setShowMdnsDiscovery = useUiSettingsStore((state) => state.setShowMdnsDiscovery)
@@ -489,6 +490,7 @@ export default function Settings() {
       setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+      setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
       setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
       setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
       setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
@@ -1367,6 +1369,7 @@ export default function Settings() {
         setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+        setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
         setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
         setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
         setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
@@ -1588,6 +1591,7 @@ export default function Settings() {
         current.show_cmdb_integrations,
         current.show_services_nav,
         current.show_dhcp_monitor_nav,
+        current.show_network_topology_nav,
         current.show_plugin_api,
         current.show_passive_discovery,
         current.show_mdns_discovery,
@@ -1602,6 +1606,7 @@ export default function Settings() {
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
+      setShowNetworkTopologyNav(current.advanced_view_enabled && current.show_network_topology_nav)
       setShowPluginApi(current.advanced_view_enabled && current.show_plugin_api)
       setShowPassiveDiscovery(current.advanced_view_enabled && current.show_passive_discovery)
       setShowMdnsDiscovery(current.advanced_view_enabled && current.show_mdns_discovery)
@@ -1668,6 +1673,7 @@ export default function Settings() {
             show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
             show_services_nav: checked ? current.show_services_nav : false,
             show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
+            show_network_topology_nav: checked ? current.show_network_topology_nav : false,
             show_plugin_api: checked ? current.show_plugin_api : false,
             show_passive_discovery: checked ? current.show_passive_discovery : false,
             show_mdns_discovery: checked ? current.show_mdns_discovery : false,
@@ -1722,6 +1728,14 @@ export default function Settings() {
           label: t('show_dhcp_monitor_nav'),
           description: t('show_dhcp_monitor_nav_hint'),
           onChange: (checked: boolean) => setSettings({ ...current, show_dhcp_monitor_nav: checked }),
+        },
+        {
+          key: 'network-topology',
+          checked: current.show_network_topology_nav,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_network_topology_nav'),
+          description: t('show_network_topology_nav_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_network_topology_nav: checked }),
         },
       ],
     },

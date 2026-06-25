@@ -7,6 +7,7 @@ const settings = {
   show_cmdb_integrations: false,
   show_services_nav: false,
   show_dhcp_monitor_nav: false,
+  show_network_topology_nav: false,
   show_plugin_api: false,
   show_passive_discovery: false,
   show_mdns_discovery: false,

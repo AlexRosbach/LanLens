@@ -45,6 +45,7 @@ const settings = {
   show_cmdb_integrations: false,
   show_services_nav: true,
   show_dhcp_monitor_nav: true,
+  show_network_topology_nav: true,
   show_plugin_api: true,
   show_passive_discovery: true,
   show_mdns_discovery: true,

@@ -99,7 +99,7 @@ For built-in HTTPS in host-network deployments, open **Settings → System → H
 
 ### Optional Advanced View
 
-LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery, debug tools or build metadata.
+LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, Network Topology, TLS checks, ping history, Scan Nodes, SNMP, passive discovery, debug tools or build metadata.
 
 ---
 
@@ -578,6 +578,10 @@ LanLens stores visible mDNS, SSDP/UPnP, LLDP, CDP, STP/RSTP and generic IPv4 mul
 When a linked observation carries a high- or medium-confidence device-class inference, passive discovery can update the matched device's `device_class`. Unknown devices are filled automatically; high-confidence router, switch, access-point, printer and similar observations may also replace broad generic classes such as `IoT` or `Workstation`. LLDP/CDP bridge/switch, router, WLAN access-point, telephone and station capabilities are treated as strong class signals, STP/RSTP bridge BPDUs are treated as switch signals, and OSPF/VRRP/HSRP control-plane traffic is treated as router evidence. More specific existing classes are left unchanged so manually curated inventory data is not overwritten by weak service advertisements. If normal DNS discovery did not provide a usable hostname, linked mDNS observations can also fill `hostname` from advertised `.local` names.
 
 The inventory topology API combines existing device, host/guest and SNMP switch-port relationships with passive topology hints when both endpoints are already known devices. OSPF hello neighbors can add `ospf_neighbor` edges, HA virtual IP observations can add VRRP/HSRP virtual-IP edges, and LLDP/CDP/STP advertisements can add layer-2 edges when the advertised chassis, bridge or device identity matches an existing LanLens device. Unknown external neighbors remain visible in the passive discovery observation metadata instead of creating synthetic inventory devices.
+
+The optional **Network Topology** page appears only when **Settings -> Features -> Network Topology** is enabled together with Advanced View. It renders the existing topology API as a read-only map, shows SNMP port/VLAN context from learned endpoint data, filters by segment or device class, and keeps a compact recent-change panel beside the selected device. This is useful today when LanLens has either SNMP bridge-table data, passive LLDP/CDP/STP/OSPF observations or manually/scan-created host relationships; environments without those signals still show discovered devices but have fewer useful edges.
+
+![LanLens network topology map](screenshots/lanlens-network-topology.png)
 
 Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, linked observations, device classes updated, hostnames updated, duplicates skipped and capture errors. The same card lists recent observations and links matched rows directly to device detail pages. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. If observations are stored but not linked, the source IP/MAC has not matched a known device or its IP history yet.
 

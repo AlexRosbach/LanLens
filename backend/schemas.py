@@ -648,6 +648,7 @@ class UiSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_network_topology_nav: bool = False
     show_plugin_api: bool = False
     show_passive_discovery: bool = False
     show_mdns_discovery: bool = False
@@ -756,6 +757,7 @@ class AllSettings(BaseModel):
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
     show_dhcp_monitor_nav: bool = False
+    show_network_topology_nav: bool = False
     show_plugin_api: bool = False
     show_passive_discovery: bool = False
     show_mdns_discovery: bool = False

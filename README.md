@@ -35,7 +35,7 @@ Why people use it:
 - **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
 - **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
 
-Optional expert views add SNMP switch-port context, custom SNMP OID/table polling by device class or target tag, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
+Optional expert views add SNMP switch-port context, custom SNMP OID/table polling by device class or target tag, a feature-gated network topology map, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
@@ -83,6 +83,10 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 | SNMP poll diagnostics | Device linked to SNMP identity |
 |---|---|
 | ![LanLens SNMP poll diagnostics without exposing credentials](docs/screenshots/lanlens-snmp-poll-diagnostics.png) | ![LanLens device detail linked to SNMP target identity](docs/screenshots/lanlens-device-snmp-target-link.png) |
+
+| Network topology | Network changes |
+|---|---|
+| ![LanLens network topology map](docs/screenshots/lanlens-network-topology.png) | ![LanLens network changes](docs/screenshots/lanlens-network-changes.png) |
 
 | CMDB / i-doit settings | Reviewed i-doit CSV export |
 |---|---|
