@@ -69,11 +69,18 @@ function relationTone(edge: TopologyEdge, target?: TopologyNode) {
   return '#64748b'
 }
 
-function endpointSummary(node: TopologyNode, endpoints: SnmpEndpoint[]) {
-  return endpoints.filter((endpoint) => endpoint.device_id === node.id)
+function buildEndpointMap(endpoints: SnmpEndpoint[]) {
+  const byDeviceId = new Map<number, SnmpEndpoint[]>()
+  endpoints.forEach((endpoint) => {
+    if (endpoint.device_id == null) return
+    const current = byDeviceId.get(endpoint.device_id) || []
+    current.push(endpoint)
+    byDeviceId.set(endpoint.device_id, current)
+  })
+  return byDeviceId
 }
 
-function buildPositions(nodes: TopologyNode[], edges: TopologyEdge[], endpoints: SnmpEndpoint[]) {
+function buildPositions(nodes: TopologyNode[], edges: TopologyEdge[], endpointsByDeviceId: Map<number, SnmpEndpoint[]>) {
   const sourceCounts = new Map<number, number>()
   const degreeCounts = new Map<number, number>()
   edges.forEach((edge) => {
@@ -97,7 +104,7 @@ function buildPositions(nodes: TopologyNode[], edges: TopologyEdge[], endpoints:
       x: 0,
       y: 0,
       kind,
-      endpoint_count: endpointSummary(node, endpoints).length,
+      endpoint_count: endpointsByDeviceId.get(node.id)?.length ?? 0,
       degree,
     })
   })
@@ -237,13 +244,14 @@ export default function NetworkTopology() {
 
   const visibleIds = new Set(filteredNodes.map((node) => node.id))
   const visibleEdges = topology.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
-  const positioned = buildPositions(filteredNodes, visibleEdges, endpoints).map((node) => {
+  const endpointsByDeviceId = useMemo(() => buildEndpointMap(endpoints), [endpoints])
+  const positioned = buildPositions(filteredNodes, visibleEdges, endpointsByDeviceId).map((node) => {
     const customPosition = nodePositions[node.id]
     return customPosition ? { ...node, x: customPosition.x, y: customPosition.y } : node
   })
   const positionedById = new Map(positioned.map((node) => [node.id, node]))
   const selected = positionedById.get(selectedId ?? -1) ?? positioned[0] ?? null
-  const selectedEndpoints = selected ? endpointSummary(selected, endpoints) : []
+  const selectedEndpoints = selected ? endpointsByDeviceId.get(selected.id) ?? [] : []
   const selectedEdges = selected ? visibleEdges.filter((edge) => edge.source === selected.id || edge.target === selected.id) : []
   const selectedChanges = selected ? changes.filter((change) => change.device_id === selected.id) : []
   const snmpEdgeCount = topology.edges.filter((edge) => edge.relationship_type === 'snmp_port').length

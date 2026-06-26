@@ -791,13 +791,17 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     switch.last_diagnostics = diagnostics
     linked_device = _linked_device_for_target(db, switch)
     _apply_target_identity_to_device(db, switch, vendor, len(indexes), linked_device, linked_device_loaded=True)
-    custom_summary = poll_custom_queries(db, switch, linked_device, linked_device_loaded=True)
-    if custom_summary["matched"]:
-        diagnostics = (
-            f"{diagnostics}\n"
-            f"Custom SNMP queries: matched={custom_summary['matched']}, "
-            f"stored={custom_summary['stored']}, failed={custom_summary['failed']}"
-        )
+    try:
+        custom_summary = poll_custom_queries(db, switch, linked_device, linked_device_loaded=True)
+        if custom_summary["matched"]:
+            diagnostics = (
+                f"{diagnostics}\n"
+                f"Custom SNMP queries: matched={custom_summary['matched']}, "
+                f"stored={custom_summary['stored']}, failed={custom_summary['failed']}"
+            )
+            switch.last_diagnostics = diagnostics
+    except Exception as exc:
+        diagnostics = f"{diagnostics}\nCustom SNMP queries failed: {exc}"
         switch.last_diagnostics = diagnostics
     switch.updated_at = now
     return PollResult(interfaces=len(indexes), mac_entries=mac_count, diagnostics=diagnostics)

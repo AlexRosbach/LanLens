@@ -15,6 +15,8 @@ All notable changes to this project should be documented in this file.
 ### Fixes / Hardening
 - Ignored common Linux bridge interfaces such as `br0` and `bridge0` during first-run subnet detection so Docker hosts prefer the real LAN interface.
 - Limited the Settings SNMP custom-result request to the visible result count and kept SNMP vendor detection coverage in the dedicated vendor test.
+- Kept custom SNMP query failures isolated from the main switch poll once core SNMP polling succeeds, while still recording the custom-query failure in diagnostics.
+- Cached SNMP endpoint lookups in the Network Topology view and completed missing Italian and Chinese topology/sidebar translations.
 - Reused existing inventory topology, SNMP endpoint and network-change data for the topology visualization; no new packages or license obligations were added.
 
 ## v1.5.7 — i-doit matching, notifications and passive topology

@@ -280,6 +280,39 @@ class SnmpIdentityTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_poll_switch_records_custom_query_failure_without_failing_core_poll(self):
+        db = self.Session()
+        try:
+            profile = SnmpProfile(name="core", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile)
+            db.add_all([profile, switch])
+            db.commit()
+            db.refresh(switch)
+
+            def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                required = {
+                    OID_SYS_DESCR: {"": "STRING: Cisco IOS"},
+                    OID_SYS_OBJECT_ID: {"": "OID: 1.3.6.1.4.1.9.1.1"},
+                    OID_SYS_NAME: {"": "STRING: core-sw-01"},
+                    OID_IF_DESCR: {"1": "STRING: GigabitEthernet1"},
+                    OID_IF_ADMIN_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_OPER_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_NAME: {"1": "STRING: Gi1/0/1"},
+                }
+                return required.get(oid, {})
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                with patch("backend.services.snmp.poll_custom_queries", side_effect=RuntimeError("custom boom")):
+                    result = poll_switch(db, switch)
+
+            self.assertEqual(result.interfaces, 1)
+            self.assertEqual(result.mac_entries, 0)
+            self.assertIsNone(switch.last_error)
+            self.assertIn("Custom SNMP queries failed: custom boom", result.diagnostics)
+            self.assertIn("Custom SNMP queries failed: custom boom", switch.last_diagnostics)
+        finally:
+            db.close()
+
     def test_poll_switch_classifies_ip_scan_cisco_sg_target_as_switch_without_mac_table(self):
         db = self.Session()
         try:
