@@ -291,6 +291,7 @@ class SnmpSwitch(Base):
     profile = relationship("SnmpProfile", back_populates="switches")
     interfaces = relationship("SnmpInterface", back_populates="switch", cascade="all, delete-orphan")
     mac_entries = relationship("SnmpMacTableEntry", back_populates="switch", cascade="all, delete-orphan")
+    custom_results = relationship("SnmpCustomResult", back_populates="switch", cascade="all, delete-orphan")
 
 
 class SnmpInterface(Base):
@@ -344,6 +345,52 @@ class SnmpMacTableEntry(Base):
     last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     switch = relationship("SnmpSwitch", back_populates="mac_entries")
+
+
+class SnmpCustomQuery(Base):
+    """User-defined SNMP OID or table poll scoped by device class/tag."""
+    __tablename__ = "snmp_custom_queries"
+    __table_args__ = (
+        Index("ix_snmp_custom_queries_target_tag", "target_tag"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False, unique=True)
+    target_tag = Column(String(64), nullable=True)
+    oid = Column(String(255), nullable=False)
+    query_type = Column(String(16), default="scalar", nullable=False)
+    value_type = Column(String(32), default="text", nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    results = relationship("SnmpCustomResult", back_populates="query", cascade="all, delete-orphan")
+
+
+class SnmpCustomResult(Base):
+    """Latest value returned by a custom SNMP query for one target."""
+    __tablename__ = "snmp_custom_results"
+    __table_args__ = (
+        UniqueConstraint("query_id", "switch_id", "oid_suffix", name="uq_snmp_custom_result_query_switch_suffix"),
+        Index("ix_snmp_custom_results_switch", "switch_id"),
+        Index("ix_snmp_custom_results_device", "device_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query_id = Column(Integer, ForeignKey("snmp_custom_queries.id", ondelete="CASCADE"), nullable=False)
+    switch_id = Column(Integer, ForeignKey("snmp_switches.id", ondelete="CASCADE"), nullable=False)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    oid = Column(String(255), nullable=False)
+    oid_suffix = Column(String(255), nullable=False, default="")
+    value = Column(Text, nullable=True)
+    numeric_value = Column(Float, nullable=True)
+    status = Column(String(16), default="ok", nullable=False)
+    error = Column(Text, nullable=True)
+    polled_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    query = relationship("SnmpCustomQuery", back_populates="results")
+    switch = relationship("SnmpSwitch", back_populates="custom_results")
+    device = relationship("Device")
 
 
 class Setting(Base):

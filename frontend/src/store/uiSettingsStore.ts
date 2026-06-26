@@ -6,6 +6,7 @@ interface UiSettingsState {
   showCmdbIntegrations: boolean
   showServicesNav: boolean
   showDhcpMonitorNav: boolean
+  showNetworkTopologyNav: boolean
   showPluginApi: boolean
   showPassiveDiscovery: boolean
   showMdnsDiscovery: boolean
@@ -25,6 +26,7 @@ interface UiSettingsState {
   setShowCmdbIntegrations: (showCmdbIntegrations: boolean) => void
   setShowServicesNav: (showServicesNav: boolean) => void
   setShowDhcpMonitorNav: (showDhcpMonitorNav: boolean) => void
+  setShowNetworkTopologyNav: (showNetworkTopologyNav: boolean) => void
   setShowPluginApi: (showPluginApi: boolean) => void
   setShowPassiveDiscovery: (showPassiveDiscovery: boolean) => void
   setShowMdnsDiscovery: (showMdnsDiscovery: boolean) => void
@@ -58,6 +60,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   showCmdbIntegrations: false,
   showServicesNav: false,
   showDhcpMonitorNav: false,
+  showNetworkTopologyNav: false,
   showPluginApi: false,
   showPassiveDiscovery: false,
   showMdnsDiscovery: false,
@@ -79,6 +82,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
     showCmdbIntegrations: advancedViewEnabled && state.showCmdbIntegrations,
     showServicesNav: advancedViewEnabled && state.showServicesNav,
     showDhcpMonitorNav: advancedViewEnabled && state.showDhcpMonitorNav,
+    showNetworkTopologyNav: advancedViewEnabled && state.showNetworkTopologyNav,
     showTlsChecks: advancedViewEnabled && state.showTlsChecks,
     showPingHistory: advancedViewEnabled && state.showPingHistory,
     showDebugTools: advancedViewEnabled && state.showDebugTools,
@@ -93,6 +97,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   setShowCmdbIntegrations: (showCmdbIntegrations) => set({ showCmdbIntegrations }),
   setShowServicesNav: (showServicesNav) => set({ showServicesNav }),
   setShowDhcpMonitorNav: (showDhcpMonitorNav) => set({ showDhcpMonitorNav }),
+  setShowNetworkTopologyNav: (showNetworkTopologyNav) => set({ showNetworkTopologyNav }),
   setShowPluginApi: (showPluginApi) => set((state) => normalizeFeatureGates({
     advancedViewEnabled: state.advancedViewEnabled,
     showPluginApi,
@@ -142,6 +147,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
         showCmdbIntegrations: settings.advanced_view_enabled && settings.show_cmdb_integrations,
         showServicesNav: settings.advanced_view_enabled && settings.show_services_nav,
         showDhcpMonitorNav: settings.advanced_view_enabled && settings.show_dhcp_monitor_nav,
+        showNetworkTopologyNav: settings.advanced_view_enabled && settings.show_network_topology_nav,
         showPluginApi: featureGates.showPluginApi,
         showPassiveDiscovery: featureGates.showPassiveDiscovery,
         showMdnsDiscovery: featureGates.showMdnsDiscovery,

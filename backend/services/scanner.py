@@ -317,8 +317,21 @@ def _detect_host_network() -> Optional[ipaddress.IPv4Network]:
     try:
         import netifaces
 
-        for iface in netifaces.interfaces():
-            if iface == "lo":
+        default_iface = None
+        try:
+            default_gateway = netifaces.gateways().get("default", {}).get(netifaces.AF_INET)
+            if default_gateway:
+                default_iface = default_gateway[1]
+        except Exception:
+            default_iface = None
+
+        interfaces = list(netifaces.interfaces())
+        if default_iface in interfaces:
+            interfaces.remove(default_iface)
+            interfaces.insert(0, default_iface)
+
+        for iface in interfaces:
+            if _is_ignored_detection_interface(iface):
                 continue
             addrs = netifaces.ifaddresses(iface)
             if netifaces.AF_INET not in addrs:
@@ -330,6 +343,8 @@ def _detect_host_network() -> Optional[ipaddress.IPv4Network]:
                     continue
                 try:
                     network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                    if _is_ignored_detection_network(network):
+                        continue
                     logger.info(f"Detected host network: {network} on interface {iface}")
                     return network
                 except Exception:
@@ -337,6 +352,27 @@ def _detect_host_network() -> Optional[ipaddress.IPv4Network]:
     except Exception as e:
         logger.warning(f"Host network detection failed: {e}")
     return None
+
+
+def _is_ignored_detection_interface(iface: str) -> bool:
+    name = iface.lower()
+    if name == "lo":
+        return True
+    if name.startswith(("docker", "br-", "bridge", "veth", "virbr", "tailscale", "zt", "wg")):
+        return True
+    return name.startswith("br") and name[2:].isdigit()
+
+
+def _is_ignored_detection_network(network: ipaddress.IPv4Network) -> bool:
+    return (
+        network.version != 4
+        or network.is_loopback
+        or network.is_link_local
+        or network.is_multicast
+        or network.is_unspecified
+        or network.prefixlen < 8
+        or network.prefixlen == 32
+    )
 
 
 def _network_host_bounds(network: ipaddress.IPv4Network) -> tuple[str, str]:

@@ -57,6 +57,7 @@ const settings = {
   show_cmdb_integrations: false,
   show_services_nav: true,
   show_dhcp_monitor_nav: true,
+  show_network_topology_nav: true,
   show_plugin_api: true,
   show_passive_discovery: true,
   show_mdns_discovery: true,
@@ -66,7 +67,7 @@ const settings = {
   show_build_info: false,
   show_debug_tools: false,
   debug_log_level: 'warning',
-  app_version: '1.5.7',
+  app_version: '1.5.8',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -195,7 +196,7 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   })
   await page.route(/\/api\/settings(?:$|\?|\/update\/check)/, async (route) => {
     if (route.request().url().includes('/api/settings/update/check')) {
-      await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+      await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
       return
     }
     await route.fulfill({ json: settings })
@@ -243,6 +244,12 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
     await route.fulfill({ json: [] })
   })
   await page.route('**/api/snmp/topology/endpoints**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/custom-queries**', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/snmp/custom-results**', async (route) => {
     await route.fulfill({ json: [] })
   })
 
@@ -321,7 +328,7 @@ test('settings debug tab filters diagnostics and cmdb mapping is collapsible', a
   })
   await page.route(/\/api\/settings(?:$|\?|\/update\/check)/, async (route) => {
     if (route.request().url().includes('/api/settings/update/check')) {
-      await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+      await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
       return
     }
     await route.fulfill({
