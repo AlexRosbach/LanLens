@@ -175,6 +175,7 @@ export default function NetworkTopology() {
   const [search, setSearch] = useState('')
   const [segment, setSegment] = useState('')
   const [deviceClass, setDeviceClass] = useState('')
+  const [hideOffline, setHideOffline] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [viewport, setViewport] = useState<MapViewport>(DEFAULT_VIEWPORT)
   const [nodePositions, setNodePositions] = useState<Record<number, NodePosition>>({})
@@ -228,10 +229,11 @@ export default function NetworkTopology() {
     return topology.nodes.filter((node) => {
       if (segment && node.segment_name !== segment) return false
       if (deviceClass && (node.device_class || t('unknown')) !== deviceClass) return false
+      if (hideOffline && !node.is_online) return false
       if (!needle) return true
       return normalize(`${node.label} ${node.ip_address} ${node.device_class} ${node.segment_name}`).includes(needle)
     })
-  }, [deviceClass, search, segment, topology.nodes, t])
+  }, [deviceClass, hideOffline, search, segment, topology.nodes, t])
 
   const visibleIds = new Set(filteredNodes.map((node) => node.id))
   const visibleEdges = topology.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
@@ -242,10 +244,12 @@ export default function NetworkTopology() {
   const positionedById = new Map(positioned.map((node) => [node.id, node]))
   const selected = positionedById.get(selectedId ?? -1) ?? positioned[0] ?? null
   const selectedEndpoints = selected ? endpointSummary(selected, endpoints) : []
-  const selectedEdges = selected ? topology.edges.filter((edge) => edge.source === selected.id || edge.target === selected.id) : []
+  const selectedEdges = selected ? visibleEdges.filter((edge) => edge.source === selected.id || edge.target === selected.id) : []
   const selectedChanges = selected ? changes.filter((change) => change.device_id === selected.id) : []
   const snmpEdgeCount = topology.edges.filter((edge) => edge.relationship_type === 'snmp_port').length
   const passiveEdgeCount = topology.edges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'host_guest').length
+  const visibleSnmpEdgeCount = visibleEdges.filter((edge) => edge.relationship_type === 'snmp_port').length
+  const visiblePassiveEdgeCount = visibleEdges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'host_guest').length
   const zoomPercent = Math.round(viewport.scale * 100)
 
   function zoomMap(nextScale: number, pivotX = CANVAS_WIDTH / 2, pivotY = CANVAS_HEIGHT / 2) {
@@ -408,7 +412,7 @@ export default function NetworkTopology() {
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[minmax(220px,1.2fr)_180px_180px_auto]">
+      <div className="grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[minmax(220px,1.2fr)_180px_180px_auto_auto]">
         <Input
           placeholder={t('topology_search_placeholder')}
           value={search}
@@ -432,7 +436,16 @@ export default function NetworkTopology() {
           <option value="">{t('all_device_classes')}</option>
           {classes.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
-        <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setSegment(''); setDeviceClass('') }}>{t('reset_filters')}</Button>
+        <label className="flex h-10 items-center gap-2 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base">
+          <input
+            type="checkbox"
+            checked={hideOffline}
+            onChange={(event) => setHideOffline(event.target.checked)}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          <span className="whitespace-nowrap">{t('hide_offline_devices')}</span>
+        </label>
+        <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setSegment(''); setDeviceClass(''); setHideOffline(false) }}>{t('reset_filters')}</Button>
       </div>
 
       {loading ? (
@@ -592,8 +605,8 @@ export default function NetworkTopology() {
             <div className="grid gap-3 border-t border-border px-4 py-3 text-xs text-text-subtle md:grid-cols-4">
               <span>{t('topology_nodes')}: <strong className="text-text-base">{filteredNodes.length}</strong></span>
               <span>{t('topology_edges')}: <strong className="text-text-base">{visibleEdges.length}</strong></span>
-              <span>SNMP: <strong className="text-text-base">{snmpEdgeCount}</strong></span>
-              <span>{t('passive_edges')}: <strong className="text-text-base">{passiveEdgeCount}</strong></span>
+              <span>SNMP: <strong className="text-text-base">{visibleSnmpEdgeCount}</strong></span>
+              <span>{t('passive_edges')}: <strong className="text-text-base">{visiblePassiveEdgeCount}</strong></span>
             </div>
           </div>
 

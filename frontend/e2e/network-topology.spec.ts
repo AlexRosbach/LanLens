@@ -243,6 +243,13 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
   await expect(page.getByText('Core Switch').first()).toBeVisible()
   await expect(page.getByText('ge-0/1/1').first()).toBeVisible()
   await expect(page.getByText('SNMP context')).toBeVisible()
+  await expect(page.locator('[data-testid="topology-node"][data-node-id="5"]')).toBeVisible()
+  await page.getByLabel('Hide offline').check()
+  await expect(page.locator('[data-testid="topology-node"][data-node-id="5"]')).toBeHidden()
+  await expect(page.locator('[data-testid="topology-edge"][data-source-id="3"][data-target-id="5"]')).toBeHidden()
+  await expect(page.getByTestId('topology-node')).toHaveCount(16)
+  await page.getByLabel('Hide offline').uncheck()
+  await expect(page.locator('[data-testid="topology-node"][data-node-id="5"]')).toBeVisible()
   await page.getByRole('button', { name: 'Zoom in' }).click()
   await expect(page.getByText('116%')).toBeVisible()
   await page.getByTestId('topology-map').hover()
@@ -285,7 +292,7 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
       expect(overlaps, `Topology cards ${index} and ${otherIndex} should not overlap`).toBe(false)
     }
   }
-  await page.getByText('NAS-01').first().click()
+  await page.locator('[data-testid="topology-node"][data-node-id="4"]').click()
   await expect(page.getByText('Core Switch · ge-0/1/1')).toBeVisible()
   await expect(page.getByText('NAS-01 came online through switch-port evidence')).toBeVisible()
 

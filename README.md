@@ -35,7 +35,7 @@ Why people use it:
 - **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
 - **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
 
-Optional expert views add SNMP switch-port context, custom SNMP OID/table polling by device class or target tag, a feature-gated network topology map with pan, zoom and draggable device cards, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
+Optional expert views add SNMP switch-port context, custom SNMP OID/table polling by device class or target tag, a feature-gated network topology map with pan, zoom, draggable device cards and offline-device filtering, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
