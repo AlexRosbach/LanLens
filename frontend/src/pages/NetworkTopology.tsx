@@ -24,6 +24,11 @@ type MapViewport = {
   scale: number
 }
 
+type NodePosition = {
+  x: number
+  y: number
+}
+
 const CANVAS_WIDTH = 1700
 const CANVAS_HEIGHT = 1100
 const MIN_ZOOM = 0.48
@@ -172,6 +177,7 @@ export default function NetworkTopology() {
   const [deviceClass, setDeviceClass] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [viewport, setViewport] = useState<MapViewport>(DEFAULT_VIEWPORT)
+  const [nodePositions, setNodePositions] = useState<Record<number, NodePosition>>({})
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<{
     pointerId: number
@@ -180,6 +186,16 @@ export default function NetworkTopology() {
     originX: number
     originY: number
   } | null>(null)
+  const nodeDragRef = useRef<{
+    pointerId: number
+    nodeId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+    moved: boolean
+  } | null>(null)
+  const suppressNodeClickRef = useRef<number | null>(null)
 
   async function load() {
     setLoading(true)
@@ -219,7 +235,10 @@ export default function NetworkTopology() {
 
   const visibleIds = new Set(filteredNodes.map((node) => node.id))
   const visibleEdges = topology.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
-  const positioned = buildPositions(filteredNodes, visibleEdges, endpoints)
+  const positioned = buildPositions(filteredNodes, visibleEdges, endpoints).map((node) => {
+    const customPosition = nodePositions[node.id]
+    return customPosition ? { ...node, x: customPosition.x, y: customPosition.y } : node
+  })
   const positionedById = new Map(positioned.map((node) => [node.id, node]))
   const selected = positionedById.get(selectedId ?? -1) ?? positioned[0] ?? null
   const selectedEndpoints = selected ? endpointSummary(selected, endpoints) : []
@@ -245,12 +264,25 @@ export default function NetworkTopology() {
     setViewport(DEFAULT_VIEWPORT)
   }
 
+  function resetLayout() {
+    setNodePositions({})
+    setViewport(DEFAULT_VIEWPORT)
+  }
+
   function svgPoint(event: Pick<PointerEvent<SVGSVGElement>, 'clientX' | 'clientY'> | Pick<WheelEvent<SVGSVGElement>, 'clientX' | 'clientY'>) {
     const bounds = svgRef.current?.getBoundingClientRect()
     if (!bounds) return { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 }
     return {
       x: ((event.clientX - bounds.left) / bounds.width) * CANVAS_WIDTH,
       y: ((event.clientY - bounds.top) / bounds.height) * CANVAS_HEIGHT,
+    }
+  }
+
+  function mapPoint(event: Pick<PointerEvent, 'clientX' | 'clientY'>) {
+    const point = svgPoint(event)
+    return {
+      x: (point.x - viewport.x) / viewport.scale,
+      y: (point.y - viewport.y) / viewport.scale,
     }
   }
 
@@ -274,6 +306,24 @@ export default function NetworkTopology() {
   }
 
   function onPointerMove(event: PointerEvent<SVGSVGElement>) {
+    const nodeDrag = nodeDragRef.current
+    if (nodeDrag && nodeDrag.pointerId === event.pointerId) {
+      const point = mapPoint(event)
+      const dx = point.x - nodeDrag.startX
+      const dy = point.y - nodeDrag.startY
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        nodeDrag.moved = true
+      }
+      setNodePositions((current) => ({
+        ...current,
+        [nodeDrag.nodeId]: {
+          x: clamp(nodeDrag.originX + dx, NODE_CARD_WIDTH / 2, CANVAS_WIDTH - NODE_CARD_WIDTH / 2),
+          y: clamp(nodeDrag.originY + dy, NODE_CARD_HEIGHT / 2, CANVAS_HEIGHT - NODE_CARD_HEIGHT / 2),
+        },
+      }))
+      return
+    }
+
     const drag = dragRef.current
     const bounds = svgRef.current?.getBoundingClientRect()
     if (!drag || drag.pointerId !== event.pointerId || !bounds) return
@@ -283,11 +333,45 @@ export default function NetworkTopology() {
   }
 
   function onPointerUp(event: PointerEvent<SVGSVGElement>) {
+    if (nodeDragRef.current?.pointerId === event.pointerId) {
+      if (nodeDragRef.current.moved) {
+        suppressNodeClickRef.current = nodeDragRef.current.nodeId
+      }
+      nodeDragRef.current = null
+    }
     if (dragRef.current?.pointerId === event.pointerId) {
       dragRef.current = null
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId)
       }
+    }
+  }
+
+  function startNodeDrag(event: PointerEvent<SVGGElement>, node: PositionedNode) {
+    if (event.button !== 0) return
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const point = mapPoint(event)
+    nodeDragRef.current = {
+      pointerId: event.pointerId,
+      nodeId: node.id,
+      startX: point.x,
+      startY: point.y,
+      originX: node.x,
+      originY: node.y,
+      moved: false,
+    }
+  }
+
+  function finishNodeDrag(event: PointerEvent<SVGGElement>) {
+    if (nodeDragRef.current?.pointerId === event.pointerId) {
+      if (nodeDragRef.current.moved) {
+        suppressNodeClickRef.current = nodeDragRef.current.nodeId
+      }
+      nodeDragRef.current = null
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
     }
   }
 
@@ -395,6 +479,14 @@ export default function NetworkTopology() {
                   >
                     {t('reset')}
                   </button>
+                  <button
+                    type="button"
+                    aria-label={t('reset_topology_layout')}
+                    onClick={resetLayout}
+                    className="h-8 border-l border-border px-2 text-[11px] font-medium text-text-muted hover:bg-surface hover:text-text-base"
+                  >
+                    {t('reset_layout')}
+                  </button>
                 </div>
               </div>
             </div>
@@ -427,6 +519,9 @@ export default function NetworkTopology() {
                     return (
                       <g key={`${edge.source}-${edge.target}-${edge.relationship_type}-${index}`}>
                         <path
+                          data-testid="topology-edge"
+                          data-source-id={edge.source}
+                          data-target-id={edge.target}
                           d={`M ${source.x} ${source.y} C ${source.x} ${midY}, ${target.x} ${midY}, ${target.x} ${target.y}`}
                           fill="none"
                           stroke={color}
@@ -447,12 +542,21 @@ export default function NetworkTopology() {
                     return (
                       <g
                         key={node.id}
-                        className="cursor-pointer"
-                        onClick={() => setSelectedId(node.id)}
-                        onPointerDown={(event) => event.stopPropagation()}
+                        className="cursor-grab active:cursor-grabbing"
+                        onClick={() => {
+                          if (suppressNodeClickRef.current === node.id) {
+                            suppressNodeClickRef.current = null
+                            return
+                          }
+                          setSelectedId(node.id)
+                        }}
+                        onPointerDown={(event) => startNodeDrag(event, node)}
+                        onPointerUp={finishNodeDrag}
+                        onPointerCancel={finishNodeDrag}
                       >
                         <foreignObject
                           data-testid="topology-node"
+                          data-node-id={node.id}
                           x={node.x - NODE_CARD_WIDTH / 2}
                           y={node.y - NODE_CARD_HEIGHT / 2}
                           width={NODE_CARD_WIDTH}
