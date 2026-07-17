@@ -53,7 +53,7 @@ const settings = {
   show_tls_checks: false,
   show_ping_history: false,
   show_build_info: false,
-  app_version: '1.5.8',
+  app_version: '1.5.9',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -258,7 +258,7 @@ async function mockDeviceDetail(page: Page, device: Record<string, unknown>, por
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.9', latest_version: '1.5.9', release_url: '', update_available: false } })
   })
   await page.route('**/api/devices**', async (route) => {
     if (!new URL(route.request().url()).pathname.endsWith('/api/devices')) return route.fallback()

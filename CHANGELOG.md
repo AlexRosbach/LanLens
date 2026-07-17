@@ -4,9 +4,16 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
+### 1.5.9 Iteration Focus
+- Start the 1.5.9 cycle by assessing ARM/container compatibility and separating quick fixes from the larger ARM support work currently tracked for the next major iteration.
+- Continue hardening Network Topology and SNMP workflows after the 1.5.8 topology release, especially setup clarity, diagnostics and mixed-vendor switch visibility.
+- Keep early planning open for traffic-awareness and recommendation work while avoiding new runtime dependencies until the license and deployment impact is reviewed.
+
+## v1.5.8 — Network topology and custom SNMP queries
+
 ### New Features
 - Fresh installs now detect the primary host IPv4 subnet, persist it as the initial ARP scan range and start an immediate first-run network scan so the dashboard can populate without opening Settings first.
-- Added custom SNMP OID/table polling for V 1.5.8: operators can define arbitrary OIDs, scope them to target tags/device classes such as switch, printer, UPS or `*`, store the latest values per SNMP target and run them during the existing SNMP poll cadence.
+- Added custom SNMP OID/table polling: operators can define arbitrary OIDs, scope them to target tags/device classes such as switch, printer, UPS or `*`, store the latest values per SNMP target and run them during the existing SNMP poll cadence.
 - Added Settings UI and API endpoints for custom SNMP queries and latest custom SNMP results so heterogeneous SNMP devices can expose useful data without hardcoding every vendor-specific MIB into LanLens.
 - Added an opt-in **Network Topology** view under **Settings -> Features** that visualizes known device relationships, SNMP switch-port mappings and passive topology edges without changing the default LanLens navigation.
 - Grouped the main sidebar into **Monitor**, **Analyze**, **Manage** and **Admin** sections so optional expert views such as Network Topology have a clearer home.
