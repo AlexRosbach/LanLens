@@ -39,6 +39,7 @@ const NODE_CARD_WIDTH = 188
 const NODE_CARD_HEIGHT = 88
 const NODE_MIN_GAP = 262
 const ROW_GAP = 120
+const UNKNOWN_DEVICE_CLASS = '__unknown__'
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
@@ -46,6 +47,10 @@ function clamp(value: number, min: number, max: number) {
 
 function normalize(value?: string | null) {
   return (value || '').trim().toLowerCase()
+}
+
+function deviceClassFilterValue(node: TopologyNode) {
+  return node.device_class || UNKNOWN_DEVICE_CLASS
 }
 
 function nodeKind(node: TopologyNode, sourceCount: number): PositionedNode['kind'] {
@@ -209,7 +214,7 @@ export default function NetworkTopology() {
     setLoading(true)
     try {
       const [nextTopology, nextEndpoints, nextChanges] = await Promise.all([
-        inventoryApi.topology(),
+        inventoryApi.topology().catch(() => ({ nodes: [], edges: [] })),
         snmpApi.listEndpoints().catch(() => [] as SnmpEndpoint[]),
         inventoryApi.changes({ since_hours: 24, limit: 8 }).catch(() => [] as NetworkChangeEvent[]),
       ])
@@ -228,19 +233,23 @@ export default function NetworkTopology() {
     [...new Set(topology.nodes.map((node) => node.segment_name).filter(Boolean) as string[])].sort()
   ), [topology.nodes])
   const classes = useMemo(() => (
-    [...new Set(topology.nodes.map((node) => node.device_class || t('unknown')).filter(Boolean))].sort()
-  ), [topology.nodes, t])
+    [...new Set(topology.nodes.map(deviceClassFilterValue).filter(Boolean))].sort((a, b) => {
+      if (a === UNKNOWN_DEVICE_CLASS) return 1
+      if (b === UNKNOWN_DEVICE_CLASS) return -1
+      return a.localeCompare(b)
+    })
+  ), [topology.nodes])
 
   const filteredNodes = useMemo(() => {
     const needle = normalize(search)
     return topology.nodes.filter((node) => {
       if (segment && node.segment_name !== segment) return false
-      if (deviceClass && (node.device_class || t('unknown')) !== deviceClass) return false
+      if (deviceClass && deviceClassFilterValue(node) !== deviceClass) return false
       if (hideOffline && !node.is_online) return false
       if (!needle) return true
       return normalize(`${node.label} ${node.ip_address} ${node.device_class} ${node.segment_name}`).includes(needle)
     })
-  }, [deviceClass, hideOffline, search, segment, topology.nodes, t])
+  }, [deviceClass, hideOffline, search, segment, topology.nodes])
 
   const visibleIds = new Set(filteredNodes.map((node) => node.id))
   const visibleEdges = topology.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
@@ -273,10 +282,12 @@ export default function NetworkTopology() {
   }
 
   function resetMap() {
+    suppressNodeClickRef.current = null
     setViewport(DEFAULT_VIEWPORT)
   }
 
   function resetLayout() {
+    suppressNodeClickRef.current = null
     setNodePositions({})
     setViewport(DEFAULT_VIEWPORT)
   }
@@ -442,7 +453,11 @@ export default function NetworkTopology() {
           className="h-10 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base outline-none focus:border-primary"
         >
           <option value="">{t('all_device_classes')}</option>
-          {classes.map((item) => <option key={item} value={item}>{item}</option>)}
+          {classes.map((item) => (
+            <option key={item} value={item}>
+              {item === UNKNOWN_DEVICE_CLASS ? t('unknown') : item}
+            </option>
+          ))}
         </select>
         <label className="flex h-10 items-center gap-2 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base">
           <input

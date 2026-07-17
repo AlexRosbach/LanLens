@@ -17,6 +17,7 @@ All notable changes to this project should be documented in this file.
 - Limited the Settings SNMP custom-result request to the visible result count and kept SNMP vendor detection coverage in the dedicated vendor test.
 - Kept custom SNMP query failures isolated from the main switch poll once core SNMP polling succeeds, while still recording the custom-query failure in diagnostics.
 - Cached SNMP endpoint lookups in the Network Topology view and completed missing Italian and Chinese topology/sidebar translations.
+- Kept Network Topology stable when the topology API temporarily fails and made the unknown device-class filter use a stable internal value across language changes.
 - Reused existing inventory topology, SNMP endpoint and network-change data for the topology visualization; no new packages or license obligations were added.
 
 ## v1.5.7 — i-doit matching, notifications and passive topology
