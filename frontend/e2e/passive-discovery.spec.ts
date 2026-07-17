@@ -45,6 +45,7 @@ const settings = {
   show_cmdb_integrations: false,
   show_services_nav: false,
   show_dhcp_monitor_nav: false,
+  show_network_topology_nav: false,
   show_plugin_api: true,
   show_passive_discovery: true,
   show_mdns_discovery: true,
@@ -315,7 +316,7 @@ test('device detail shows linked SNMP target without switch MAC table', async ({
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
   })
   await page.route('**/api/devices/1', async (route) => {
     await route.fulfill({ json: snmpLinkedDevice })

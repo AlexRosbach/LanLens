@@ -7,6 +7,7 @@ const settings = {
   show_cmdb_integrations: false,
   show_services_nav: false,
   show_dhcp_monitor_nav: false,
+  show_network_topology_nav: false,
   show_plugin_api: false,
   show_passive_discovery: false,
   show_mdns_discovery: false,
@@ -16,7 +17,7 @@ const settings = {
   show_build_info: false,
   cmdb_id_prefix: 'LL',
   cmdb_id_digits: 5,
-  app_version: '1.5.7',
+  app_version: '1.5.8',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -86,7 +87,7 @@ test('device detail saves cleared label and asset tag as null values', async ({ 
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
   })
   await page.route('**/api/client-errors', async (route) => {
     await route.fulfill({ json: { ok: true } })
@@ -154,7 +155,7 @@ test('device detail can test an i-doit sysid lookup and show debug details', asy
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
   })
   await page.route('**/api/client-errors', async (route) => {
     await route.fulfill({ json: { ok: true } })

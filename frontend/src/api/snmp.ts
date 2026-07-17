@@ -110,6 +110,44 @@ export interface SnmpPollResponse {
   switch: SnmpSwitch
 }
 
+export interface SnmpCustomQuery {
+  id: number
+  name: string
+  target_tag: string
+  oid: string
+  query_type: 'scalar' | 'table'
+  value_type: 'text' | 'integer' | 'counter' | 'gauge' | 'numeric'
+  enabled: boolean
+}
+
+export interface SnmpCustomResult {
+  id: number
+  query_id: number
+  query_name: string
+  target_tag: string
+  switch_id: number
+  switch_name: string
+  switch_host: string
+  device_id?: number | null
+  device_label?: string
+  oid: string
+  oid_suffix: string
+  value: string
+  numeric_value?: number | null
+  status: 'ok' | 'error'
+  error?: string | null
+  polled_at: string
+}
+
+export type SnmpCustomQueryCreate = {
+  name: string
+  target_tag: string
+  oid: string
+  query_type: 'scalar' | 'table'
+  value_type: 'text' | 'integer' | 'counter' | 'gauge' | 'numeric'
+  enabled: boolean
+}
+
 export const snmpApi = {
   listProfiles: () => apiClient.get<SnmpProfile[]>('/snmp/profiles').then((r) => r.data),
   createProfile: (data: SnmpProfileCreate) =>
@@ -122,6 +160,13 @@ export const snmpApi = {
     apiClient.put<SnmpSwitch>(`/snmp/switches/${switchId}`, data).then((r) => r.data),
   deleteSwitch: (switchId: number) => apiClient.delete(`/snmp/switches/${switchId}`).then((r) => r.data),
   pollSwitch: (switchId: number) => apiClient.post<SnmpPollResponse>(`/snmp/switches/${switchId}/poll`).then((r) => r.data),
+  listCustomQueries: () => apiClient.get<SnmpCustomQuery[]>('/snmp/custom-queries').then((r) => r.data),
+  createCustomQuery: (data: SnmpCustomQueryCreate) =>
+    apiClient.post<SnmpCustomQuery>('/snmp/custom-queries', data).then((r) => r.data),
+  deleteCustomQuery: (queryId: number) => apiClient.delete(`/snmp/custom-queries/${queryId}`).then((r) => r.data),
+  pollCustomQueries: (switchId: number) =>
+    apiClient.post<{ message: string; matched: number; stored: number; failed: number }>(`/snmp/switches/${switchId}/custom-queries/poll`).then((r) => r.data),
+  listCustomResults: (limit = 20) => apiClient.get<SnmpCustomResult[]>('/snmp/custom-results', { params: { limit } }).then((r) => r.data),
   getDevicePorts: (deviceId: number) =>
     apiClient.get<SnmpSwitchPortsResponse>(`/snmp/devices/${deviceId}/ports`).then((r) => r.data),
   listEndpoints: () => apiClient.get<SnmpEndpoint[]>('/snmp/topology/endpoints').then((r) => r.data),

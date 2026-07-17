@@ -70,7 +70,7 @@ Then start LanLens:
 docker compose up -d
 ```
 
-On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume.
+On first startup, LanLens generates a strong `SECRET_KEY` inside the persistent `lanlens_data` Docker volume. If the database is fresh and no scan range exists yet, LanLens detects the primary host IPv4 subnet, stores the resulting host range in **Settings -> Network Discovery**, and starts one immediate ARP scan.
 
 Open the UI:
 
@@ -84,7 +84,7 @@ Default first-run login:
 admin / admin
 ```
 
-LanLens forces a password change after the first login. For full MAC/vendor discovery, run it on a Linux host with host networking as shown in the compose file.
+LanLens forces a password change after the first login. For full MAC/vendor discovery and automatic first-run subnet detection, run it on a Linux host with host networking as shown in the compose file.
 
 ### Optional HTTP/HTTPS port
 
@@ -99,7 +99,7 @@ For built-in HTTPS in host-network deployments, open **Settings → System → H
 
 ### Optional Advanced View
 
-LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, TLS checks, ping history, Scan Nodes, SNMP, passive discovery, debug tools or build metadata.
+LanLens keeps expert modules hidden by default. Enable **Settings → Features → Advanced View** when the installation needs CMDB/i-doit, Services, DHCP Monitor, Network Topology, TLS checks, ping history, Scan Nodes, SNMP, passive discovery, debug tools or build metadata.
 
 ---
 
@@ -401,13 +401,14 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### ARP Scan Flow
 
 ```
-1. APScheduler triggers run_scan() every N minutes
-2. scanner.py reads scan_start/scan_end plus optional scan_additional_targets from DB settings
-3. scan_start/scan_end are summarized into ARP targets for the directly reachable Layer-2 network
-4. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=target)
+1. On a fresh database, startup detection persists the primary host subnet as scan_start/scan_end and queues one immediate `initial` scan
+2. APScheduler triggers run_scan() every N minutes after that
+3. scanner.py reads scan_start/scan_end plus optional scan_additional_targets from DB settings
+4. scan_start/scan_end are summarized into ARP targets for the directly reachable Layer-2 network
+5. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=target)
    srp() with timeout=3s
-5. Optional routed scan targets are scanned with `nmap -sn -oX - <target>`
-6. For each discovered host:
+6. Optional routed scan targets are scanned with `nmap -sn -oX - <target>`
+7. For each discovered host:
    a. Normalize MAC to XX:XX:XX:XX:XX:XX when available
    b. Routed hosts without MAC receive a stable internal `ip:` identifier and are displayed as IP-only discoveries
    c. mac_vendor.py: manuf.MacParser().get_manuf(mac) → vendor string when a real MAC exists
@@ -577,6 +578,10 @@ LanLens stores visible mDNS, SSDP/UPnP, LLDP, CDP, STP/RSTP and generic IPv4 mul
 When a linked observation carries a high- or medium-confidence device-class inference, passive discovery can update the matched device's `device_class`. Unknown devices are filled automatically; high-confidence router, switch, access-point, printer and similar observations may also replace broad generic classes such as `IoT` or `Workstation`. LLDP/CDP bridge/switch, router, WLAN access-point, telephone and station capabilities are treated as strong class signals, STP/RSTP bridge BPDUs are treated as switch signals, and OSPF/VRRP/HSRP control-plane traffic is treated as router evidence. More specific existing classes are left unchanged so manually curated inventory data is not overwritten by weak service advertisements. If normal DNS discovery did not provide a usable hostname, linked mDNS observations can also fill `hostname` from advertised `.local` names.
 
 The inventory topology API combines existing device, host/guest and SNMP switch-port relationships with passive topology hints when both endpoints are already known devices. OSPF hello neighbors can add `ospf_neighbor` edges, HA virtual IP observations can add VRRP/HSRP virtual-IP edges, and LLDP/CDP/STP advertisements can add layer-2 edges when the advertised chassis, bridge or device identity matches an existing LanLens device. Unknown external neighbors remain visible in the passive discovery observation metadata instead of creating synthetic inventory devices.
+
+The optional **Network Topology** page appears only when **Settings -> Features -> Network Topology** is enabled together with Advanced View. It renders the existing topology API as a read-only map, shows SNMP port/VLAN context from learned endpoint data, filters by segment or device class, and keeps a compact recent-change panel beside the selected device. The map can be dragged, zoomed with the mouse wheel and adjusted through inline zoom/reset controls. This is useful today when LanLens has either SNMP bridge-table data, passive LLDP/CDP/STP/OSPF observations or manually/scan-created host relationships; environments without those signals still show discovered devices but have fewer useful edges.
+
+![LanLens network topology map](screenshots/lanlens-network-topology.png)
 
 Use **Diagnose 10s** in the same settings card when a network is known to send mDNS/UPnP but LanLens shows no observations. The diagnostic runs a short foreground capture and reports the active BPF filter, enabled protocols, matching packets seen, packets parsed, observations stored, linked observations, device classes updated, hostnames updated, duplicates skipped and capture errors. The same card lists recent observations and links matched rows directly to device detail pages. If `packets_seen` is zero, the LanLens host/container is not seeing that traffic. If packets are seen but not parsed or stored, the issue is in the parser, protocol switches or database write path. If observations are stored but not linked, the source IP/MAC has not matched a known device or its IP history yet.
 
@@ -986,6 +991,8 @@ SNMP data is most useful when the router, firewall, access point or switch expos
 
 SNMP interface polling also stores real-port statistics when the device exposes the related IF-MIB and EtherLike-MIB counters: speed, admin/oper status, unicast/non-unicast packet counters, discards, errors, unknown protocols, CRC/FCS/alignment errors, collisions and frame-too-long fragment counters. The device detail page shows the switch, port, speed and port statistics when a device is matched through the MAC table. The switch-port grid accepts common physical interface naming from multiple vendors such as Ethernet, GigabitEthernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial names. It filters common virtual interfaces such as loopback, VLAN/SVI, tunnel, bridge, LAG/bond/team, management, stack and port-channel rows so the visualization focuses on real switch/router/firewall/AP ports.
 
+Custom SNMP queries extend the fixed switch/interface polling for heterogeneous environments. In **Settings -> Network Discovery -> SNMP targets and switch topology**, operators can add arbitrary numeric OIDs as scalar reads or table walks, assign a target tag, choose a value type and keep the latest values per SNMP target. A target tag matches `*`, the linked device class, linked device vendor, detected SNMP vendor key/label or the target name/system name. This covers practical profiles such as `switch` interface extras, `printer` toner/status OIDs or `UPS` battery/runtime OIDs without polling every custom OID against every SNMP device. Custom queries run when the existing manual or background SNMP poll runs, and can also be triggered from the target row with **Custom OIDs**.
+
 ![SNMP target settings with learned network device identity](screenshots/lanlens-snmp-targets-settings.png)
 
 When an SNMP target is linked to a LanLens device and the poll returns interfaces, the device detail page shows a switch-port visualization. Each real interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, speed, CRC errors, collisions, fragments, cast packet counters, discard/error counters and learned device/MAC/VLAN context when bridge tables are available; unlabeled endpoints show the MAC once with any VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. Interface-only targets still show their SNMP port inventory with empty endpoint labels so troubleshooting remains possible even when BRIDGE-MIB/Q-BRIDGE-MIB is unavailable.
@@ -1004,6 +1011,12 @@ The API surface is available under `/api/snmp`:
 - `PUT /api/snmp/switches/{switch_id}`
 - `DELETE /api/snmp/switches/{switch_id}`
 - `POST /api/snmp/switches/{switch_id}/poll`
+- `GET /api/snmp/custom-queries`
+- `POST /api/snmp/custom-queries`
+- `PUT /api/snmp/custom-queries/{query_id}`
+- `DELETE /api/snmp/custom-queries/{query_id}`
+- `POST /api/snmp/switches/{switch_id}/custom-queries/poll`
+- `GET /api/snmp/custom-results`
 - `PUT /api/settings/snmp-poll`
 - `GET /api/snmp/switches/{switch_id}/interfaces`
 - `GET /api/snmp/devices/{device_id}/ports`

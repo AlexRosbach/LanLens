@@ -8,6 +8,7 @@ import ForcePasswordChange from './pages/ForcePasswordChange'
 import Login from './pages/Login'
 import Notifications from './pages/Notifications'
 import NetworkChanges from './pages/NetworkChanges'
+import NetworkTopology from './pages/NetworkTopology'
 import DeepScanSettings from './pages/DeepScanSettings'
 import Segments from './pages/Segments'
 import Settings from './pages/Settings'
@@ -103,6 +104,7 @@ export default function App() {
               <Route path="deep-scan-settings" element={<DeepScanSettings />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="changes" element={<NetworkChanges />} />
+              <Route path="topology" element={<NetworkTopology />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

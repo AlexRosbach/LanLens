@@ -9,7 +9,7 @@ from typing import Any, Optional
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ..models import Device, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from ..models import Device, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
 from .mac_vendor import normalize_mac
 
 OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
@@ -350,6 +350,118 @@ def _snmpget(profile: SnmpProfile, host: str, oid: str, port: int = 161) -> str:
     return next(iter(values.values()), "")
 
 
+def _numeric_snmp_value(raw: str) -> Optional[float]:
+    match = re.search(r"-?\d+(?:\.\d+)?", raw or "")
+    return float(match.group(0)) if match else None
+
+
+def _target_tags_for_switch(switch: SnmpSwitch, linked_device: Optional[Device] = None) -> set[str]:
+    tags = {"*"}
+    vendor = detect_vendor(switch.sys_descr or "", switch.sys_object_id or "")
+    tags.update({vendor.key.lower(), vendor.label.lower()})
+    if switch.name:
+        tags.add(switch.name.lower())
+    if switch.sys_name:
+        tags.add(switch.sys_name.lower())
+
+    if linked_device:
+        if linked_device.device_class:
+            tags.add(linked_device.device_class.lower())
+        if linked_device.vendor:
+            tags.add(linked_device.vendor.lower())
+    return {tag.strip() for tag in tags if tag and tag.strip()}
+
+
+def _custom_query_matches(query: SnmpCustomQuery, target_tags: set[str]) -> bool:
+    target_tag = (query.target_tag or "").strip().lower()
+    if not target_tag or target_tag == "*":
+        return True
+    return target_tag in target_tags
+
+
+def _upsert_custom_result(
+    db: Session,
+    query: SnmpCustomQuery,
+    switch: SnmpSwitch,
+    oid_suffix: str,
+    value: str,
+    status: str,
+    now: datetime,
+    linked_device: Optional[Device] = None,
+    error: str = "",
+) -> None:
+    clean_value = _clean_snmp_value(value)
+    row = (
+        db.query(SnmpCustomResult)
+        .filter(
+            SnmpCustomResult.query_id == query.id,
+            SnmpCustomResult.switch_id == switch.id,
+            SnmpCustomResult.oid_suffix == oid_suffix,
+        )
+        .first()
+    )
+    if row is None:
+        row = SnmpCustomResult(
+            query_id=query.id,
+            switch_id=switch.id,
+            oid=query.oid,
+            oid_suffix=oid_suffix,
+        )
+        db.add(row)
+    row.device_id = linked_device.id if linked_device else None
+    row.oid = query.oid
+    row.value = clean_value
+    row.numeric_value = _numeric_snmp_value(clean_value) if (query.value_type or "").lower() in {"integer", "counter", "gauge", "numeric"} else None
+    row.status = status
+    row.error = error or None
+    row.polled_at = now
+
+
+def poll_custom_queries(
+    db: Session,
+    switch: SnmpSwitch,
+    linked_device: Optional[Device] = None,
+    linked_device_loaded: bool = False,
+) -> dict[str, int]:
+    """Poll enabled custom queries that match this target's class/tag."""
+    if not switch.profile:
+        raise RuntimeError("SNMP switch has no profile assigned")
+
+    profile = switch.profile
+    port = profile.port or 161
+    now = datetime.utcnow()
+    queries = (
+        db.query(SnmpCustomQuery)
+        .filter(SnmpCustomQuery.enabled == True)
+        .order_by(SnmpCustomQuery.name.asc())
+        .all()
+    )
+    matched = 0
+    stored = 0
+    failed = 0
+    if not linked_device_loaded:
+        linked_device = _linked_device_for_target(db, switch)
+    target_tags = _target_tags_for_switch(switch, linked_device)
+    for query in queries:
+        if not _custom_query_matches(query, target_tags):
+            continue
+        matched += 1
+        try:
+            values = _snmpwalk(profile, switch.host, query.oid, port)
+            if query.query_type == "scalar":
+                value = next(iter(values.values()), "")
+                _upsert_custom_result(db, query, switch, "", value, "ok", now, linked_device)
+                stored += 1
+            else:
+                for suffix, value in values.items():
+                    _upsert_custom_result(db, query, switch, suffix or "", value, "ok", now, linked_device)
+                    stored += 1
+        except RuntimeError as exc:
+            _upsert_custom_result(db, query, switch, "", "", "error", now, linked_device, error=str(exc))
+            failed += 1
+    return {"matched": matched, "stored": stored, "failed": failed}
+
+
 def _parse_mac_suffix(suffix: str) -> Optional[str]:
     parts = suffix.split(".")[-6:]
     if len(parts) != 6:
@@ -543,16 +655,24 @@ def _linked_device_for_target(db: Session, switch: SnmpSwitch) -> Optional[Devic
     return None
 
 
-def _apply_target_identity_to_device(db: Session, switch: SnmpSwitch, vendor: VendorSupport, interface_count: int) -> None:
-    device = _linked_device_for_target(db, switch)
+def _apply_target_identity_to_device(
+    db: Session,
+    switch: SnmpSwitch,
+    vendor: VendorSupport,
+    interface_count: int,
+    linked_device: Optional[Device] = None,
+    linked_device_loaded: bool = False,
+) -> Optional[Device]:
+    device = linked_device if linked_device_loaded else _linked_device_for_target(db, switch)
     if not device:
-        return
+        return None
     inferred_class = _network_device_class(vendor, switch, interface_count)
     current_class = (device.device_class or "").strip().lower()
     if inferred_class and current_class in {"", "unknown"}:
         device.device_class = inferred_class
     if vendor.key != "generic" and not (device.vendor or "").strip():
         device.vendor = vendor.label
+    return device
 
 
 def _linked_target_for_device(db: Session, device: Device) -> Optional[SnmpSwitch]:
@@ -669,7 +789,20 @@ def poll_switch(db: Session, switch: SnmpSwitch) -> PollResult:
     switch.last_poll_at = now
     switch.last_error = None
     switch.last_diagnostics = diagnostics
-    _apply_target_identity_to_device(db, switch, vendor, len(indexes))
+    linked_device = _linked_device_for_target(db, switch)
+    _apply_target_identity_to_device(db, switch, vendor, len(indexes), linked_device, linked_device_loaded=True)
+    try:
+        custom_summary = poll_custom_queries(db, switch, linked_device, linked_device_loaded=True)
+        if custom_summary["matched"]:
+            diagnostics = (
+                f"{diagnostics}\n"
+                f"Custom SNMP queries: matched={custom_summary['matched']}, "
+                f"stored={custom_summary['stored']}, failed={custom_summary['failed']}"
+            )
+            switch.last_diagnostics = diagnostics
+    except Exception as exc:
+        diagnostics = f"{diagnostics}\nCustom SNMP queries failed: {exc}"
+        switch.last_diagnostics = diagnostics
     switch.updated_at = now
     return PollResult(interfaces=len(indexes), mac_entries=mac_count, diagnostics=diagnostics)
 

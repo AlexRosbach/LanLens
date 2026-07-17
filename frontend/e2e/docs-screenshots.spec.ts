@@ -45,6 +45,7 @@ const settings = {
   show_cmdb_integrations: true,
   show_services_nav: true,
   show_dhcp_monitor_nav: true,
+  show_network_topology_nav: true,
   show_plugin_api: true,
   show_passive_discovery: true,
   show_mdns_discovery: true,
@@ -52,7 +53,7 @@ const settings = {
   show_tls_checks: true,
   show_ping_history: true,
   show_build_info: true,
-  app_version: '1.5.7',
+  app_version: '1.5.8',
   build_code: 'docs',
   build_commit: 'docs',
   build_branch: 'docs',
@@ -353,7 +354,7 @@ async function mockCommon(page: Page) {
     await route.fulfill({ json: settings })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.7', latest_version: '1.5.7', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
   })
   await page.route('**/api/notifications/unread-count', async (route) => {
     await route.fulfill({ json: { count: 0 } })

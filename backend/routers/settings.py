@@ -79,7 +79,7 @@ SETTING_KEYS = [
     "smtp_host", "smtp_port", "smtp_username", "smtp_password", "smtp_from_email", "smtp_to_email", "smtp_enabled", "smtp_use_tls",
     "server_url",
     "cmdb_id_prefix", "cmdb_id_digits",
-    "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav",
+    "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav", "show_network_topology_nav",
     "show_plugin_api", "show_passive_discovery", "show_mdns_discovery", "show_ssdp_discovery",
     "show_tls_checks", "show_ping_history", "show_build_info", "show_debug_tools", "debug_log_level",
 ]
@@ -252,6 +252,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         show_cmdb_integrations=_get(db, "show_cmdb_integrations", "false") == "true",
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
         show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
+        show_network_topology_nav=_get(db, "show_network_topology_nav", "false") == "true",
         show_plugin_api=_get(db, "show_plugin_api", "false") == "true",
         show_passive_discovery=_get(db, "show_passive_discovery", "false") == "true",
         show_mdns_discovery=_get(db, "show_mdns_discovery", "false") == "true",
@@ -520,6 +521,7 @@ def update_ui_settings(
     _set(db, "show_cmdb_integrations", "true" if data.show_cmdb_integrations else "false")
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")
     _set(db, "show_dhcp_monitor_nav", "true" if data.show_dhcp_monitor_nav else "false")
+    _set(db, "show_network_topology_nav", "true" if data.show_network_topology_nav else "false")
     _set(db, "show_plugin_api", "true" if data.show_plugin_api else "false")
     _set(db, "show_passive_discovery", "true" if data.show_passive_discovery else "false")
     _set(db, "show_mdns_discovery", "true" if data.show_mdns_discovery else "false")

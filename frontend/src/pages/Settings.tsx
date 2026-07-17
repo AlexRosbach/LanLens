@@ -10,7 +10,7 @@ import { settingsApi, type AllSettings } from '../api/settings'
 import { idoitApi, type IdoitConfig, type IdoitExportRow, type IdoitSyncLogEntry } from '../api/idoit'
 import { debugApi, type DebugLogEntry } from '../api/debug'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
-import { snmpApi, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
+import { snmpApi, type SnmpCustomQuery, type SnmpCustomQueryCreate, type SnmpCustomResult, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
 import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryHaGroup, type PassiveDiscoveryObservation } from '../api/plugins'
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
@@ -431,6 +431,8 @@ export default function Settings() {
   const [snmpProfiles, setSnmpProfiles] = useState<SnmpProfile[]>([])
   const [snmpSwitches, setSnmpSwitches] = useState<SnmpSwitch[]>([])
   const [snmpEndpoints, setSnmpEndpoints] = useState<SnmpEndpoint[]>([])
+  const [snmpCustomQueries, setSnmpCustomQueries] = useState<SnmpCustomQuery[]>([])
+  const [snmpCustomResults, setSnmpCustomResults] = useState<SnmpCustomResult[]>([])
   const [snmpLoading, setSnmpLoading] = useState(false)
   const [snmpProfileName, setSnmpProfileName] = useState('')
   const [snmpVersion, setSnmpVersion] = useState<SnmpProfileCreate['version']>('2c')
@@ -444,6 +446,11 @@ export default function Settings() {
   const [snmpSwitchName, setSnmpSwitchName] = useState('')
   const [snmpSwitchHost, setSnmpSwitchHost] = useState('')
   const [snmpProfileId, setSnmpProfileId] = useState('')
+  const [snmpCustomQueryName, setSnmpCustomQueryName] = useState('')
+  const [snmpCustomQueryTag, setSnmpCustomQueryTag] = useState('switch')
+  const [snmpCustomQueryOid, setSnmpCustomQueryOid] = useState('')
+  const [snmpCustomQueryType, setSnmpCustomQueryType] = useState<SnmpCustomQueryCreate['query_type']>('scalar')
+  const [snmpCustomValueType, setSnmpCustomValueType] = useState<SnmpCustomQueryCreate['value_type']>('text')
   const [editingSnmpSwitchId, setEditingSnmpSwitchId] = useState<number | null>(null)
   const [editingSnmpSwitchName, setEditingSnmpSwitchName] = useState('')
   const [editingSnmpSwitchHost, setEditingSnmpSwitchHost] = useState('')
@@ -460,6 +467,7 @@ export default function Settings() {
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
+  const setShowNetworkTopologyNav = useUiSettingsStore((state) => state.setShowNetworkTopologyNav)
   const setShowPluginApi = useUiSettingsStore((state) => state.setShowPluginApi)
   const setShowPassiveDiscovery = useUiSettingsStore((state) => state.setShowPassiveDiscovery)
   const setShowMdnsDiscovery = useUiSettingsStore((state) => state.setShowMdnsDiscovery)
@@ -482,6 +490,7 @@ export default function Settings() {
       setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+      setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
       setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
       setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
       setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
@@ -681,14 +690,18 @@ export default function Settings() {
   async function loadSnmp() {
     setSnmpLoading(true)
     try {
-      const [profiles, switches, endpoints] = await Promise.all([
+      const [profiles, switches, endpoints, customQueries, customResults] = await Promise.all([
         snmpApi.listProfiles(),
         snmpApi.listSwitches(),
         snmpApi.listEndpoints(),
+        snmpApi.listCustomQueries(),
+        snmpApi.listCustomResults(),
       ])
       setSnmpProfiles(profiles)
       setSnmpSwitches(switches)
       setSnmpEndpoints(endpoints)
+      setSnmpCustomQueries(customQueries)
+      setSnmpCustomResults(customResults)
       if (!snmpProfileId && profiles[0]) setSnmpProfileId(String(profiles[0].id))
     } catch {
       toast.error(t('snmp_load_failed'))
@@ -800,6 +813,60 @@ export default function Settings() {
       toast.success(t('snmp_switch_saved'))
     } catch {
       toast.error(t('snmp_switch_save_failed'))
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function createSnmpCustomQuery() {
+    if (!snmpCustomQueryName.trim() || !snmpCustomQueryOid.trim()) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.createCustomQuery({
+        name: snmpCustomQueryName.trim(),
+        target_tag: snmpCustomQueryTag.trim() || '*',
+        oid: snmpCustomQueryOid.trim(),
+        query_type: snmpCustomQueryType,
+        value_type: snmpCustomValueType,
+        enabled: true,
+      })
+      setSnmpCustomQueryName('')
+      setSnmpCustomQueryOid('')
+      await loadSnmp()
+      toast.success(t('snmp_custom_query_saved'))
+    } catch (error) {
+      toast.error(`${t('snmp_custom_query_save_failed')}: ${extractApiErrorMessage(error, t('snmp_custom_query_save_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function deleteSnmpCustomQuery(query: SnmpCustomQuery) {
+    if (!confirm(t('snmp_custom_query_delete_confirm', { name: query.name }))) return
+    setSnmpLoading(true)
+    try {
+      await snmpApi.deleteCustomQuery(query.id)
+      await loadSnmp()
+      toast.success(t('snmp_custom_query_deleted'))
+    } catch (error) {
+      toast.error(`${t('snmp_custom_query_delete_failed')}: ${extractApiErrorMessage(error, t('snmp_custom_query_delete_failed'))}`)
+    } finally {
+      setSnmpLoading(false)
+    }
+  }
+
+  async function pollSnmpCustomQueries(switchId: number) {
+    setSnmpLoading(true)
+    try {
+      const result = await snmpApi.pollCustomQueries(switchId)
+      await loadSnmp()
+      toast.success(t('snmp_custom_query_poll_complete', {
+        matched: String(result.matched),
+        stored: String(result.stored),
+        failed: String(result.failed),
+      }))
+    } catch (error) {
+      toast.error(`${t('snmp_custom_query_poll_failed')}: ${extractApiErrorMessage(error, t('snmp_custom_query_poll_failed'))}`)
     } finally {
       setSnmpLoading(false)
     }
@@ -1302,6 +1369,7 @@ export default function Settings() {
         setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
+        setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
         setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
         setShowPassiveDiscovery(data.advanced_view_enabled && data.show_passive_discovery)
         setShowMdnsDiscovery(data.advanced_view_enabled && data.show_mdns_discovery)
@@ -1523,6 +1591,7 @@ export default function Settings() {
         current.show_cmdb_integrations,
         current.show_services_nav,
         current.show_dhcp_monitor_nav,
+        current.show_network_topology_nav,
         current.show_plugin_api,
         current.show_passive_discovery,
         current.show_mdns_discovery,
@@ -1537,6 +1606,7 @@ export default function Settings() {
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
+      setShowNetworkTopologyNav(current.advanced_view_enabled && current.show_network_topology_nav)
       setShowPluginApi(current.advanced_view_enabled && current.show_plugin_api)
       setShowPassiveDiscovery(current.advanced_view_enabled && current.show_passive_discovery)
       setShowMdnsDiscovery(current.advanced_view_enabled && current.show_mdns_discovery)
@@ -1603,6 +1673,7 @@ export default function Settings() {
             show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
             show_services_nav: checked ? current.show_services_nav : false,
             show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
+            show_network_topology_nav: checked ? current.show_network_topology_nav : false,
             show_plugin_api: checked ? current.show_plugin_api : false,
             show_passive_discovery: checked ? current.show_passive_discovery : false,
             show_mdns_discovery: checked ? current.show_mdns_discovery : false,
@@ -1657,6 +1728,14 @@ export default function Settings() {
           label: t('show_dhcp_monitor_nav'),
           description: t('show_dhcp_monitor_nav_hint'),
           onChange: (checked: boolean) => setSettings({ ...current, show_dhcp_monitor_nav: checked }),
+        },
+        {
+          key: 'network-topology',
+          checked: current.show_network_topology_nav,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_network_topology_nav'),
+          description: t('show_network_topology_nav_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_network_topology_nav: checked }),
         },
       ],
     },
@@ -2685,6 +2764,7 @@ export default function Settings() {
                             <>
                               <Button size="sm" variant="outline" onClick={() => startEditingSnmpSwitch(item)} disabled={snmpLoading}>{t('edit')}</Button>
                               <Button size="sm" variant="outline" onClick={() => pollSnmpSwitch(item.id)} disabled={snmpLoading || !item.enabled}>{t('poll_now')}</Button>
+                              <Button size="sm" variant="outline" onClick={() => pollSnmpCustomQueries(item.id)} disabled={snmpLoading || !item.enabled}>{t('snmp_custom_poll_now')}</Button>
                               {(item.last_diagnostics || item.last_error) && (
                                 <Button
                                   size="sm"
@@ -2708,6 +2788,85 @@ export default function Settings() {
                   )})}
                 </tbody>
               </table>
+            </div>
+
+            <div className="mt-5 rounded-lg border border-border bg-surface2/40 p-4">
+              <div className="mb-3">
+                <h3 className="text-sm font-semibold text-text-base">{t('snmp_custom_queries_title')}</h3>
+                <p className="text-xs text-text-subtle">{t('snmp_custom_queries_hint')}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[1fr_9rem_1fr_8rem_8rem_auto]">
+                <Input placeholder={t('snmp_custom_query_name')} value={snmpCustomQueryName} onChange={(e) => setSnmpCustomQueryName(e.target.value)} />
+                <Input placeholder={t('snmp_custom_query_tag')} value={snmpCustomQueryTag} onChange={(e) => setSnmpCustomQueryTag(e.target.value)} />
+                <Input placeholder={t('snmp_custom_query_oid')} value={snmpCustomQueryOid} onChange={(e) => setSnmpCustomQueryOid(e.target.value)} />
+                <select className="input-field" value={snmpCustomQueryType} onChange={(e) => setSnmpCustomQueryType(e.target.value as SnmpCustomQueryCreate['query_type'])}>
+                  <option value="scalar">{t('snmp_custom_query_scalar')}</option>
+                  <option value="table">{t('snmp_custom_query_table')}</option>
+                </select>
+                <select className="input-field" value={snmpCustomValueType} onChange={(e) => setSnmpCustomValueType(e.target.value as SnmpCustomQueryCreate['value_type'])}>
+                  <option value="text">{t('snmp_custom_value_text')}</option>
+                  <option value="integer">{t('snmp_custom_value_integer')}</option>
+                  <option value="counter">{t('snmp_custom_value_counter')}</option>
+                  <option value="gauge">{t('snmp_custom_value_gauge')}</option>
+                  <option value="numeric">{t('snmp_custom_value_numeric')}</option>
+                </select>
+                <Button onClick={createSnmpCustomQuery} loading={snmpLoading}>{t('add')}</Button>
+              </div>
+              <div className="mt-4 overflow-auto rounded-lg border border-border">
+                <table className="min-w-full text-left text-xs">
+                  <thead className="bg-surface2 text-text-subtle">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">{t('name')}</th>
+                      <th className="px-3 py-2 font-medium">{t('snmp_custom_query_tag')}</th>
+                      <th className="px-3 py-2 font-medium">{t('snmp_custom_query_oid')}</th>
+                      <th className="px-3 py-2 font-medium">{t('type')}</th>
+                      <th className="px-3 py-2 font-medium">{t('actions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {snmpCustomQueries.length === 0 ? (
+                      <tr><td className="px-3 py-3 text-text-subtle" colSpan={5}>{t('snmp_no_custom_queries')}</td></tr>
+                    ) : snmpCustomQueries.map((query) => (
+                      <tr key={query.id}>
+                        <td className="px-3 py-2 font-medium text-text-base">{query.name}</td>
+                        <td className="px-3 py-2 text-text-muted">{query.target_tag || '*'}</td>
+                        <td className="px-3 py-2 font-mono text-text-muted">{query.oid}</td>
+                        <td className="px-3 py-2 text-text-muted">{query.query_type} / {query.value_type}</td>
+                        <td className="px-3 py-2">
+                          <Button size="sm" variant="danger" onClick={() => deleteSnmpCustomQuery(query)} disabled={snmpLoading}>{t('delete')}</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 overflow-auto rounded-lg border border-border">
+                <table className="min-w-full text-left text-xs">
+                  <thead className="bg-surface2 text-text-subtle">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">{t('snmp_custom_query_name')}</th>
+                      <th className="px-3 py-2 font-medium">{t('snmp_switch')}</th>
+                      <th className="px-3 py-2 font-medium">{t('snmp_custom_query_oid')}</th>
+                      <th className="px-3 py-2 font-medium">{t('value')}</th>
+                      <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {snmpCustomResults.slice(0, 20).map((row) => (
+                      <tr key={row.id}>
+                        <td className="px-3 py-2 font-medium text-text-base">{row.query_name}</td>
+                        <td className="px-3 py-2 text-text-muted">{row.switch_name || row.switch_host}</td>
+                        <td className="px-3 py-2 font-mono text-text-muted">{row.oid_suffix ? `${row.oid}.${row.oid_suffix}` : row.oid}</td>
+                        <td className={row.status === 'error' ? 'px-3 py-2 text-danger' : 'px-3 py-2 text-text-muted'}>{row.status === 'error' ? (row.error || t('error')) : row.value}</td>
+                        <td className="px-3 py-2 text-text-muted">{formatDateTime(row.polled_at)}</td>
+                      </tr>
+                    ))}
+                    {snmpCustomResults.length === 0 && (
+                      <tr><td className="px-3 py-3 text-text-subtle" colSpan={5}>{t('snmp_no_custom_results')}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div className="mt-4 overflow-auto rounded-lg border border-border">

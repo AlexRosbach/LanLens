@@ -78,6 +78,7 @@ export interface AllSettings {
   show_cmdb_integrations: boolean
   show_services_nav: boolean
   show_dhcp_monitor_nav: boolean
+  show_network_topology_nav: boolean
   show_plugin_api: boolean
   show_passive_discovery: boolean
   show_mdns_discovery: boolean
@@ -225,6 +226,7 @@ export const settingsApi = {
     show_cmdb_integrations: boolean,
     show_services_nav: boolean,
     show_dhcp_monitor_nav: boolean,
+    show_network_topology_nav: boolean,
     show_plugin_api: boolean,
     show_passive_discovery: boolean,
     show_mdns_discovery: boolean,
@@ -240,6 +242,7 @@ export const settingsApi = {
       show_cmdb_integrations,
       show_services_nav,
       show_dhcp_monitor_nav,
+      show_network_topology_nav,
       show_plugin_api,
       show_passive_discovery,
       show_mdns_discovery,

@@ -695,6 +695,55 @@ def migrate():
         else:
             print("Migration: snmp_mac_table already exists — skipped")
 
+        # ── v1.5.8 ── Custom SNMP OID/table polling ───────────────────────
+        if IS_SQLITE and not _table_exists(conn, "snmp_custom_queries"):
+            conn.execute(text(
+                "CREATE TABLE snmp_custom_queries ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL UNIQUE, "
+                "target_tag VARCHAR(64), "
+                "oid VARCHAR(255) NOT NULL, "
+                "query_type VARCHAR(16) NOT NULL DEFAULT 'scalar', "
+                "value_type VARCHAR(32) NOT NULL DEFAULT 'text', "
+                "enabled BOOLEAN NOT NULL DEFAULT TRUE, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_snmp_custom_queries_target_tag ON snmp_custom_queries(target_tag)"))
+            conn.commit()
+            print("Migration: created snmp_custom_queries")
+        elif not IS_SQLITE:
+            print("Migration: snmp_custom_queries — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: snmp_custom_queries already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "snmp_custom_results"):
+            conn.execute(text(
+                "CREATE TABLE snmp_custom_results ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "query_id INTEGER NOT NULL REFERENCES snmp_custom_queries(id) ON DELETE CASCADE, "
+                "switch_id INTEGER NOT NULL REFERENCES snmp_switches(id) ON DELETE CASCADE, "
+                "device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL, "
+                "oid VARCHAR(255) NOT NULL, "
+                "oid_suffix VARCHAR(255) NOT NULL DEFAULT '', "
+                "value TEXT, "
+                "numeric_value FLOAT, "
+                "status VARCHAR(16) NOT NULL DEFAULT 'ok', "
+                "error TEXT, "
+                "polled_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text("CREATE UNIQUE INDEX uq_snmp_custom_result_query_switch_suffix ON snmp_custom_results(query_id, switch_id, oid_suffix)"))
+            conn.execute(text("CREATE INDEX ix_snmp_custom_results_switch ON snmp_custom_results(switch_id)"))
+            conn.execute(text("CREATE INDEX ix_snmp_custom_results_device ON snmp_custom_results(device_id)"))
+            conn.commit()
+            print("Migration: created snmp_custom_results")
+        elif not IS_SQLITE:
+            print("Migration: snmp_custom_results — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: snmp_custom_results already exists — skipped")
+
         # ── v1.5.0 ── Device timeline, maintenance and ignore rules ───────
         for column, ddl in {
             "idoit_sync_enabled": "ALTER TABLE devices ADD COLUMN idoit_sync_enabled BOOLEAN NOT NULL DEFAULT FALSE",

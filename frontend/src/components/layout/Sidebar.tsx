@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { withBasePath } from '../../utils/basePath'
 import { useDeviceStore } from '../../store/deviceStore'
@@ -11,6 +12,13 @@ interface Props {
   onClose?: () => void
 }
 
+interface NavItem {
+  to: string
+  label: string
+  icon: ReactNode
+  badge?: number
+}
+
 export default function Sidebar({ onClose }: Props) {
   const { stats } = useDeviceStore()
   const { unreadCount } = useNotificationStore()
@@ -20,6 +28,7 @@ export default function Sidebar({ onClose }: Props) {
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
   const showDhcpMonitorNav = useUiSettingsStore((state) => state.showDhcpMonitorNav)
+  const showNetworkTopologyNav = useUiSettingsStore((state) => state.showNetworkTopologyNav)
   const showBuildInfo = useUiSettingsStore((state) => state.showBuildInfo)
   const appVersion = useUiSettingsStore((state) => state.appVersion)
   const buildCode = useUiSettingsStore((state) => state.buildCode)
@@ -32,8 +41,7 @@ export default function Sidebar({ onClose }: Props) {
     onClose?.()
   }
 
-  const navItems = [
-    {
+  const dashboardItem: NavItem = {
       to: '/',
       label: t('nav_dashboard'),
       icon: (
@@ -42,8 +50,8 @@ export default function Sidebar({ onClose }: Props) {
             d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
         </svg>
       ),
-    },
-    {
+  }
+  const notificationsItem: NavItem = {
       to: '/notifications',
       label: t('nav_notifications'),
       icon: (
@@ -53,8 +61,8 @@ export default function Sidebar({ onClose }: Props) {
         </svg>
       ),
       badge: unreadCount,
-    },
-    {
+  }
+  const changesItem: NavItem = {
       to: '/changes',
       label: t('nav_changes'),
       icon: (
@@ -63,8 +71,8 @@ export default function Sidebar({ onClose }: Props) {
             d="M7 7h10M7 12h6m-6 5h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
         </svg>
       ),
-    },
-    ...(advancedViewEnabled && showServicesNav ? [{
+  }
+  const serviceItems: NavItem[] = advancedViewEnabled && showServicesNav ? [{
       to: '/services',
       label: t('nav_services'),
       icon: (
@@ -73,8 +81,8 @@ export default function Sidebar({ onClose }: Props) {
             d="M13.828 10.172a4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1-1m-.656-4.656a4 4 0 015.656 0l3 3a4 4 0 01-5.656 5.656l-1-1M14 7h.01M10 7h.01M7 7h.01M17 7h.01" />
         </svg>
       ),
-    }] : []),
-    ...(advancedViewEnabled && showDhcpMonitorNav ? [{
+    }] : []
+  const dhcpItems: NavItem[] = advancedViewEnabled && showDhcpMonitorNav ? [{
       to: '/dhcp-monitor',
       label: t('nav_dhcp_monitor'),
       icon: (
@@ -83,8 +91,18 @@ export default function Sidebar({ onClose }: Props) {
             d="M8 9h8M8 13h5m-8 7h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zm4-4h.01M15 16h.01" />
         </svg>
       ),
-    }] : []),
-    {
+    }] : []
+  const topologyItems: NavItem[] = advancedViewEnabled && showNetworkTopologyNav ? [{
+      to: '/topology',
+      label: t('nav_network_topology'),
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+            d="M6 7a2 2 0 100-4 2 2 0 000 4zm12 0a2 2 0 100-4 2 2 0 000 4zM6 21a2 2 0 100-4 2 2 0 000 4zm12 0a2 2 0 100-4 2 2 0 000 4zM8 5h8M6 7v10m12-10v10M8 19h8M8 6.5l8 11m0-11l-8 11" />
+        </svg>
+      ),
+    }] : []
+  const segmentsItem: NavItem = {
       to: '/segments',
       label: t('nav_segments'),
       icon: (
@@ -93,8 +111,8 @@ export default function Sidebar({ onClose }: Props) {
             d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
       ),
-    },
-    {
+  }
+  const deepScanItem: NavItem = {
       to: '/deep-scan-settings',
       label: t('nav_deep_scan'),
       icon: (
@@ -103,8 +121,8 @@ export default function Sidebar({ onClose }: Props) {
             d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
         </svg>
       ),
-    },
-    {
+  }
+  const settingsItem: NavItem = {
       to: '/settings',
       label: t('nav_settings'),
       icon: (
@@ -114,7 +132,13 @@ export default function Sidebar({ onClose }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       ),
-    },
+  }
+
+  const navSections: Array<{ title: string; items: NavItem[] }> = [
+    { title: t('nav_group_monitor'), items: [dashboardItem, notificationsItem] },
+    { title: t('nav_group_analyze'), items: [changesItem, ...dhcpItems, ...topologyItems] },
+    { title: t('nav_group_manage'), items: [...serviceItems, segmentsItem, deepScanItem] },
+    { title: t('nav_group_admin'), items: [settingsItem] },
   ]
 
   return (
@@ -157,30 +181,39 @@ export default function Sidebar({ onClose }: Props) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-3 flex flex-col gap-1">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            onClick={handleNavClick}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-              ${isActive
-                ? 'bg-primary-dim text-primary'
-                : 'text-text-muted hover:text-text-base hover:bg-surface2'
-              }`
-            }
-          >
-            {item.icon}
-            {item.label}
-            {item.badge != null && item.badge > 0 && (
-              <span className="ml-auto text-xs bg-warning text-background font-bold px-1.5 py-0.5 rounded-full">
-                {item.badge}
-              </span>
-            )}
-          </NavLink>
-        ))}
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <div className="flex flex-col gap-4">
+          {navSections.filter((section) => section.items.length > 0).map((section) => (
+            <div key={section.title} className="flex flex-col gap-1">
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-text-subtle">
+                {section.title}
+              </p>
+              {section.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  onClick={handleNavClick}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                    ${isActive
+                      ? 'bg-primary-dim text-primary'
+                      : 'text-text-muted hover:text-text-base hover:bg-surface2'
+                    }`
+                  }
+                >
+                  {item.icon}
+                  {item.label}
+                  {item.badge != null && item.badge > 0 && (
+                    <span className="ml-auto text-xs bg-warning text-background font-bold px-1.5 py-0.5 rounded-full">
+                      {item.badge}
+                    </span>
+                  )}
+                </NavLink>
+              ))}
+            </div>
+          ))}
+        </div>
       </nav>
 
       {/* Version + update notification */}

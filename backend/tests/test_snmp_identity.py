@@ -8,7 +8,8 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-12345")
 
 from backend.database import Base
-from backend.models import Device, Setting, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from backend.models import Device, Setting, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
+from backend.services import snmp as snmp_service
 from backend.routers.snmp import (
     SnmpSwitchPayload,
     _build_switch_port_visualization,
@@ -42,6 +43,7 @@ from backend.services.snmp import (
     bulk_identities_for_devices,
     detect_vendor,
     identity_for_device,
+    poll_custom_queries,
     poll_switch,
 )
 from unittest.mock import patch
@@ -85,6 +87,87 @@ class SnmpIdentityTests(unittest.TestCase):
         self.assertEqual(detect_vendor("Aruba CX Switch", "1.3.6.1.4.1.11.2.3.7.11").key, "aruba")
         self.assertEqual(detect_vendor("NETGEAR Smart Managed Switch", "1.3.6.1.4.1.4526.100").key, "netgear")
         self.assertEqual(detect_vendor("Other", "1.3.6.1.4.1.999").key, "generic")
+
+    def test_polls_custom_queries_for_matching_device_class(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="ip:printer-01",
+                ip_address="192.0.2.50",
+                hostname="printer-01",
+                device_class="Printer",
+            )
+            profile = SnmpProfile(name="office", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="printer-snmp", host="192.0.2.50", profile=profile, device=device)
+            toner = SnmpCustomQuery(
+                name="Printer toner",
+                target_tag="printer",
+                oid="1.3.6.1.2.1.43.11.1.1.9",
+                query_type="table",
+                value_type="integer",
+            )
+            ups = SnmpCustomQuery(
+                name="UPS runtime",
+                target_tag="ups",
+                oid="1.3.6.1.2.1.33.1.2.3.0",
+                query_type="scalar",
+                value_type="integer",
+            )
+            db.add_all([device, profile, switch, toner, ups])
+            db.commit()
+            db.refresh(switch)
+
+            def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                self.assertEqual(oid, "1.3.6.1.2.1.43.11.1.1.9")
+                return {"1.1": "INTEGER: 71"}
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                result = poll_custom_queries(db, switch)
+
+            self.assertEqual(result, {"matched": 1, "stored": 1, "failed": 0})
+            row = db.query(SnmpCustomResult).one()
+            self.assertEqual(row.query_id, toner.id)
+            self.assertEqual(row.device_id, device.id)
+            self.assertEqual(row.oid_suffix, "1.1")
+            self.assertEqual(row.value, "71")
+            self.assertEqual(row.numeric_value, 71)
+        finally:
+            db.close()
+
+    def test_custom_query_poll_reuses_linked_device_lookup(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="ip:printer-02",
+                ip_address="192.0.2.51",
+                hostname="printer-02",
+                device_class="Printer",
+            )
+            profile = SnmpProfile(name="office", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="printer-snmp", host="192.0.2.51", profile=profile, device=device)
+            toner = SnmpCustomQuery(
+                name="Printer toner",
+                target_tag="printer",
+                oid="1.3.6.1.2.1.43.11.1.1.9",
+                query_type="table",
+                value_type="integer",
+            )
+            db.add_all([device, profile, switch, toner])
+            db.commit()
+            db.refresh(switch)
+
+            with patch("backend.services.snmp._linked_device_for_target", return_value=device) as linked_lookup:
+                with patch(
+                    "backend.services.snmp._snmpwalk",
+                    return_value={"1.1": "INTEGER: 71", "1.2": "INTEGER: 68", "1.3": "INTEGER: 54"},
+                ):
+                    result = poll_custom_queries(db, switch)
+
+            self.assertEqual(result, {"matched": 1, "stored": 3, "failed": 0})
+            self.assertEqual(linked_lookup.call_count, 1)
+            self.assertEqual({row.device_id for row in db.query(SnmpCustomResult).all()}, {device.id})
+        finally:
+            db.close()
 
     def test_formats_snmp_timeout_with_actionable_hint(self):
         message = _format_snmp_error("192.0.2.1", 161, "Timeout: No Response from 192.0.2.1:161")
@@ -197,6 +280,39 @@ class SnmpIdentityTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_poll_switch_records_custom_query_failure_without_failing_core_poll(self):
+        db = self.Session()
+        try:
+            profile = SnmpProfile(name="core", version="2c", community="public", port=161)
+            switch = SnmpSwitch(name="core-switch", host="192.0.2.1", profile=profile)
+            db.add_all([profile, switch])
+            db.commit()
+            db.refresh(switch)
+
+            def fake_walk(_profile, _host, oid, _port=161, _timeout=8):
+                required = {
+                    OID_SYS_DESCR: {"": "STRING: Cisco IOS"},
+                    OID_SYS_OBJECT_ID: {"": "OID: 1.3.6.1.4.1.9.1.1"},
+                    OID_SYS_NAME: {"": "STRING: core-sw-01"},
+                    OID_IF_DESCR: {"1": "STRING: GigabitEthernet1"},
+                    OID_IF_ADMIN_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_OPER_STATUS: {"1": "INTEGER: 1"},
+                    OID_IF_NAME: {"1": "STRING: Gi1/0/1"},
+                }
+                return required.get(oid, {})
+
+            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                with patch("backend.services.snmp.poll_custom_queries", side_effect=RuntimeError("custom boom")):
+                    result = poll_switch(db, switch)
+
+            self.assertEqual(result.interfaces, 1)
+            self.assertEqual(result.mac_entries, 0)
+            self.assertIsNone(switch.last_error)
+            self.assertIn("Custom SNMP queries failed: custom boom", result.diagnostics)
+            self.assertIn("Custom SNMP queries failed: custom boom", switch.last_diagnostics)
+        finally:
+            db.close()
+
     def test_poll_switch_classifies_ip_scan_cisco_sg_target_as_switch_without_mac_table(self):
         db = self.Session()
         try:
@@ -227,14 +343,16 @@ class SnmpIdentityTests(unittest.TestCase):
                     return required[oid]
                 raise RuntimeError("No Such Object available on this agent")
 
-            with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
-                result = poll_switch(db, switch)
+            with patch("backend.services.snmp._linked_device_for_target", wraps=snmp_service._linked_device_for_target) as linked_lookup:
+                with patch("backend.services.snmp._snmpwalk", side_effect=fake_walk):
+                    result = poll_switch(db, switch)
             db.flush()
             db.refresh(device)
             db.refresh(switch)
 
             self.assertEqual(result.interfaces, 1)
             self.assertEqual(result.mac_entries, 0)
+            self.assertEqual(linked_lookup.call_count, 1)
             self.assertEqual(device.device_class, "Switch")
             self.assertEqual(device.vendor, "Cisco")
             self.assertIsNone(switch.last_error)
