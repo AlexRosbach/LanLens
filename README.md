@@ -194,3 +194,16 @@ npm run dev
 MIT License, see [LICENSE](LICENSE).
 
 Dependency note: LanLens uses GPL/LGPL and dual-licensed libraries for network discovery and remote connectivity features. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before redistributing bundled builds or Docker images.
+
+---
+
+## OpenAI-Assisted Development
+
+LanLens was developed with OpenAI tools as part of the workflow, including Codex-assisted planning, implementation, debugging, documentation, UI review, and demo preparation. OpenAI support helped accelerate several project highlights:
+
+- Building a clearer device inventory and topology experience from scanner, SNMP, and passive discovery data
+- Iterating on the React/FastAPI user experience, including dashboards, device detail views, services, network changes, and expert settings
+- Improving documentation, release notes, screenshots, and demo material for the OpenAI Hackathon submission
+- Validating changes with focused tests, Playwright checks, and review passes before publishing
+
+GPT-5.6 was also used as one of the OpenAI models during development.
