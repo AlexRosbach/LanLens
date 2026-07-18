@@ -9,6 +9,10 @@ All notable changes to this project should be documented in this file.
 - Continue hardening Network Topology and SNMP workflows after the 1.5.8 topology release, especially setup clarity, diagnostics and mixed-vendor switch visibility.
 - Keep early planning open for traffic-awareness and recommendation work while avoiding new runtime dependencies until the license and deployment impact is reviewed.
 
+### New Features
+- Added Network Topology relationship and VLAN filters so operators can focus the map on SNMP port edges, passive topology hints, host relationships or a specific learned VLAN.
+- Added selected-relationship details to the Network Topology side panel, including peer, evidence type, VLAN, interface alias and last-seen context when those values are available.
+
 ## v1.5.8 — Network topology and custom SNMP queries
 
 ### New Features
