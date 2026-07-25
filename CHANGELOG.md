@@ -40,6 +40,8 @@ All notable changes to this project should be documented in this file.
   domain names and marked the non-cryptographic IP identifier hash explicitly.
 - Disabled wildcard credentialed CORS by default and added an exact-origin
   `LANLENS_CORS_ORIGINS` opt-in for split frontend deployments.
+- Replaced the last person-specific-looking passive-discovery test fixture with
+  a neutral demo device name so committed test data stays clearly synthetic.
 
 ## v1.5.8 — Network topology and custom SNMP queries
 

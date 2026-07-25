@@ -321,9 +321,9 @@ class PassiveDiscoveryTests(unittest.TestCase):
     def test_passive_discovery_does_not_infer_printer_from_generic_ipp(self):
         observation = PassiveDiscoveryObservation(
             protocol="mdns",
-            service_name="Alexs MacBook Pro._ipp._tcp.local",
+            service_name="Office MacBook Pro._ipp._tcp.local",
             service_type="_ipp._tcp",
-            summary="Alexs MacBook Pro._ipp._tcp.local",
+            summary="Office MacBook Pro._ipp._tcp.local",
             metadata_json='{"answers": [{"name": "_ipp._tcp.local"}]}',
         )
 
@@ -335,9 +335,9 @@ class PassiveDiscoveryTests(unittest.TestCase):
     def test_passive_discovery_keeps_generic_file_sharing_low_confidence(self):
         observation = PassiveDiscoveryObservation(
             protocol="mdns",
-            service_name="Alexs MacBook Pro._smb._tcp.local",
+            service_name="Office MacBook Pro._smb._tcp.local",
             service_type="_smb._tcp",
-            summary="Alexs MacBook Pro._smb._tcp.local",
+            summary="Office MacBook Pro._smb._tcp.local",
         )
 
         inference = infer_device_class_from_observation(observation)
@@ -348,9 +348,9 @@ class PassiveDiscoveryTests(unittest.TestCase):
     def test_passive_discovery_keeps_generic_airplay_low_confidence(self):
         observation = PassiveDiscoveryObservation(
             protocol="mdns",
-            service_name="Alexs MacBook Pro._airplay._tcp.local",
+            service_name="Office MacBook Pro._airplay._tcp.local",
             service_type="_airplay._tcp",
-            summary="Alexs MacBook Pro._airplay._tcp.local",
+            summary="Office MacBook Pro._airplay._tcp.local",
         )
 
         inference = infer_device_class_from_observation(observation)
@@ -458,9 +458,9 @@ class PassiveDiscoveryTests(unittest.TestCase):
             observation = PassiveDiscoveryObservation(
                 protocol="mdns",
                 source_ip="192.0.2.20",
-                service_name="Alexs MacBook Pro._smb._tcp.local",
+                service_name="Office MacBook Pro._smb._tcp.local",
                 service_type="_smb._tcp",
-                summary="Alexs MacBook Pro._smb._tcp.local",
+                summary="Office MacBook Pro._smb._tcp.local",
             )
 
             self.assertFalse(apply_passive_device_class(db, device, observation))
