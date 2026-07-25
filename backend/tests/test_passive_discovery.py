@@ -9,7 +9,7 @@ import backend.services.passive_discovery as passive_discovery
 from backend.database import Base
 from backend.models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
 from backend.models import Setting
-from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, ha_groups_for_observations, infer_device_class_from_observation, observation_to_response, parse_cdp_packet, parse_control_plane_packet, parse_lldp_packet, parse_mdns_packet, parse_packet, parse_ssdp_packet, parse_ssdp_payload, parse_stp_packet, upsert_passive_observation
+from backend.services.passive_discovery import apply_passive_device_class, apply_passive_hostname, capture_passive_discovery_report, deduplicate_observations, find_linked_device, ha_groups_for_observations, infer_device_class_from_observation, observation_to_response, parse_cdp_packet, parse_control_plane_packet, parse_lldp_packet, parse_mdns_packet, parse_packet, parse_sophos_heartbeat_packet, parse_ssdp_packet, parse_ssdp_payload, parse_stp_packet, upsert_passive_observation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -20,11 +20,11 @@ except Exception:
 
 try:
     from scapy.layers.dns import DNS, DNSQR, DNSRR
-    from scapy.layers.inet import IP, UDP
+    from scapy.layers.inet import IP, TCP, UDP
     from scapy.layers.l2 import Ether, LLC, SNAP
     from scapy.packet import Raw
 except Exception:
-    DNS = DNSQR = DNSRR = Ether = IP = LLC = Raw = SNAP = UDP = None
+    DNS = DNSQR = DNSRR = Ether = IP = LLC = Raw = SNAP = TCP = UDP = None
 
 try:
     from scapy.layers.vrrp import VRRP
@@ -33,6 +33,32 @@ except Exception:
 
 
 class PassiveDiscoveryTests(unittest.TestCase):
+    @unittest.skipIf(TCP is None, "scapy is not installed")
+    def test_sophos_heartbeat_records_presence_without_claiming_health_status(self):
+        packet = (
+            Ether(src="AA:BB:CC:DD:EE:FF")
+            / IP(src="192.0.2.20", dst="52.5.76.173")
+            / TCP(sport=51000, dport=8347, flags="S")
+        )
+
+        observation = parse_sophos_heartbeat_packet(packet)
+
+        self.assertIsNotNone(observation)
+        self.assertEqual(observation.protocol, "sophos_heartbeat")
+        self.assertEqual(observation.source_ip, "192.0.2.20")
+        self.assertIn("encrypted", observation.summary)
+        self.assertIn('"status": "unavailable"', observation.metadata_json)
+        self.assertEqual(parse_packet(packet, {"multicast"}).protocol, "sophos_heartbeat")
+
+    @unittest.skipIf(TCP is None, "scapy is not installed")
+    def test_sophos_heartbeat_ignores_unrelated_tls_traffic(self):
+        packet = (
+            Ether(src="AA:BB:CC:DD:EE:FF")
+            / IP(src="192.0.2.20", dst="203.0.113.10")
+            / TCP(sport=51000, dport=8347, flags="S")
+        )
+        self.assertIsNone(parse_sophos_heartbeat_packet(packet))
+
     @unittest.skipIf(DNS is None, "scapy is not installed")
     def test_capture_report_counts_seen_parsed_stored_and_duplicates(self):
         packet = (

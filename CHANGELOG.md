@@ -16,12 +16,19 @@ All notable changes to this project should be documented in this file.
 - Added SNMP interface counter trends for inbound/outbound packet rates, discard
   and error rates, and Layer-1 error rates. Trends start after a second valid
   poll and ignore counter resets instead of reporting misleading negative rates.
+- Added opt-in passive detection for the documented Sophos Security Heartbeat
+  TLS channel. LanLens associates observed endpoint traffic with known devices
+  but marks health status as unavailable because the payload is encrypted.
 
 ### Fixes / Hardening
 - Updated Axios, React Router, Vite, PostCSS and Playwright, pinned the remaining
   vulnerable transitive multipart package to its patched release, and committed
   the frontend lockfile for reproducible dependency audits.
 - Added a checked-in Docker Buildx Bake target for repeatable AMD64/ARM64 builds.
+- Kept build metadata outside dependency-install cache keys so release rebuilds
+  reuse npm and Python/system dependency layers across build-number changes.
+- Reused the existing Scapy capture path for Sophos Heartbeat presence; no new
+  dependency or license obligation was added.
 
 ## v1.5.8 — Network topology and custom SNMP queries
 

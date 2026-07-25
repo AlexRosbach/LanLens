@@ -3,16 +3,16 @@ FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
+# Copy package files first for layer caching
+COPY frontend/package.json ./
+COPY frontend/package-lock.json ./
+RUN npm ci --silent
+
 ARG LANLENS_APP_VERSION=1.6.0
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
 ARG LANLENS_BUILD_CREATED=unknown
-
-# Copy package files first for layer caching
-COPY frontend/package.json ./
-COPY frontend/package-lock.json ./
-RUN npm ci --silent
 
 COPY frontend/ ./
 RUN printf "export const APP_VERSION = '%s'\nexport const GITHUB_REPO = 'AlexRosbach/LanLens'\nexport const BUILD_CODE = '%s'\nexport const BUILD_COMMIT = '%s'\nexport const BUILD_BRANCH = '%s'\nexport const BUILD_CREATED = '%s'\n" \
@@ -26,20 +26,6 @@ RUN npm run build
 
 # ─── Stage 2: Runtime image ───────────────────────────────────────────────────
 FROM python:3.12-slim
-
-ARG LANLENS_APP_VERSION=1.6.0
-ARG LANLENS_BUILD_CODE=dev
-ARG LANLENS_BUILD_COMMIT=unknown
-ARG LANLENS_BUILD_BRANCH=unknown
-ARG LANLENS_BUILD_CREATED=unknown
-
-LABEL org.opencontainers.image.title="LanLens" \
-      org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
-      org.opencontainers.image.version=$LANLENS_APP_VERSION \
-      org.opencontainers.image.revision=$LANLENS_BUILD_COMMIT \
-      org.opencontainers.image.created=$LANLENS_BUILD_CREATED \
-      org.opencontainers.image.licenses="MIT AND GPL-2.0-only AND GPL-3.0-only AND LGPL-2.1-only AND Apache-2.0" \
-      org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 
 # System dependencies + Python build tools (gcc needed for netifaces C extension).
 # Build tools are removed after pip install to keep the image lean.
@@ -61,6 +47,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && pip install --no-cache-dir -r /tmp/requirements.txt \
   && apt-get purge -y --auto-remove gcc python3-dev \
   && rm -rf /var/lib/apt/lists/* /tmp/requirements.txt
+
+ARG LANLENS_APP_VERSION=1.6.0
+ARG LANLENS_BUILD_CODE=dev
+ARG LANLENS_BUILD_COMMIT=unknown
+ARG LANLENS_BUILD_BRANCH=unknown
+ARG LANLENS_BUILD_CREATED=unknown
+
+LABEL org.opencontainers.image.title="LanLens" \
+      org.opencontainers.image.description="Self-hosted network monitoring dashboard" \
+      org.opencontainers.image.version=$LANLENS_APP_VERSION \
+      org.opencontainers.image.revision=$LANLENS_BUILD_COMMIT \
+      org.opencontainers.image.created=$LANLENS_BUILD_CREATED \
+      org.opencontainers.image.licenses="MIT AND GPL-2.0-only AND GPL-3.0-only AND LGPL-2.1-only AND Apache-2.0" \
+      org.opencontainers.image.source="https://github.com/AlexRosbach/LanLens"
 
 WORKDIR /app
 

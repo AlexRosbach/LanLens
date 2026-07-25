@@ -26,7 +26,7 @@ LanLens gives you a quick, local view of what is on your network:
 - Devices found by MAC/IP device discovery, with vendor hints and online/offline state
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices
-- Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, SNMP, custom SNMP OIDs, and scan-detected changes
+- Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
 - Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
 
 Why people use it:

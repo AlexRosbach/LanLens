@@ -579,6 +579,16 @@ When a linked observation carries a high- or medium-confidence device-class infe
 
 The inventory topology API combines existing device, host/guest and SNMP switch-port relationships with passive topology hints when both endpoints are already known devices. OSPF hello neighbors can add `ospf_neighbor` edges, HA virtual IP observations can add VRRP/HSRP virtual-IP edges, and LLDP/CDP/STP advertisements can add layer-2 edges when the advertised chassis, bridge or device identity matches an existing LanLens device. Unknown external neighbors remain visible in the passive discovery observation metadata instead of creating synthetic inventory devices.
 
+When passive discovery is enabled, LanLens also recognizes outbound TLS
+connections to the [documented Sophos Security Heartbeat channel on TCP
+8347](https://docs.sophos.com/nsg/sophos-firewall/21.0/Help/en-us/webhelp/onlinehelp/AdministratorHelp/SophosCentral/SecurityHeartbeatOverview/SecurityHeartbeat/index.html).
+The source IP/MAC can associate the observation with an existing device and
+indicate that a Sophos-managed endpoint heartbeat was seen. The health payload
+is encrypted, so LanLens deliberately reports the status as unavailable rather
+than guessing green, yellow or red. No packet payload is persisted.
+
+![Sophos Security Heartbeat presence on a device](screenshots/lanlens-sophos-heartbeat.png)
+
 The optional **Network Topology** page appears only when **Settings -> Features -> Network Topology** is enabled together with Advanced View. It renders the existing topology API as a read-only map, shows SNMP port/VLAN context from learned endpoint data, filters by segment, device class, relationship type or VLAN, and keeps compact neighbor, relationship-evidence and recent-change panels beside the selected device. The selected relationship panel explains the peer, evidence type, VLAN, interface alias and last-seen context when those values are available. The map can be dragged, zoomed with the mouse wheel and adjusted through inline zoom/reset controls. This is useful today when LanLens has either SNMP bridge-table data, passive LLDP/CDP/STP/OSPF observations or manually/scan-created host relationships; environments without those signals still show discovered devices but have fewer useful edges.
 
 ![LanLens network topology map](screenshots/lanlens-network-topology.png)

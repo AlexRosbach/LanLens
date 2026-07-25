@@ -42,6 +42,9 @@ CDP_CAPABILITIES = {
     0x00000080: "telephone",
 }
 
+SOPHOS_HEARTBEAT_IP = "52.5.76.173"
+SOPHOS_HEARTBEAT_PORT = 8347
+
 
 def is_capture_running() -> bool:
     with _capture_lock:
@@ -584,6 +587,44 @@ def parse_control_plane_packet(packet: Any) -> PassiveDiscoveryObservation | Non
     )
 
 
+def parse_sophos_heartbeat_packet(packet: Any) -> PassiveDiscoveryObservation | None:
+    """Identify the documented encrypted Sophos Security Heartbeat channel.
+
+    The health payload is TLS encrypted, so LanLens deliberately records only
+    presence and transport metadata and never claims a green/yellow/red status.
+    """
+    try:
+        from scapy.layers.inet import IP, TCP
+    except Exception:
+        return None
+    if not packet.haslayer(IP) or not packet.haslayer(TCP):
+        return None
+    ip = packet[IP]
+    tcp = packet[TCP]
+    if str(ip.dst) != SOPHOS_HEARTBEAT_IP or int(getattr(tcp, "dport", 0) or 0) != SOPHOS_HEARTBEAT_PORT:
+        return None
+    source_ip, source_mac, destination_ip = _packet_addrs(packet)
+    metadata = {
+        "packet_type": "Sophos Security Heartbeat",
+        "transport": "tls",
+        "destination_port": SOPHOS_HEARTBEAT_PORT,
+        "status_visibility": "encrypted",
+        "status": "unavailable",
+        "evidence": "documented Sophos Central heartbeat channel",
+    }
+    return PassiveDiscoveryObservation(
+        protocol="sophos_heartbeat",
+        source_ip=source_ip,
+        source_mac=source_mac,
+        destination_ip=destination_ip,
+        service_name="Sophos Security Heartbeat",
+        service_type="tls/8347",
+        summary="Sophos-managed endpoint heartbeat observed; health status is encrypted",
+        metadata_json=json.dumps(metadata, sort_keys=True),
+        observed_at=datetime.utcnow(),
+    )
+
+
 def _control_plane_metadata(packet: Any, protocol: str) -> dict[str, Any]:
     if protocol == "ospf":
         return _ospf_metadata(packet)
@@ -712,6 +753,10 @@ def _generic_multicast_metadata(packet: Any, destination_ip: str) -> dict[str, A
 
 
 def parse_packet(packet: Any, enabled_protocols: set[str]) -> PassiveDiscoveryObservation | None:
+    if "multicast" in enabled_protocols:
+        sophos_heartbeat = parse_sophos_heartbeat_packet(packet)
+        if sophos_heartbeat:
+            return sophos_heartbeat
     if "mdns" in enabled_protocols:
         mdns = parse_mdns_packet(packet)
         if mdns:
@@ -842,6 +887,7 @@ def _capture_filter(enabled_protocols: set[str]) -> str:
         parts.append("udp port 1900")
     if "multicast" in enabled_protocols:
         parts.append("(ip multicast or ether proto 0x88cc or ether dst 01:00:0c:cc:cc:cc or ether dst 01:80:c2:00:00:00 or ether dst 01:80:c2:00:00:08)")
+        parts.append(f"(tcp dst port {SOPHOS_HEARTBEAT_PORT} and dst host {SOPHOS_HEARTBEAT_IP})")
     if "lldp" in enabled_protocols:
         parts.append("ether proto 0x88cc")
     if "cdp" in enabled_protocols:
