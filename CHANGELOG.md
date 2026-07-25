@@ -13,6 +13,9 @@ All notable changes to this project should be documented in this file.
 - Added Network Topology relationship and VLAN filters so operators can focus the map on SNMP port edges, passive topology hints, host relationships or a specific learned VLAN.
 - Added selected-relationship details to the Network Topology side panel, including peer, evidence type, VLAN, interface alias and last-seen context when those values are available.
 - Added reproducible frontend installs and multi-platform container validation for AMD64 and ARM64.
+- Added SNMP interface counter trends for inbound/outbound packet rates, discard
+  and error rates, and Layer-1 error rates. Trends start after a second valid
+  poll and ignore counter resets instead of reporting misleading negative rates.
 
 ### Fixes / Hardening
 - Updated Axios, React Router, Vite, PostCSS and Playwright, pinned the remaining

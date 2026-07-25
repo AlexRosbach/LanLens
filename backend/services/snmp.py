@@ -514,6 +514,12 @@ def _counter_sum(values: dict[str, dict[str, str]], keys: list[str], if_index: i
     return total if found else None
 
 
+def _counter_rate(current: Optional[int], previous: Optional[int], elapsed_seconds: float, scale: float = 1.0) -> Optional[float]:
+    if current is None or previous is None or elapsed_seconds <= 0 or current < previous:
+        return None
+    return round(((current - previous) / elapsed_seconds) * scale, 3)
+
+
 def _merge_port_maps(*maps: dict[int, int]) -> dict[int, int]:
     merged: dict[int, int] = {}
     for port_map in maps:
@@ -530,6 +536,32 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
     if row is None:
         row = SnmpInterface(switch_id=switch.id, if_index=if_index)
         db.add(row)
+    elapsed_seconds = (now - row.last_seen_at).total_seconds() if row.last_seen_at else 0
+    previous_in_packets = (
+        (row.in_unicast_packets or 0) + (row.in_non_unicast_packets or 0)
+        if row.in_unicast_packets is not None or row.in_non_unicast_packets is not None
+        else None
+    )
+    previous_out_packets = (
+        (row.out_unicast_packets or 0) + (row.out_non_unicast_packets or 0)
+        if row.out_unicast_packets is not None or row.out_non_unicast_packets is not None
+        else None
+    )
+    previous_errors = (
+        (row.in_errors or 0) + (row.out_errors or 0)
+        if row.in_errors is not None or row.out_errors is not None
+        else None
+    )
+    previous_discards = (
+        (row.in_discards or 0) + (row.out_discards or 0)
+        if row.in_discards is not None or row.out_discards is not None
+        else None
+    )
+    previous_layer1_errors = (
+        (row.crc_errors or 0) + (row.collision_errors or 0) + (row.fragment_errors or 0)
+        if row.crc_errors is not None or row.collision_errors is not None or row.fragment_errors is not None
+        else None
+    )
     row.name = values["names"].get(str(if_index)) or row.name
     row.description = values["descr"].get(str(if_index)) or row.description
     row.alias = values["alias"].get(str(if_index)) or row.alias
@@ -555,6 +587,41 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
         if_index,
     )
     row.fragment_errors = _counter_value(values["dot3_frame_too_longs"], if_index)
+    current_in_packets = (
+        (row.in_unicast_packets or 0) + (row.in_non_unicast_packets or 0)
+        if row.in_unicast_packets is not None or row.in_non_unicast_packets is not None
+        else None
+    )
+    current_out_packets = (
+        (row.out_unicast_packets or 0) + (row.out_non_unicast_packets or 0)
+        if row.out_unicast_packets is not None or row.out_non_unicast_packets is not None
+        else None
+    )
+    current_errors = (
+        (row.in_errors or 0) + (row.out_errors or 0)
+        if row.in_errors is not None or row.out_errors is not None
+        else None
+    )
+    current_discards = (
+        (row.in_discards or 0) + (row.out_discards or 0)
+        if row.in_discards is not None or row.out_discards is not None
+        else None
+    )
+    current_layer1_errors = (
+        (row.crc_errors or 0) + (row.collision_errors or 0) + (row.fragment_errors or 0)
+        if row.crc_errors is not None or row.collision_errors is not None or row.fragment_errors is not None
+        else None
+    )
+    row.in_packets_per_second = _counter_rate(current_in_packets, previous_in_packets, elapsed_seconds)
+    row.out_packets_per_second = _counter_rate(current_out_packets, previous_out_packets, elapsed_seconds)
+    row.errors_per_minute = _counter_rate(current_errors, previous_errors, elapsed_seconds, 60)
+    row.discards_per_minute = _counter_rate(current_discards, previous_discards, elapsed_seconds, 60)
+    row.layer1_errors_per_minute = _counter_rate(
+        current_layer1_errors,
+        previous_layer1_errors,
+        elapsed_seconds,
+        60,
+    )
     row.last_seen_at = now
 
 
@@ -613,6 +680,11 @@ def _interface_stats(iface: Optional[SnmpInterface]) -> dict[str, Any]:
         "interface_crc_errors": iface.crc_errors,
         "interface_collision_errors": iface.collision_errors,
         "interface_fragment_errors": iface.fragment_errors,
+        "interface_in_packets_per_second": iface.in_packets_per_second,
+        "interface_out_packets_per_second": iface.out_packets_per_second,
+        "interface_errors_per_minute": iface.errors_per_minute,
+        "interface_discards_per_minute": iface.discards_per_minute,
+        "interface_layer1_errors_per_minute": iface.layer1_errors_per_minute,
     }
 
 

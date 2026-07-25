@@ -457,6 +457,11 @@ class DeviceResponse(BaseModel):
     snmp_interface_crc_errors: Optional[int] = None
     snmp_interface_collision_errors: Optional[int] = None
     snmp_interface_fragment_errors: Optional[int] = None
+    snmp_interface_in_packets_per_second: Optional[float] = None
+    snmp_interface_out_packets_per_second: Optional[float] = None
+    snmp_interface_errors_per_minute: Optional[float] = None
+    snmp_interface_discards_per_minute: Optional[float] = None
+    snmp_interface_layer1_errors_per_minute: Optional[float] = None
 
     class Config:
         from_attributes = True

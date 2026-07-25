@@ -39,6 +39,7 @@ from backend.services.snmp import (
     _parse_mac_suffix,
     _parse_q_bridge_suffix,
     _format_snmp_error,
+    _counter_rate,
     _snmp_command,
     bulk_identities_for_devices,
     detect_vendor,
@@ -57,6 +58,15 @@ class SnmpIdentityTests(unittest.TestCase):
 
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
+
+    def test_counter_rate_uses_elapsed_time_and_scale(self):
+        self.assertEqual(_counter_rate(160, 100, 30), 2.0)
+        self.assertEqual(_counter_rate(130, 100, 30, 60), 60.0)
+
+    def test_counter_rate_ignores_first_sample_and_counter_resets(self):
+        self.assertIsNone(_counter_rate(100, None, 30))
+        self.assertIsNone(_counter_rate(10, 100, 30))
+        self.assertIsNone(_counter_rate(100, 100, 0))
 
     def _enable_advanced_view(self, db):
         db.add(Setting(key="advanced_view_enabled", value="true"))

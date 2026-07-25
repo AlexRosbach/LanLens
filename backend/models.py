@@ -324,6 +324,11 @@ class SnmpInterface(Base):
     crc_errors = Column(Integer, nullable=True)
     collision_errors = Column(Integer, nullable=True)
     fragment_errors = Column(Integer, nullable=True)
+    in_packets_per_second = Column(Float, nullable=True)
+    out_packets_per_second = Column(Float, nullable=True)
+    errors_per_minute = Column(Float, nullable=True)
+    discards_per_minute = Column(Float, nullable=True)
+    layer1_errors_per_minute = Column(Float, nullable=True)
     last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     switch = relationship("SnmpSwitch", back_populates="interfaces")

@@ -874,6 +874,21 @@ def migrate():
         else:
             print("Migration: passive_discovery_observations already exists — skipped")
 
+        # ── v1.6.0 ── SNMP interface counter trends ───────────────────────
+        for column in (
+            "in_packets_per_second",
+            "out_packets_per_second",
+            "errors_per_minute",
+            "discards_per_minute",
+            "layer1_errors_per_minute",
+        ):
+            if _table_exists(conn, "snmp_interfaces") and not _column_exists(conn, "snmp_interfaces", column):
+                conn.execute(text(f"ALTER TABLE snmp_interfaces ADD COLUMN {column} FLOAT"))
+                conn.commit()
+                print(f"Migration: added snmp_interfaces.{column}")
+            elif _table_exists(conn, "snmp_interfaces"):
+                print(f"Migration: snmp_interfaces.{column} already exists — skipped")
+
         conn.commit()
 
 
