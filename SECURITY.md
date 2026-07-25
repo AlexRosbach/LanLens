@@ -75,6 +75,10 @@ SSH credential tests and deep scans reject unknown or changed host keys. The
 default persistent trust store is `/data/ssh_known_hosts`; operators must verify
 fingerprints before adding entries.
 
+Cross-origin browser access is disabled by default. Deployments with a separate
+trusted frontend may set `LANLENS_CORS_ORIGINS` to a comma-separated list of
+exact origins; wildcard credentialed CORS is not enabled.
+
 ## Update Guidance
 
 Update to the latest supported version as soon as practical, review release

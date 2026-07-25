@@ -871,6 +871,12 @@ When `auto_scan_enabled` is set on a device, the deep scan scheduler (which poll
   a new fingerprint out of band before adding it; do not blindly trust
   `ssh-keyscan` output from an untrusted network. A missing entry produces a
   clear host-key verification failure instead of silently trusting the host.
+
+The SPA and API are served from the same origin, so browser CORS is disabled by
+default. If a deployment intentionally hosts a separate trusted frontend, set
+`LANLENS_CORS_ORIGINS` to a comma-separated list of exact origins such as
+`https://lanlens-ui.example.com`. Do not use a wildcard for a credentialed
+deployment.
 - WinRM connections use NTLM authentication over HTTP (port 5985). For production use, consider enabling HTTPS (port 5986) on Windows targets and updating the session URL accordingly.
 
 ### New database tables (v1.4.0)

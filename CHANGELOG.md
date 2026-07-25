@@ -38,6 +38,8 @@ All notable changes to this project should be documented in this file.
   keys and load verified entries from the persistent data volume.
 - Hardened nmap XML parsing with `defusedxml`, shell-quoted discovered libvirt
   domain names and marked the non-cryptographic IP identifier hash explicitly.
+- Disabled wildcard credentialed CORS by default and added an exact-origin
+  `LANLENS_CORS_ORIGINS` opt-in for split frontend deployments.
 
 ## v1.5.8 — Network topology and custom SNMP queries
 
