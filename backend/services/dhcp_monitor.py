@@ -303,6 +303,8 @@ def _probe_dhcp_servers(db: Session, timeout_seconds: int) -> int:
     xid = random.randint(1, 0xFFFFFFFF)
     packet = (
         Ether(dst="ff:ff:ff:ff:ff:ff", src=frame_src_mac)
+        # DHCP discovery intentionally uses the protocol-mandated unspecified
+        # source and broadcast destination; this is packet construction, not a bind.
         / IP(src="0.0.0.0", dst="255.255.255.255")
         / UDP(sport=68, dport=67)
         / BOOTP(chaddr=mac_bytes, xid=xid, flags=0x8000)

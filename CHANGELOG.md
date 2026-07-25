@@ -34,6 +34,10 @@ All notable changes to this project should be documented in this file.
 - Documented the client-only React Router RSC audit exception and kept the
   current router rather than downgrading into known client-side redirect/XSS
   advisories.
+- Changed SSH credential tests and deep scans to reject unknown or changed host
+  keys and load verified entries from the persistent data volume.
+- Hardened nmap XML parsing with `defusedxml`, shell-quoted discovered libvirt
+  domain names and marked the non-cryptographic IP identifier hash explicitly.
 
 ## v1.5.8 — Network topology and custom SNMP queries
 

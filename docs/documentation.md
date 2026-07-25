@@ -865,7 +865,12 @@ When `auto_scan_enabled` is set on a device, the deep scan scheduler (which poll
 - Credentials are encrypted using Fernet symmetric encryption. The key is derived from `SECRET_KEY` via SHA-256 and URL-safe base64 encoding.
 - The `encrypted_secret` column is never returned by any API endpoint.
 - All API endpoints require a valid session (HTTP-only cookie or Bearer token).
-- SSH connections use `AutoAddPolicy` for host key acceptance — suitable for internal networks. If strict host key checking is required, configure the scan user with a pre-approved `known_hosts` file.
+- SSH credential tests and deep scans reject unknown or changed host keys. Put
+  verified OpenSSH host-key entries in `/data/ssh_known_hosts` inside the
+  container, or point `LANLENS_SSH_KNOWN_HOSTS` at another mounted file. Verify
+  a new fingerprint out of band before adding it; do not blindly trust
+  `ssh-keyscan` output from an untrusted network. A missing entry produces a
+  clear host-key verification failure instead of silently trusting the host.
 - WinRM connections use NTLM authentication over HTTP (port 5985). For production use, consider enabling HTTPS (port 5986) on Windows targets and updating the session URL accordingly.
 
 ### New database tables (v1.4.0)

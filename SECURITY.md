@@ -71,6 +71,10 @@ The backend uses PyJWT with an explicit HS256 algorithm allowlist. The previous
 `python-jose` dependency was removed because it pulled an unused ECDSA/RSA
 dependency chain with an unpatched `ecdsa` advisory.
 
+SSH credential tests and deep scans reject unknown or changed host keys. The
+default persistent trust store is `/data/ssh_known_hosts`; operators must verify
+fingerprints before adding entries.
+
 ## Update Guidance
 
 Update to the latest supported version as soon as practical, review release

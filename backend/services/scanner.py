@@ -10,7 +10,7 @@ import logging
 import re
 import socket
 import subprocess
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Dict, List, Optional
@@ -87,7 +87,7 @@ def _pseudo_mac_for_ip(ip: str) -> str:
     Routed subnets often do not expose MAC addresses, so we keep those hosts
     trackable with a deterministic, clearly non-MAC `ip:` identifier.
     """
-    return f"ip:{hashlib.sha1(ip.encode('utf-8')).hexdigest()[:14]}"
+    return f"ip:{hashlib.sha1(ip.encode('utf-8'), usedforsecurity=False).hexdigest()[:14]}"
 
 
 def _is_ip_only_identifier(value: Optional[str]) -> bool:
