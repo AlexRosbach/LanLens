@@ -1,7 +1,7 @@
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 sqlalchemy>=2.0.0
-python-jose[cryptography]>=3.3.0
+PyJWT>=2.10.1
 bcrypt>=4.0.0
 python-nmap>=0.7.1
 scapy>=2.5.0

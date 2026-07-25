@@ -29,6 +29,11 @@ All notable changes to this project should be documented in this file.
   reuse npm and Python/system dependency layers across build-number changes.
 - Reused the existing Scapy capture path for Sophos Heartbeat presence; no new
   dependency or license obligation was added.
+- Replaced `python-jose` with MIT-licensed PyJWT for the existing HS256 token
+  flow, removing the unused and unpatched `ecdsa` dependency chain.
+- Documented the client-only React Router RSC audit exception and kept the
+  current router rather than downgrading into known client-side redirect/XSS
+  advisories.
 
 ## v1.5.8 — Network topology and custom SNMP queries
 

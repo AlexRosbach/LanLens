@@ -13,7 +13,7 @@ builds or Docker images.
 | FastAPI | MIT | API framework | Permissive |
 | Uvicorn | BSD-3-Clause | ASGI server | Permissive |
 | SQLAlchemy | MIT | Database ORM | Permissive |
-| python-jose | MIT | JWT handling | Permissive |
+| PyJWT | MIT | HMAC JWT handling | Permissive; replaces python-jose and its unused ECDSA/RSA dependency chain |
 | bcrypt | Apache-2.0 | Password hashing | Permissive |
 | python-nmap | GPL-3.0 | Per-device port scanning wrapper | Copyleft; preserve license notices and source availability when redistributing bundled builds |
 | scapy | GPL-2.0-only | ARP scanning, DHCP monitor and passive discovery packet parsing | Copyleft; preserve license notices and source availability when redistributing bundled builds |
