@@ -1,9 +1,9 @@
 # ─── Stage 1: Build React frontend ───────────────────────────────────────────
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-ARG LANLENS_APP_VERSION=1.5.9
+ARG LANLENS_APP_VERSION=1.6.0
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
@@ -11,10 +11,8 @@ ARG LANLENS_BUILD_CREATED=unknown
 
 # Copy package files first for layer caching
 COPY frontend/package.json ./
-# Use package-lock.json if available for reproducible builds
-COPY frontend/package-lock.json* ./
-# npm ci if lock file exists, otherwise npm install
-RUN [ -f package-lock.json ] && npm ci --silent || npm install --silent
+COPY frontend/package-lock.json ./
+RUN npm ci --silent
 
 COPY frontend/ ./
 RUN printf "export const APP_VERSION = '%s'\nexport const GITHUB_REPO = 'AlexRosbach/LanLens'\nexport const BUILD_CODE = '%s'\nexport const BUILD_COMMIT = '%s'\nexport const BUILD_BRANCH = '%s'\nexport const BUILD_CREATED = '%s'\n" \
@@ -29,7 +27,7 @@ RUN npm run build
 # ─── Stage 2: Runtime image ───────────────────────────────────────────────────
 FROM python:3.12-slim
 
-ARG LANLENS_APP_VERSION=1.5.9
+ARG LANLENS_APP_VERSION=1.6.0
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown

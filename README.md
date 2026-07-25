@@ -6,7 +6,7 @@
 
 **Self-hosted network inventory, local network scanner, and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.9-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.6.0-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -101,6 +101,7 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 - Docker 20.10+
 - Docker Compose v2
 - Linux host recommended for direct ARP scanning
+- A 64-bit x86 (`amd64`) or ARM (`arm64`) Linux host
 
 ### 1. Start LanLens
 
@@ -142,6 +143,16 @@ Core runtime settings:
 | `TZ` | `UTC` | Container timezone |
 
 For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki).
+
+### ARM64
+
+The main LanLens image supports 64-bit ARM hosts such as recent Raspberry Pi
+models running a 64-bit Linux distribution. Use the same Compose file and image
+name as on AMD64; Docker selects the matching image platform automatically.
+Direct ARP discovery still requires Linux host networking plus `NET_ADMIN` and
+`NET_RAW`. A 32-bit ARM userspace is not supported.
+
+Maintainers can validate both supported platforms with `docker buildx bake`.
 
 ---
 

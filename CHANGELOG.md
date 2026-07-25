@@ -4,14 +4,21 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
-### 1.5.9 Iteration Focus
-- Start the 1.5.9 cycle by assessing ARM/container compatibility and separating quick fixes from the larger ARM support work currently tracked for the next major iteration.
+### 1.6.0 Iteration Focus
+- Add a supported, continuously validated ARM64 container path alongside AMD64.
 - Continue hardening Network Topology and SNMP workflows after the 1.5.8 topology release, especially setup clarity, diagnostics and mixed-vendor switch visibility.
-- Keep early planning open for traffic-awareness and recommendation work while avoiding new runtime dependencies until the license and deployment impact is reviewed.
+- Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
 
 ### New Features
 - Added Network Topology relationship and VLAN filters so operators can focus the map on SNMP port edges, passive topology hints, host relationships or a specific learned VLAN.
 - Added selected-relationship details to the Network Topology side panel, including peer, evidence type, VLAN, interface alias and last-seen context when those values are available.
+- Added reproducible frontend installs and multi-platform container validation for AMD64 and ARM64.
+
+### Fixes / Hardening
+- Updated Axios, React Router, Vite, PostCSS and Playwright, pinned the remaining
+  vulnerable transitive multipart package to its patched release, and committed
+  the frontend lockfile for reproducible dependency audits.
+- Added a checked-in Docker Buildx Bake target for repeatable AMD64/ARM64 builds.
 
 ## v1.5.8 — Network topology and custom SNMP queries
 

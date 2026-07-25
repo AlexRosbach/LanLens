@@ -69,7 +69,7 @@ const settings = {
   show_build_info: false,
   show_debug_tools: false,
   debug_log_level: 'warning',
-  app_version: '1.5.9',
+  app_version: '1.6.0',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -222,7 +222,7 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.9', latest_version: '1.5.9', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route(/\/api\/devices(?:$|\?)/, async (route) => {
     await route.fulfill({ json: { items: [], total: 21, online: 16, offline: 5, unregistered: 0, archived: 0 } })
