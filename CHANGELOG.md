@@ -13,6 +13,7 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Restored SSH private-key credential tests and deep scans with Paramiko 4 and newer by treating the removed legacy DSS key class as optional.
 - Ignored common Linux bridge interfaces such as `br0` and `bridge0` during first-run subnet detection so Docker hosts prefer the real LAN interface.
 - Limited the Settings SNMP custom-result request to the visible result count and kept SNMP vendor detection coverage in the dedicated vendor test.
 - Kept custom SNMP query failures isolated from the main switch poll once core SNMP polling succeeds, while still recording the custom-query failure in diagnostics.

@@ -556,11 +556,15 @@ def _run_windows_scan(
 # ── SSH helpers ───────────────────────────────────────────────────────────────
 
 def _load_ssh_private_key(key_text: str):
-    """Try to load an SSH private key from PEM string. Tries RSA, Ed25519, ECDSA, DSS."""
+    """Try to load an SSH private key from PEM string."""
     try:
         import paramiko  # type: ignore
         import io
-        for cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
+        key_classes = (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey)
+        dss_key = getattr(paramiko, "DSSKey", None)
+        if dss_key is not None:
+            key_classes += (dss_key,)
+        for cls in key_classes:
             try:
                 return cls.from_private_key(io.StringIO(key_text))
             except Exception:
