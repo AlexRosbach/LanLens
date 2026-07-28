@@ -1086,7 +1086,7 @@ Credentials of type `linux_ssh` support two authentication methods:
 | `auth_method` | Secret content | Notes |
 |---|---|---|
 | `password` (default) | SSH password | Standard password-based SSH login |
-| `key` | PEM private key (RSA, Ed25519, ECDSA, DSS) | Key stored Fernet-encrypted; supports all paramiko key types |
+| `key` | PEM private key (RSA, Ed25519, ECDSA) | Key stored Fernet-encrypted; supports Paramiko's current secure key types |
 
 Select the auth method in the Credential Modal. The private key is stored encrypted and never returned by the API.
 
