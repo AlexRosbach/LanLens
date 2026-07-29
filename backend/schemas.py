@@ -548,9 +548,17 @@ class ScanRunResponse(BaseModel):
         from_attributes = True
 
 
+class ScanInventoryStats(BaseModel):
+    total: int
+    online: int
+    offline: int
+    unread_notifications: int
+
+
 class ScanStatusResponse(BaseModel):
     is_running: bool
     last_scan: Optional[ScanRunResponse]
+    current_stats: ScanInventoryStats
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────

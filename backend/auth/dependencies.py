@@ -1,9 +1,11 @@
+import hmac
 from datetime import datetime
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..config import settings
 from ..models import TokenBlacklist, User
 from .jwt_handler import decode_token
 
@@ -19,7 +21,22 @@ def get_current_user(
     # API clients may use Bearer tokens while the SPA normally authenticates via
     # the httpOnly session cookie. Keep both paths here so routers do not need to
     # care how the request was authenticated.
-    token = credentials.credentials if credentials else request.cookies.get(SESSION_COOKIE_NAME)
+    bearer_token = credentials.credentials if credentials else None
+    if bearer_token and settings.api_token and hmac.compare_digest(bearer_token, settings.api_token):
+        if settings.api_token_read_only and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Persistent API token is read-only",
+            )
+        user = db.query(User).order_by(User.id.asc()).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No LanLens user is available for API token access",
+            )
+        return user
+
+    token = bearer_token or request.cookies.get(SESSION_COOKIE_NAME)
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

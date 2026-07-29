@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import ScanRun, User
-from ..schemas import MessageResponse, ScanRunResponse, ScanStatusResponse
+from ..models import Device, Notification, ScanRun, User
+from ..schemas import MessageResponse, ScanInventoryStats, ScanRunResponse, ScanStatusResponse
 from ..services.scanner import is_scan_running, run_scan
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
@@ -27,9 +27,18 @@ def get_scan_status(
     _: User = Depends(get_current_user),
 ):
     last = db.query(ScanRun).order_by(ScanRun.started_at.desc()).first()
+    active = db.query(Device).filter(Device.is_archived == False)
+    total = active.count()
+    online = active.filter(Device.is_online == True).count()
     return ScanStatusResponse(
         is_running=is_scan_running(),
         last_scan=last,
+        current_stats=ScanInventoryStats(
+            total=total,
+            online=online,
+            offline=max(0, total - online),
+            unread_notifications=db.query(Notification).filter(Notification.is_read == False).count(),
+        ),
     )
 
 
