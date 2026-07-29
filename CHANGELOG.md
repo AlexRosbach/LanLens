@@ -42,6 +42,8 @@ All notable changes to this project should be documented in this file.
   vulnerable transitive multipart package to its patched release, and committed
   the frontend lockfile for reproducible dependency audits.
 - Added a checked-in Docker Buildx Bake target for repeatable AMD64/ARM64 builds.
+- Build the platform-neutral frontend stage natively on the Buildx host so ARM64
+  images do not need to run the Node/Vite toolchain under QEMU.
 - Kept build metadata outside dependency-install cache keys so release rebuilds
   reuse npm and Python/system dependency layers across build-number changes.
 - Reused the existing Scapy capture path for Sophos Heartbeat presence; no new
