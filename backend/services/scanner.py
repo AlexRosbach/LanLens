@@ -354,6 +354,49 @@ def _detect_host_network() -> Optional[ipaddress.IPv4Network]:
     return None
 
 
+def _detect_local_host_result(scan_start: str, scan_end: str) -> Optional[DiscoveryResult]:
+    """Return the host interface identity when it belongs to the ARP range.
+
+    ARP broadcasts do not produce a reply from the sending host itself. In host
+    network mode the container can read the host interface directly, so include
+    that identity in the same discovery pipeline as normal ARP replies.
+    """
+    try:
+        import netifaces
+
+        start = ipaddress.IPv4Address(scan_start)
+        end = ipaddress.IPv4Address(scan_end)
+        default_gateway = netifaces.gateways().get("default", {}).get(netifaces.AF_INET)
+        default_iface = default_gateway[1] if default_gateway else None
+        interfaces = list(netifaces.interfaces())
+        if default_iface in interfaces:
+            interfaces.remove(default_iface)
+            interfaces.insert(0, default_iface)
+
+        for iface in interfaces:
+            if _is_ignored_detection_interface(iface):
+                continue
+            addresses = netifaces.ifaddresses(iface)
+            link_rows = addresses.get(netifaces.AF_LINK, [])
+            raw_mac = next((row.get("addr") for row in link_rows if row.get("addr")), None)
+            if not raw_mac:
+                continue
+            mac = normalize_mac(raw_mac)
+            if not re.fullmatch(r"(?:[0-9A-F]{2}:){5}[0-9A-F]{2}", mac) or mac == "00:00:00:00:00:00":
+                continue
+            for row in addresses.get(netifaces.AF_INET, []):
+                raw_ip = row.get("addr")
+                if not raw_ip or raw_ip.startswith("127."):
+                    continue
+                candidate = ipaddress.IPv4Address(raw_ip)
+                if start <= candidate <= end:
+                    logger.info("Including local host identity from interface %s", iface)
+                    return DiscoveryResult(ip=str(candidate), mac=mac)
+    except Exception as exc:
+        logger.warning("Local host identity detection failed: %s", exc)
+    return None
+
+
 def _is_ignored_detection_interface(iface: str) -> bool:
     name = iface.lower()
     if name == "lo":
@@ -721,6 +764,9 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         )
 
         results = await asyncio.get_event_loop().run_in_executor(None, _arp_scan, scan_targets)
+        local_host = _detect_local_host_result(effective_start, effective_end)
+        if local_host:
+            results.append(local_host)
         if routed_scan_targets:
             logger.info(f"Starting routed nmap ping scan via targets: {', '.join(routed_scan_targets)}")
             routed_results = await asyncio.get_event_loop().run_in_executor(None, _nmap_ping_scan, routed_scan_targets)

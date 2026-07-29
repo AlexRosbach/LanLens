@@ -213,3 +213,79 @@ test('device detail can test an i-doit sysid lookup and show debug details', asy
   await expect(page.getByText('direct_candidate_count')).toBeVisible()
   await expect(page.locator('pre').filter({ hasText: 'SYSID_1714817396' })).toBeVisible()
 })
+
+test('device detail renders Docker JSON lines as a readable container table', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 980 })
+  await page.route('**/api/auth/me', async (route) => {
+    await route.fulfill({ json: { username: 'admin', force_password_change: false } })
+  })
+  await page.route('**/api/settings', async (route) => {
+    await route.fulfill({ json: { ...settings, advanced_view_enabled: true } })
+  })
+  await page.route('**/api/notifications/unread-count', async (route) => {
+    await route.fulfill({ json: { count: 2 } })
+  })
+  await page.route('**/api/settings/update/check', async (route) => {
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
+  })
+  await page.route('**/api/client-errors', async (route) => {
+    await route.fulfill({ json: { ok: true } })
+  })
+  await page.route('**/api/devices', async (route) => {
+    await route.fulfill({ json: { items: [device], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
+  })
+  await page.route('**/api/devices/1/mark-viewed', async (route) => {
+    await route.fulfill({ json: { message: 'ok' } })
+  })
+  await page.route('**/api/devices/1/ip-history', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/timeline', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/devices/1/deep-scan/config', async (route) => {
+    await route.fulfill({ json: { device_id: 1, enabled: true, credential_id: 1, scan_profile: 'linux_container_host', auto_scan_enabled: false, interval_minutes: 1440, last_scan_at: now } })
+  })
+  await page.route('**/api/devices/1/deep-scan/runs**', async (route) => {
+    await route.fulfill({ json: [{ id: 9, device_id: 1, credential_id: 1, profile: 'linux_container_host', status: 'done', started_at: now, finished_at: now, summary: {}, error_message: null, triggered_by: 'manual' }] })
+  })
+  await page.route('**/api/devices/1/deep-scan/findings**', async (route) => {
+    await route.fulfill({
+      json: [{
+        id: 21,
+        device_id: 1,
+        run_id: 9,
+        finding_type: 'container',
+        key: 'docker_containers',
+        value: [
+          JSON.stringify({ Names: 'lanlens', Image: 'alexrosbach/lanlens:dev', State: 'running', Status: 'Up 3 hours', Ports: '7765/tcp', Networks: 'host' }),
+          JSON.stringify({ Names: 'postgres', Image: 'postgres:16-alpine', State: 'running', Status: 'Up 2 days (healthy)', Ports: '5432/tcp', Networks: 'backend' }),
+          JSON.stringify({ Names: 'homepage', Image: 'ghcr.io/gethomepage/homepage:latest', State: 'running', Status: 'Up 5 days', Ports: '3000/tcp', Networks: 'frontend' }),
+        ].join('\n'),
+        source: 'docker ps',
+        observed_at: now,
+      }],
+    })
+  })
+  await page.route('**/api/devices/1/deep-scan/relationships', async (route) => {
+    await route.fulfill({ json: [] })
+  })
+  await page.route('**/api/credentials', async (route) => {
+    await route.fulfill({ json: [{ id: 1, name: 'Docker host SSH', credential_type: 'linux_ssh' }] })
+  })
+  await page.route('**/api/devices/1', async (route) => {
+    await route.fulfill({ json: { ...device, label: 'Docker Host 01', device_class: 'Server' } })
+  })
+
+  await page.goto('/devices/1')
+  await page.getByRole('button', { name: 'Containers' }).click()
+  await page.getByRole('button', { name: /Expand/ }).click()
+
+  await expect(page.locator('th', { hasText: 'Name' })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'lanlens', exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'postgres', exact: true })).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Up 2 days (healthy)', exact: true })).toBeVisible()
+  await expect(page.locator('pre')).toHaveCount(0)
+
+  await page.screenshot({ path: testInfo.outputPath('lanlens-readable-container-table.png'), fullPage: false })
+})

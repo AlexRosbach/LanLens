@@ -74,6 +74,42 @@ function buildTableFromItems(items: Record<string, unknown>[]): { headers: strin
   return { headers, rows }
 }
 
+function parseJsonLines(text: string): Record<string, unknown>[] | null {
+  const lines = text.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (lines.length === 0) return null
+  const items: Record<string, unknown>[] = []
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+      items.push(parsed as Record<string, unknown>)
+    } catch {
+      return null
+    }
+  }
+  return items
+}
+
+function buildContainerTable(text: string): { headers: string[]; rows: string[][] } | null {
+  const items = parseJsonLines(text)
+  if (!items) return null
+  const columns = [
+    { header: 'Name', keys: ['Names', 'Name', 'names', 'name'] },
+    { header: 'Image', keys: ['Image', 'image'] },
+    { header: 'State', keys: ['State', 'state'] },
+    { header: 'Status', keys: ['Status', 'status'] },
+    { header: 'Ports', keys: ['Ports', 'ports'] },
+    { header: 'Networks', keys: ['Networks', 'Network', 'networks', 'network'] },
+  ]
+  return {
+    headers: columns.map((column) => column.header),
+    rows: items.map((item) => columns.map((column) => {
+      const key = column.keys.find((candidate) => item[candidate] !== undefined)
+      return key ? formatCellValue(key, item[key]) : '—'
+    })),
+  }
+}
+
 /** Try to parse a key=value or KEY=VALUE block (for example /etc/os-release) into pairs. */
 function parseKvBlock(text: string): { key: string; value: string }[] | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -436,6 +472,21 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
   const label = getFindingLabel(finding.key, t)
   const normalizedValue = normalizeStructuredValue(finding.value)
   const rawText = parseValue(normalizedValue)
+
+  if (finding.key === 'docker_containers' || finding.key === 'podman_containers') {
+    const table = buildContainerTable(rawText)
+    if (table) {
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={table.headers} rows={table.rows} />
+          {normalizeSource(finding.source) && (
+            <span className="text-xs text-text-subtle">{t('source_label', { source: normalizeSource(finding.source) ?? '' })}</span>
+          )}
+        </div>
+      )
+    }
+  }
 
   if (finding.key === 'computer_system' && normalizedValue && typeof normalizedValue === 'object' && !Array.isArray(normalizedValue)) {
     const obj = normalizedValue as Record<string, unknown>

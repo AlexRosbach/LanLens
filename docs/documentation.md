@@ -341,9 +341,19 @@ Triggers immediate ARP scan in background.
     "devices_new": 0,
     "devices_offline": 1,
     "status": "done"
+  },
+  "current_stats": {
+    "total": 17,
+    "online": 15,
+    "offline": 2,
+    "unread_notifications": 3
   }
 }
 ```
+
+`last_scan` describes one completed or running scan. `current_stats` uses the
+same live inventory state shown by the GUI and remains useful while a scan is
+running.
 
 ---
 
@@ -864,7 +874,7 @@ When `auto_scan_enabled` is set on a device, the deep scan scheduler (which poll
 
 - Credentials are encrypted using Fernet symmetric encryption. The key is derived from `SECRET_KEY` via SHA-256 and URL-safe base64 encoding.
 - The `encrypted_secret` column is never returned by any API endpoint.
-- All API endpoints require a valid session (HTTP-only cookie or Bearer token).
+- All API endpoints require a valid session (HTTP-only cookie or Bearer token). For persistent REST integrations, set `LANLENS_API_TOKEN` to a random value of at least 32 characters and send it as `Authorization: Bearer <token>`. The token permits only GET/HEAD/OPTIONS requests by default. Set `LANLENS_API_TOKEN_READ_ONLY=false` only for an integration that genuinely needs write methods; the token has the authority of the first configured LanLens user and must be protected like an administrator credential. Generate a suitable value with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
 - SSH credential tests and deep scans reject unknown or changed host keys. Put
   verified OpenSSH host-key entries in `/data/ssh_known_hosts` inside the
   container, or point `LANLENS_SSH_KNOWN_HOSTS` at another mounted file. Verify

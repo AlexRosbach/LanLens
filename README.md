@@ -136,6 +136,8 @@ Core runtime settings:
 | Variable | Default | Purpose |
 |---|---|---|
 | `SECRET_KEY` | generated on first start | Encryption/signing key; set manually only when restoring/migrating encrypted credentials |
+| `LANLENS_API_TOKEN` | empty | Optional persistent Bearer token (minimum 32 characters) for REST integrations |
+| `LANLENS_API_TOKEN_READ_ONLY` | `true` | Restrict the persistent API token to GET/HEAD/OPTIONS requests |
 | `DEFAULT_ADMIN_PASSWORD` | `admin` | Initial admin password when no user exists |
 | `LANLENS_PORT` | `7765` | HTTP port exposed by nginx |
 | `BACKEND_PORT` | `17765` | Internal FastAPI port behind nginx |
