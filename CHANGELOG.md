@@ -10,6 +10,9 @@ All notable changes to this project should be documented in this file.
 - Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
 
 ### New Features
+- Added MAC-only inventory discovery from SNMP bridge forwarding tables so
+  endpoints in VLANs outside the LanLens host's local Layer 2 can still appear
+  as offline inventory devices with switch, port and VLAN context.
 - Added Network Topology relationship and VLAN filters so operators can focus the map on SNMP port edges, passive topology hints, host relationships or a specific learned VLAN.
 - Added selected-relationship details to the Network Topology side panel, including peer, evidence type, VLAN, interface alias and last-seen context when those values are available.
 - Added reproducible frontend installs and multi-platform container validation for AMD64 and ARM64.
@@ -21,6 +24,9 @@ All notable changes to this project should be documented in this file.
   but marks health status as unavailable because the payload is encrypted.
 
 ### Fixes / Hardening
+- Fixed switch-port mapping for UniFi US firmware that exposes a correct
+  BRIDGE-MIB base-port map alongside a misleading Q-BRIDGE-MIB map pointing at
+  VLAN pseudo-interfaces. The valid physical-port mapping now takes precedence.
 - Updated Axios, React Router, Vite, PostCSS and Playwright, pinned the remaining
   vulnerable transitive multipart package to its patched release, and committed
   the frontend lockfile for reproducible dependency audits.

@@ -147,6 +147,19 @@ const topology = {
       snmp_interface: 'eth1',
       snmp_vlan: '30',
     },
+    {
+      id: 6,
+      label: '6C:63:F8:45:65:DA',
+      ip_address: null,
+      device_class: 'Unknown',
+      is_online: false,
+      segment_id: null,
+      segment_name: null,
+      service_count: 0,
+      snmp_switch: 'Core Switch',
+      snmp_interface: 'Port 18',
+      snmp_vlan: '2',
+    },
     ...Array.from({ length: 16 }, (_, index) => ({
       id: 10 + index,
       label: `Desk Client ${String(index + 1).padStart(2, '0')}`,
@@ -166,6 +179,7 @@ const topology = {
     { source: 2, target: 3, relationship_type: 'snmp_port', label: 'ge-0/3/1', metadata: { vlan: '30' } },
     { source: 2, target: 4, relationship_type: 'snmp_port', label: 'ge-0/1/1', metadata: { vlan: '20' } },
     { source: 3, target: 5, relationship_type: 'snmp_port', label: 'eth1', metadata: { vlan: '30' } },
+    { source: 2, target: 6, relationship_type: 'snmp_port', label: 'Port 18', metadata: { vlan: '2' } },
     { source: 1, target: 2, relationship_type: 'ospf_neighbor', label: '10.0.0.2', metadata: { router_id: '10.0.0.1' } },
     ...Array.from({ length: 16 }, (_, index) => ({
       source: 3,
@@ -188,6 +202,18 @@ const endpoints = [
     interface_name: 'ge-0/1/1',
     interface_alias: 'to-nas-01',
     vlan: '20',
+    last_seen_at: now,
+  },
+  {
+    mac_address: '6C:63:F8:45:65:DA',
+    device_id: 6,
+    device_label: '6C:63:F8:45:65:DA',
+    switch_name: 'Core Switch',
+    switch_host: '10.0.0.2',
+    if_index: 18,
+    interface_name: 'Port 18',
+    interface_alias: 'IoT VLAN uplink',
+    vlan: '2',
     last_seen_at: now,
   },
 ]
@@ -225,7 +251,7 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
     await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route(/\/api\/devices(?:$|\?)/, async (route) => {
-    await route.fulfill({ json: { items: [], total: 21, online: 16, offline: 5, unregistered: 0, archived: 0 } })
+    await route.fulfill({ json: { items: [], total: 22, online: 16, offline: 6, unregistered: 1, archived: 0 } })
   })
   await page.route('**/api/inventory/topology', async (route) => {
     await route.fulfill({ json: topology })

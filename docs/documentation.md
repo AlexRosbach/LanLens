@@ -1020,7 +1020,9 @@ Custom SNMP queries extend the fixed switch/interface polling for heterogeneous 
 
 When an SNMP target is linked to a LanLens device and the poll returns interfaces, the device detail page shows a switch-port visualization. Each real interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, speed, CRC errors, collisions, fragments, cast packet counters, discard/error counters and learned device/MAC/VLAN context when bridge tables are available; unlabeled endpoints show the MAC once with any VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. Interface-only targets still show their SNMP port inventory with empty endpoint labels so troubleshooting remains possible even when BRIDGE-MIB/Q-BRIDGE-MIB is unavailable.
 
-MAC tables are used to identify known LanLens devices by MAC address and attach switch/port/VLAN context to those devices. Expanding routed scan targets from SNMP-learned data needs IP-to-MAC evidence, not only a bridge MAC table. That follow-up should use IP-MIB/ARP-style SNMP data or explicit operator-provided scan targets before adding routed subnets to **Settings -> Network Discovery -> Scan range**.
+MAC tables identify known LanLens devices by MAC address and attach switch/port/VLAN context to those devices. A valid unicast MAC that is not yet in the inventory is added as an offline, MAC-only SNMP discovery, including its OUI vendor when known. This makes endpoints in another VLAN visible even when the LanLens host cannot discover them with local ARP. A bridge forwarding table does not provide an endpoint IP address or subnet; enriching these MAC-only devices with IP data still requires IP-MIB/ARP-style evidence from the VLAN gateway/L3 switch or an explicit routed/Scan Node target. LanLens does not infer a routed subnet from a VLAN number alone.
+
+![SNMP-discovered MAC-only VLAN endpoint in Network Topology](screenshots/lanlens-snmp-vlan-discovery.png)
 
 ![SNMP poll diagnostics without exposed credentials](screenshots/lanlens-snmp-poll-diagnostics.png)
 

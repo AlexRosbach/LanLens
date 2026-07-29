@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..models import Device, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
-from .mac_vendor import normalize_mac
+from .mac_vendor import lookup_vendor, normalize_mac
 
 OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 OID_SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
@@ -484,12 +484,56 @@ def _parse_q_bridge_suffix(suffix: str) -> tuple[Optional[str], Optional[str]]:
 def _parse_bridge_port_map(raw: dict[str, str]) -> dict[int, int]:
     port_map: dict[int, int] = {}
     for suffix, value in raw.items():
-        if not suffix.isdigit():
+        # BRIDGE-MIB indexes rows by dot1dBasePort ("47"), while several
+        # Q-BRIDGE-MIB agents, including UniFi US switches, expose
+        # dot1qBasePortIfIndex as dot1dBasePort.dot1qVlanIndex ("47.1").
+        # The bridge port is therefore the first numeric component.
+        bridge_port = suffix.split(".", 1)[0]
+        if not bridge_port.isdigit():
             continue
-        match = re.search(r"\d+", value)
-        if match:
-            port_map[int(suffix)] = int(match.group(0))
+        numbers = re.findall(r"\d+", value)
+        if numbers:
+            port_map[int(bridge_port)] = int(numbers[-1])
     return port_map
+
+
+def _is_discoverable_unicast_mac(mac: str) -> bool:
+    try:
+        octets = [int(part, 16) for part in normalize_mac(mac).split(":")]
+    except ValueError:
+        return False
+    return len(octets) == 6 and not (octets[0] & 1) and any(octets)
+
+
+def _ensure_device_for_mac_entry(db: Session, mac: str, now: datetime) -> Optional[Device]:
+    """Ensure a learned unicast endpoint is represented in the inventory.
+
+    SNMP forwarding tables often see endpoints in VLANs that LanLens cannot
+    reach with local ARP discovery. Keep those MAC-only devices offline until a
+    reachability scan supplies an IP and status; their SNMP identity still
+    exposes the learned switch, port and VLAN.
+    """
+    if not _is_discoverable_unicast_mac(mac):
+        return None
+    normalized = normalize_mac(mac)
+    device = (
+        db.query(Device)
+        .filter(func.lower(Device.mac_address) == normalized.lower())
+        .first()
+    )
+    if device is not None:
+        return device
+    vendor = lookup_vendor(normalized)
+    device = Device(
+        mac_address=normalized,
+        vendor=vendor if vendor != "Unknown" else None,
+        device_class="Unknown",
+        is_online=False,
+        first_seen=now,
+        last_seen=now,
+    )
+    db.add(device)
+    return device
 
 
 def _parse_counter(raw: Optional[str]) -> Optional[int]:
@@ -633,6 +677,7 @@ def _upsert_mac_entry(
     now: datetime,
     vlan: Optional[str] = None,
 ) -> None:
+    _ensure_device_for_mac_entry(db, mac, now)
     query = db.query(SnmpMacTableEntry).filter(
         SnmpMacTableEntry.switch_id == switch.id,
         SnmpMacTableEntry.mac_address == mac,
@@ -771,9 +816,13 @@ def _poll_mac_tables(
     now: datetime,
     steps: list[PollStep],
 ) -> int:
+    # Prefer the BRIDGE-MIB mapping when both tables expose the same bridge
+    # port. Some UniFi US firmware returns a Q-BRIDGE map whose rows all point
+    # at VLAN pseudo-interfaces 1/2, while the BRIDGE-MIB map contains the
+    # correct physical ifIndex values.
     bridge_ports = _merge_port_maps(
-        _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1D_BASE_PORT_IF_INDEX, port, "BRIDGE-MIB base-port map", steps, required=False)),
         _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1Q_BASE_PORT_IF_INDEX, port, "Q-BRIDGE-MIB VLAN base-port map", steps, required=False)),
+        _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1D_BASE_PORT_IF_INDEX, port, "BRIDGE-MIB base-port map", steps, required=False)),
     )
     mac_count = 0
 
