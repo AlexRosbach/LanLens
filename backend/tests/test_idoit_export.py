@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
 from backend.models import Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
-from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
+from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
 class IdoitExportCsvTest(unittest.TestCase):
@@ -794,6 +794,59 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(first_candidate["rejected_reason"], "no exact SYSID match on object entry, object read, or mapped identity categories")
         finally:
             db.close()
+
+    async def test_client_logout_releases_session_and_is_best_effort(self):
+        calls = []
+
+        class RecordingClient(IdoitClient):
+            async def call(self, method, params=None):
+                calls.append((method, params))
+                if method == "idoit.logout":
+                    return {"success": True}
+                return None
+
+        client = RecordingClient(get_config(self.Session()))
+        client._session_id = "session-that-may-hold-an-object-lock"
+
+        await client.logout_best_effort()
+
+        self.assertEqual(calls, [("idoit.logout", None)])
+        self.assertIsNone(client._session_id)
+
+        class FailingLogoutClient(RecordingClient):
+            async def call(self, method, params=None):
+                raise IdoitConnectionError("logout failed", stage="jsonrpc_error")
+
+        failing = FailingLogoutClient(get_config(self.Session()))
+        failing._session_id = "stale-session"
+        await failing.logout_best_effort()
+        self.assertIsNone(failing._session_id)
+
+    async def test_category_fallback_preserves_title_and_returns_warning_on_rejection(self):
+        attempts = []
+
+        class RejectingClient(IdoitClient):
+            async def find_reusable_category_entry(self, object_id, category, data):
+                return "7"
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                attempts.append(dict(data))
+                raise IdoitConnectionError(
+                    "There was a validation error: title(int): Mandatory field is empty.",
+                    stage="jsonrpc_error",
+                )
+
+        client = RejectingClient(get_config(self.Session()))
+        result = await client.save_category_best_effort(
+            "42",
+            "C__CATG__MODEL",
+            {"title": "Demo model", "manufacturer": "Demo vendor"},
+        )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(attempts[0], {"title": "Demo model", "manufacturer": "Demo vendor"})
+        self.assertEqual(attempts[1], {"title": "Demo model"})
+        self.assertEqual(attempts[2], {"manufacturer": "Demo vendor", "title": "Demo model"})
 
     def test_truncated_sync_log_keeps_identity_match_debug(self):
         details = {

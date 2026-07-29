@@ -1785,6 +1785,19 @@ class IdoitClient:
             self._session_id = result.get("session-id") or result.get("session_id")
         return result
 
+    async def logout_best_effort(self) -> None:
+        """Close the i-doit session so upstream object locks are released."""
+        if not self._session_id:
+            return
+        try:
+            await self.call("idoit.logout")
+        except Exception:
+            # Logout must never hide the result of the actual operation. i-doit
+            # also expires abandoned sessions server-side as a final fallback.
+            pass
+        finally:
+            self._session_id = None
+
     async def create_object(self, title: str, object_type: str) -> str:
         result = await self.call("cmdb.object.create", {"type": object_type, "title": title})
         if isinstance(result, dict):
@@ -2211,8 +2224,14 @@ class IdoitClient:
             saved: dict[str, Any] = {}
             failed: dict[str, Any] = {}
             for field, value in data.items():
+                retry_data = {field: value}
+                # Several i-doit categories validate mandatory fields even
+                # while updating one property. Preserve a supplied title on
+                # every field-level retry instead of sending incomplete rows.
+                if field != "title" and data.get("title") not in (None, ""):
+                    retry_data["title"] = data["title"]
                 try:
-                    saved[field] = await self.save_category(object_id, category, {field: value}, entry_id)
+                    saved[field] = await self.save_category(object_id, category, retry_data, entry_id)
                 except IdoitConnectionError as field_error:
                     failed[field] = field_error.to_detail()
             if not saved:
@@ -2222,7 +2241,14 @@ class IdoitClient:
                     if entry_id:
                         response["entry_id"] = entry_id
                     return response
-                raise full_error
+                response = {
+                    "status": "failed",
+                    "failed_fields": failed,
+                    "error": full_error.to_detail(),
+                }
+                if entry_id:
+                    response["entry_id"] = entry_id
+                return response
             optional_fields = OPTIONAL_IDOIT_CATEGORY_FIELDS.get(category, set())
             ignored = {field: error for field, error in failed.items() if field in optional_fields}
             warning_failed = {field: error for field, error in failed.items() if field not in optional_fields}
@@ -2283,14 +2309,17 @@ class IdoitClient:
         return None
 
     async def test_connection(self) -> dict[str, Any]:
-        login_result = await self.login()
-        return {
-            "ok": True,
-            "endpoint": self.endpoint,
-            "authenticated": bool(self._session_id),
-            "session_received": bool(login_result),
-            "message": "i-doit JSON-RPC login succeeded",
-        }
+        try:
+            login_result = await self.login()
+            return {
+                "ok": True,
+                "endpoint": self.endpoint,
+                "authenticated": bool(self._session_id),
+                "session_received": bool(login_result),
+                "message": "i-doit JSON-RPC login succeeded",
+            }
+        finally:
+            await self.logout_best_effort()
 
 
 def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -2345,6 +2374,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         log_sync(db, device.id, mode, "failure", "i-doit mapping validation failed", {"payload": payload, "errors": errors, "upstream_write_performed": False}, state.idoit_object_id)
         db.commit()
         return {"device_id": device.id, "status": state.status, "errors": errors, "payload_hash": digest, "upstream_write_performed": False}
+
+    # get_or_create_state() flushes a new row. Commit before any remote i-doit
+    # calls so SQLite does not hold a write lock for the duration of network
+    # requests and block unrelated UI/API writes.
+    db.commit()
 
     client = IdoitClient(config)
     details: dict[str, Any] = {"payload": payload, "upstream_write_performed": False, "category_results": {}}
@@ -2466,6 +2500,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
                     if failed:
                         sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
+                elif result.get("status") == "failed":
+                    failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
+                    rejected = ", ".join(sorted(failed.keys())) if failed else "category payload"
+                    sync_warnings.append(f"{category}: save rejected by i-doit; rejected fields: {rejected}")
             details["category_results"][category] = category_results if isinstance(data, list) else (category_results[0] if category_results else {"status": "skipped_empty"})
 
         sysid = await client.object_sysid(object_id)
@@ -2503,6 +2541,9 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 stale_object_id,
             )
             db.commit()
+            logout = getattr(client, "logout_best_effort", None)
+            if logout:
+                await logout()
             return await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=False, _stale_retry=True)
         state.status = "error"
         state.last_error = exc.message
@@ -2515,6 +2556,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         log_sync(db, device.id, mode, "failure", str(exc), details, state.idoit_object_id)
         db.commit()
         raise
+    finally:
+        logout = getattr(client, "logout_best_effort", None)
+        if logout:
+            await logout()
 
 
 async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:

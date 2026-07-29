@@ -20,6 +20,14 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Closed i-doit JSON-RPC sessions after connection tests, SYSID lookups and
+  synchronization so upstream object locks are released immediately.
+- Kept i-doit category validation failures as visible per-category sync warnings
+  instead of aborting after a partial object update, and preserved mandatory
+  title data during field-level retries.
+- Released SQLite write transactions before remote i-doit calls and enabled WAL
+  plus a busy timeout so parallel UI writes no longer fail while a sync waits
+  for the CMDB.
 - Included the LanLens host's primary interface identity in local host-network
   scans when it falls inside the configured ARP range, because a sender does
   not receive its own ARP discovery request.
