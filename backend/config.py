@@ -1,5 +1,6 @@
 import os
 import sys
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 
@@ -11,8 +12,14 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     algorithm: str = "HS256"
     tz: str = "UTC"
-    api_token: str = ""
-    api_token_read_only: bool = True
+    api_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("LANLENS_API_TOKEN", "API_TOKEN"),
+    )
+    api_token_read_only: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("LANLENS_API_TOKEN_READ_ONLY", "API_TOKEN_READ_ONLY"),
+    )
 
     class Config:
         env_file = ".env"

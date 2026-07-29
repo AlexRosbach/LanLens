@@ -20,6 +20,13 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Fixed the documented `LANLENS_API_TOKEN` and
+  `LANLENS_API_TOKEN_READ_ONLY` environment variables so persistent tokens are
+  actually loaded by the application.
+- Returned scan-run timestamps with the offset configured through `TZ` instead
+  of serializing timezone-naive UTC values.
+- Removed German fallback text from the English Deep Scan view and translated
+  the Scan Nodes settings panel.
 - Fixed i-doit listener synchronization so each transport protocol and port
   range is matched as one composite identity instead of repeatedly overwriting
   the first listener that shares a protocol.

@@ -251,20 +251,32 @@ test('device detail renders Docker JSON lines as a readable container table', as
   })
   await page.route('**/api/devices/1/deep-scan/findings**', async (route) => {
     await route.fulfill({
-      json: [{
-        id: 21,
-        device_id: 1,
-        run_id: 9,
-        finding_type: 'container',
-        key: 'docker_containers',
-        value: [
-          JSON.stringify({ Names: 'lanlens', Image: 'alexrosbach/lanlens:1.5.8', State: 'running', Status: 'Up 3 hours', Ports: '7765/tcp', Networks: 'host' }),
-          JSON.stringify({ Names: 'postgres', Image: 'postgres:16-alpine', State: 'running', Status: 'Up 2 days (healthy)', Ports: '5432/tcp', Networks: 'backend' }),
-          JSON.stringify({ Names: 'homepage', Image: 'ghcr.io/gethomepage/homepage:latest', State: 'running', Status: 'Up 5 days', Ports: '3000/tcp', Networks: 'frontend' }),
-        ].join('\n'),
-        source: 'docker ps',
-        observed_at: now,
-      }],
+      json: [
+        {
+          id: 20,
+          device_id: 1,
+          run_id: 9,
+          finding_type: 'hardware',
+          key: 'physical_memory',
+          value: '32 GiB',
+          source: 'synthetic test fixture',
+          observed_at: now,
+        },
+        {
+          id: 21,
+          device_id: 1,
+          run_id: 9,
+          finding_type: 'container',
+          key: 'docker_containers',
+          value: [
+            JSON.stringify({ Names: 'lanlens', Image: 'alexrosbach/lanlens:1.5.8', State: 'running', Status: 'Up 3 hours', Ports: '7765/tcp', Networks: 'host' }),
+            JSON.stringify({ Names: 'postgres', Image: 'postgres:16-alpine', State: 'running', Status: 'Up 2 days (healthy)', Ports: '5432/tcp', Networks: 'backend' }),
+            JSON.stringify({ Names: 'homepage', Image: 'ghcr.io/gethomepage/homepage:latest', State: 'running', Status: 'Up 5 days', Ports: '3000/tcp', Networks: 'frontend' }),
+          ].join('\n'),
+          source: 'synthetic test fixture',
+          observed_at: now,
+        },
+      ],
     })
   })
   await page.route('**/api/devices/1/deep-scan/relationships', async (route) => {
@@ -278,6 +290,10 @@ test('device detail renders Docker JSON lines as a readable container table', as
   })
 
   await page.goto('/devices/1')
+  await page.getByRole('button', { name: 'Hardware' }).click()
+  await expect(page.getByText('Physical memory', { exact: true })).toBeVisible()
+  await expect(page.getByText('Physischer Arbeitsspeicher', { exact: true })).not.toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('deep-scan-hardware-english.png'), fullPage: false })
   await page.getByRole('button', { name: 'Containers' }).click()
   await page.getByRole('button', { name: /Expand/ }).click()
 
