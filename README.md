@@ -6,7 +6,7 @@
 
 **Self-hosted network inventory, local network scanner, and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.8-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.5.9-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -150,6 +150,7 @@ For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, S
 ## Learn More
 
 - [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
+- [DNS names and Microsoft DNS](docs/microsoft-dns.md): preferred names, alias inventory, read-only zone access, and least-privilege setup
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 

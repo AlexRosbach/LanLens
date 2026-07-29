@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Notification, Setting
 from ..version import APP_VERSION
+from .dns_names import device_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ def _notification_title_and_message(notification: Notification) -> tuple[str, st
     if notification.event_type == "network_change":
         title = "LanLens — Network Change"
         if device:
-            message = f"{notification.message}\n\nDevice: {device.label or device.hostname or device.ip_address or device.mac_address or f'Device #{device.id}'}"
+            message = f"{notification.message}\n\nDevice: {device_display_name(device)}"
         else:
             message = notification.message
         return title, message

@@ -27,6 +27,7 @@ from .mac_vendor import normalize_mac
 from .notification import request_json_via_validated_url
 from .passive_discovery import deduplicate_observations
 from .snmp import bulk_identities_for_devices, identity_for_device
+from .dns_names import device_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -507,7 +508,7 @@ def build_export_row(
         "include": True,
         "device_id": device.id,
         "object_type": object_type_for_device(device, config),
-        "title": device.label or device.hostname or device.ip_address or device.mac_address,
+        "title": device_display_name(device),
         "ip_address": device.ip_address or "",
         "mac_address": device.mac_address or "",
         "hostname": device.hostname or "",
@@ -1348,7 +1349,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     # Build the future i-doit write payload without contacting i-doit. Dry-run
     # and placeholder sync both use this so operators can inspect exactly what
     # would be sent once live upstream writes are enabled.
-    label = device.label or device.hostname or device.cmdb_id or device.ip_address or device.mac_address
+    label = device_display_name(device)
     hw = _latest_hardware_findings(db, device)
     findings = _latest_findings(db, device)
     model = _hardware_field_text(hw.get("computer_system"), ("Model", "model")) or hw.get("model") or _first_finding_text(findings, [("hardware", "model")], 500)

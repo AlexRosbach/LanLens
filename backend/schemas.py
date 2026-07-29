@@ -271,6 +271,8 @@ DEVICE_CLASSES = [
 class DeviceUpdate(BaseModel):
     # Identification
     label: Optional[str] = None
+    preferred_name: Optional[str] = None
+    preferred_name_mode: Optional[str] = None
     device_class: Optional[str] = None
     is_registered: Optional[bool] = None
     segment_id: Optional[int] = None
@@ -368,6 +370,47 @@ class DevicePingSampleResponse(BaseModel):
         from_attributes = True
 
 
+class DeviceDnsNameResponse(BaseModel):
+    id: int
+    device_id: int
+    name: str
+    record_type: str
+    source: str
+    canonical_name: Optional[str] = None
+    address: Optional[str] = None
+    status: str
+    first_seen: datetime
+    last_seen: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PreferredDeviceNameUpdate(BaseModel):
+    mode: str
+    name: Optional[str] = None
+
+
+class MicrosoftDnsConfigResponse(BaseModel):
+    dns_names_enabled: bool = False
+    enabled: bool = False
+    server: str = ""
+    zones: List[str] = []
+    credential_id: Optional[int] = None
+    interval_minutes: int = 60
+    last_sync_at: Optional[datetime] = None
+    last_error: str = ""
+
+
+class MicrosoftDnsConfigUpdate(BaseModel):
+    dns_names_enabled: bool = False
+    enabled: bool = False
+    server: str = ""
+    zones: List[str] = []
+    credential_id: Optional[int] = None
+    interval_minutes: int = 60
+
+
 class PortScanResponse(BaseModel):
     id: int
     scanned_at: datetime
@@ -386,6 +429,9 @@ class DeviceResponse(BaseModel):
     mac_address: str
     ip_address: Optional[str]
     hostname: Optional[str]
+    preferred_name: Optional[str] = None
+    preferred_name_mode: str = "automatic"
+    display_name: Optional[str] = None
     # Identification
     label: Optional[str]
     device_class: str

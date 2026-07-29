@@ -5,6 +5,16 @@ All notable changes to this project should be documented in this file.
 ## Unreleased
 
 ### New Features
+- Added the optional **DNS names and aliases** inventory for devices, including
+  record type, discovery source, canonical CNAME target, address, first/last
+  observation and active/conflicting state.
+- Added persistent preferred device names with automatic, discovered-name and
+  manual modes. Preferred names survive rescans, drive the primary UI name and
+  i-doit object title, while aliases remain searchable for correlation.
+- Added a separately controlled, read-only Microsoft DNS integration using
+  existing encrypted Windows WinRM credentials. It can enumerate selected or
+  discovered zones, ingest A/AAAA/PTR/CNAME records, test access, synchronize
+  on demand and run on an isolated schedule without blocking normal scans.
 - Added an optional persistent REST API Bearer token through
   `LANLENS_API_TOKEN`. Tokens must contain at least 32 characters and are
   read-only by default; write methods require explicitly setting

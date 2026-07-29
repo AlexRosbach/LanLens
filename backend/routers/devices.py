@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIpHistoryResponse,
     DevicePingSampleResponse,
@@ -39,6 +39,7 @@ from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced
 from ..services.passive_discovery import deduplicate_observations, linked_devices_for_observations, observation_to_response
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
+from ..services.dns_names import device_display_name
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 logger = logging.getLogger(__name__)
@@ -310,6 +311,9 @@ def _device_to_response(
         mac_address=device.mac_address,
         ip_address=device.ip_address,
         hostname=device.hostname,
+        preferred_name=device.preferred_name,
+        preferred_name_mode=device.preferred_name_mode or "automatic",
+        display_name=device_display_name(device),
         label=device.label,
         device_class=device.device_class,
         vendor=device.vendor,
@@ -410,7 +414,9 @@ def list_devices(
             | Device.ip_address.ilike(term)
             | Device.label.ilike(term)
             | Device.hostname.ilike(term)
+            | Device.preferred_name.ilike(term)
             | Device.vendor.ilike(term)
+            | Device.id.in_(db.query(DeviceDnsName.device_id).filter(DeviceDnsName.name.ilike(term)))
         )
 
     all_devices = query.order_by(Device.last_seen.desc()).all()
@@ -921,6 +927,11 @@ def update_device(
 
     update_fields = update.model_dump(exclude_unset=True)
     idoit_sysid = update_fields.pop("idoit_sysid", None)
+    preferred_mode = update_fields.get("preferred_name_mode")
+    if preferred_mode is not None and preferred_mode not in {"automatic", "manual", "discovered"}:
+        raise HTTPException(status_code=400, detail="preferred_name_mode must be automatic, manual, or discovered")
+    if preferred_mode == "automatic":
+        update_fields["preferred_name"] = None
 
     for field, value in update_fields.items():
         value = _to_naive_utc(value)
