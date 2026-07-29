@@ -16,7 +16,7 @@ const baseSettings = {
   show_build_info: false,
   show_debug_tools: false,
   app_version: '1.5.9',
-  build_code: '20260729.0007',
+  build_code: '20260729.0008',
   build_commit: 'test',
   build_branch: 'feature/1.5.9-dns-names',
   build_created: now,
@@ -87,12 +87,13 @@ test('device shows DNS aliases separately and uses only the preferred name', asy
   await page.route('**/api/credentials', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/devices/1', (route) => route.fulfill({ json: device }))
   await page.route('**/api/dns-names/config', (route) => route.fulfill({ json: {
-    dns_names_enabled: true, enabled: false, server: '', zones: [], credential_id: null,
+    dns_names_enabled: true, enabled: false, server: '', zones: [], port: 53,
+    timeout_seconds: 15, tsig_key_name: '', tsig_algorithm: 'hmac-sha256', tsig_configured: false,
     interval_minutes: 60, last_sync_at: null, last_error: '',
   } }))
   await page.route('**/api/dns-names/devices/1**', (route) => route.fulfill({ json: [
-    { id: 1, device_id: 1, name: 'server01.example.test', record_type: 'A', source: 'microsoft_dns', canonical_name: null, address: '192.0.2.40', status: 'active', first_seen: now, last_seen: now },
-    { id: 2, device_id: 1, name: 'portal.example.test', record_type: 'CNAME', source: 'microsoft_dns', canonical_name: 'server01.example.test', address: null, status: 'active', first_seen: now, last_seen: now },
+    { id: 1, device_id: 1, name: 'server01.example.test', record_type: 'A', source: 'dns_axfr', canonical_name: null, address: '192.0.2.40', status: 'active', first_seen: now, last_seen: now },
+    { id: 2, device_id: 1, name: 'portal.example.test', record_type: 'CNAME', source: 'dns_axfr', canonical_name: 'server01.example.test', address: null, status: 'active', first_seen: now, last_seen: now },
   ] }))
 
   await page.goto('/devices/1')
@@ -103,22 +104,21 @@ test('device shows DNS aliases separately and uses only the preferred name', asy
   await page.screenshot({ path: testInfo.outputPath('device-dns-names.png'), fullPage: true })
 })
 
-test('settings exposes optional read-only Microsoft DNS configuration', async ({ page }, testInfo) => {
+test('settings exposes optional read-only AXFR configuration', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1100 })
   await commonRoutes(page)
-  await page.route('**/api/credentials', (route) => route.fulfill({ json: [
-    { id: 7, name: 'DNS read-only', credential_type: 'windows_winrm', auth_method: 'password', username: 'svc_dns_reader', description: 'Synthetic test credential', created_at: now, updated_at: now },
-  ] }))
   await page.route('**/api/dns-names/config', (route) => route.fulfill({ json: {
     dns_names_enabled: true, enabled: true, server: 'dns01.example.test',
-    zones: ['example.test'], credential_id: 7, interval_minutes: 60,
+    zones: ['example.test'], port: 53, timeout_seconds: 15,
+    tsig_key_name: 'lanlens-key.example.test', tsig_algorithm: 'hmac-sha256',
+    tsig_configured: true, interval_minutes: 60,
     last_sync_at: now, last_error: '',
   } }))
 
   await page.goto('/settings')
   await page.getByRole('button', { name: 'Network Discovery' }).click()
-  await expect(page.getByRole('heading', { name: 'DNS names and Microsoft DNS' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'DNS names and AXFR zone transfer' })).toBeVisible()
   await expect(page.locator('input[value="dns01.example.test"]')).toBeVisible()
   await expect(page.locator('textarea[placeholder*="example.local"]')).toHaveValue('example.test')
-  await page.screenshot({ path: testInfo.outputPath('settings-microsoft-dns.png'), fullPage: true })
+  await page.screenshot({ path: testInfo.outputPath('settings-dns-axfr.png'), fullPage: true })
 })

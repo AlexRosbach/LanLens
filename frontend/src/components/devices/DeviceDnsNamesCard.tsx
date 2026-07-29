@@ -19,6 +19,9 @@ export default function DeviceDnsNamesCard({ device, onChanged }: { device: Devi
   const [name, setName] = useState(device.preferred_name || '')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const sourceLabel = (source: string) => source === 'dns_axfr'
+    ? 'AXFR'
+    : source.split('_').map((part) => part.toUpperCase() === 'DNS' ? 'DNS' : part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 
   async function load(refresh = false) {
     setLoading(true)
@@ -109,7 +112,7 @@ export default function DeviceDnsNamesCard({ device, onChanged }: { device: Devi
                     {row.canonical_name && <p className="text-xs text-text-subtle">→ {row.canonical_name}</p>}
                   </td>
                   <td className="px-3 py-2 text-text-muted">{row.record_type}</td>
-                  <td className="px-3 py-2 text-text-muted">{row.source}</td>
+                  <td className="px-3 py-2 text-text-muted">{sourceLabel(row.source)}</td>
                   <td className="px-3 py-2"><Badge variant={row.status === 'conflicting' ? 'warning' : 'success'}>{row.status}</Badge></td>
                   <td className="px-3 py-2 text-text-muted">{formatDateTime(row.last_seen)}</td>
                 </tr>

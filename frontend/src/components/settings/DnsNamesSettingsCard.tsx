@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { credentialsApi, type Credential } from '../../api/credentials'
-import { dnsNamesApi, type MicrosoftDnsConfig } from '../../api/dnsNames'
+import { dnsNamesApi, type AxfrDnsConfig } from '../../api/dnsNames'
 import { useI18n } from '../../i18n'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
 import Input from '../ui/Input'
 
-const EMPTY: MicrosoftDnsConfig = {
+const EMPTY: AxfrDnsConfig = {
   dns_names_enabled: false,
   enabled: false,
   server: '',
   zones: [],
-  credential_id: null,
+  port: 53,
+  timeout_seconds: 15,
+  tsig_key_name: '',
+  tsig_algorithm: 'hmac-sha256',
+  tsig_configured: false,
   interval_minutes: 60,
   last_sync_at: null,
   last_error: '',
@@ -20,17 +23,16 @@ const EMPTY: MicrosoftDnsConfig = {
 
 export default function DnsNamesSettingsCard() {
   const { t } = useI18n()
-  const [config, setConfig] = useState<MicrosoftDnsConfig>(EMPTY)
-  const [credentials, setCredentials] = useState<Credential[]>([])
+  const [config, setConfig] = useState<AxfrDnsConfig>(EMPTY)
   const [zonesText, setZonesText] = useState('')
+  const [tsigSecret, setTsigSecret] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    Promise.all([dnsNamesApi.getConfig(), credentialsApi.list().then((response) => response.data)])
-      .then(([loaded, creds]) => {
+    dnsNamesApi.getConfig()
+      .then((loaded) => {
         setConfig(loaded)
         setZonesText(loaded.zones.join('\n'))
-        setCredentials(creds.filter((credential) => credential.credential_type === 'windows_winrm'))
       })
       .catch(() => toast.error(t('dns_config_load_failed')))
   }, [])
@@ -40,7 +42,12 @@ export default function DnsNamesSettingsCard() {
     enabled: config.enabled,
     server: config.server,
     zones: zonesText.split(/\r?\n|,/).map((zone) => zone.trim()).filter(Boolean),
-    credential_id: config.credential_id,
+    port: config.port,
+    timeout_seconds: config.timeout_seconds,
+    tsig_key_name: config.tsig_key_name,
+    tsig_secret: tsigSecret || undefined,
+    clear_tsig_secret: false,
+    tsig_algorithm: config.tsig_algorithm,
     interval_minutes: config.interval_minutes,
   })
 
@@ -50,6 +57,7 @@ export default function DnsNamesSettingsCard() {
       const updated = await dnsNamesApi.updateConfig(payload())
       setConfig(updated)
       setZonesText(updated.zones.join('\n'))
+      setTsigSecret('')
       toast.success(t('dns_config_saved'))
     } catch {
       toast.error(t('save_failed'))
@@ -100,19 +108,26 @@ export default function DnsNamesSettingsCard() {
         </label>
         <div className="grid gap-4 md:grid-cols-2">
           <Input label={t('dns_server')} value={config.server} disabled={!config.enabled} onChange={(event) => setConfig({ ...config, server: event.target.value })} placeholder="dns01.example.local" />
-          <div>
-            <label className="mb-1 block text-sm text-text-subtle">{t('dns_winrm_credential')}</label>
-            <select className="input-field" disabled={!config.enabled} value={config.credential_id || ''} onChange={(event) => setConfig({ ...config, credential_id: Number(event.target.value) || null })}>
-              <option value="">{t('dns_select_credential')}</option>
-              {credentials.map((credential) => <option key={credential.id} value={credential.id}>{credential.name}</option>)}
-            </select>
-          </div>
+          <Input type="number" min="1" max="65535" label={t('dns_axfr_port')} disabled={!config.enabled} value={String(config.port)} onChange={(event) => setConfig({ ...config, port: Number(event.target.value) || 53 })} />
           <div>
             <label className="mb-1 block text-sm text-text-subtle">{t('dns_zones')}</label>
             <textarea className="input-field min-h-24 resize-y" disabled={!config.enabled} value={zonesText} onChange={(event) => setZonesText(event.target.value)} placeholder={'example.local\n0.168.192.in-addr.arpa'} />
             <p className="mt-1 text-xs text-text-subtle">{t('dns_zones_hint')}</p>
           </div>
-          <Input type="number" min="5" max="1440" label={t('dns_sync_interval')} disabled={!config.enabled} value={String(config.interval_minutes)} onChange={(event) => setConfig({ ...config, interval_minutes: Number(event.target.value) || 60 })} />
+          <div className="grid gap-4">
+            <Input type="number" min="3" max="120" label={t('dns_axfr_timeout')} disabled={!config.enabled} value={String(config.timeout_seconds)} onChange={(event) => setConfig({ ...config, timeout_seconds: Number(event.target.value) || 15 })} />
+            <Input type="number" min="5" max="1440" label={t('dns_sync_interval')} disabled={!config.enabled} value={String(config.interval_minutes)} onChange={(event) => setConfig({ ...config, interval_minutes: Number(event.target.value) || 60 })} />
+          </div>
+          <Input label={t('dns_tsig_key_name')} disabled={!config.enabled} value={config.tsig_key_name} onChange={(event) => setConfig({ ...config, tsig_key_name: event.target.value })} placeholder="lanlens-key.example.local" />
+          <Input type="password" label={t('dns_tsig_secret')} disabled={!config.enabled} value={tsigSecret} onChange={(event) => setTsigSecret(event.target.value)} placeholder={config.tsig_configured ? t('dns_tsig_secret_stored') : t('dns_tsig_secret_optional')} />
+          <div>
+            <label className="mb-1 block text-sm text-text-subtle">{t('dns_tsig_algorithm')}</label>
+            <select className="input-field" disabled={!config.enabled} value={config.tsig_algorithm} onChange={(event) => setConfig({ ...config, tsig_algorithm: event.target.value })}>
+              <option value="hmac-sha256">HMAC-SHA256</option>
+              <option value="hmac-sha384">HMAC-SHA384</option>
+              <option value="hmac-sha512">HMAC-SHA512</option>
+            </select>
+          </div>
         </div>
         {config.last_error && <p className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">{config.last_error}</p>}
         <div className="flex flex-wrap gap-2">

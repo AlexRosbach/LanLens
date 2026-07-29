@@ -391,23 +391,32 @@ class PreferredDeviceNameUpdate(BaseModel):
     name: Optional[str] = None
 
 
-class MicrosoftDnsConfigResponse(BaseModel):
+class AxfrDnsConfigResponse(BaseModel):
     dns_names_enabled: bool = False
     enabled: bool = False
     server: str = ""
     zones: List[str] = []
-    credential_id: Optional[int] = None
+    port: int = 53
+    timeout_seconds: int = 15
+    tsig_key_name: str = ""
+    tsig_algorithm: str = "hmac-sha256"
+    tsig_configured: bool = False
     interval_minutes: int = 60
     last_sync_at: Optional[datetime] = None
     last_error: str = ""
 
 
-class MicrosoftDnsConfigUpdate(BaseModel):
+class AxfrDnsConfigUpdate(BaseModel):
     dns_names_enabled: bool = False
     enabled: bool = False
     server: str = ""
     zones: List[str] = []
-    credential_id: Optional[int] = None
+    port: int = 53
+    timeout_seconds: int = 15
+    tsig_key_name: str = ""
+    tsig_secret: Optional[str] = None
+    clear_tsig_secret: bool = False
+    tsig_algorithm: str = "hmac-sha256"
     interval_minutes: int = 60
 
 

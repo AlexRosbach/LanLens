@@ -150,7 +150,7 @@ For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, S
 ## Learn More
 
 - [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
-- [DNS names and Microsoft DNS](docs/microsoft-dns.md): preferred names, alias inventory, read-only zone access, and least-privilege setup
+- [DNS names and AXFR](docs/dns-names-axfr.md): preferred names, alias inventory, read-only zone transfers, optional TSIG, and least-privilege setup
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 

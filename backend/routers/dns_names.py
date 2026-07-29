@@ -1,4 +1,4 @@
-"""Device DNS names and optional read-only Microsoft DNS integration."""
+"""Device DNS names and optional read-only AXFR integration."""
 
 import logging
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,92 +9,112 @@ from ..database import get_db
 from ..models import Device, DeviceDnsName, User
 from ..schemas import (
     DeviceDnsNameResponse,
-    MicrosoftDnsConfigResponse,
-    MicrosoftDnsConfigUpdate,
+    AxfrDnsConfigResponse,
+    AxfrDnsConfigUpdate,
     PreferredDeviceNameUpdate,
 )
 from ..services.dns_names import (
-    MicrosoftDnsConfig,
+    AxfrDnsConfig,
     collect_standard_dns_names,
-    get_microsoft_dns_config,
+    get_axfr_dns_config,
     normalize_dns_name,
-    save_microsoft_dns_config,
-    synchronize_microsoft_dns,
+    save_axfr_dns_config,
+    synchronize_axfr_dns,
 )
 
 router = APIRouter(prefix="/api/dns-names", tags=["dns-names"])
 logger = logging.getLogger(__name__)
+TSIG_ALGORITHMS = {"hmac-sha256", "hmac-sha384", "hmac-sha512"}
 
 
 def _safe_error(exc: Exception) -> str:
     if isinstance(exc, (ValueError, RuntimeError)):
         return str(exc)[:500]
-    return "Microsoft DNS request failed; verify the server, WinRM transport, credential, and read permissions"
+    return "AXFR request failed; verify the DNS server, zone-transfer ACL, zone, port, and optional TSIG settings"
 
 
-def _config_response(config: MicrosoftDnsConfig) -> MicrosoftDnsConfigResponse:
-    return MicrosoftDnsConfigResponse(
+def _config_response(config: AxfrDnsConfig) -> AxfrDnsConfigResponse:
+    return AxfrDnsConfigResponse(
         dns_names_enabled=config.dns_names_enabled,
         enabled=config.enabled,
         server=config.server,
         zones=config.zones or [],
-        credential_id=config.credential_id,
+        port=config.port,
+        timeout_seconds=config.timeout_seconds,
+        tsig_key_name=config.tsig_key_name,
+        tsig_algorithm=config.tsig_algorithm,
+        tsig_configured=bool(config.tsig_secret),
         interval_minutes=config.interval_minutes,
         last_sync_at=config.last_sync_at,
         last_error=config.last_error,
     )
 
 
-@router.get("/config", response_model=MicrosoftDnsConfigResponse)
+@router.get("/config", response_model=AxfrDnsConfigResponse)
 def get_config(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
-) -> MicrosoftDnsConfigResponse:
-    return _config_response(get_microsoft_dns_config(db))
+) -> AxfrDnsConfigResponse:
+    return _config_response(get_axfr_dns_config(db))
 
 
-@router.put("/config", response_model=MicrosoftDnsConfigResponse)
+@router.put("/config", response_model=AxfrDnsConfigResponse)
 def update_config(
-    data: MicrosoftDnsConfigUpdate,
+    data: AxfrDnsConfigUpdate,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
-) -> MicrosoftDnsConfigResponse:
-    if data.enabled and (not data.server.strip() or data.credential_id is None):
-        raise HTTPException(status_code=400, detail="Microsoft DNS server and WinRM credential are required")
-    config = MicrosoftDnsConfig(
+) -> AxfrDnsConfigResponse:
+    if data.enabled and (not data.server.strip() or not data.zones):
+        raise HTTPException(status_code=400, detail="AXFR DNS server and at least one zone are required")
+    if data.tsig_algorithm not in TSIG_ALGORITHMS:
+        raise HTTPException(status_code=400, detail="Unsupported TSIG algorithm")
+    current = get_axfr_dns_config(db)
+    tsig_secret = None if data.clear_tsig_secret else (data.tsig_secret or current.tsig_secret)
+    config = AxfrDnsConfig(
         dns_names_enabled=data.dns_names_enabled,
         enabled=data.enabled,
         server=data.server,
         zones=data.zones,
-        credential_id=data.credential_id,
+        port=max(1, min(65535, data.port)),
+        timeout_seconds=max(3, min(120, data.timeout_seconds)),
+        tsig_key_name=data.tsig_key_name,
+        tsig_secret=tsig_secret,
+        tsig_algorithm=data.tsig_algorithm,
         interval_minutes=max(5, data.interval_minutes),
     )
-    save_microsoft_dns_config(db, config)
+    save_axfr_dns_config(db, config)
     db.commit()
     from ..services.dns_names_scheduler import update_dns_names_schedule
     update_dns_names_schedule()
-    return _config_response(get_microsoft_dns_config(db))
+    return _config_response(get_axfr_dns_config(db))
 
 
 @router.post("/test")
 def test_connection(
-    data: MicrosoftDnsConfigUpdate,
+    data: AxfrDnsConfigUpdate,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> dict:
-    config = MicrosoftDnsConfig(
+    if data.tsig_algorithm not in TSIG_ALGORITHMS:
+        raise HTTPException(status_code=400, detail="Unsupported TSIG algorithm")
+    current = get_axfr_dns_config(db)
+    config = AxfrDnsConfig(
         dns_names_enabled=data.dns_names_enabled,
         enabled=True,
         server=data.server,
         zones=data.zones,
-        credential_id=data.credential_id,
+        port=max(1, min(65535, data.port)),
+        timeout_seconds=max(3, min(120, data.timeout_seconds)),
+        tsig_key_name=data.tsig_key_name,
+        tsig_secret=None if data.clear_tsig_secret else (data.tsig_secret or current.tsig_secret),
+        tsig_algorithm=data.tsig_algorithm,
         interval_minutes=max(5, data.interval_minutes),
     )
     try:
-        from ..services.dns_names import fetch_microsoft_dns_records
-        records = fetch_microsoft_dns_records(db, config)
+        from ..services.dns_names import fetch_axfr_dns_records
+        records = fetch_axfr_dns_records(config)
     except Exception as exc:
-        logger.warning("Microsoft DNS connection test failed: %s", exc)
+        logger.warning("AXFR connection test failed: %s", exc)
         raise HTTPException(status_code=502, detail=_safe_error(exc))
     return {"ok": True, "records": len(records), "zones": len(config.zones or [])}
 
@@ -104,13 +124,13 @@ def synchronize(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> dict:
-    config = get_microsoft_dns_config(db)
+    config = get_axfr_dns_config(db)
     try:
-        return {"ok": True, **synchronize_microsoft_dns(db, config)}
+        return {"ok": True, **synchronize_axfr_dns(db, config)}
     except Exception as exc:
         from ..services.dns_names import _set_setting
-        logger.warning("Microsoft DNS synchronization failed: %s", exc)
-        _set_setting(db, "microsoft_dns_last_error", _safe_error(exc))
+        logger.warning("AXFR synchronization failed: %s", exc)
+        _set_setting(db, "axfr_dns_last_error", _safe_error(exc))
         db.commit()
         raise HTTPException(status_code=502, detail=_safe_error(exc))
 
@@ -122,7 +142,7 @@ def list_device_names(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> list[DeviceDnsNameResponse]:
-    config = get_microsoft_dns_config(db)
+    config = get_axfr_dns_config(db)
     if not config.dns_names_enabled:
         raise HTTPException(status_code=404, detail="DNS names feature is disabled")
     device = db.query(Device).filter(Device.id == device_id).first()

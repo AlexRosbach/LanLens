@@ -13,22 +13,28 @@ export interface DeviceDnsName {
   last_seen: string
 }
 
-export interface MicrosoftDnsConfig {
+export interface AxfrDnsConfig {
   dns_names_enabled: boolean
   enabled: boolean
   server: string
   zones: string[]
-  credential_id: number | null
+  port: number
+  timeout_seconds: number
+  tsig_key_name: string
+  tsig_secret?: string
+  clear_tsig_secret?: boolean
+  tsig_algorithm: string
+  tsig_configured: boolean
   interval_minutes: number
   last_sync_at: string | null
   last_error: string
 }
 
 export const dnsNamesApi = {
-  getConfig: () => apiClient.get<MicrosoftDnsConfig>('/dns-names/config').then((r) => r.data),
-  updateConfig: (data: Omit<MicrosoftDnsConfig, 'last_sync_at' | 'last_error'>) =>
-    apiClient.put<MicrosoftDnsConfig>('/dns-names/config', data).then((r) => r.data),
-  test: (data: Omit<MicrosoftDnsConfig, 'last_sync_at' | 'last_error'>) =>
+  getConfig: () => apiClient.get<AxfrDnsConfig>('/dns-names/config').then((r) => r.data),
+  updateConfig: (data: Omit<AxfrDnsConfig, 'last_sync_at' | 'last_error' | 'tsig_configured'>) =>
+    apiClient.put<AxfrDnsConfig>('/dns-names/config', data).then((r) => r.data),
+  test: (data: Omit<AxfrDnsConfig, 'last_sync_at' | 'last_error' | 'tsig_configured'>) =>
     apiClient.post<{ ok: boolean; records: number; zones: number }>('/dns-names/test', data).then((r) => r.data),
   sync: () =>
     apiClient.post<{ ok: boolean; records: number; names: number; devices: number }>('/dns-names/sync').then((r) => r.data),
