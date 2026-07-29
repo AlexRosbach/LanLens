@@ -15,4 +15,3 @@ pydantic[email]>=2.0.0
 pydantic-settings>=2.0.0
 paramiko>=3.4.0
 pywinrm>=0.4.3
-dnspython>=2.6.0

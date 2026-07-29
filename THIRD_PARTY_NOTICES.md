@@ -27,7 +27,6 @@ builds or Docker images.
 | pydantic-settings | MIT | Settings management | Permissive |
 | Paramiko | LGPL-2.1 | SSH-related connectivity support | Weak copyleft; preserve notices and allow replacement/modification of the library when distributing bundled forms |
 | pywinrm | MIT | Windows remote management | Permissive |
-| dnspython | ISC | DNS AXFR zone transfer, record parsing and optional TSIG | Permissive |
 
 ### Frontend
 
@@ -56,6 +55,9 @@ The direct frontend development dependencies are permissively licensed:
 | tailwindcss | MIT |
 | TypeScript | Apache-2.0 |
 | Vite | MIT |
+
+The AXFR integration directly uses `dnspython` (ISC), which is already present
+as a runtime dependency of the existing `pydantic[email]` installation.
 
 ## Redistribution Checklist
 
