@@ -15,6 +15,8 @@ export interface ScanInventoryStats {
   total: number
   online: number
   offline: number
+  new: number
+  archived: number
   unread_notifications: number
 }
 

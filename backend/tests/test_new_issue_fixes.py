@@ -16,8 +16,11 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-new-issue-fixes-12345")
 from backend.auth.dependencies import get_current_user
 from backend.config import Settings, settings
 from backend.database import Base
-from backend.models import Device, Notification, ScanRun, User
+from backend.models import Device, Notification, ScanRun, Setting, User
+from backend.routers.devices import _get_dhcp_ranges, _is_dhcp
 from backend.routers.scan import get_scan_status
+from backend.routers.settings import get_settings, update_dhcp
+from backend.schemas import DhcpSettings
 from backend.services.scanner import _detect_local_host_result
 
 
@@ -97,7 +100,48 @@ class NewIssueFixTests(unittest.TestCase):
             self.assertEqual(status.current_stats.total, 2)
             self.assertEqual(status.current_stats.online, 1)
             self.assertEqual(status.current_stats.offline, 1)
+            self.assertEqual(status.current_stats.new, 2)
+            self.assertEqual(status.current_stats.archived, 1)
             self.assertEqual(status.current_stats.unread_notifications, 1)
+        finally:
+            db.close()
+
+    def test_multiple_dhcp_ranges_are_saved_and_used_for_device_tagging(self):
+        db = self.Session()
+        try:
+            update_dhcp(
+                DhcpSettings(dhcp_ranges=[
+                    {"start": "192.168.1.100", "end": "192.168.1.150"},
+                    {"start": "10.20.30.10", "end": "10.20.30.25"},
+                ]),
+                db=db,
+                _=None,
+            )
+
+            ranges = _get_dhcp_ranges(db)
+            self.assertTrue(_is_dhcp("192.168.1.120", ranges))
+            self.assertTrue(_is_dhcp("10.20.30.20", ranges))
+            self.assertFalse(_is_dhcp("10.20.30.30", ranges))
+
+            result = get_settings(db=db, _=None)
+            self.assertEqual(len(result.dhcp_ranges), 2)
+            self.assertEqual(result.dhcp_start, "192.168.1.100")
+            self.assertEqual(result.dhcp_end, "192.168.1.150")
+        finally:
+            db.close()
+
+    def test_legacy_dhcp_range_remains_supported(self):
+        db = self.Session()
+        try:
+            db.add_all([
+                Setting(key="dhcp_start", value="172.16.5.20"),
+                Setting(key="dhcp_end", value="172.16.5.80"),
+            ])
+            db.commit()
+
+            ranges = _get_dhcp_ranges(db)
+            self.assertTrue(_is_dhcp("172.16.5.50", ranges))
+            self.assertEqual(get_settings(db=db, _=None).dhcp_ranges[0].start, "172.16.5.20")
         finally:
             db.close()
 

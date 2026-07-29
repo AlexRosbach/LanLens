@@ -5,6 +5,11 @@ All notable changes to this project should be documented in this file.
 ## Unreleased
 
 ### New Features
+- Added multiple independently editable DHCP ranges. Existing single-range
+  settings are migrated transparently and remain available through the legacy
+  `dhcp_start` and `dhcp_end` API fields.
+- Added live `new` and `archived` device counters to `current_stats` in
+  `/api/scan/status`.
 - Added an optional persistent REST API Bearer token through
   `LANLENS_API_TOKEN`. Tokens must contain at least 32 characters and are
   read-only by default; write methods require explicitly setting
