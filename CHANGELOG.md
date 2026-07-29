@@ -5,6 +5,13 @@ All notable changes to this project should be documented in this file.
 ## Unreleased
 
 ### New Features
+- Added an optional persistent REST API Bearer token through
+  `LANLENS_API_TOKEN`. Tokens must contain at least 32 characters and are
+  read-only by default; write methods require explicitly setting
+  `LANLENS_API_TOKEN_READ_ONLY=false`.
+- Added current inventory totals, online/offline counts and unread notification
+  count to `/api/scan/status`, while keeping the latest scan-run counters
+  available separately.
 - Fresh installs now detect the primary host IPv4 subnet, persist it as the initial ARP scan range and start an immediate first-run network scan so the dashboard can populate without opening Settings first.
 - Added custom SNMP OID/table polling for V 1.5.8: operators can define arbitrary OIDs, scope them to target tags/device classes such as switch, printer, UPS or `*`, store the latest values per SNMP target and run them during the existing SNMP poll cadence.
 - Added Settings UI and API endpoints for custom SNMP queries and latest custom SNMP results so heterogeneous SNMP devices can expose useful data without hardcoding every vendor-specific MIB into LanLens.
@@ -13,6 +20,35 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Fixed the documented `LANLENS_API_TOKEN` and
+  `LANLENS_API_TOKEN_READ_ONLY` environment variables so persistent tokens are
+  actually loaded by the application.
+- Returned scan-run timestamps with the offset configured through `TZ` instead
+  of serializing timezone-naive UTC values.
+- Removed German fallback text from the English Deep Scan view and translated
+  the Scan Nodes settings panel.
+- Fixed i-doit listener synchronization so each transport protocol and port
+  range is matched as one composite identity instead of repeatedly overwriting
+  the first listener that shares a protocol.
+- Corrected i-doit network-listener exports to use the supported protocol,
+  port-range and description fields, and certificate exports to use common
+  name, expiration date, type and description.
+- Reused matching i-doit listener and certificate entries on repeated syncs,
+  and treated rejected optional manufacturer dialog values as non-fatal.
+- Closed i-doit JSON-RPC sessions after connection tests, SYSID lookups and
+  synchronization so upstream object locks are released immediately.
+- Kept i-doit category validation failures as visible per-category sync warnings
+  instead of aborting after a partial object update, and preserved mandatory
+  title data during field-level retries.
+- Released SQLite write transactions before remote i-doit calls and enabled WAL
+  plus a busy timeout so parallel UI writes no longer fail while a sync waits
+  for the CMDB.
+- Included the LanLens host's primary interface identity in local host-network
+  scans when it falls inside the configured ARP range, because a sender does
+  not receive its own ARP discovery request.
+- Rendered Docker and Podman JSON-lines deep-scan findings as a readable,
+  horizontally scrollable container table instead of an unbroken raw-text
+  block.
 - Restored SSH private-key credential tests and deep scans with Paramiko 4 and newer by treating the removed legacy DSS key class as optional.
 - Ignored common Linux bridge interfaces such as `br0` and `bridge0` during first-run subnet detection so Docker hosts prefer the real LAN interface.
 - Limited the Settings SNMP custom-result request to the visible result count and kept SNMP vendor detection coverage in the dedicated vendor test.

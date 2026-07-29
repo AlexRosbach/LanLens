@@ -353,6 +353,9 @@ async def test_device_sysid_lookup(
         raise HTTPException(status_code=502, detail=exc.to_detail())
     except Exception as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "sysid_lookup", "endpoint": ""})
+    finally:
+        if "client" in locals():
+            await client.logout_best_effort()
 
 
 @router.post("/devices/{device_id}/sync")

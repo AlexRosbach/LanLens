@@ -11,7 +11,18 @@ export interface ScanRun {
   status: string
   error_message: string | null
 }
-export interface ScanStatus { is_running: boolean; last_scan: ScanRun | null }
+export interface ScanInventoryStats {
+  total: number
+  online: number
+  offline: number
+  unread_notifications: number
+}
+
+export interface ScanStatus {
+  is_running: boolean
+  last_scan: ScanRun | null
+  current_stats: ScanInventoryStats
+}
 
 export const scanApi = {
   start: () => apiClient.post('/scan/start').then((r) => r.data),

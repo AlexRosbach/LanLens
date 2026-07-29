@@ -2492,29 +2492,29 @@ export default function Settings() {
           <Card>
             <div className="flex items-start justify-between gap-4 mb-4">
               <div>
-                <h2 className="text-lg font-semibold text-text-base mb-1">Scan Nodes</h2>
-                <p className="text-sm text-text-subtle">Optionale Scanner pro VLAN oder Standort. Die Nodes melden ausgehend an diese zentrale LanLens-Instanz.</p>
+                <h2 className="text-lg font-semibold text-text-base mb-1">{t('scan_nodes_title')}</h2>
+                <p className="text-sm text-text-subtle">{t('scan_nodes_description')}</p>
               </div>
-              <Button variant="outline" onClick={loadScanNodes} loading={scanNodesLoading}>Aktualisieren</Button>
+              <Button variant="outline" onClick={loadScanNodes} loading={scanNodesLoading}>{t('refresh')}</Button>
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
-              <Input placeholder="Name, z.B. vlan-20-hamburg" value={scanNodeName} onChange={(e) => setScanNodeName(e.target.value)} />
-              <Input placeholder="Standort, z.B. Hamburg" value={scanNodeSite} onChange={(e) => setScanNodeSite(e.target.value)} />
-              <Input placeholder="Segment/VLAN, z.B. VLAN 20" value={scanNodeSegment} onChange={(e) => setScanNodeSegment(e.target.value)} />
+              <Input placeholder={t('scan_node_name_placeholder')} value={scanNodeName} onChange={(e) => setScanNodeName(e.target.value)} />
+              <Input placeholder={t('scan_node_site_placeholder')} value={scanNodeSite} onChange={(e) => setScanNodeSite(e.target.value)} />
+              <Input placeholder={t('scan_node_segment_placeholder')} value={scanNodeSegment} onChange={(e) => setScanNodeSegment(e.target.value)} />
             </div>
             <div className="mt-3">
-              <Button onClick={createScanNode} loading={scanNodesLoading}>Einzeiler generieren</Button>
+              <Button onClick={createScanNode} loading={scanNodesLoading}>{t('scan_node_generate_command')}</Button>
             </div>
 
             {scanNodeProvisioning && (
               <div className="mt-4 rounded-lg border border-primary/30 bg-primary-dim/20 p-3">
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <p className="text-sm font-medium text-text-base">Einmaliger Install-Befehl fuer {scanNodeProvisioning.name}</p>
-                  <Button size="sm" variant="outline" onClick={copyScanNodeCommand}>Kopieren</Button>
+                  <p className="text-sm font-medium text-text-base">{t('scan_node_install_command', { name: scanNodeProvisioning.name })}</p>
+                  <Button size="sm" variant="outline" onClick={copyScanNodeCommand}>{t('scan_node_copy')}</Button>
                 </div>
                 <pre className="overflow-auto whitespace-pre-wrap break-all rounded bg-background p-3 text-xs text-text-muted">{scanNodeProvisioning.install_command}</pre>
-                <p className="mt-2 text-xs text-text-subtle">Der Token wird nur jetzt angezeigt. Bei Verlust Token rotieren und den Node neu starten.</p>
+                <p className="mt-2 text-xs text-text-subtle">{t('scan_node_token_notice')}</p>
               </div>
             )}
 
@@ -2522,17 +2522,17 @@ export default function Settings() {
               <table className="min-w-full text-left text-xs">
                 <thead className="bg-surface2 text-text-subtle">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Name</th>
-                    <th className="px-3 py-2 font-medium">Standort</th>
-                    <th className="px-3 py-2 font-medium">Segment</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Zuletzt gesehen</th>
-                    <th className="px-3 py-2 font-medium">Aktionen</th>
+                    <th className="px-3 py-2 font-medium">{t('name')}</th>
+                    <th className="px-3 py-2 font-medium">{t('location')}</th>
+                    <th className="px-3 py-2 font-medium">{t('segment')}</th>
+                    <th className="px-3 py-2 font-medium">{t('status')}</th>
+                    <th className="px-3 py-2 font-medium">{t('last_seen')}</th>
+                    <th className="px-3 py-2 font-medium">{t('actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {scanNodes.length === 0 ? (
-                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={6}>Noch keine Scan Nodes eingerichtet.</td></tr>
+                    <tr><td className="px-3 py-3 text-text-subtle" colSpan={6}>{t('scan_node_none')}</td></tr>
                   ) : scanNodes.map((node) => (
                     <tr key={node.id}>
                       <td className="px-3 py-2 font-medium text-text-base">{node.name}</td>
@@ -2542,8 +2542,8 @@ export default function Settings() {
                       <td className="px-3 py-2 text-text-muted">{node.last_seen ? formatDateTime(node.last_seen) : '—'}</td>
                       <td className="px-3 py-2">
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => rotateScanNodeToken(node.id)}>Token</Button>
-                          <Button size="sm" variant="danger" onClick={() => deleteScanNode(node.id)}>Loeschen</Button>
+                          <Button size="sm" variant="outline" onClick={() => rotateScanNodeToken(node.id)}>{t('scan_node_token')}</Button>
+                          <Button size="sm" variant="danger" onClick={() => deleteScanNode(node.id)}>{t('delete')}</Button>
                         </div>
                       </td>
                     </tr>

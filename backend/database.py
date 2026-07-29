@@ -16,7 +16,7 @@ else:
     _DATABASE_URL = f"sqlite:///{DB_PATH}"
     engine = create_engine(
         _DATABASE_URL,
-        connect_args={"check_same_thread": False},
+        connect_args={"check_same_thread": False, "timeout": 30},
     )
     IS_SQLITE = True
 
@@ -25,6 +25,8 @@ else:
     def _set_sqlite_pragma(dbapi_connection, _connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
 
 
