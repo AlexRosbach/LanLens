@@ -315,10 +315,24 @@ class IdoitExportCsvTest(unittest.TestCase):
 
             connection_entries = fields["C__CATG__NET_CONNECTIONS_FOLDER"]
             certificate_entries = fields["C__CATG__CERTIFICATE"]
-            self.assertTrue(any(entry["title"] == "443/tcp https" for entry in connection_entries))
-            self.assertTrue(any(entry["title"] == "Admin UI" for entry in connection_entries))
-            self.assertEqual(certificate_entries[0]["subject"], "CN=client-01.example.test")
-            self.assertEqual(certificate_entries[0]["valid_to"], "2026-07-01T12:00:00")
+            self.assertTrue(any(
+                entry["port_from"] == 443
+                and entry["port_to"] == 443
+                and entry["protocol"] == "TCP"
+                and entry["protocol_layer_5"] == "HTTPS"
+                for entry in connection_entries
+            ))
+            self.assertTrue(any(
+                entry["port_from"] == 443
+                and "Service: Admin UI" in entry["description"]
+                for entry in connection_entries
+            ))
+            self.assertEqual(certificate_entries[0]["common_name"], "client-01.example.test")
+            self.assertEqual(certificate_entries[0]["expire_date"], "2026-07-01")
+            self.assertEqual(certificate_entries[0]["type"], "SSL/TLS")
+            self.assertIn("Issuer: CN=Example CA", certificate_entries[0]["description"])
+            self.assertNotIn("subject", certificate_entries[0])
+            self.assertNotIn("valid_to", certificate_entries[0])
             self.assertNotIn("C__CATG__NET_CONNECTIONS_FOLDER.description", fields)
             self.assertNotIn("C__CATG__CERTIFICATE.description", fields)
             self.assertEqual(DEFAULT_MAPPING["fields"]["open_ports"], "C__CATG__NET_CONNECTIONS_FOLDER")

@@ -20,6 +20,11 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Corrected i-doit network-listener exports to use the supported protocol,
+  port-range and description fields, and certificate exports to use common
+  name, expiration date, type and description.
+- Reused matching i-doit listener and certificate entries on repeated syncs,
+  and treated rejected optional manufacturer dialog values as non-fatal.
 - Closed i-doit JSON-RPC sessions after connection tests, SYSID lookups and
   synchronization so upstream object locks are released immediately.
 - Kept i-doit category validation failures as visible per-category sync warnings

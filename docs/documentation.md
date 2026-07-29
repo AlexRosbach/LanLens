@@ -963,8 +963,9 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - purpose, description and notes -> `C__CATG__GLOBAL`
 - operating system text -> `C__CATG__OPERATING_SYSTEM.description`
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
-- open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries
-- TLS certificate records -> structured `C__CATG__CERTIFICATE` entries with subject, issuer and validity data when available
+- open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries using i-doit's listener fields (`protocol`, `protocol_layer_5`, `port_from`, `port_to`, and `description`)
+- TLS certificate records -> structured `C__CATG__CERTIFICATE` entries using `common_name`, `expire_date`, `type`, and a consolidated `description`
+- model manufacturers are attempted as i-doit Dialog+ values; installations that reject an unknown manufacturer retain the model while silently skipping that optional value
 - container/software findings -> structured `C__CATG__APPLICATION` entries
 
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.

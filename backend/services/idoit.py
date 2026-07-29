@@ -1008,21 +1008,21 @@ def _open_port_entries(db: Optional[Session], device: Device) -> list[dict[str, 
     if not isinstance(ports, list):
         return []
     entries: list[dict[str, Any]] = []
-    observed = scan.scanned_at.isoformat() if scan.scanned_at else None
     for item in ports[:80]:
         if not isinstance(item, dict):
             continue
         port = item.get("port") or item.get("number") or item.get("id")
         proto = item.get("protocol") or item.get("proto") or "tcp"
         service = item.get("service") or item.get("name") or item.get("product") or ""
-        title = f"{port}/{proto} {service}".strip() if port else str(service or "Open port")
+        description_parts = ["Discovered by LanLens port scan"]
+        if scan.scanned_at:
+            description_parts.append(f"Observed: {scan.scanned_at.isoformat()}")
         entry = {
-            "title": title[:255],
-            "port": str(port) if port not in (None, "") else None,
-            "protocol": str(proto).lower() if proto else None,
-            "service": str(service)[:255] if service else None,
-            "source": "LanLens port scan",
-            "observed_at": observed,
+            "protocol": str(proto).upper() if proto else None,
+            "protocol_layer_5": str(service).upper()[:255] if service else None,
+            "port_from": int(port) if str(port).isdigit() else None,
+            "port_to": int(port) if str(port).isdigit() else None,
+            "description": "\n".join(description_parts),
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries
@@ -1054,14 +1054,24 @@ def _service_entries(device: Device) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for service in sorted(list(device.services or []), key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
         endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
+        description_parts = [
+            value for value in (
+                f"Service: {service.name}" if service.name else None,
+                f"Type: {service.service_type}" if service.service_type else None,
+                f"Endpoint: {endpoint}" if endpoint else None,
+                f"Version: {service.version}" if service.version else None,
+                f"TLS status: {service.tls_status}" if service.tls_status else None,
+                service.description,
+                "Discovered by LanLens",
+            ) if value
+        ]
         entry = {
-            "title": (service.name or service.service_type or "LanLens service")[:255],
-            "type": service.service_type,
-            "protocol": service.protocol,
-            "port": str(service.port) if service.port else None,
-            "url": endpoint,
-            "version": service.version,
-            "status": service.tls_status,
+            "protocol": str(service.protocol or "tcp").upper(),
+            "protocol_layer_5": str(service.service_type or service.name).upper()[:255]
+            if service.service_type or service.name else None,
+            "port_from": service.port,
+            "port_to": service.port,
+            "description": "\n".join(description_parts)[:2000],
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries
@@ -1103,18 +1113,33 @@ def _tls_certificate_entries(device: Device) -> list[dict[str, Any]]:
     ]
     for service in sorted(services, key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
         endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
-        title_parts = [service.name or "TLS certificate"]
-        if endpoint:
-            title_parts.append(endpoint)
+        subject = service.tls_subject or ""
+        common_name = subject
+        for component in subject.split(","):
+            key, separator, value = component.strip().partition("=")
+            if separator and key.strip().upper() == "CN" and value.strip():
+                common_name = value.strip()
+                break
+        if not common_name:
+            common_name = service.name or endpoint or "TLS certificate"
+        description_parts = [
+            value for value in (
+                f"Subject: {service.tls_subject}" if service.tls_subject else None,
+                f"Issuer: {service.tls_issuer}" if service.tls_issuer else None,
+                f"SANs: {service.tls_sans}" if service.tls_sans else None,
+                f"Endpoint: {endpoint}" if endpoint else None,
+                f"Status: {service.tls_status}" if service.tls_status else None,
+                f"Self-signed: {'yes' if service.tls_self_signed else 'no'}"
+                if service.tls_self_signed is not None else None,
+                f"Error: {service.tls_error}" if service.tls_error else None,
+                "Discovered by LanLens",
+            ) if value
+        ]
         entry = {
-            "title": " - ".join(title_parts)[:255],
-            "subject": service.tls_subject,
-            "issuer": service.tls_issuer,
-            "valid_to": service.tls_expires_at.isoformat() if service.tls_expires_at else None,
-            "sans": service.tls_sans,
-            "status": service.tls_status,
-            "self_signed": service.tls_self_signed,
-            "error": service.tls_error,
+            "type": "SSL/TLS",
+            "common_name": common_name[:1000],
+            "expire_date": service.tls_expires_at.date().isoformat() if service.tls_expires_at else None,
+            "description": "\n".join(description_parts)[:4000],
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries
@@ -1460,6 +1485,8 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__CPU": ("title", "type"),
     "C__CATG__MEMORY": ("title", "manufacturer", "capacity"),
     "C__CATG__DRIVE": ("serial", "mount_point", "title"),
+    "C__CATG__NET_CONNECTIONS_FOLDER": ("port_from", "protocol_layer_5", "protocol"),
+    "C__CATG__CERTIFICATE": ("common_name", "expire_date"),
 }
 
 # These fields are derived automatically from deep-scan hardware data and vary
@@ -1467,11 +1494,12 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
 # but should not turn an otherwise successful sync into operator-visible noise.
 # Explicitly mapped/default identity fields still report warnings when rejected.
 OPTIONAL_IDOIT_CATEGORY_FIELDS = {
+    "C__CATG__MODEL": {"manufacturer"},
     "C__CATG__CPU": {"manufacturer", "type", "frequency", "frequency_unit", "cores", "description"},
     "C__CATG__MEMORY": {"quantity", "manufacturer", "type", "capacity", "unit"},
     "C__CATG__DRIVE": {"serial", "mount_point", "capacity", "unit", "firmware", "drive_type"},
-    "C__CATG__NET_CONNECTIONS_FOLDER": {"port", "protocol", "service", "source", "observed_at", "type", "url", "version", "status"},
-    "C__CATG__CERTIFICATE": {"subject", "issuer", "valid_to", "sans", "status", "self_signed", "error"},
+    "C__CATG__NET_CONNECTIONS_FOLDER": {"protocol", "protocol_layer_5", "port_from", "port_to", "description"},
+    "C__CATG__CERTIFICATE": {"type", "common_name", "expire_date", "description"},
     "C__CATG__APPLICATION": {"source"},
 }
 
