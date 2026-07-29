@@ -862,6 +862,42 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attempts[1], {"title": "Demo model"})
         self.assertEqual(attempts[2], {"manufacturer": "Demo vendor", "title": "Demo model"})
 
+    async def test_listener_reuse_requires_same_transport_and_complete_port_range(self):
+        class ListenerClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return [
+                    {
+                        "id": "10",
+                        "protocol": {"title": "TCP"},
+                        "port_from": 80,
+                        "port_to": 80,
+                    },
+                    {
+                        "id": "11",
+                        "protocol": {"title": "TCP"},
+                        "port_from": 443,
+                        "port_to": 443,
+                    },
+                ]
+
+        client = ListenerClient(get_config(self.Session()))
+
+        self.assertEqual(
+            await client.find_reusable_category_entry(
+                "42",
+                "C__CATG__NET_CONNECTIONS_FOLDER",
+                {"protocol": "TCP", "port_from": 443, "port_to": 443},
+            ),
+            "11",
+        )
+        self.assertIsNone(
+            await client.find_reusable_category_entry(
+                "42",
+                "C__CATG__NET_CONNECTIONS_FOLDER",
+                {"protocol": "TCP", "port_from": 22, "port_to": 22},
+            )
+        )
+
     def test_truncated_sync_log_keeps_identity_match_debug(self):
         details = {
             "payload": {"title": "client-01", "fields": {f"field_{index}": "x" * 100 for index in range(120)}},

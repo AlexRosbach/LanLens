@@ -968,6 +968,10 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - model manufacturers are attempted as i-doit Dialog+ values; installations that reject an unknown manufacturer retain the model while silently skipping that optional value
 - container/software findings -> structured `C__CATG__APPLICATION` entries
 
+Network listeners are identified by the complete transport protocol and port
+range. A repeated sync updates only the matching listener; a newly discovered
+port creates its own category entry.
+
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
 
 Some i-doit fields such as responsible person, location and selected certificate/application attributes are object references or installation-specific dropdown values in standard i-doit data models, not plain text. LanLens sends the known plain fields and treats uncertain category fields as best-effort optional writes so an unsupported optional field does not block the whole device sync. Operators can still add explicit custom mapping entries once the target i-doit field is known.

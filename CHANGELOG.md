@@ -20,6 +20,9 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Fixed i-doit listener synchronization so each transport protocol and port
+  range is matched as one composite identity instead of repeatedly overwriting
+  the first listener that shares a protocol.
 - Corrected i-doit network-listener exports to use the supported protocol,
   port-range and description fields, and certificate exports to use common
   name, expiration date, type and description.

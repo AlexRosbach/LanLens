@@ -1065,10 +1065,15 @@ def _service_entries(device: Device) -> list[dict[str, Any]]:
                 "Discovered by LanLens",
             ) if value
         ]
+        raw_protocol = str(service.protocol or "").strip()
+        transport_protocol = raw_protocol.upper() if raw_protocol.lower() in {"tcp", "udp"} else "TCP"
+        application_protocol = (
+            raw_protocol if raw_protocol.lower() not in {"", "tcp", "udp"}
+            else service.service_type or service.name
+        )
         entry = {
-            "protocol": str(service.protocol or "tcp").upper(),
-            "protocol_layer_5": str(service.service_type or service.name).upper()[:255]
-            if service.service_type or service.name else None,
+            "protocol": transport_protocol,
+            "protocol_layer_5": str(application_protocol).upper()[:255] if application_protocol else None,
             "port_from": service.port,
             "port_to": service.port,
             "description": "\n".join(description_parts)[:2000],
@@ -1485,8 +1490,14 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__CPU": ("title", "type"),
     "C__CATG__MEMORY": ("title", "manufacturer", "capacity"),
     "C__CATG__DRIVE": ("serial", "mount_point", "title"),
-    "C__CATG__NET_CONNECTIONS_FOLDER": ("port_from", "protocol_layer_5", "protocol"),
-    "C__CATG__CERTIFICATE": ("common_name", "expire_date"),
+    "C__CATG__CERTIFICATE": ("common_name",),
+}
+COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS = {
+    "C__CATG__NET_CONNECTIONS_FOLDER": ("port_from", "port_to", "protocol"),
+}
+FIRST_ENTRY_REUSE_CATEGORIES = {
+    "C__CATG__NETWORK_PORT",
+    "C__CATG__IP",
 }
 
 # These fields are derived automatically from deep-scan hardware data and vary
@@ -2289,7 +2300,7 @@ class IdoitClient:
             return response
 
     async def find_reusable_category_entry(self, object_id: str, category: str, data: dict[str, Any]) -> Optional[str]:
-        if category not in MULTIVALUE_CATEGORY_MATCH_FIELDS:
+        if category not in MULTIVALUE_CATEGORY_MATCH_FIELDS and category not in COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS:
             return None
         try:
             result = await self.read_category(object_id, category)
@@ -2297,6 +2308,21 @@ class IdoitClient:
             return None
         entries = _category_entries(result)
         if not entries:
+            return None
+        composite_fields = COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS.get(category)
+        if composite_fields:
+            expected_values = {
+                field: _plain_category_value(data.get(field))
+                for field in composite_fields
+            }
+            if all(value not in (None, "") for value in expected_values.values()):
+                for entry in entries:
+                    if all(
+                        str(_plain_category_value(entry.get(field)) or "").strip().lower()
+                        == str(expected).strip().lower()
+                        for field, expected in expected_values.items()
+                    ):
+                        return _category_entry_id(entry)
             return None
         match_fields = MULTIVALUE_CATEGORY_MATCH_FIELDS[category]
         for field in match_fields:
@@ -2307,10 +2333,13 @@ class IdoitClient:
                 current = _plain_category_value(entry.get(field))
                 if current not in (None, "") and str(current).strip().lower() == str(expected).strip().lower():
                     return _category_entry_id(entry)
-        # LanLens manages one discovered network identity per object. If i-doit
-        # already has an entry but the MAC/IP changed, update the first one
-        # instead of appending a fresh duplicate on every sync.
-        return _category_entry_id(entries[0])
+        # LanLens manages one discovered MAC/IP identity per object. If i-doit
+        # already has an identity entry but its value changed, update that entry
+        # instead of appending a duplicate. Inventory categories must never use
+        # this fallback because each port/certificate/hardware row is distinct.
+        if category in FIRST_ENTRY_REUSE_CATEGORIES:
+            return _category_entry_id(entries[0])
+        return None
 
     async def cleanup_lanlens_global_description(self, object_id: str) -> Optional[str]:
         try:
