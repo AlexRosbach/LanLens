@@ -60,6 +60,8 @@ def get_scan_status(
     active = db.query(Device).filter(Device.is_archived == False)
     total = active.count()
     online = active.filter(Device.is_online == True).count()
+    new = active.filter(Device.is_registered == False).count()
+    archived = db.query(Device).filter(Device.is_archived == True).count()
     return ScanStatusResponse(
         is_running=is_scan_running(),
         last_scan=_scan_run_response(last),
@@ -67,6 +69,8 @@ def get_scan_status(
             total=total,
             online=online,
             offline=max(0, total - online),
+            new=new,
+            archived=archived,
             unread_notifications=db.query(Notification).filter(Notification.is_read == False).count(),
         ),
     )

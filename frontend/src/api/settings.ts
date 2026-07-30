@@ -1,8 +1,14 @@
 import apiClient from './client'
 
+export interface DhcpRange {
+  start: string
+  end: string
+}
+
 export interface AllSettings {
   dhcp_start: string
   dhcp_end: string
+  dhcp_ranges: DhcpRange[]
   scan_start: string
   scan_end: string
   scan_additional_targets: string
@@ -109,8 +115,8 @@ export interface UpdateCheckResponse {
 export const settingsApi = {
   get: () => apiClient.get<AllSettings>('/settings').then((r) => r.data),
 
-  updateDhcp: (dhcp_start: string, dhcp_end: string) =>
-    apiClient.put('/settings/dhcp', { dhcp_start, dhcp_end }).then((r) => r.data),
+  updateDhcp: (dhcp_ranges: DhcpRange[]) =>
+    apiClient.put('/settings/dhcp', { dhcp_ranges }).then((r) => r.data),
 
   updateScanRange: (scan_start: string, scan_end: string, scan_additional_targets: string) =>
     apiClient.put('/settings/scan-range', { scan_start, scan_end, scan_additional_targets }).then((r) => r.data),
