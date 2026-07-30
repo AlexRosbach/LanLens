@@ -36,6 +36,8 @@ class Device(Base):
     mac_address = Column(String(17), nullable=False, unique=True)
     ip_address = Column(String(45), nullable=True)
     hostname = Column(String(255), nullable=True)
+    preferred_name = Column(String(255), nullable=True)
+    preferred_name_mode = Column(String(16), default="automatic", nullable=False, server_default="automatic")
 
     # ── Identification ─────────────────────────────────────────────────────────
     label = Column(String(255), nullable=True)           # short display name
@@ -102,6 +104,35 @@ class Device(Base):
         cascade="all, delete",
         passive_deletes=True,
     )
+    dns_names = relationship(
+        "DeviceDnsName",
+        back_populates="device",
+        cascade="all, delete-orphan",
+        order_by="DeviceDnsName.name",
+    )
+
+
+class DeviceDnsName(Base):
+    """A DNS or discovery name observed for a device."""
+    __tablename__ = "device_dns_names"
+    __table_args__ = (
+        UniqueConstraint("device_id", "name", "record_type", "source", name="uq_device_dns_name_source"),
+        Index("ix_device_dns_names_name", "name"),
+        Index("ix_device_dns_names_device", "device_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    record_type = Column(String(16), nullable=False, default="HOSTNAME")
+    source = Column(String(64), nullable=False, default="scanner")
+    canonical_name = Column(String(255), nullable=True)
+    address = Column(String(45), nullable=True)
+    status = Column(String(16), nullable=False, default="active")
+    first_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    device = relationship("Device", back_populates="dns_names")
 
 
 class Service(Base):

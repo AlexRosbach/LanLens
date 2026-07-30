@@ -84,9 +84,10 @@ export function formatCounter(value?: number | null): string {
 }
 
 export function formatDeviceLabel(
-  device: { label: string | null; hostname: string | null; mac_address: string },
+  device: { display_name?: string | null; label: string | null; hostname: string | null; mac_address: string },
   ipOnlyLabel?: string,
 ): string {
+  if (device.display_name) return device.display_name
   if (device.label) return device.label
   if (device.hostname) return device.hostname
   if (device.mac_address.startsWith('ip:') && ipOnlyLabel) return ipOnlyLabel

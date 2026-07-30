@@ -9,6 +9,7 @@ import { SnmpSwitchPort, SnmpSwitchPortsResponse, snmpApi } from '../api/snmp'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
+import DeviceDnsNamesCard from '../components/devices/DeviceDnsNamesCard'
 import DeepScanPanel from '../components/deep-scan/DeepScanPanel'
 import VmHostSection from '../components/deep-scan/VmHostSection'
 import Badge from '../components/ui/Badge'
@@ -560,6 +561,11 @@ export default function DeviceDetail() {
           </div>
         </div>
       </Card>
+
+      <DeviceDnsNamesCard
+        device={device}
+        onChanged={() => devicesApi.get(device.id).then(setDevice).catch(() => {})}
+      />
 
       {showSectionNav && (
         <div

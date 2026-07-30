@@ -56,6 +56,9 @@ The direct frontend development dependencies are permissively licensed:
 | TypeScript | Apache-2.0 |
 | Vite | MIT |
 
+The AXFR integration directly uses `dnspython` (ISC), which is already present
+as a runtime dependency of the existing `pydantic[email]` installation.
+
 ## Redistribution Checklist
 
 - Keep the LanLens MIT license text with source and binary distributions.

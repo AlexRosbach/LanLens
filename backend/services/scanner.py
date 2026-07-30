@@ -25,6 +25,7 @@ from .mac_vendor import lookup_vendor, normalize_mac
 from .notification import send_smtp_for_notification, send_telegram_for_notification, send_webhook_for_notification
 from .scan_targets import parse_additional_scan_targets, routed_target_address_count
 from .settings_helpers import get_scan_interval_minutes
+from .dns_names import record_dns_name
 
 logger = logging.getLogger(__name__)
 
@@ -845,6 +846,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 )
                 db.add(new_device)
                 db.flush()
+                if _setting_enabled(db, "dns_names_enabled") and hostname:
+                    record_dns_name(db, new_device, hostname, "PTR", "reverse_dns", address=ip)
                 db.add(DeviceChangeEvent(device_id=new_device.id, event_type="device_discovered", source="scan", message=f"Discovered at {ip}"))
                 record_device_ip_history(db, new_device, ip, seen_at)
                 record_ping_sample(db, new_device.id, True, latency_by_ip.get(ip), "scan", seen_at)
@@ -881,6 +884,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 record_ping_sample(db, existing.id, True, latency_by_ip.get(ip), "scan", seen_at)
                 if hostname:
                     existing.hostname = hostname
+                    if _setting_enabled(db, "dns_names_enabled"):
+                        record_dns_name(db, existing, hostname, "PTR", "reverse_dns", address=ip)
                     _record_change(db, existing.id, "hostname_changed", "hostname", previous_hostname, hostname, "scan")
 
         # Mark absent devices as offline only after a grace period.

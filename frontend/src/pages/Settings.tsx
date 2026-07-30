@@ -15,6 +15,7 @@ import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDi
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
+import DnsNamesSettingsCard from '../components/settings/DnsNamesSettingsCard'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { formatDateTime } from '../utils/formatters'
@@ -2258,6 +2259,7 @@ export default function Settings() {
           {t('network_discovery')}
         </h2>
         <div className="space-y-4">
+          <DnsNamesSettingsCard />
           <div>
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_ranges')}</h2>
             <p className="text-sm text-text-subtle">{t('discovery_category_ranges_hint')}</p>

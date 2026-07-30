@@ -874,6 +874,43 @@ def migrate():
         else:
             print("Migration: passive_discovery_observations already exists — skipped")
 
+        # ── v1.5.9 ── DNS names, aliases, and preferred device name ────────
+        for column, ddl in {
+            "preferred_name": "ALTER TABLE devices ADD COLUMN preferred_name VARCHAR(255)",
+            "preferred_name_mode": "ALTER TABLE devices ADD COLUMN preferred_name_mode VARCHAR(16) NOT NULL DEFAULT 'automatic'",
+        }.items():
+            if not _column_exists(conn, "devices", column):
+                conn.execute(text(ddl))
+                conn.commit()
+                print(f"Migration: added devices.{column}")
+            else:
+                print(f"Migration: devices.{column} already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "device_dns_names"):
+            conn.execute(text(
+                "CREATE TABLE device_dns_names ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "name VARCHAR(255) NOT NULL, "
+                "record_type VARCHAR(16) NOT NULL DEFAULT 'HOSTNAME', "
+                "source VARCHAR(64) NOT NULL DEFAULT 'scanner', "
+                "canonical_name VARCHAR(255), "
+                "address VARCHAR(45), "
+                "status VARCHAR(16) NOT NULL DEFAULT 'active', "
+                "first_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "CONSTRAINT uq_device_dns_name_source UNIQUE (device_id, name, record_type, source)"
+                ")"
+            ))
+            conn.execute(text("CREATE INDEX ix_device_dns_names_name ON device_dns_names(name)"))
+            conn.execute(text("CREATE INDEX ix_device_dns_names_device ON device_dns_names(device_id)"))
+            conn.commit()
+            print("Migration: created device_dns_names")
+        elif not IS_SQLITE:
+            print("Migration: device_dns_names — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: device_dns_names already exists — skipped")
+
         conn.commit()
 
 

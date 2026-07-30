@@ -256,6 +256,24 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.route('**/api/snmp/custom-results**', async (route) => {
     await route.fulfill({ json: [] })
   })
+  await page.route('**/api/dns-names/config', async (route) => {
+    await route.fulfill({
+      json: {
+        dns_names_enabled: false,
+        enabled: false,
+        server: '',
+        zones: [],
+        port: 53,
+        timeout_seconds: 15,
+        tsig_key_name: '',
+        tsig_algorithm: 'hmac-sha256',
+        tsig_configured: false,
+        interval_minutes: 60,
+        last_sync_at: null,
+        last_error: '',
+      },
+    })
+  })
 
   await page.goto('/settings')
 

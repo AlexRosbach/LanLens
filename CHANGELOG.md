@@ -5,6 +5,19 @@ All notable changes to this project should be documented in this file.
 ## Unreleased
 
 ### New Features
+- Added ascending and descending segment sorting by starting IP address, name,
+  total capacity, used addresses or free addresses.
+- Added the optional **DNS names and aliases** inventory for devices, including
+  record type, discovery source, canonical CNAME target, address, first/last
+  observation and active/conflicting state.
+- Added persistent preferred device names with automatic, discovered-name and
+  manual modes. Preferred names survive rescans, drive the primary UI name and
+  i-doit object title, while aliases remain searchable for correlation.
+- Added a separately controlled, read-only AXFR integration for Microsoft DNS,
+  BIND and other authoritative servers. It supports explicit zones, custom
+  port/timeouts, optional encrypted TSIG authentication, A/AAAA/PTR/CNAME
+  ingestion, connection tests, on-demand synchronization and an isolated
+  schedule without blocking normal scans.
 - Added multiple independently editable DHCP ranges. Existing single-range
   settings are migrated transparently and remain available through the legacy
   `dhcp_start` and `dhcp_end` API fields.
@@ -25,6 +38,8 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Kept Settings compatible with older settings responses by deriving an initial
+  DHCP range from the legacy start/end fields when `dhcp_ranges` is absent.
 - Fixed the documented `LANLENS_API_TOKEN` and
   `LANLENS_API_TOKEN_READ_ONLY` environment variables so persistent tokens are
   actually loaded by the application.

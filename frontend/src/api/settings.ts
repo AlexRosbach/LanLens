@@ -112,8 +112,18 @@ export interface UpdateCheckResponse {
   update_available: boolean
 }
 
+function normalizeSettings(data: AllSettings): AllSettings {
+  const legacyRange = data.dhcp_start && data.dhcp_end
+    ? [{ start: data.dhcp_start, end: data.dhcp_end }]
+    : [{ start: '', end: '' }]
+  return {
+    ...data,
+    dhcp_ranges: data.dhcp_ranges?.length ? data.dhcp_ranges : legacyRange,
+  }
+}
+
 export const settingsApi = {
-  get: () => apiClient.get<AllSettings>('/settings').then((r) => r.data),
+  get: () => apiClient.get<AllSettings>('/settings').then((r) => normalizeSettings(r.data)),
 
   updateDhcp: (dhcp_ranges: DhcpRange[]) =>
     apiClient.put('/settings/dhcp', { dhcp_ranges }).then((r) => r.data),
