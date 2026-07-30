@@ -15,10 +15,10 @@ const baseSettings = {
   show_ping_history: false,
   show_build_info: false,
   show_debug_tools: false,
-  app_version: '1.5.9',
-  build_code: '20260729.0009',
+  app_version: '1.6.0',
+  build_code: '20260730.0016',
   build_commit: 'test',
-  build_branch: 'feature/1.5.9-dns-names',
+  build_branch: 'codex/start-1.5.9-iteration',
   build_created: now,
   https_enabled: false,
   https_configured: false,
@@ -71,7 +71,7 @@ const device = {
 async function commonRoutes(page: import('@playwright/test').Page) {
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: { username: 'admin', force_password_change: false } }))
   await page.route('**/api/settings', (route) => route.fulfill({ json: baseSettings }))
-  await page.route('**/api/settings/update/check', (route) => route.fulfill({ json: { current_version: '1.5.9', latest_version: '1.5.9', release_url: '', update_available: false } }))
+  await page.route('**/api/settings/update/check', (route) => route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } }))
   await page.route('**/api/notifications/unread-count', (route) => route.fulfill({ json: { count: 0 } }))
   await page.route('**/api/client-errors', (route) => route.fulfill({ json: { ok: true } }))
   await page.route('**/api/devices', (route) => route.fulfill({ json: { items: [device], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } }))

@@ -256,6 +256,24 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.route('**/api/snmp/custom-results**', async (route) => {
     await route.fulfill({ json: [] })
   })
+  await page.route('**/api/dns-names/config', async (route) => {
+    await route.fulfill({
+      json: {
+        dns_names_enabled: false,
+        enabled: false,
+        server: '',
+        zones: [],
+        port: 53,
+        timeout_seconds: 15,
+        tsig_key_name: '',
+        tsig_algorithm: 'hmac-sha256',
+        tsig_configured: false,
+        interval_minutes: 60,
+        last_sync_at: null,
+        last_error: '',
+      },
+    })
+  })
 
   await page.goto('/settings')
 
@@ -278,8 +296,9 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await expect(page.getByText('DHCP range 1')).toBeVisible()
   await expect(page.getByText('DHCP range 2')).toBeVisible()
   await expect(page.locator('input[value="10.20.30.20"]')).toBeVisible()
-  await page.getByRole('heading', { name: 'DHCP Ranges' }).scrollIntoViewIfNeeded()
-  await page.screenshot({ path: testInfo.outputPath('settings-multiple-dhcp-ranges.png'), fullPage: false })
+  const dhcpRangesCard = page.getByRole('heading', { name: 'DHCP Ranges' }).locator('..')
+  await dhcpRangesCard.scrollIntoViewIfNeeded()
+  await dhcpRangesCard.screenshot({ path: testInfo.outputPath('settings-multiple-dhcp-ranges.png') })
   await expect(page.getByRole('heading', { name: 'Device retention' })).not.toBeVisible()
   await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
   await expect(page.getByLabel('Cycle interval in minutes')).toHaveValue('15')
