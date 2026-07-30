@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -557,6 +557,8 @@ class ScanInventoryStats(BaseModel):
     total: int
     online: int
     offline: int
+    new: int
+    archived: int
     unread_notifications: int
 
 
@@ -568,9 +570,15 @@ class ScanStatusResponse(BaseModel):
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 
+class DhcpRange(BaseModel):
+    start: str
+    end: str
+
+
 class DhcpSettings(BaseModel):
-    dhcp_start: str
-    dhcp_end: str
+    dhcp_ranges: Optional[List[DhcpRange]] = None
+    dhcp_start: Optional[str] = None
+    dhcp_end: Optional[str] = None
 
 
 class ScanRangeSettings(BaseModel):
@@ -695,6 +703,7 @@ class PortRangeScanRequest(BaseModel):
 class AllSettings(BaseModel):
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"
+    dhcp_ranges: List[DhcpRange] = Field(default_factory=list)
     scan_start: Optional[str] = "192.168.1.1"
     scan_end: Optional[str] = "192.168.1.254"
     scan_additional_targets: Optional[str] = ""
