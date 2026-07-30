@@ -18,6 +18,11 @@ All notable changes to this project should be documented in this file.
   port/timeouts, optional encrypted TSIG authentication, A/AAAA/PTR/CNAME
   ingestion, connection tests, on-demand synchronization and an isolated
   schedule without blocking normal scans.
+- Added multiple independently editable DHCP ranges. Existing single-range
+  settings are migrated transparently and remain available through the legacy
+  `dhcp_start` and `dhcp_end` API fields.
+- Added live `new` and `archived` device counters to `current_stats` in
+  `/api/scan/status`.
 - Added an optional persistent REST API Bearer token through
   `LANLENS_API_TOKEN`. Tokens must contain at least 32 characters and are
   read-only by default; write methods require explicitly setting
@@ -33,6 +38,8 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Kept Settings compatible with older settings responses by deriving an initial
+  DHCP range from the legacy start/end fields when `dhcp_ranges` is absent.
 - Fixed the documented `LANLENS_API_TOKEN` and
   `LANLENS_API_TOKEN_READ_ONLY` environment variables so persistent tokens are
   actually loaded by the application.

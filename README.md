@@ -27,6 +27,7 @@ LanLens gives you a quick, local view of what is on your network:
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, SNMP, custom SNMP OIDs, and scan-detected changes
+- Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
 - Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
 
 Why people use it:

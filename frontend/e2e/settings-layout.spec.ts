@@ -3,6 +3,10 @@ import { expect, test } from '@playwright/test'
 const settings = {
   dhcp_start: '192.168.1.10',
   dhcp_end: '192.168.1.200',
+  dhcp_ranges: [
+    { start: '192.168.1.10', end: '192.168.1.200' },
+    { start: '10.20.30.20', end: '10.20.30.180' },
+  ],
   scan_start: '192.168.1.1',
   scan_end: '192.168.1.254',
   scan_additional_targets: '10.10.20.0/24',
@@ -252,6 +256,24 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await page.route('**/api/snmp/custom-results**', async (route) => {
     await route.fulfill({ json: [] })
   })
+  await page.route('**/api/dns-names/config', async (route) => {
+    await route.fulfill({
+      json: {
+        dns_names_enabled: false,
+        enabled: false,
+        server: '',
+        zones: [],
+        port: 53,
+        timeout_seconds: 15,
+        tsig_key_name: '',
+        tsig_algorithm: 'hmac-sha256',
+        tsig_configured: false,
+        interval_minutes: 60,
+        last_sync_at: null,
+        last_error: '',
+      },
+    })
+  })
 
   await page.goto('/settings')
 
@@ -271,6 +293,11 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
 
   await page.getByRole('button', { name: 'Network Discovery' }).click()
   await expect(page.getByRole('heading', { name: 'Address ranges' })).toBeVisible()
+  await expect(page.getByText('DHCP range 1')).toBeVisible()
+  await expect(page.getByText('DHCP range 2')).toBeVisible()
+  await expect(page.locator('input[value="10.20.30.20"]')).toBeVisible()
+  await page.getByRole('heading', { name: 'DHCP Ranges' }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('settings-multiple-dhcp-ranges.png'), fullPage: false })
   await expect(page.getByRole('heading', { name: 'Device retention' })).not.toBeVisible()
   await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
   await expect(page.getByLabel('Cycle interval in minutes')).toHaveValue('15')
