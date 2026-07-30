@@ -16,7 +16,7 @@ const baseSettings = {
   show_build_info: false,
   show_debug_tools: false,
   app_version: '1.5.9',
-  build_code: '20260730.0017',
+  build_code: '20260730.0018',
   build_commit: 'test',
   build_branch: 'feature/1.5.9-dns-names',
   build_created: now,

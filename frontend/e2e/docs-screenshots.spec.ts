@@ -371,7 +371,7 @@ async function mockCommon(page: Page) {
 test('README dashboard screenshot', async ({ page }) => {
   await mockCommon(page)
   await page.goto('/')
-  await expect(page.getByRole('button', { name: /Core Gateway/ })).toBeVisible()
+  await expect(page.getByText('Core Gateway', { exact: true })).toBeVisible()
   await page.screenshot({ path: `${screenshotDir}/lanlens-dashboard.png`, fullPage: false })
 })
 
