@@ -25,7 +25,7 @@ LanLens gives you a quick, local view of what is on your network:
 
 - Devices found by MAC/IP device discovery, with vendor hints and online/offline state
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
-- Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices
+- Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
 - Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
 - Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
@@ -162,6 +162,7 @@ Maintainers can validate both supported platforms with `docker buildx bake`.
 ## Learn More
 
 - [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
+- [DNS names and AXFR](docs/dns-names-axfr.md): preferred names, alias inventory, read-only zone transfers, optional TSIG, and least-privilege setup
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 

@@ -412,5 +412,8 @@ test('README segments screenshot', async ({ page }) => {
   await page.goto('/segments')
   await expect(page.getByRole('heading', { name: 'Segments' })).toBeVisible()
   await expect(page.getByText('Core Infrastructure')).toBeVisible()
+  await page.getByLabel('Sort by').selectOption('name')
+  await page.getByRole('button', { name: 'Ascending' }).click()
+  await expect(page.getByTestId('segment-card').first()).toContainText('Servers')
   await page.screenshot({ path: `${screenshotDir}/lanlens-segments.png`, fullPage: false })
 })

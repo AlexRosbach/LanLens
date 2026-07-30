@@ -12,8 +12,9 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation
+from ..models import Device, DeviceChangeEvent, DeviceIpHistory, PassiveDiscoveryObservation, Setting
 from .mac_vendor import normalize_mac
+from .dns_names import record_dns_name
 
 logger = logging.getLogger(__name__)
 
@@ -1215,10 +1216,18 @@ def _is_usable_hostname(hostname: str | None, device: Device | None = None) -> b
 
 
 def apply_passive_hostname(db: Session, device: Device, row: PassiveDiscoveryObservation) -> bool:
-    if row.protocol != "mdns" or _is_usable_hostname(device.hostname, device):
+    if row.protocol != "mdns":
         return False
     hostname = _mdns_observation_hostname(row)
     if not _is_usable_hostname(hostname, device):
+        return False
+    dns_names_enabled = (
+        db.query(Setting).filter(Setting.key == "dns_names_enabled", Setting.value == "true").first()
+        is not None
+    )
+    if dns_names_enabled:
+        record_dns_name(db, device, hostname, "MDNS", "mdns", address=device.ip_address)
+    if _is_usable_hostname(device.hostname, device):
         return False
 
     previous_hostname = device.hostname

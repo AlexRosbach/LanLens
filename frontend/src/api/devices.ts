@@ -55,6 +55,9 @@ export interface Device {
   mac_address: string
   ip_address: string | null
   hostname: string | null
+  preferred_name?: string | null
+  preferred_name_mode?: 'automatic' | 'manual' | 'discovered'
+  display_name?: string | null
   // Identification
   label: string | null
   device_class: string
@@ -139,6 +142,8 @@ export interface DeviceListResponse {
 
 export interface DeviceUpdate {
   label?: string | null
+  preferred_name?: string | null
+  preferred_name_mode?: 'automatic' | 'manual' | 'discovered'
   device_class?: string
   is_registered?: boolean
   purpose?: string | null

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, devicesApi } from '../api/devices'
@@ -45,6 +45,9 @@ const EMPTY_FORM: FormState = {
   description: '',
 }
 
+type SegmentSortKey = 'ip_start' | 'name' | 'total' | 'used' | 'free'
+type SortDirection = 'asc' | 'desc'
+
 export default function Segments() {
   const { t } = useI18n()
   const navigate = useNavigate()
@@ -55,6 +58,29 @@ export default function Segments() {
   const [editSegment, setEditSegment] = useState<Segment | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  const [sortKey, setSortKey] = useState<SegmentSortKey>('ip_start')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+
+  const segmentStats = useMemo(() => segments.map((segment) => {
+    const total = rangeSize(segment.ip_start, segment.ip_end)
+    const used = devices.filter(
+      (device) => device.ip_address != null && ipInRange(device.ip_address, segment.ip_start, segment.ip_end)
+    ).length
+    return { segment, total, used, free: Math.max(0, total - used) }
+  }), [segments, devices])
+
+  const sortedSegmentStats = useMemo(() => [...segmentStats].sort((left, right) => {
+    let comparison: number
+    if (sortKey === 'name') {
+      comparison = left.segment.name.localeCompare(right.segment.name, undefined, { sensitivity: 'base' })
+    } else if (sortKey === 'ip_start') {
+      comparison = ipToInt(left.segment.ip_start) - ipToInt(right.segment.ip_start)
+    } else {
+      comparison = left[sortKey] - right[sortKey]
+    }
+    if (comparison === 0) comparison = left.segment.id - right.segment.id
+    return sortDirection === 'asc' ? comparison : -comparison
+  }), [segmentStats, sortDirection, sortKey])
 
   useEffect(() => { load() }, [])
 
@@ -154,15 +180,34 @@ export default function Segments() {
         </Card>
       ) : (
         <div className="flex flex-col gap-3">
-          {segments.map((seg) => {
-            const total = rangeSize(seg.ip_start, seg.ip_end)
-            const used = devices.filter(
-              (d) => d.ip_address != null && ipInRange(d.ip_address, seg.ip_start, seg.ip_end)
-            ).length
-            const free = total - used
+          <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-3 sm:flex-row sm:items-end">
+            <label className="flex flex-1 flex-col gap-1 text-xs font-medium text-text-subtle">
+              {t('segment_sort_by')}
+              <select
+                className="input-field"
+                value={sortKey}
+                onChange={(event) => setSortKey(event.target.value as SegmentSortKey)}
+              >
+                <option value="ip_start">{t('segment_sort_ip_start')}</option>
+                <option value="name">{t('segment_sort_name')}</option>
+                <option value="total">{t('segment_sort_total')}</option>
+                <option value="used">{t('segment_sort_used')}</option>
+                <option value="free">{t('segment_sort_free')}</option>
+              </select>
+            </label>
+            <Button
+              variant="outline"
+              onClick={() => setSortDirection((current) => current === 'asc' ? 'desc' : 'asc')}
+              aria-label={sortDirection === 'asc' ? t('segment_sort_ascending') : t('segment_sort_descending')}
+            >
+              <span aria-hidden="true">{sortDirection === 'asc' ? '↑' : '↓'}</span>
+              {sortDirection === 'asc' ? t('segment_sort_ascending') : t('segment_sort_descending')}
+            </Button>
+          </div>
+          {sortedSegmentStats.map(({ segment: seg, total, used, free }) => {
             const pct = total > 0 ? Math.round((used / total) * 100) : 0
             return (
-              <Card key={seg.id} className="flex flex-col gap-3">
+              <Card key={seg.id} className="flex flex-col gap-3" data-testid="segment-card">
                 <div className="flex items-center gap-4">
                   {/* Color swatch */}
                   <div

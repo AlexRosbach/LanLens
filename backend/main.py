@@ -9,9 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings  # validates SECRET_KEY on import — must be first
 from .database import SessionLocal
 from .models import TokenBlacklist
-from .routers import admin, auth, auto_scan_rules, client_errors, cmdb, connect, credentials, debug, deep_scan, devices, dhcp_monitor, idoit, inventory, notifications, plugins, scan, scan_nodes, segments, services, snmp
+from .routers import admin, auth, auto_scan_rules, client_errors, cmdb, connect, credentials, debug, deep_scan, devices, dhcp_monitor, dns_names, idoit, inventory, notifications, plugins, scan, scan_nodes, segments, services, snmp
 from .routers import settings as settings_router
-from .services import deep_scan_scheduler, idoit_scheduler, passive_discovery_scheduler, scheduler
+from .services import deep_scan_scheduler, dns_names_scheduler, idoit_scheduler, passive_discovery_scheduler, scheduler
 from .services.initial_discovery import prepare_initial_scan_bootstrap
 from .services.scanner import run_scan
 from .services.settings_helpers import get_scan_interval_minutes
@@ -80,6 +80,7 @@ async def lifespan(app: FastAPI):
     deep_scan_scheduler.start_deep_scan_scheduler()
     idoit_scheduler.start_idoit_scheduler(idoit_interval)
     passive_discovery_scheduler.start_passive_discovery_scheduler()
+    dns_names_scheduler.start_dns_names_scheduler()
     if run_initial_scan:
         import asyncio
 
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
     deep_scan_scheduler.stop_deep_scan_scheduler()
     idoit_scheduler.stop_idoit_scheduler()
     passive_discovery_scheduler.stop_passive_discovery_scheduler()
+    dns_names_scheduler.stop_dns_names_scheduler()
     logger.info("LanLens stopped")
 
 
@@ -121,6 +123,7 @@ app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(client_errors.router)
 app.include_router(devices.router)
+app.include_router(dns_names.router)
 app.include_router(scan.router)
 app.include_router(scan_nodes.router)
 app.include_router(snmp.router)

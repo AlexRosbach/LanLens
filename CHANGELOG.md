@@ -10,6 +10,19 @@ All notable changes to this project should be documented in this file.
 - Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
 
 ### New Features
+- Added ascending and descending segment sorting by starting IP address, name,
+  total capacity, used addresses or free addresses.
+- Added the optional **DNS names and aliases** inventory for devices, including
+  record type, discovery source, canonical CNAME target, address, first/last
+  observation and active/conflicting state.
+- Added persistent preferred device names with automatic, discovered-name and
+  manual modes. Preferred names survive rescans, drive the primary UI name and
+  i-doit object title, while aliases remain searchable for correlation.
+- Added a separately controlled, read-only AXFR integration for Microsoft DNS,
+  BIND and other authoritative servers. It supports explicit zones, custom
+  port/timeouts, optional encrypted TSIG authentication, A/AAAA/PTR/CNAME
+  ingestion, connection tests, on-demand synchronization and an isolated
+  schedule without blocking normal scans.
 - Added an optional persistent REST API Bearer token through
   `LANLENS_API_TOKEN`. Tokens must contain at least 32 characters and are
   read-only by default; write methods require explicitly setting
