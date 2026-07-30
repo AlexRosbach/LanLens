@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
 from ..schemas import (
     DeviceIpHistoryResponse,
     DevicePingSampleResponse,
@@ -39,6 +39,7 @@ from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced
 from ..services.passive_discovery import deduplicate_observations, linked_devices_for_observations, observation_to_response
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
+from ..services.dns_names import device_display_name
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 logger = logging.getLogger(__name__)
@@ -132,27 +133,37 @@ def _auto_check_https_certificate(db: Session, device_id: int, open_ports: list[
         _apply_tls_result(service, result)
 
 
-def _get_dhcp_range(db: Session):
-    """Return (dhcp_start_int, dhcp_end_int) as integers for IP comparison, or None."""
+def _get_dhcp_ranges(db: Session):
+    """Return configured DHCP ranges as integer pairs, with legacy fallback."""
     try:
+        ranges_row = db.query(Setting).filter(Setting.key == "dhcp_ranges").first()
+        if ranges_row and ranges_row.value:
+            ranges = []
+            for item in json.loads(ranges_row.value):
+                start = int(ipaddress.IPv4Address(item["start"]))
+                end = int(ipaddress.IPv4Address(item["end"]))
+                if start <= end:
+                    ranges.append((start, end))
+            if ranges:
+                return ranges
         start_row = db.query(Setting).filter(Setting.key == "dhcp_start").first()
         end_row = db.query(Setting).filter(Setting.key == "dhcp_end").first()
         if start_row and start_row.value and end_row and end_row.value:
-            return (
+            return [(
                 int(ipaddress.IPv4Address(start_row.value)),
                 int(ipaddress.IPv4Address(end_row.value)),
-            )
+            )]
     except Exception:
         pass
-    return None
+    return []
 
 
-def _is_dhcp(ip: Optional[str], dhcp_range) -> bool:
-    if not ip or not dhcp_range:
+def _is_dhcp(ip: Optional[str], dhcp_ranges) -> bool:
+    if not ip or not dhcp_ranges:
         return False
     try:
         ip_int = int(ipaddress.IPv4Address(ip))
-        return dhcp_range[0] <= ip_int <= dhcp_range[1]
+        return any(start <= ip_int <= end for start, end in dhcp_ranges)
     except Exception:
         return False
 
@@ -310,6 +321,9 @@ def _device_to_response(
         mac_address=device.mac_address,
         ip_address=device.ip_address,
         hostname=device.hostname,
+        preferred_name=device.preferred_name,
+        preferred_name_mode=device.preferred_name_mode or "automatic",
+        display_name=device_display_name(device),
         label=device.label,
         device_class=device.device_class,
         vendor=device.vendor,
@@ -410,7 +424,9 @@ def list_devices(
             | Device.ip_address.ilike(term)
             | Device.label.ilike(term)
             | Device.hostname.ilike(term)
+            | Device.preferred_name.ilike(term)
             | Device.vendor.ilike(term)
+            | Device.id.in_(db.query(DeviceDnsName.device_id).filter(DeviceDnsName.name.ilike(term)))
         )
 
     all_devices = query.order_by(Device.last_seen.desc()).all()
@@ -421,7 +437,7 @@ def list_devices(
     online = active_query.filter(Device.is_online == True).count()
     unregistered = _count_new_devices(db, current_user)
     archived = db.query(Device).filter(Device.is_archived == True).count()
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
     snmp_identities = bulk_identities_for_devices(db, all_devices) if is_advanced_view_enabled(db) else {}
@@ -550,7 +566,7 @@ def get_new_devices(
     online = active_query.filter(Device.is_online == True).count()
     unregistered = _count_new_devices(db, current_user)
     archived = db.query(Device).filter(Device.is_archived == True).count()
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
@@ -694,7 +710,7 @@ def update_device_maintenance(
             _record_change(db, device.id, "maintenance_updated", field, old_value, value, source="user")
     db.commit()
     db.refresh(device)
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
@@ -838,7 +854,7 @@ def get_device(
     device = db.query(Device).options(joinedload(Device.idoit_sync)).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     # Fetch hardware summary for single device (cpu, memory, model)
     hw_summary: dict = {}
@@ -921,6 +937,11 @@ def update_device(
 
     update_fields = update.model_dump(exclude_unset=True)
     idoit_sysid = update_fields.pop("idoit_sysid", None)
+    preferred_mode = update_fields.get("preferred_name_mode")
+    if preferred_mode is not None and preferred_mode not in {"automatic", "manual", "discovered"}:
+        raise HTTPException(status_code=400, detail="preferred_name_mode must be automatic, manual, or discovered")
+    if preferred_mode == "automatic":
+        update_fields["preferred_name"] = None
 
     for field, value in update_fields.items():
         value = _to_naive_utc(value)
@@ -966,7 +987,7 @@ def update_device(
 
     db.commit()
     db.refresh(device)
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, db=db)
@@ -1032,7 +1053,7 @@ async def refresh_device_status(
 
     db.commit()
     db.refresh(device)
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
@@ -1104,7 +1125,7 @@ def archive_device(
         db.commit()
 
     db.refresh(device)
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, include_ip_history=True, db=db)
@@ -1136,7 +1157,7 @@ def regenerate_cmdb_id(
         raise HTTPException(status_code=409, detail="Could not generate a unique CMDB ID after 3 attempts. Try again.")
     db.commit()
     db.refresh(device)
-    dhcp_range = _get_dhcp_range(db)
+    dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     return _device_to_response(device, dhcp_range, viewed_device_ids, segment_ranges=segment_ranges, db=db)

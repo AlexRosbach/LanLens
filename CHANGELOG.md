@@ -4,7 +4,91 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
+### 1.6.0 Iteration Focus
+- Add a supported, continuously validated ARM64 container path alongside AMD64.
+- Continue hardening Network Topology and SNMP workflows after the 1.5.8 topology release, especially setup clarity, diagnostics and mixed-vendor switch visibility.
+- Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
+
 ### New Features
+- Added ascending and descending segment sorting by starting IP address, name,
+  total capacity, used addresses or free addresses.
+- Added the optional **DNS names and aliases** inventory for devices, including
+  record type, discovery source, canonical CNAME target, address, first/last
+  observation and active/conflicting state.
+- Added persistent preferred device names with automatic, discovered-name and
+  manual modes. Preferred names survive rescans, drive the primary UI name and
+  i-doit object title, while aliases remain searchable for correlation.
+- Added a separately controlled, read-only AXFR integration for Microsoft DNS,
+  BIND and other authoritative servers. It supports explicit zones, custom
+  port/timeouts, optional encrypted TSIG authentication, A/AAAA/PTR/CNAME
+  ingestion, connection tests, on-demand synchronization and an isolated
+  schedule without blocking normal scans.
+- Added an optional persistent REST API Bearer token through
+  `LANLENS_API_TOKEN`. Tokens must contain at least 32 characters and are
+  read-only by default; write methods require explicitly setting
+  `LANLENS_API_TOKEN_READ_ONLY=false`.
+- Added current inventory totals, online/offline counts and unread notification
+  count to `/api/scan/status`, while keeping the latest scan-run counters
+  available separately.
+- Added MAC-only inventory discovery from SNMP bridge forwarding tables so
+  endpoints in VLANs outside the LanLens host's local Layer 2 can still appear
+  as offline inventory devices with switch, port and VLAN context.
+- Added Network Topology relationship and VLAN filters so operators can focus the map on SNMP port edges, passive topology hints, host relationships or a specific learned VLAN.
+- Added selected-relationship details to the Network Topology side panel, including peer, evidence type, VLAN, interface alias and last-seen context when those values are available.
+- Added reproducible frontend installs and multi-platform container validation for AMD64 and ARM64.
+- Added SNMP interface counter trends for inbound/outbound packet rates, discard
+  and error rates, and Layer-1 error rates. Trends start after a second valid
+  poll and ignore counter resets instead of reporting misleading negative rates.
+- Added opt-in passive detection for the documented Sophos Security Heartbeat
+  TLS channel. LanLens associates observed endpoint traffic with known devices
+  but marks health status as unavailable because the payload is encrypted.
+
+### Fixes / Hardening
+- Kept the Settings UI compatible with older settings responses by deriving the
+  initial DHCP range from the legacy start/end fields when `dhcp_ranges` is
+  absent.
+- Carried the completed 1.5.8 maintenance fixes into the 1.6.0 release branch,
+  including persistent-token environment loading, timezone-aware scan history,
+  i-doit synchronization reliability and restored SSH private-key support.
+- Included the LanLens host's primary interface identity in local host-network
+  scans when it falls inside the configured ARP range.
+- Rendered Docker and Podman JSON-lines deep-scan findings as a readable,
+  horizontally scrollable container table.
+- Fixed switch-port mapping for UniFi US firmware that exposes a correct
+  BRIDGE-MIB base-port map alongside a misleading Q-BRIDGE-MIB map pointing at
+  VLAN pseudo-interfaces. The valid physical-port mapping now takes precedence.
+- Updated Axios, React Router, Vite, PostCSS and Playwright, pinned the remaining
+  vulnerable transitive multipart package to its patched release, and committed
+  the frontend lockfile for reproducible dependency audits.
+- Added a checked-in Docker Buildx Bake target for repeatable AMD64/ARM64 builds.
+- Build the platform-neutral frontend stage natively on the Buildx host so ARM64
+  images do not need to run the Node/Vite toolchain under QEMU.
+- Kept build metadata outside dependency-install cache keys so release rebuilds
+  reuse npm and Python/system dependency layers across build-number changes.
+- Reused the existing Scapy capture path for Sophos Heartbeat presence; no new
+  dependency or license obligation was added.
+- Replaced `python-jose` with MIT-licensed PyJWT for the existing HS256 token
+  flow, removing the unused and unpatched `ecdsa` dependency chain.
+- Documented the client-only React Router RSC audit exception and kept the
+  current router rather than downgrading into known client-side redirect/XSS
+  advisories.
+- Changed SSH credential tests and deep scans to reject unknown or changed host
+  keys and load verified entries from the persistent data volume.
+- Hardened nmap XML parsing with `defusedxml`, shell-quoted discovered libvirt
+  domain names and marked the non-cryptographic IP identifier hash explicitly.
+- Disabled wildcard credentialed CORS by default and added an exact-origin
+  `LANLENS_CORS_ORIGINS` opt-in for split frontend deployments.
+- Replaced the last person-specific-looking passive-discovery test fixture with
+  a neutral demo device name so committed test data stays clearly synthetic.
+
+## v1.5.8 — Network topology and custom SNMP queries
+
+### New Features
+- Added multiple independently editable DHCP ranges. Existing single-range
+  settings are migrated transparently and remain available through the legacy
+  `dhcp_start` and `dhcp_end` API fields.
+- Added live `new` and `archived` device counters to `current_stats` in
+  `/api/scan/status`.
 - Added an optional persistent REST API Bearer token through
   `LANLENS_API_TOKEN`. Tokens must contain at least 32 characters and are
   read-only by default; write methods require explicitly setting
@@ -13,7 +97,7 @@ All notable changes to this project should be documented in this file.
   count to `/api/scan/status`, while keeping the latest scan-run counters
   available separately.
 - Fresh installs now detect the primary host IPv4 subnet, persist it as the initial ARP scan range and start an immediate first-run network scan so the dashboard can populate without opening Settings first.
-- Added custom SNMP OID/table polling for V 1.5.8: operators can define arbitrary OIDs, scope them to target tags/device classes such as switch, printer, UPS or `*`, store the latest values per SNMP target and run them during the existing SNMP poll cadence.
+- Added custom SNMP OID/table polling: operators can define arbitrary OIDs, scope them to target tags/device classes such as switch, printer, UPS or `*`, store the latest values per SNMP target and run them during the existing SNMP poll cadence.
 - Added Settings UI and API endpoints for custom SNMP queries and latest custom SNMP results so heterogeneous SNMP devices can expose useful data without hardcoding every vendor-specific MIB into LanLens.
 - Added an opt-in **Network Topology** view under **Settings -> Features** that visualizes known device relationships, SNMP switch-port mappings and passive topology edges without changing the default LanLens navigation.
 - Grouped the main sidebar into **Monitor**, **Analyze**, **Manage** and **Admin** sections so optional expert views such as Network Topology have a clearer home.

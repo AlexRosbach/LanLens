@@ -9,6 +9,7 @@ import { SnmpSwitchPort, SnmpSwitchPortsResponse, snmpApi } from '../api/snmp'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
+import DeviceDnsNamesCard from '../components/devices/DeviceDnsNamesCard'
 import DeepScanPanel from '../components/deep-scan/DeepScanPanel'
 import VmHostSection from '../components/deep-scan/VmHostSection'
 import Badge from '../components/ui/Badge'
@@ -107,6 +108,16 @@ function portDisplayName(port: SnmpSwitchPort) {
   return port.alias || port.name || port.description || `ifIndex ${port.if_index}`
 }
 
+function formatRate(value?: number | null, unit = '/s') {
+  if (value === null || value === undefined) return '—'
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${unit}`
+}
+
+function formatCompactRate(value?: number | null) {
+  if (value === null || value === undefined) return '—'
+  return Math.round(value).toLocaleString()
+}
+
 function portStatsTitleLines(port: SnmpSwitchPort, t: TranslateFn) {
   const lines = [
     portDisplayName(port),
@@ -126,6 +137,13 @@ function portStatsTitleLines(port: SnmpSwitchPort, t: TranslateFn) {
       outDiscards: formatCounter(port.out_discards),
       inErrors: formatCounter(port.in_errors),
       outErrors: formatCounter(port.out_errors),
+    })}`,
+    `${t('snmp_port_counter_rates')}: ${t('snmp_port_counter_rate_values', {
+      inbound: formatRate(port.in_packets_per_second),
+      outbound: formatRate(port.out_packets_per_second),
+      errors: formatRate(port.errors_per_minute, '/min'),
+      discards: formatRate(port.discards_per_minute, '/min'),
+      layer1: formatRate(port.layer1_errors_per_minute, '/min'),
     })}`,
   ]
   if (port.unknown_protocols !== null && port.unknown_protocols !== undefined) {
@@ -561,6 +579,11 @@ export default function DeviceDetail() {
         </div>
       </Card>
 
+      <DeviceDnsNamesCard
+        device={device}
+        onChanged={() => devicesApi.get(device.id).then(setDevice).catch(() => {})}
+      />
+
       {showSectionNav && (
         <div
           ref={sectionNavRef}
@@ -877,7 +900,7 @@ export default function DeviceDetail() {
                   title={titleLines.join('\n')}
                   disabled={!linkedEndpoint?.device_id}
                   onClick={() => linkedEndpoint?.device_id && navigate(`/devices/${linkedEndpoint.device_id}`)}
-                  className={`min-h-20 rounded-lg border px-2 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${
+                  className={`min-h-24 rounded-lg border px-2 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${
                     port.is_active
                       ? 'border-success/40 bg-success/10 hover:border-success'
                       : 'border-border bg-surface2/40 hover:border-text-subtle'
@@ -887,6 +910,15 @@ export default function DeviceDetail() {
                   <span className="block truncate text-xs font-semibold text-text-base">{port.name || `#${port.if_index}`}</span>
                   <span className="mt-1 block truncate text-[11px] text-text-subtle">{port.alias || port.description || `ifIndex ${port.if_index}`}</span>
                   <span className="mt-2 block truncate text-[11px] text-text-muted">{formatBitsPerSecond(port.speed_bps)}</span>
+                  {(port.in_packets_per_second !== null && port.in_packets_per_second !== undefined) ||
+                  (port.out_packets_per_second !== null && port.out_packets_per_second !== undefined) ? (
+                    <span className="mt-1 block truncate text-[11px] text-primary" title={t('snmp_port_counter_rates')}>
+                      {t('snmp_port_rate_short', {
+                        inbound: formatCompactRate(port.in_packets_per_second),
+                        outbound: formatCompactRate(port.out_packets_per_second),
+                      })}
+                    </span>
+                  ) : null}
                   <span className={`mt-1 block truncate text-[11px] ${hasErrors ? 'text-danger' : 'text-text-muted'}`}>
                     {t('snmp_port_error_short', {
                       crc: formatCounter(port.crc_errors),

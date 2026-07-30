@@ -53,7 +53,7 @@ const settings = {
   show_tls_checks: true,
   show_ping_history: true,
   show_build_info: true,
-  app_version: '1.5.8',
+  app_version: '1.6.0',
   build_code: 'docs',
   build_commit: 'docs',
   build_branch: 'docs',
@@ -354,7 +354,7 @@ async function mockCommon(page: Page) {
     await route.fulfill({ json: settings })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route('**/api/notifications/unread-count', async (route) => {
     await route.fulfill({ json: { count: 0 } })
@@ -371,7 +371,7 @@ async function mockCommon(page: Page) {
 test('README dashboard screenshot', async ({ page }) => {
   await mockCommon(page)
   await page.goto('/')
-  await expect(page.getByRole('button', { name: /Core Gateway/ })).toBeVisible()
+  await expect(page.getByRole('row', { name: /Core Gateway/ })).toBeVisible()
   await page.screenshot({ path: `${screenshotDir}/lanlens-dashboard.png`, fullPage: false })
 })
 
@@ -412,5 +412,8 @@ test('README segments screenshot', async ({ page }) => {
   await page.goto('/segments')
   await expect(page.getByRole('heading', { name: 'Segments' })).toBeVisible()
   await expect(page.getByText('Core Infrastructure')).toBeVisible()
+  await page.getByLabel('Sort by').selectOption('name')
+  await page.getByRole('button', { name: 'Ascending' }).click()
+  await expect(page.getByTestId('segment-card').first()).toContainText('Servers')
   await page.screenshot({ path: `${screenshotDir}/lanlens-segments.png`, fullPage: false })
 })

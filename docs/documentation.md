@@ -589,7 +589,17 @@ When a linked observation carries a high- or medium-confidence device-class infe
 
 The inventory topology API combines existing device, host/guest and SNMP switch-port relationships with passive topology hints when both endpoints are already known devices. OSPF hello neighbors can add `ospf_neighbor` edges, HA virtual IP observations can add VRRP/HSRP virtual-IP edges, and LLDP/CDP/STP advertisements can add layer-2 edges when the advertised chassis, bridge or device identity matches an existing LanLens device. Unknown external neighbors remain visible in the passive discovery observation metadata instead of creating synthetic inventory devices.
 
-The optional **Network Topology** page appears only when **Settings -> Features -> Network Topology** is enabled together with Advanced View. It renders the existing topology API as a read-only map, shows SNMP port/VLAN context from learned endpoint data, filters by segment or device class, and keeps a compact recent-change panel beside the selected device. The map can be dragged, zoomed with the mouse wheel and adjusted through inline zoom/reset controls. This is useful today when LanLens has either SNMP bridge-table data, passive LLDP/CDP/STP/OSPF observations or manually/scan-created host relationships; environments without those signals still show discovered devices but have fewer useful edges.
+When passive discovery is enabled, LanLens also recognizes outbound TLS
+connections to the [documented Sophos Security Heartbeat channel on TCP
+8347](https://docs.sophos.com/nsg/sophos-firewall/21.0/Help/en-us/webhelp/onlinehelp/AdministratorHelp/SophosCentral/SecurityHeartbeatOverview/SecurityHeartbeat/index.html).
+The source IP/MAC can associate the observation with an existing device and
+indicate that a Sophos-managed endpoint heartbeat was seen. The health payload
+is encrypted, so LanLens deliberately reports the status as unavailable rather
+than guessing green, yellow or red. No packet payload is persisted.
+
+![Sophos Security Heartbeat presence on a device](screenshots/lanlens-sophos-heartbeat.png)
+
+The optional **Network Topology** page appears only when **Settings -> Features -> Network Topology** is enabled together with Advanced View. It renders the existing topology API as a read-only map, shows SNMP port/VLAN context from learned endpoint data, filters by segment, device class, relationship type or VLAN, and keeps compact neighbor, relationship-evidence and recent-change panels beside the selected device. The selected relationship panel explains the peer, evidence type, VLAN, interface alias and last-seen context when those values are available. The map can be dragged, zoomed with the mouse wheel and adjusted through inline zoom/reset controls. This is useful today when LanLens has either SNMP bridge-table data, passive LLDP/CDP/STP/OSPF observations or manually/scan-created host relationships; environments without those signals still show discovered devices but have fewer useful edges.
 
 ![LanLens network topology map](screenshots/lanlens-network-topology.png)
 
@@ -865,7 +875,18 @@ When `auto_scan_enabled` is set on a device, the deep scan scheduler (which poll
 - Credentials are encrypted using Fernet symmetric encryption. The key is derived from `SECRET_KEY` via SHA-256 and URL-safe base64 encoding.
 - The `encrypted_secret` column is never returned by any API endpoint.
 - All API endpoints require a valid session (HTTP-only cookie or Bearer token). For persistent REST integrations, set `LANLENS_API_TOKEN` to a random value of at least 32 characters and send it as `Authorization: Bearer <token>`. The token permits only GET/HEAD/OPTIONS requests by default. Set `LANLENS_API_TOKEN_READ_ONLY=false` only for an integration that genuinely needs write methods; the token has the authority of the first configured LanLens user and must be protected like an administrator credential. Generate a suitable value with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
-- SSH connections use `AutoAddPolicy` for host key acceptance — suitable for internal networks. If strict host key checking is required, configure the scan user with a pre-approved `known_hosts` file.
+- SSH credential tests and deep scans reject unknown or changed host keys. Put
+  verified OpenSSH host-key entries in `/data/ssh_known_hosts` inside the
+  container, or point `LANLENS_SSH_KNOWN_HOSTS` at another mounted file. Verify
+  a new fingerprint out of band before adding it; do not blindly trust
+  `ssh-keyscan` output from an untrusted network. A missing entry produces a
+  clear host-key verification failure instead of silently trusting the host.
+
+The SPA and API are served from the same origin, so browser CORS is disabled by
+default. If a deployment intentionally hosts a separate trusted frontend, set
+`LANLENS_CORS_ORIGINS` to a comma-separated list of exact origins such as
+`https://lanlens-ui.example.com`. Do not use a wildcard for a credentialed
+deployment.
 - WinRM connections use NTLM authentication over HTTP (port 5985). For production use, consider enabling HTTPS (port 5986) on Windows targets and updating the session URL accordingly.
 
 ### New database tables (v1.4.0)
@@ -1018,7 +1039,9 @@ SNMP poll troubleshooting details are stored on each target after every manual o
 
 SNMP data is most useful when the router, firewall, access point or switch exposes IF-MIB, EtherLike-MIB and, for endpoint mapping, bridge forwarding tables. For common SNMP-capable devices, expect the first poll to show system identity, vendor detection and interface inventory. If the device also exposes BRIDGE-MIB or Q-BRIDGE-MIB MAC tables, LanLens can map known device MAC addresses to the learned interface and VLAN. If it does not expose those tables, LanLens still records the target and interfaces, and the SNMP target is shown on the matching device detail page when the SNMP target is explicitly assigned to the device or when its host/IP matches the device IP. Endpoint-to-port topology remains empty until a switch that exposes MAC tables is polled.
 
-SNMP interface polling also stores real-port statistics when the device exposes the related IF-MIB and EtherLike-MIB counters: speed, admin/oper status, unicast/non-unicast packet counters, discards, errors, unknown protocols, CRC/FCS/alignment errors, collisions and frame-too-long fragment counters. The device detail page shows the switch, port, speed and port statistics when a device is matched through the MAC table. The switch-port grid accepts common physical interface naming from multiple vendors such as Ethernet, GigabitEthernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial names. It filters common virtual interfaces such as loopback, VLAN/SVI, tunnel, bridge, LAG/bond/team, management, stack and port-channel rows so the visualization focuses on real switch/router/firewall/AP ports.
+SNMP interface polling also stores real-port statistics when the device exposes the related IF-MIB and EtherLike-MIB counters: speed, admin/oper status, unicast/non-unicast packet counters, discards, errors, unknown protocols, CRC/FCS/alignment errors, collisions and frame-too-long fragment counters. Starting with the second valid sample, LanLens calculates inbound/outbound packets per second plus errors, discards and combined Layer-1 errors per minute. A counter reset or wrap produces no rate for that interval, avoiding false negative or extremely large trends. The device detail switch-port hover details show both the current counters and these rates. The switch-port grid accepts common physical interface naming from multiple vendors such as Ethernet, GigabitEthernet, ge/xe/et, ether, port, SFP/QSFP, WLAN/radio, WAN/LAN, PPP and serial names. It filters common virtual interfaces such as loopback, VLAN/SVI, tunnel, bridge, LAG/bond/team, management, stack and port-channel rows so the visualization focuses on real switch/router/firewall/AP ports.
+
+![SNMP switch-port packet-rate trends](screenshots/lanlens-snmp-counter-trends.png)
 
 Custom SNMP queries extend the fixed switch/interface polling for heterogeneous environments. In **Settings -> Network Discovery -> SNMP targets and switch topology**, operators can add arbitrary numeric OIDs as scalar reads or table walks, assign a target tag, choose a value type and keep the latest values per SNMP target. A target tag matches `*`, the linked device class, linked device vendor, detected SNMP vendor key/label or the target name/system name. This covers practical profiles such as `switch` interface extras, `printer` toner/status OIDs or `UPS` battery/runtime OIDs without polling every custom OID against every SNMP device. Custom queries run when the existing manual or background SNMP poll runs, and can also be triggered from the target row with **Custom OIDs**.
 
@@ -1026,7 +1049,9 @@ Custom SNMP queries extend the fixed switch/interface polling for heterogeneous 
 
 When an SNMP target is linked to a LanLens device and the poll returns interfaces, the device detail page shows a switch-port visualization. Each real interface is rendered as a port tile: green means active or carrying learned endpoints, grey means inactive or empty. Hovering a tile shows the interface, status, speed, CRC errors, collisions, fragments, cast packet counters, discard/error counters and learned device/MAC/VLAN context when bridge tables are available; unlabeled endpoints show the MAC once with any VLAN context. Clicking a tile with a matched LanLens device opens that device detail page. Interface-only targets still show their SNMP port inventory with empty endpoint labels so troubleshooting remains possible even when BRIDGE-MIB/Q-BRIDGE-MIB is unavailable.
 
-MAC tables are used to identify known LanLens devices by MAC address and attach switch/port/VLAN context to those devices. Expanding routed scan targets from SNMP-learned data needs IP-to-MAC evidence, not only a bridge MAC table. That follow-up should use IP-MIB/ARP-style SNMP data or explicit operator-provided scan targets before adding routed subnets to **Settings -> Network Discovery -> Scan range**.
+MAC tables identify known LanLens devices by MAC address and attach switch/port/VLAN context to those devices. A valid unicast MAC that is not yet in the inventory is added as an offline, MAC-only SNMP discovery, including its OUI vendor when known. This makes endpoints in another VLAN visible even when the LanLens host cannot discover them with local ARP. A bridge forwarding table does not provide an endpoint IP address or subnet; enriching these MAC-only devices with IP data still requires IP-MIB/ARP-style evidence from the VLAN gateway/L3 switch or an explicit routed/Scan Node target. LanLens does not infer a routed subnet from a VLAN number alone.
+
+![SNMP-discovered MAC-only VLAN endpoint in Network Topology](screenshots/lanlens-snmp-vlan-discovery.png)
 
 ![SNMP poll diagnostics without exposed credentials](screenshots/lanlens-snmp-poll-diagnostics.png)
 

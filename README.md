@@ -6,7 +6,7 @@
 
 **Self-hosted network inventory, local network scanner, and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.5.8-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.6.0-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -25,8 +25,9 @@ LanLens gives you a quick, local view of what is on your network:
 
 - Devices found by MAC/IP device discovery, with vendor hints and online/offline state
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
-- Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices
-- Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, SNMP, custom SNMP OIDs, and scan-detected changes
+- Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
+- Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
+- Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
 - Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
 
 Why people use it:
@@ -35,7 +36,7 @@ Why people use it:
 - **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
 - **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
 
-Optional expert views add SNMP switch-port context, custom SNMP OID/table polling by device class or target tag, a feature-gated network topology map with pan, zoom, draggable device cards and offline-device filtering, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
+Optional expert views add SNMP switch-port context with counter-rate trends and MAC-only discovery across learned VLANs, custom SNMP OID/table polling by device class or target tag, a feature-gated network topology map with pan, zoom, draggable device cards, offline-device filtering, relationship/VLAN filters and selected-link evidence details, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
@@ -101,6 +102,7 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 - Docker 20.10+
 - Docker Compose v2
 - Linux host recommended for direct ARP scanning
+- A 64-bit x86 (`amd64`) or ARM (`arm64`) Linux host
 
 ### 1. Start LanLens
 
@@ -145,11 +147,22 @@ Core runtime settings:
 
 For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki).
 
+### ARM64
+
+The main LanLens image supports 64-bit ARM hosts such as recent Raspberry Pi
+models running a 64-bit Linux distribution. Use the same Compose file and image
+name as on AMD64; Docker selects the matching image platform automatically.
+Direct ARP discovery still requires Linux host networking plus `NET_ADMIN` and
+`NET_RAW`. A 32-bit ARM userspace is not supported.
+
+Maintainers can validate both supported platforms with `docker buildx bake`.
+
 ---
 
 ## Learn More
 
 - [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
+- [DNS names and AXFR](docs/dns-names-axfr.md): preferred names, alias inventory, read-only zone transfers, optional TSIG, and least-privilege setup
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 

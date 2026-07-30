@@ -53,7 +53,7 @@ const settings = {
   show_tls_checks: false,
   show_ping_history: false,
   show_build_info: false,
-  app_version: '1.5.8',
+  app_version: '1.6.0',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -173,6 +173,11 @@ const switchPorts = {
       crc_errors: portNumber === 3 ? 4 : 0,
       collision_errors: portNumber === 3 ? 2 : 0,
       fragment_errors: 0,
+      in_packets_per_second: 124.5 + portNumber,
+      out_packets_per_second: 86.25 + portNumber,
+      errors_per_minute: portNumber === 3 ? 1.5 : 0,
+      discards_per_minute: portNumber === 3 ? 0.5 : 0,
+      layer1_errors_per_minute: portNumber === 3 ? 2.25 : 0,
       is_active: endpoints.length > 0,
       endpoints,
       last_seen_at: now,
@@ -239,6 +244,11 @@ const ciscoInterfaceOnlyPorts = {
       crc_errors: portNumber === 2 ? 3 : 0,
       collision_errors: 0,
       fragment_errors: 0,
+      in_packets_per_second: 25.5 + portNumber,
+      out_packets_per_second: 36.25 + portNumber,
+      errors_per_minute: 0,
+      discards_per_minute: 0,
+      layer1_errors_per_minute: portNumber === 2 ? 0.75 : 0,
       is_active: portNumber <= 4,
       endpoints: [],
       last_seen_at: now,
@@ -258,7 +268,7 @@ async function mockDeviceDetail(page: Page, device: Record<string, unknown>, por
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route('**/api/devices**', async (route) => {
     if (!new URL(route.request().url()).pathname.endsWith('/api/devices')) return route.fallback()
@@ -300,6 +310,7 @@ test('device overview shows SNMP switch ports in context', async ({ page }) => {
   await expect(page.locator('#device-switch-ports').getByText('Err 4/2/0')).toBeVisible()
   const unlabeledPortTitle = await page.locator('#device-switch-ports button').filter({ hasText: 'Gi1/0/2' }).getAttribute('title')
   expect(unlabeledPortTitle).toContain('- AA:BB:CC:00:00:02 · VLAN 10')
+  expect(unlabeledPortTitle).toContain('Counter trends: In 126.5/s, out 88.25/s')
   expect((unlabeledPortTitle?.match(/AA:BB:CC:00:00:02/g) ?? []).length).toBe(1)
   await page.screenshot({ path: `${screenshotDir}/lanlens-snmp-switch-ports.png`, fullPage: false })
 })

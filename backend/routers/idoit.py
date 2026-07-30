@@ -28,6 +28,7 @@ from ..services.idoit import (
 from ..services.notification import validate_webhook_url
 from ..services.idoit_scheduler import get_idoit_scheduler_status, update_idoit_interval
 from ..services.settings_helpers import is_advanced_feature_enabled
+from ..services.dns_names import device_display_name
 
 router = APIRouter(prefix="/api/idoit", tags=["idoit"])
 
@@ -39,7 +40,7 @@ def _require_idoit_enabled(db: Session) -> None:
 
 def _device_display_name(device: Optional[Device], fallback_id: Optional[int]) -> str:
     if device:
-        return device.label or device.hostname or device.ip_address or device.mac_address or f"Device #{device.id}"
+        return device_display_name(device)
     if fallback_id:
         return f"Device #{fallback_id}"
     return "System"

@@ -52,7 +52,7 @@ NETWORK_CHANGE_TYPE_RULES = [
 ]
 
 SETTING_KEYS = [
-    "dhcp_start", "dhcp_end", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
+    "dhcp_start", "dhcp_end", "dhcp_ranges", "scan_start", "scan_end", "scan_additional_targets", "scan_interval_minutes",
     "passive_discovery_background_enabled", "passive_discovery_interval_minutes", "passive_discovery_capture_seconds",
     "ping_monitor_enabled", "ping_monitor_interval_minutes",
     "device_archive_after_days", "device_delete_archived_after_days",
@@ -160,6 +160,17 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
 
     dhcp_start = _get(db, "dhcp_start", "192.168.1.1")
     dhcp_end = _get(db, "dhcp_end", "192.168.1.254")
+    try:
+        stored_dhcp_ranges = json.loads(_get(db, "dhcp_ranges", "") or "[]")
+        dhcp_ranges = [
+            {"start": item["start"], "end": item["end"]}
+            for item in stored_dhcp_ranges
+            if isinstance(item, dict) and item.get("start") and item.get("end")
+        ]
+    except (TypeError, ValueError, KeyError):
+        dhcp_ranges = []
+    if not dhcp_ranges:
+        dhcp_ranges = [{"start": dhcp_start, "end": dhcp_end}]
 
     scan_start_row = db.query(Setting).filter(Setting.key == "scan_start").first()
     scan_end_row = db.query(Setting).filter(Setting.key == "scan_end").first()
@@ -178,6 +189,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
     return AllSettings(
         dhcp_start=dhcp_start,
         dhcp_end=dhcp_end,
+        dhcp_ranges=dhcp_ranges,
         scan_start=effective_scan_start,
         scan_end=effective_scan_end,
         scan_additional_targets=_get(db, "scan_additional_targets", "") or "",
@@ -281,19 +293,43 @@ def update_dhcp(
     _: User = Depends(get_current_user),
 ):
     import ipaddress
-    try:
-        start_ip = ipaddress.IPv4Address(data.dhcp_start)
-        end_ip = ipaddress.IPv4Address(data.dhcp_end)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid IP address: {e}")
 
-    if int(start_ip) > int(end_ip):
-        raise HTTPException(status_code=400, detail="DHCP start must be less than or equal to DHCP end")
+    raw_ranges = data.dhcp_ranges
+    if raw_ranges is None and data.dhcp_start and data.dhcp_end:
+        raw_ranges = [{"start": data.dhcp_start, "end": data.dhcp_end}]
+    if not raw_ranges:
+        raise HTTPException(status_code=400, detail="At least one DHCP range is required")
 
-    _set(db, "dhcp_start", data.dhcp_start)
-    _set(db, "dhcp_end", data.dhcp_end)
+    validated = []
+    for index, item in enumerate(raw_ranges, start=1):
+        start_value = item.start if hasattr(item, "start") else item["start"]
+        end_value = item.end if hasattr(item, "end") else item["end"]
+        try:
+            start_ip = ipaddress.IPv4Address(start_value)
+            end_ip = ipaddress.IPv4Address(end_value)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid IP address in DHCP range {index}: {e}")
+        if int(start_ip) > int(end_ip):
+            raise HTTPException(
+                status_code=400,
+                detail=f"DHCP range {index} start must be less than or equal to its end",
+            )
+        validated.append({"start": str(start_ip), "end": str(end_ip)})
+
+    ordered = sorted(
+        ((int(ipaddress.IPv4Address(item["start"])), int(ipaddress.IPv4Address(item["end"]))) for item in validated),
+        key=lambda item: item[0],
+    )
+    for previous, current in zip(ordered, ordered[1:]):
+        if current[0] <= previous[1]:
+            raise HTTPException(status_code=400, detail="DHCP ranges must not overlap")
+
+    # Keep the legacy keys aligned with the first range for old clients.
+    _set(db, "dhcp_start", validated[0]["start"])
+    _set(db, "dhcp_end", validated[0]["end"])
+    _set(db, "dhcp_ranges", json.dumps(validated))
     db.commit()
-    return MessageResponse(message="DHCP range updated")
+    return MessageResponse(message="DHCP ranges updated")
 
 
 @router.put("/scan-range", response_model=MessageResponse)

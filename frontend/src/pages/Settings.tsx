@@ -15,6 +15,7 @@ import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDi
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
+import DnsNamesSettingsCard from '../components/settings/DnsNamesSettingsCard'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
 import { formatDateTime } from '../utils/formatters'
@@ -1081,7 +1082,7 @@ export default function Settings() {
   async function saveDhcp() {
     setSaving(true)
     try {
-      await settingsApi.updateDhcp(current.dhcp_start, current.dhcp_end)
+      await settingsApi.updateDhcp(current.dhcp_ranges)
       toast.success(t('dhcp_range_saved'))
     } catch {
       toast.error(t('dhcp_range_save_failed'))
@@ -2258,6 +2259,7 @@ export default function Settings() {
           {t('network_discovery')}
         </h2>
         <div className="space-y-4">
+          <DnsNamesSettingsCard />
           <div>
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('discovery_category_ranges')}</h2>
             <p className="text-sm text-text-subtle">{t('discovery_category_ranges_hint')}</p>
@@ -2267,14 +2269,64 @@ export default function Settings() {
             <p className="text-sm text-text-subtle mb-4">
               {t('dhcp_tagging_description')}
             </p>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3">
+              {current.dhcp_ranges.map((range, index) => (
+                <div key={index} className="rounded-lg border border-border bg-surface2 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium text-text-base">
+                      {t('dhcp_range_number').replace('{number}', String(index + 1))}
+                    </span>
+                    {current.dhcp_ranges.length > 1 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSettings({
+                          ...current,
+                          dhcp_ranges: current.dhcp_ranges.filter((_, itemIndex) => itemIndex !== index),
+                        })}
+                      >
+                        {t('remove')}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-sm text-text-subtle mb-1">{t('dhcp_start_label')}</label>
+                      <Input
+                        value={range.start}
+                        onChange={(e) => setSettings({
+                          ...current,
+                          dhcp_ranges: current.dhcp_ranges.map((item, itemIndex) => (
+                            itemIndex === index ? { ...item, start: e.target.value } : item
+                          )),
+                        })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-text-subtle mb-1">{t('dhcp_end_label')}</label>
+                      <Input
+                        value={range.end}
+                        onChange={(e) => setSettings({
+                          ...current,
+                          dhcp_ranges: current.dhcp_ranges.map((item, itemIndex) => (
+                            itemIndex === index ? { ...item, end: e.target.value } : item
+                          )),
+                        })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
               <div>
-                <label className="block text-sm text-text-subtle mb-1">{t('dhcp_start_label')}</label>
-                <Input value={current.dhcp_start} onChange={(e) => setSettings({ ...current, dhcp_start: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm text-text-subtle mb-1">{t('dhcp_end_label')}</label>
-                <Input value={current.dhcp_end} onChange={(e) => setSettings({ ...current, dhcp_end: e.target.value })} />
+                <Button
+                  variant="outline"
+                  onClick={() => setSettings({
+                    ...current,
+                    dhcp_ranges: [...current.dhcp_ranges, { start: '', end: '' }],
+                  })}
+                >
+                  {t('add_dhcp_range')}
+                </Button>
               </div>
             </div>
             <div className="mt-4">

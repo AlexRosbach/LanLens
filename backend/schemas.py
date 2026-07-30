@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -271,6 +271,8 @@ DEVICE_CLASSES = [
 class DeviceUpdate(BaseModel):
     # Identification
     label: Optional[str] = None
+    preferred_name: Optional[str] = None
+    preferred_name_mode: Optional[str] = None
     device_class: Optional[str] = None
     is_registered: Optional[bool] = None
     segment_id: Optional[int] = None
@@ -368,6 +370,56 @@ class DevicePingSampleResponse(BaseModel):
         from_attributes = True
 
 
+class DeviceDnsNameResponse(BaseModel):
+    id: int
+    device_id: int
+    name: str
+    record_type: str
+    source: str
+    canonical_name: Optional[str] = None
+    address: Optional[str] = None
+    status: str
+    first_seen: datetime
+    last_seen: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PreferredDeviceNameUpdate(BaseModel):
+    mode: str
+    name: Optional[str] = None
+
+
+class AxfrDnsConfigResponse(BaseModel):
+    dns_names_enabled: bool = False
+    enabled: bool = False
+    server: str = ""
+    zones: List[str] = []
+    port: int = 53
+    timeout_seconds: int = 15
+    tsig_key_name: str = ""
+    tsig_algorithm: str = "hmac-sha256"
+    tsig_configured: bool = False
+    interval_minutes: int = 60
+    last_sync_at: Optional[datetime] = None
+    last_error: str = ""
+
+
+class AxfrDnsConfigUpdate(BaseModel):
+    dns_names_enabled: bool = False
+    enabled: bool = False
+    server: str = ""
+    zones: List[str] = []
+    port: int = 53
+    timeout_seconds: int = 15
+    tsig_key_name: str = ""
+    tsig_secret: Optional[str] = None
+    clear_tsig_secret: bool = False
+    tsig_algorithm: str = "hmac-sha256"
+    interval_minutes: int = 60
+
+
 class PortScanResponse(BaseModel):
     id: int
     scanned_at: datetime
@@ -386,6 +438,9 @@ class DeviceResponse(BaseModel):
     mac_address: str
     ip_address: Optional[str]
     hostname: Optional[str]
+    preferred_name: Optional[str] = None
+    preferred_name_mode: str = "automatic"
+    display_name: Optional[str] = None
     # Identification
     label: Optional[str]
     device_class: str
@@ -457,6 +512,11 @@ class DeviceResponse(BaseModel):
     snmp_interface_crc_errors: Optional[int] = None
     snmp_interface_collision_errors: Optional[int] = None
     snmp_interface_fragment_errors: Optional[int] = None
+    snmp_interface_in_packets_per_second: Optional[float] = None
+    snmp_interface_out_packets_per_second: Optional[float] = None
+    snmp_interface_errors_per_minute: Optional[float] = None
+    snmp_interface_discards_per_minute: Optional[float] = None
+    snmp_interface_layer1_errors_per_minute: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -552,6 +612,8 @@ class ScanInventoryStats(BaseModel):
     total: int
     online: int
     offline: int
+    new: int
+    archived: int
     unread_notifications: int
 
 
@@ -563,9 +625,15 @@ class ScanStatusResponse(BaseModel):
 
 # ── Settings ──────────────────────────────────────────────────────────────────
 
+class DhcpRange(BaseModel):
+    start: str
+    end: str
+
+
 class DhcpSettings(BaseModel):
-    dhcp_start: str
-    dhcp_end: str
+    dhcp_ranges: Optional[List[DhcpRange]] = None
+    dhcp_start: Optional[str] = None
+    dhcp_end: Optional[str] = None
 
 
 class ScanRangeSettings(BaseModel):
@@ -690,6 +758,7 @@ class PortRangeScanRequest(BaseModel):
 class AllSettings(BaseModel):
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"
+    dhcp_ranges: List[DhcpRange] = Field(default_factory=list)
     scan_start: Optional[str] = "192.168.1.1"
     scan_end: Optional[str] = "192.168.1.254"
     scan_additional_targets: Optional[str] = ""
