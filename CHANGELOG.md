@@ -44,6 +44,9 @@ All notable changes to this project should be documented in this file.
   but marks health status as unavailable because the payload is encrypted.
 
 ### Fixes / Hardening
+- Kept the Settings UI compatible with older settings responses by deriving the
+  initial DHCP range from the legacy start/end fields when `dhcp_ranges` is
+  absent.
 - Carried the completed 1.5.8 maintenance fixes into the 1.6.0 release branch,
   including persistent-token environment loading, timezone-aware scan history,
   i-doit synchronization reliability and restored SSH private-key support.
