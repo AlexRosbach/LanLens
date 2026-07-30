@@ -5,6 +5,8 @@ All notable changes to this project should be documented in this file.
 ## Unreleased
 
 ### New Features
+- Added ascending and descending segment sorting by starting IP address, name,
+  total capacity, used addresses or free addresses.
 - Added the optional **DNS names and aliases** inventory for devices, including
   record type, discovery source, canonical CNAME target, address, first/last
   observation and active/conflicting state.

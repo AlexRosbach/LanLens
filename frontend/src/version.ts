@@ -1,6 +1,6 @@
 export const APP_VERSION = '1.5.9'
 export const GITHUB_REPO = 'AlexRosbach/LanLens'
-export const BUILD_CODE = import.meta.env.VITE_LANLENS_BUILD_CODE || '20260729.0009'
+export const BUILD_CODE = import.meta.env.VITE_LANLENS_BUILD_CODE || '20260730.0011'
 export const BUILD_COMMIT = import.meta.env.VITE_LANLENS_BUILD_COMMIT || 'unknown'
 export const BUILD_BRANCH = import.meta.env.VITE_LANLENS_BUILD_BRANCH || 'unknown'
 export const BUILD_CREATED = import.meta.env.VITE_LANLENS_BUILD_CREATED || 'unknown'
