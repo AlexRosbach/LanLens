@@ -1008,21 +1008,21 @@ def _open_port_entries(db: Optional[Session], device: Device) -> list[dict[str, 
     if not isinstance(ports, list):
         return []
     entries: list[dict[str, Any]] = []
-    observed = scan.scanned_at.isoformat() if scan.scanned_at else None
     for item in ports[:80]:
         if not isinstance(item, dict):
             continue
         port = item.get("port") or item.get("number") or item.get("id")
         proto = item.get("protocol") or item.get("proto") or "tcp"
         service = item.get("service") or item.get("name") or item.get("product") or ""
-        title = f"{port}/{proto} {service}".strip() if port else str(service or "Open port")
+        description_parts = ["Discovered by LanLens port scan"]
+        if scan.scanned_at:
+            description_parts.append(f"Observed: {scan.scanned_at.isoformat()}")
         entry = {
-            "title": title[:255],
-            "port": str(port) if port not in (None, "") else None,
-            "protocol": str(proto).lower() if proto else None,
-            "service": str(service)[:255] if service else None,
-            "source": "LanLens port scan",
-            "observed_at": observed,
+            "protocol": str(proto).upper() if proto else None,
+            "protocol_layer_5": str(service).upper()[:255] if service else None,
+            "port_from": int(port) if str(port).isdigit() else None,
+            "port_to": int(port) if str(port).isdigit() else None,
+            "description": "\n".join(description_parts),
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries
@@ -1054,14 +1054,29 @@ def _service_entries(device: Device) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for service in sorted(list(device.services or []), key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
         endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
+        description_parts = [
+            value for value in (
+                f"Service: {service.name}" if service.name else None,
+                f"Type: {service.service_type}" if service.service_type else None,
+                f"Endpoint: {endpoint}" if endpoint else None,
+                f"Version: {service.version}" if service.version else None,
+                f"TLS status: {service.tls_status}" if service.tls_status else None,
+                service.description,
+                "Discovered by LanLens",
+            ) if value
+        ]
+        raw_protocol = str(service.protocol or "").strip()
+        transport_protocol = raw_protocol.upper() if raw_protocol.lower() in {"tcp", "udp"} else "TCP"
+        application_protocol = (
+            raw_protocol if raw_protocol.lower() not in {"", "tcp", "udp"}
+            else service.service_type or service.name
+        )
         entry = {
-            "title": (service.name or service.service_type or "LanLens service")[:255],
-            "type": service.service_type,
-            "protocol": service.protocol,
-            "port": str(service.port) if service.port else None,
-            "url": endpoint,
-            "version": service.version,
-            "status": service.tls_status,
+            "protocol": transport_protocol,
+            "protocol_layer_5": str(application_protocol).upper()[:255] if application_protocol else None,
+            "port_from": service.port,
+            "port_to": service.port,
+            "description": "\n".join(description_parts)[:2000],
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries
@@ -1103,18 +1118,33 @@ def _tls_certificate_entries(device: Device) -> list[dict[str, Any]]:
     ]
     for service in sorted(services, key=lambda item: (item.sort_order or 0, item.name or ""))[:80]:
         endpoint = service.url or (f"{service.protocol or 'tcp'}://{device.ip_address}:{service.port}" if service.port and device.ip_address else "")
-        title_parts = [service.name or "TLS certificate"]
-        if endpoint:
-            title_parts.append(endpoint)
+        subject = service.tls_subject or ""
+        common_name = subject
+        for component in subject.split(","):
+            key, separator, value = component.strip().partition("=")
+            if separator and key.strip().upper() == "CN" and value.strip():
+                common_name = value.strip()
+                break
+        if not common_name:
+            common_name = service.name or endpoint or "TLS certificate"
+        description_parts = [
+            value for value in (
+                f"Subject: {service.tls_subject}" if service.tls_subject else None,
+                f"Issuer: {service.tls_issuer}" if service.tls_issuer else None,
+                f"SANs: {service.tls_sans}" if service.tls_sans else None,
+                f"Endpoint: {endpoint}" if endpoint else None,
+                f"Status: {service.tls_status}" if service.tls_status else None,
+                f"Self-signed: {'yes' if service.tls_self_signed else 'no'}"
+                if service.tls_self_signed is not None else None,
+                f"Error: {service.tls_error}" if service.tls_error else None,
+                "Discovered by LanLens",
+            ) if value
+        ]
         entry = {
-            "title": " - ".join(title_parts)[:255],
-            "subject": service.tls_subject,
-            "issuer": service.tls_issuer,
-            "valid_to": service.tls_expires_at.isoformat() if service.tls_expires_at else None,
-            "sans": service.tls_sans,
-            "status": service.tls_status,
-            "self_signed": service.tls_self_signed,
-            "error": service.tls_error,
+            "type": "SSL/TLS",
+            "common_name": common_name[:1000],
+            "expire_date": service.tls_expires_at.date().isoformat() if service.tls_expires_at else None,
+            "description": "\n".join(description_parts)[:4000],
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries
@@ -1460,6 +1490,14 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__CPU": ("title", "type"),
     "C__CATG__MEMORY": ("title", "manufacturer", "capacity"),
     "C__CATG__DRIVE": ("serial", "mount_point", "title"),
+    "C__CATG__CERTIFICATE": ("common_name",),
+}
+COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS = {
+    "C__CATG__NET_CONNECTIONS_FOLDER": ("port_from", "port_to", "protocol"),
+}
+FIRST_ENTRY_REUSE_CATEGORIES = {
+    "C__CATG__NETWORK_PORT",
+    "C__CATG__IP",
 }
 
 # These fields are derived automatically from deep-scan hardware data and vary
@@ -1467,11 +1505,12 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
 # but should not turn an otherwise successful sync into operator-visible noise.
 # Explicitly mapped/default identity fields still report warnings when rejected.
 OPTIONAL_IDOIT_CATEGORY_FIELDS = {
+    "C__CATG__MODEL": {"manufacturer"},
     "C__CATG__CPU": {"manufacturer", "type", "frequency", "frequency_unit", "cores", "description"},
     "C__CATG__MEMORY": {"quantity", "manufacturer", "type", "capacity", "unit"},
     "C__CATG__DRIVE": {"serial", "mount_point", "capacity", "unit", "firmware", "drive_type"},
-    "C__CATG__NET_CONNECTIONS_FOLDER": {"port", "protocol", "service", "source", "observed_at", "type", "url", "version", "status"},
-    "C__CATG__CERTIFICATE": {"subject", "issuer", "valid_to", "sans", "status", "self_signed", "error"},
+    "C__CATG__NET_CONNECTIONS_FOLDER": {"protocol", "protocol_layer_5", "port_from", "port_to", "description"},
+    "C__CATG__CERTIFICATE": {"type", "common_name", "expire_date", "description"},
     "C__CATG__APPLICATION": {"source"},
 }
 
@@ -1784,6 +1823,19 @@ class IdoitClient:
         if isinstance(result, dict):
             self._session_id = result.get("session-id") or result.get("session_id")
         return result
+
+    async def logout_best_effort(self) -> None:
+        """Close the i-doit session so upstream object locks are released."""
+        if not self._session_id:
+            return
+        try:
+            await self.call("idoit.logout")
+        except Exception:
+            # Logout must never hide the result of the actual operation. i-doit
+            # also expires abandoned sessions server-side as a final fallback.
+            pass
+        finally:
+            self._session_id = None
 
     async def create_object(self, title: str, object_type: str) -> str:
         result = await self.call("cmdb.object.create", {"type": object_type, "title": title})
@@ -2211,8 +2263,14 @@ class IdoitClient:
             saved: dict[str, Any] = {}
             failed: dict[str, Any] = {}
             for field, value in data.items():
+                retry_data = {field: value}
+                # Several i-doit categories validate mandatory fields even
+                # while updating one property. Preserve a supplied title on
+                # every field-level retry instead of sending incomplete rows.
+                if field != "title" and data.get("title") not in (None, ""):
+                    retry_data["title"] = data["title"]
                 try:
-                    saved[field] = await self.save_category(object_id, category, {field: value}, entry_id)
+                    saved[field] = await self.save_category(object_id, category, retry_data, entry_id)
                 except IdoitConnectionError as field_error:
                     failed[field] = field_error.to_detail()
             if not saved:
@@ -2222,7 +2280,14 @@ class IdoitClient:
                     if entry_id:
                         response["entry_id"] = entry_id
                     return response
-                raise full_error
+                response = {
+                    "status": "failed",
+                    "failed_fields": failed,
+                    "error": full_error.to_detail(),
+                }
+                if entry_id:
+                    response["entry_id"] = entry_id
+                return response
             optional_fields = OPTIONAL_IDOIT_CATEGORY_FIELDS.get(category, set())
             ignored = {field: error for field, error in failed.items() if field in optional_fields}
             warning_failed = {field: error for field, error in failed.items() if field not in optional_fields}
@@ -2235,7 +2300,7 @@ class IdoitClient:
             return response
 
     async def find_reusable_category_entry(self, object_id: str, category: str, data: dict[str, Any]) -> Optional[str]:
-        if category not in MULTIVALUE_CATEGORY_MATCH_FIELDS:
+        if category not in MULTIVALUE_CATEGORY_MATCH_FIELDS and category not in COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS:
             return None
         try:
             result = await self.read_category(object_id, category)
@@ -2243,6 +2308,21 @@ class IdoitClient:
             return None
         entries = _category_entries(result)
         if not entries:
+            return None
+        composite_fields = COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS.get(category)
+        if composite_fields:
+            expected_values = {
+                field: _plain_category_value(data.get(field))
+                for field in composite_fields
+            }
+            if all(value not in (None, "") for value in expected_values.values()):
+                for entry in entries:
+                    if all(
+                        str(_plain_category_value(entry.get(field)) or "").strip().lower()
+                        == str(expected).strip().lower()
+                        for field, expected in expected_values.items()
+                    ):
+                        return _category_entry_id(entry)
             return None
         match_fields = MULTIVALUE_CATEGORY_MATCH_FIELDS[category]
         for field in match_fields:
@@ -2253,10 +2333,13 @@ class IdoitClient:
                 current = _plain_category_value(entry.get(field))
                 if current not in (None, "") and str(current).strip().lower() == str(expected).strip().lower():
                     return _category_entry_id(entry)
-        # LanLens manages one discovered network identity per object. If i-doit
-        # already has an entry but the MAC/IP changed, update the first one
-        # instead of appending a fresh duplicate on every sync.
-        return _category_entry_id(entries[0])
+        # LanLens manages one discovered MAC/IP identity per object. If i-doit
+        # already has an identity entry but its value changed, update that entry
+        # instead of appending a duplicate. Inventory categories must never use
+        # this fallback because each port/certificate/hardware row is distinct.
+        if category in FIRST_ENTRY_REUSE_CATEGORIES:
+            return _category_entry_id(entries[0])
+        return None
 
     async def cleanup_lanlens_global_description(self, object_id: str) -> Optional[str]:
         try:
@@ -2283,14 +2366,17 @@ class IdoitClient:
         return None
 
     async def test_connection(self) -> dict[str, Any]:
-        login_result = await self.login()
-        return {
-            "ok": True,
-            "endpoint": self.endpoint,
-            "authenticated": bool(self._session_id),
-            "session_received": bool(login_result),
-            "message": "i-doit JSON-RPC login succeeded",
-        }
+        try:
+            login_result = await self.login()
+            return {
+                "ok": True,
+                "endpoint": self.endpoint,
+                "authenticated": bool(self._session_id),
+                "session_received": bool(login_result),
+                "message": "i-doit JSON-RPC login succeeded",
+            }
+        finally:
+            await self.logout_best_effort()
 
 
 def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -2345,6 +2431,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         log_sync(db, device.id, mode, "failure", "i-doit mapping validation failed", {"payload": payload, "errors": errors, "upstream_write_performed": False}, state.idoit_object_id)
         db.commit()
         return {"device_id": device.id, "status": state.status, "errors": errors, "payload_hash": digest, "upstream_write_performed": False}
+
+    # get_or_create_state() flushes a new row. Commit before any remote i-doit
+    # calls so SQLite does not hold a write lock for the duration of network
+    # requests and block unrelated UI/API writes.
+    db.commit()
 
     client = IdoitClient(config)
     details: dict[str, Any] = {"payload": payload, "upstream_write_performed": False, "category_results": {}}
@@ -2466,6 +2557,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
                     if failed:
                         sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
+                elif result.get("status") == "failed":
+                    failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
+                    rejected = ", ".join(sorted(failed.keys())) if failed else "category payload"
+                    sync_warnings.append(f"{category}: save rejected by i-doit; rejected fields: {rejected}")
             details["category_results"][category] = category_results if isinstance(data, list) else (category_results[0] if category_results else {"status": "skipped_empty"})
 
         sysid = await client.object_sysid(object_id)
@@ -2503,6 +2598,9 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 stale_object_id,
             )
             db.commit()
+            logout = getattr(client, "logout_best_effort", None)
+            if logout:
+                await logout()
             return await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=False, _stale_retry=True)
         state.status = "error"
         state.last_error = exc.message
@@ -2515,6 +2613,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         log_sync(db, device.id, mode, "failure", str(exc), details, state.idoit_object_id)
         db.commit()
         raise
+    finally:
+        logout = getattr(client, "logout_best_effort", None)
+        if logout:
+            await logout()
 
 
 async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:

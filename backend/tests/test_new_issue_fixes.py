@@ -2,6 +2,7 @@ import os
 import sys
 import types
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -13,7 +14,7 @@ from starlette.requests import Request
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-new-issue-fixes-12345")
 
 from backend.auth.dependencies import get_current_user
-from backend.config import settings
+from backend.config import Settings, settings
 from backend.database import Base
 from backend.models import Device, Notification, ScanRun, User
 from backend.routers.scan import get_scan_status
@@ -62,6 +63,20 @@ class NewIssueFixTests(unittest.TestCase):
             settings.api_token_read_only = original_read_only
             db.close()
 
+    def test_lanlens_prefixed_api_token_environment_names_are_loaded(self):
+        with patch.dict(
+            os.environ,
+            {
+                "LANLENS_API_TOKEN": "environment-token-that-is-long-enough",
+                "LANLENS_API_TOKEN_READ_ONLY": "false",
+            },
+            clear=False,
+        ):
+            configured = Settings(_env_file=None)
+
+        self.assertEqual(configured.api_token, "environment-token-that-is-long-enough")
+        self.assertFalse(configured.api_token_read_only)
+
     def test_scan_status_includes_live_inventory_and_notification_counts(self):
         db = self.Session()
         try:
@@ -86,6 +101,29 @@ class NewIssueFixTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_scan_status_serializes_dates_in_configured_timezone(self):
+        db = self.Session()
+        original_tz = settings.tz
+        try:
+            settings.tz = "Europe/London"
+            db.add_all([
+                User(username="admin", password_hash="x", force_password_change=False),
+                ScanRun(
+                    scan_type="manual",
+                    started_at=datetime(2026, 7, 29, 8, 0, 0),
+                    finished_at=datetime(2026, 7, 29, 8, 1, 0),
+                    status="done",
+                ),
+            ])
+            db.commit()
+
+            status = get_scan_status(db=db, _=None)
+
+            self.assertEqual(status.last_scan.started_at.isoformat(), "2026-07-29T09:00:00+01:00")
+            self.assertEqual(status.last_scan.finished_at.isoformat(), "2026-07-29T09:01:00+01:00")
+        finally:
+            settings.tz = original_tz
+            db.close()
     def test_local_host_identity_is_added_from_primary_interface(self):
         fake_netifaces = types.SimpleNamespace(
             AF_INET=2,

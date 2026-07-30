@@ -967,6 +967,11 @@ Security and operational boundaries:
 - Outbound webhook, i-doit JSON-RPC and generic CMDB REST requests connect to the validated resolved address while preserving the original Host/SNI, reducing DNS-rebinding risk between validation and connect.
 - Secrets are not returned in cleartext by config responses; configured flags or masks are returned instead.
 - i-doit sync logs include the LanLens device display name, device ID and result details so operators can jump back to the device detail page from the UI. Match-only skips keep direct SYSID lookup attempts, candidate rejection reasons and fallback page counters in the log details.
+- LanLens closes every authenticated i-doit JSON-RPC session after connection
+  tests, SYSID lookups and synchronization so i-doit can release any object lock
+  immediately. Installation-specific category validation failures are recorded
+  as per-category warnings while accepted object/category changes remain
+  synchronized.
 - The optional **Settings → Debug** tab appears when **Debug tools** is enabled in **Settings → Features**. It can filter persistent troubleshooting logs by topic (`CMDB`, `i-doit` or all), text such as CMDB IDs/object IDs/hostnames and level (`Error`, `Warning`, `Info`, `Debug`, `Trace`) so failed sync attempts can be inspected without opening container logs.
 - In `match_only` mode, LanLens still searches for an existing i-doit object before skipping. It uses stable identity hints in this order of confidence: stored object ID, manually stored i-doit SYSID, CMDB/inventory ID, MAC address, IP address, hostname and exact object title. Manual SYSID values are also matched when the i-doit tenant stores them in Accounting/Inventory fields together with a CMDB ID. If direct searches return no object, LanLens falls back to a bounded object-list scan and verifies the real SYSID, Accounting/Inventory, network-port MAC, IP or hostname categories before linking. The device detail page includes **Test SYSID** so operators can verify `SYSID -> object id` visibility before running a sync. Only unmatched devices stay in `match_required`; the policy only prevents creating new objects.
 
@@ -979,13 +984,27 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - purpose, description and notes -> `C__CATG__GLOBAL`
 - operating system text -> `C__CATG__OPERATING_SYSTEM.description`
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
-- open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries
-- TLS certificate records -> structured `C__CATG__CERTIFICATE` entries with subject, issuer and validity data when available
+- open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries using i-doit's listener fields (`protocol`, `protocol_layer_5`, `port_from`, `port_to`, and `description`)
+- TLS certificate records -> structured `C__CATG__CERTIFICATE` entries using `common_name`, `expire_date`, `type`, and a consolidated `description`
+- model manufacturers are attempted as i-doit Dialog+ values; installations that reject an unknown manufacturer retain the model while silently skipping that optional value
 - container/software findings -> structured `C__CATG__APPLICATION` entries
+
+Network listeners are identified by the complete transport protocol and port
+range. A repeated sync updates only the matching listener; a newly discovered
+port creates its own category entry.
+
+The scan status and history APIs serialize scan-run timestamps using the
+configured `TZ` offset. Persistent REST access reads `LANLENS_API_TOKEN` and
+`LANLENS_API_TOKEN_READ_ONLY` directly from the container environment.
 
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
 
 Some i-doit fields such as responsible person, location and selected certificate/application attributes are object references or installation-specific dropdown values in standard i-doit data models, not plain text. LanLens sends the known plain fields and treats uncertain category fields as best-effort optional writes so an unsupported optional field does not block the whole device sync. Operators can still add explicit custom mapping entries once the target i-doit field is known.
+
+The built-in SQLite database uses WAL mode and a busy timeout. i-doit sync
+releases its local write transaction before waiting for remote JSON-RPC calls,
+so other dashboard/API requests can continue writing while a CMDB operation is
+in progress.
 
 ### Editable i-doit CSV Export (v1.5.2)
 
@@ -1121,7 +1140,7 @@ Credentials of type `linux_ssh` support two authentication methods:
 | `auth_method` | Secret content | Notes |
 |---|---|---|
 | `password` (default) | SSH password | Standard password-based SSH login |
-| `key` | PEM private key (RSA, Ed25519, ECDSA, DSS) | Key stored Fernet-encrypted; supports all paramiko key types |
+| `key` | PEM private key (RSA, Ed25519, ECDSA) | Key stored Fernet-encrypted; supports Paramiko's current secure key types |
 
 Select the auth method in the Credential Modal. The private key is stored encrypted and never returned by the API.
 

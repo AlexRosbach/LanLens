@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
 from backend.models import Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
-from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
+from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
 class IdoitExportCsvTest(unittest.TestCase):
@@ -315,10 +315,24 @@ class IdoitExportCsvTest(unittest.TestCase):
 
             connection_entries = fields["C__CATG__NET_CONNECTIONS_FOLDER"]
             certificate_entries = fields["C__CATG__CERTIFICATE"]
-            self.assertTrue(any(entry["title"] == "443/tcp https" for entry in connection_entries))
-            self.assertTrue(any(entry["title"] == "Admin UI" for entry in connection_entries))
-            self.assertEqual(certificate_entries[0]["subject"], "CN=client-01.example.test")
-            self.assertEqual(certificate_entries[0]["valid_to"], "2026-07-01T12:00:00")
+            self.assertTrue(any(
+                entry["port_from"] == 443
+                and entry["port_to"] == 443
+                and entry["protocol"] == "TCP"
+                and entry["protocol_layer_5"] == "HTTPS"
+                for entry in connection_entries
+            ))
+            self.assertTrue(any(
+                entry["port_from"] == 443
+                and "Service: Admin UI" in entry["description"]
+                for entry in connection_entries
+            ))
+            self.assertEqual(certificate_entries[0]["common_name"], "client-01.example.test")
+            self.assertEqual(certificate_entries[0]["expire_date"], "2026-07-01")
+            self.assertEqual(certificate_entries[0]["type"], "SSL/TLS")
+            self.assertIn("Issuer: CN=Example CA", certificate_entries[0]["description"])
+            self.assertNotIn("subject", certificate_entries[0])
+            self.assertNotIn("valid_to", certificate_entries[0])
             self.assertNotIn("C__CATG__NET_CONNECTIONS_FOLDER.description", fields)
             self.assertNotIn("C__CATG__CERTIFICATE.description", fields)
             self.assertEqual(DEFAULT_MAPPING["fields"]["open_ports"], "C__CATG__NET_CONNECTIONS_FOLDER")
@@ -794,6 +808,95 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(first_candidate["rejected_reason"], "no exact SYSID match on object entry, object read, or mapped identity categories")
         finally:
             db.close()
+
+    async def test_client_logout_releases_session_and_is_best_effort(self):
+        calls = []
+
+        class RecordingClient(IdoitClient):
+            async def call(self, method, params=None):
+                calls.append((method, params))
+                if method == "idoit.logout":
+                    return {"success": True}
+                return None
+
+        client = RecordingClient(get_config(self.Session()))
+        client._session_id = "session-that-may-hold-an-object-lock"
+
+        await client.logout_best_effort()
+
+        self.assertEqual(calls, [("idoit.logout", None)])
+        self.assertIsNone(client._session_id)
+
+        class FailingLogoutClient(RecordingClient):
+            async def call(self, method, params=None):
+                raise IdoitConnectionError("logout failed", stage="jsonrpc_error")
+
+        failing = FailingLogoutClient(get_config(self.Session()))
+        failing._session_id = "stale-session"
+        await failing.logout_best_effort()
+        self.assertIsNone(failing._session_id)
+
+    async def test_category_fallback_preserves_title_and_returns_warning_on_rejection(self):
+        attempts = []
+
+        class RejectingClient(IdoitClient):
+            async def find_reusable_category_entry(self, object_id, category, data):
+                return "7"
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                attempts.append(dict(data))
+                raise IdoitConnectionError(
+                    "There was a validation error: title(int): Mandatory field is empty.",
+                    stage="jsonrpc_error",
+                )
+
+        client = RejectingClient(get_config(self.Session()))
+        result = await client.save_category_best_effort(
+            "42",
+            "C__CATG__MODEL",
+            {"title": "Demo model", "manufacturer": "Demo vendor"},
+        )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(attempts[0], {"title": "Demo model", "manufacturer": "Demo vendor"})
+        self.assertEqual(attempts[1], {"title": "Demo model"})
+        self.assertEqual(attempts[2], {"manufacturer": "Demo vendor", "title": "Demo model"})
+
+    async def test_listener_reuse_requires_same_transport_and_complete_port_range(self):
+        class ListenerClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return [
+                    {
+                        "id": "10",
+                        "protocol": {"title": "TCP"},
+                        "port_from": 80,
+                        "port_to": 80,
+                    },
+                    {
+                        "id": "11",
+                        "protocol": {"title": "TCP"},
+                        "port_from": 443,
+                        "port_to": 443,
+                    },
+                ]
+
+        client = ListenerClient(get_config(self.Session()))
+
+        self.assertEqual(
+            await client.find_reusable_category_entry(
+                "42",
+                "C__CATG__NET_CONNECTIONS_FOLDER",
+                {"protocol": "TCP", "port_from": 443, "port_to": 443},
+            ),
+            "11",
+        )
+        self.assertIsNone(
+            await client.find_reusable_category_entry(
+                "42",
+                "C__CATG__NET_CONNECTIONS_FOLDER",
+                {"protocol": "TCP", "port_from": 22, "port_to": 22},
+            )
+        )
 
     def test_truncated_sync_log_keeps_identity_match_debug(self):
         details = {

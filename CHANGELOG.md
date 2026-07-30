@@ -31,6 +31,9 @@ All notable changes to this project should be documented in this file.
   but marks health status as unavailable because the payload is encrypted.
 
 ### Fixes / Hardening
+- Carried the completed 1.5.8 maintenance fixes into the 1.6.0 release branch,
+  including persistent-token environment loading, timezone-aware scan history,
+  i-doit synchronization reliability and restored SSH private-key support.
 - Included the LanLens host's primary interface identity in local host-network
   scans when it falls inside the configured ARP range.
 - Rendered Docker and Podman JSON-lines deep-scan findings as a readable,
@@ -80,6 +83,29 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Fixed the documented `LANLENS_API_TOKEN` and
+  `LANLENS_API_TOKEN_READ_ONLY` environment variables so persistent tokens are
+  actually loaded by the application.
+- Returned scan-run timestamps with the offset configured through `TZ` instead
+  of serializing timezone-naive UTC values.
+- Removed German fallback text from the English Deep Scan view and translated
+  the Scan Nodes settings panel.
+- Fixed i-doit listener synchronization so each transport protocol and port
+  range is matched as one composite identity instead of repeatedly overwriting
+  the first listener that shares a protocol.
+- Corrected i-doit network-listener exports to use the supported protocol,
+  port-range and description fields, and certificate exports to use common
+  name, expiration date, type and description.
+- Reused matching i-doit listener and certificate entries on repeated syncs,
+  and treated rejected optional manufacturer dialog values as non-fatal.
+- Closed i-doit JSON-RPC sessions after connection tests, SYSID lookups and
+  synchronization so upstream object locks are released immediately.
+- Kept i-doit category validation failures as visible per-category sync warnings
+  instead of aborting after a partial object update, and preserved mandatory
+  title data during field-level retries.
+- Released SQLite write transactions before remote i-doit calls and enabled WAL
+  plus a busy timeout so parallel UI writes no longer fail while a sync waits
+  for the CMDB.
 - Included the LanLens host's primary interface identity in local host-network
   scans when it falls inside the configured ARP range, because a sender does
   not receive its own ARP discovery request.

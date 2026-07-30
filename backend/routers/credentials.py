@@ -215,7 +215,11 @@ def _load_private_key(key_text: str):
     try:
         import paramiko  # type: ignore
         import io
-        for cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
+        key_classes = (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey)
+        dss_key = getattr(paramiko, "DSSKey", None)
+        if dss_key is not None:
+            key_classes += (dss_key,)
+        for cls in key_classes:
             try:
                 return cls.from_private_key(io.StringIO(key_text))
             except Exception:
