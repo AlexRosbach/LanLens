@@ -38,6 +38,9 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Kept routed Nmap discoveries as separate IP-based inventory entries even
+  when Docker ipvlan or another shared interface reports the same MAC address
+  for multiple reachable hosts.
 - Kept Settings compatible with older settings responses by deriving an initial
   DHCP range from the legacy start/end fields when `dhcp_ranges` is absent.
 - Fixed the documented `LANLENS_API_TOKEN` and

@@ -129,7 +129,7 @@ LanLens forces a password change after the first login. For full MAC/vendor disc
 
 ## Deployment Notes
 
-LanLens uses `network_mode: host` by default because local ARP discovery and first-run subnet detection need raw network access on the host interface. Bridge mode can serve the UI, but direct ARP/MAC discovery will not work the same way and may require manually configured scan targets.
+LanLens uses `network_mode: host` by default because local ARP discovery and first-run subnet detection need raw network access on the host interface. Bridge mode can serve the UI, but direct ARP/MAC discovery will not work the same way and may require manually configured scan targets. Additional routed Nmap targets are tracked by IP so hosts such as Docker ipvlan containers remain separate even when they expose a shared MAC address.
 
 Core runtime settings:
 

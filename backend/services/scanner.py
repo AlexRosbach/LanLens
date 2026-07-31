@@ -167,18 +167,19 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
             continue
 
         ip = None
-        mac = None
         for address in host.findall("address"):
             addr_type = address.attrib.get("addrtype")
             if addr_type == "ipv4":
                 ip = address.attrib.get("addr")
-            elif addr_type == "mac":
-                raw_mac = address.attrib.get("addr")
-                mac = normalize_mac(raw_mac) if raw_mac else None
 
         if ip and ip not in seen_ips:
             seen_ips.add(ip)
-            results.append(DiscoveryResult(ip=ip, mac=mac))
+            # A MAC reported by a routed ping scan is not a safe device
+            # identity. In particular, Docker ipvlan endpoints can expose the
+            # same parent-interface MAC for many independent IP addresses.
+            # Track routed discoveries by stable IP-derived identifiers;
+            # direct ARP results for the same IP still win during deduplication.
+            results.append(DiscoveryResult(ip=ip))
 
     return results
 
