@@ -79,6 +79,7 @@ def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
 class DiscoveryResult:
     ip: str
     mac: Optional[str] = None
+    source: str = "direct"
 
 
 def _pseudo_mac_for_ip(ip: str) -> str:
@@ -167,28 +168,43 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
             continue
 
         ip = None
-        mac = None
         for address in host.findall("address"):
             addr_type = address.attrib.get("addrtype")
             if addr_type == "ipv4":
                 ip = address.attrib.get("addr")
-            elif addr_type == "mac":
-                raw_mac = address.attrib.get("addr")
-                mac = normalize_mac(raw_mac) if raw_mac else None
 
         if ip and ip not in seen_ips:
             seen_ips.add(ip)
-            results.append(DiscoveryResult(ip=ip, mac=mac))
+            # A MAC reported by a routed ping scan is not a safe device
+            # identity. In particular, Docker ipvlan endpoints can expose the
+            # same parent-interface MAC for many independent IP addresses.
+            # Track routed discoveries by stable IP-derived identifiers. Their
+            # routed source marker also prevents overlapping proxy-ARP replies
+            # from replacing that identity during deduplication.
+            results.append(DiscoveryResult(ip=ip, source="routed"))
 
     return results
 
 
 def _dedupe_discovery_results(results: List[DiscoveryResult]) -> List[DiscoveryResult]:
-    """Deduplicate discoveries by IP, preferring entries with real MAC addresses."""
+    """Deduplicate discoveries by IP while preserving routed identity semantics.
+
+    An explicit routed target must stay IP-based even when an overlapping ARP
+    scan receives a proxy-ARP response for the same address. Otherwise the
+    proxy MAC wins here and routed hosts collapse back into one device.
+    """
     by_ip: dict[str, DiscoveryResult] = {}
     for result in results:
         existing = by_ip.get(result.ip)
-        if existing is None or (not existing.mac and result.mac):
+        if (
+            existing is None
+            or (result.source == "routed" and existing.source != "routed")
+            or (
+                result.source == existing.source
+                and not existing.mac
+                and result.mac
+            )
+        ):
             by_ip[result.ip] = result
     return list(by_ip.values())
 

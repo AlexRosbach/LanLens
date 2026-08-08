@@ -420,7 +420,9 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 6. Optional routed scan targets are scanned with `nmap -sn -oX - <target>`
 7. For each discovered host:
    a. Normalize MAC to XX:XX:XX:XX:XX:XX when available
-   b. Routed hosts without MAC receive a stable internal `ip:` identifier and are displayed as IP-only discoveries
+   b. Routed hosts receive a stable internal `ip:` identifier and are displayed
+      as IP-only discoveries, because a MAC reported beyond the direct ARP
+      range may belong to a router or a shared Docker ipvlan interface
    c. mac_vendor.py: manuf.MacParser().get_manuf(mac) → vendor string when a real MAC exists
    d. DB upsert:
       - If identifier exists: update ip, last_seen, is_online=True
