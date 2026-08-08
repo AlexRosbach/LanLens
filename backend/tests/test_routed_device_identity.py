@@ -10,7 +10,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-routed-identity-12345")
 
 from backend.database import Base
 from backend.models import Device, ScanRun, Setting
-from backend.services.scanner import DiscoveryResult, _nmap_ping_scan, run_scan
+from backend.services.scanner import DiscoveryResult, _dedupe_discovery_results, _nmap_ping_scan, run_scan
 
 
 NMAP_SHARED_MAC_XML = """\
@@ -47,8 +47,25 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
         self.assertEqual(
             results,
             [
-                DiscoveryResult(ip="10.10.50.60"),
-                DiscoveryResult(ip="10.10.50.61"),
+                DiscoveryResult(ip="10.10.50.60", source="routed"),
+                DiscoveryResult(ip="10.10.50.61", source="routed"),
+            ],
+        )
+
+    def test_routed_result_wins_over_proxy_arp_for_the_same_ip(self):
+        shared_mac = "02:42:AC:11:00:02"
+        results = _dedupe_discovery_results([
+            DiscoveryResult(ip="10.10.50.60", mac=shared_mac),
+            DiscoveryResult(ip="10.10.50.61", mac=shared_mac),
+            DiscoveryResult(ip="10.10.50.60", source="routed"),
+            DiscoveryResult(ip="10.10.50.61", source="routed"),
+        ])
+
+        self.assertEqual(
+            results,
+            [
+                DiscoveryResult(ip="10.10.50.60", source="routed"),
+                DiscoveryResult(ip="10.10.50.61", source="routed"),
             ],
         )
 
@@ -64,9 +81,9 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
         db.close()
 
         routed_results = [
-            DiscoveryResult(ip="10.10.50.60"),
-            DiscoveryResult(ip="10.10.50.61"),
-            DiscoveryResult(ip="10.10.50.62"),
+            DiscoveryResult(ip="10.10.50.60", source="routed"),
+            DiscoveryResult(ip="10.10.50.61", source="routed"),
+            DiscoveryResult(ip="10.10.50.62", source="routed"),
         ]
         hostnames = {
             "10.10.50.60": "iperf3",
@@ -110,6 +127,52 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
                     ("10.10.50.62", "vaultwarden"),
                 ],
             )
+            self.assertEqual(len({row.mac_address for row in devices}), 3)
+            self.assertTrue(all(row.mac_address.startswith("ip:") for row in devices))
+        finally:
+            db.close()
+
+    def test_scan_keeps_routed_hosts_distinct_when_proxy_arp_reports_one_mac(self):
+        db = self.Session()
+        db.add_all([
+            Setting(key="scan_start", value="192.0.2.1"),
+            Setting(key="scan_end", value="192.0.2.254"),
+            Setting(key="scan_additional_targets", value="10.10.50.0/24"),
+            Setting(key="notify_on_new_device", value="false"),
+        ])
+        db.commit()
+        db.close()
+
+        shared_mac = "02:42:AC:11:00:02"
+        ips = ["10.10.50.60", "10.10.50.61", "10.10.50.62"]
+        arp_results = [DiscoveryResult(ip=ip, mac=shared_mac) for ip in ips]
+        routed_results = [DiscoveryResult(ip=ip, source="routed") for ip in ips]
+
+        with patch("backend.services.scanner.SessionLocal", self.Session), patch(
+            "backend.services.scanner._arp_scan",
+            return_value=arp_results,
+        ), patch(
+            "backend.services.scanner._nmap_ping_scan",
+            return_value=routed_results,
+        ), patch(
+            "backend.services.scanner._detect_local_host_result",
+            return_value=None,
+        ), patch(
+            "backend.services.scanner._measure_scan_latencies",
+            new=AsyncMock(return_value={}),
+        ), patch(
+            "backend.services.scanner._get_hostname",
+            side_effect=lambda ip: f"host-{ip.rsplit('.', 1)[-1]}",
+        ), patch(
+            "backend.services.scanner._send_notification_deliveries",
+            new=AsyncMock(),
+        ):
+            self.assertIsNotNone(asyncio.run(run_scan("test")))
+
+        db = self.Session()
+        try:
+            devices = db.query(Device).order_by(Device.ip_address).all()
+            self.assertEqual([row.ip_address for row in devices], ips)
             self.assertEqual(len({row.mac_address for row in devices}), 3)
             self.assertTrue(all(row.mac_address.startswith("ip:") for row in devices))
         finally:

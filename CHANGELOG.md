@@ -39,8 +39,9 @@ All notable changes to this project should be documented in this file.
 
 ### Fixes / Hardening
 - Kept routed Nmap discoveries as separate IP-based inventory entries even
-  when Docker ipvlan or another shared interface reports the same MAC address
-  for multiple reachable hosts.
+  when Docker ipvlan, proxy ARP or another shared interface reports the same
+  MAC address for multiple reachable hosts, including when ARP and routed scan
+  ranges overlap.
 - Kept Settings compatible with older settings responses by deriving an initial
   DHCP range from the legacy start/end fields when `dhcp_ranges` is absent.
 - Fixed the documented `LANLENS_API_TOKEN` and
