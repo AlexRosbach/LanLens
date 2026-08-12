@@ -807,23 +807,44 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         notify_new_devices = not notify_new_devices_row or notify_new_devices_row.value != "false"
 
         found_macs = set()
+        direct_claimed_device_ids: set[int] = set()
         devices_new = 0
 
         for result in results:
             ip = result.ip
-            existing = existing_devices.get(result.mac) if result.mac else None
             ip_matched_existing = existing_devices_by_ip.get(ip)
-            if existing is None and ip_matched_existing is not None and (
-                not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
-            ):
-                existing = ip_matched_existing
-            elif existing is None and ip_matched_existing is not None and result.mac:
-                _record_mac_drift_for_ip(db, ip_matched_existing, ip, result.mac, "scan")
-            mac_normalized = result.mac or (existing.mac_address if existing and existing.mac_address else _pseudo_mac_for_ip(ip))
-            if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
-                existing_devices.pop(existing.mac_address, None)
-                existing.mac_address = result.mac
-                existing_devices[result.mac] = existing
+            if result.source == "routed":
+                mac_normalized = _pseudo_mac_for_ip(ip)
+                existing = existing_devices.get(mac_normalized)
+                if (
+                    existing is None
+                    and ip_matched_existing is not None
+                    and ip_matched_existing.id not in direct_claimed_device_ids
+                ):
+                    existing = ip_matched_existing
+                    previous_identifier = existing.mac_address
+                    if previous_identifier != mac_normalized:
+                        if existing_devices.get(previous_identifier) is existing:
+                            existing_devices.pop(previous_identifier, None)
+                        existing.mac_address = mac_normalized
+                        existing_devices[mac_normalized] = existing
+            else:
+                existing = existing_devices.get(result.mac) if result.mac else None
+                if existing is None and ip_matched_existing is not None and (
+                    not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
+                ):
+                    existing = ip_matched_existing
+                elif existing is None and ip_matched_existing is not None and result.mac:
+                    _record_mac_drift_for_ip(db, ip_matched_existing, ip, result.mac, "scan")
+                mac_normalized = result.mac or (
+                    existing.mac_address
+                    if existing and existing.mac_address
+                    else _pseudo_mac_for_ip(ip)
+                )
+                if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
+                    existing_devices.pop(existing.mac_address, None)
+                    existing.mac_address = result.mac
+                    existing_devices[result.mac] = existing
             found_macs.add(mac_normalized)
 
             vendor = None if _is_ip_only_identifier(mac_normalized) else lookup_vendor(mac_normalized)
@@ -869,6 +890,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 record_ping_sample(db, new_device.id, True, latency_by_ip.get(ip), "scan", seen_at)
                 existing_devices[mac_normalized] = new_device
                 existing_devices_by_ip[ip] = new_device
+                if result.source != "routed":
+                    direct_claimed_device_ids.add(new_device.id)
                 devices_new += 1
 
                 if notify_new_devices and not new_device.notifications_muted and not new_device.ignored:
@@ -888,6 +911,11 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 previous_hostname = existing.hostname
                 was_archived = bool(existing.is_archived)
                 existing.ip_address = ip
+                if previous_ip != ip and existing_devices_by_ip.get(previous_ip) is existing:
+                    existing_devices_by_ip.pop(previous_ip, None)
+                existing_devices_by_ip[ip] = existing
+                if result.source != "routed":
+                    direct_claimed_device_ids.add(existing.id)
                 existing.is_online = True
                 existing.is_archived = False
                 existing.archived_at = None

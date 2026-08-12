@@ -10,7 +10,13 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-routed-identity-12345")
 
 from backend.database import Base
 from backend.models import Device, ScanRun, Setting
-from backend.services.scanner import DiscoveryResult, _dedupe_discovery_results, _nmap_ping_scan, run_scan
+from backend.services.scanner import (
+    DiscoveryResult,
+    _dedupe_discovery_results,
+    _nmap_ping_scan,
+    _pseudo_mac_for_ip,
+    run_scan,
+)
 
 
 NMAP_SHARED_MAC_XML = """\
@@ -175,6 +181,70 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
             self.assertEqual([row.ip_address for row in devices], ips)
             self.assertEqual(len({row.mac_address for row in devices}), 3)
             self.assertTrue(all(row.mac_address.startswith("ip:") for row in devices))
+        finally:
+            db.close()
+
+    def test_scan_repairs_collapsed_inventory_without_stealing_direct_mac_owner(self):
+        shared_mac = "02:42:AC:11:00:02"
+        db = self.Session()
+        db.add_all([
+            Setting(key="scan_start", value="192.0.2.1"),
+            Setting(key="scan_end", value="192.0.2.254"),
+            Setting(key="scan_additional_targets", value="10.10.50.0/24"),
+            Setting(key="notify_on_new_device", value="false"),
+            Device(
+                mac_address=shared_mac,
+                ip_address="10.10.50.60",
+                hostname="collapsed-routed-host",
+                is_online=True,
+            ),
+        ])
+        db.commit()
+        db.close()
+
+        arp_results = [
+            DiscoveryResult(ip="192.0.2.1", mac=shared_mac),
+            DiscoveryResult(ip="10.10.50.60", mac=shared_mac),
+            DiscoveryResult(ip="10.10.50.61", mac=shared_mac),
+        ]
+        routed_results = [
+            DiscoveryResult(ip="10.10.50.60", source="routed"),
+            DiscoveryResult(ip="10.10.50.61", source="routed"),
+        ]
+
+        with patch("backend.services.scanner.SessionLocal", self.Session), patch(
+            "backend.services.scanner._arp_scan",
+            return_value=arp_results,
+        ), patch(
+            "backend.services.scanner._nmap_ping_scan",
+            return_value=routed_results,
+        ), patch(
+            "backend.services.scanner._detect_local_host_result",
+            return_value=None,
+        ), patch(
+            "backend.services.scanner._measure_scan_latencies",
+            new=AsyncMock(return_value={}),
+        ), patch(
+            "backend.services.scanner._get_hostname",
+            side_effect=lambda ip: f"host-{ip.replace('.', '-')}",
+        ), patch(
+            "backend.services.scanner._send_notification_deliveries",
+            new=AsyncMock(),
+        ):
+            self.assertIsNotNone(asyncio.run(run_scan("test")))
+
+        db = self.Session()
+        try:
+            devices = db.query(Device).order_by(Device.ip_address).all()
+            self.assertEqual(
+                [(row.ip_address, row.mac_address) for row in devices],
+                [
+                    ("10.10.50.60", _pseudo_mac_for_ip("10.10.50.60")),
+                    ("10.10.50.61", _pseudo_mac_for_ip("10.10.50.61")),
+                    ("192.0.2.1", shared_mac),
+                ],
+            )
+            self.assertEqual(len({row.id for row in devices}), 3)
         finally:
             db.close()
 
