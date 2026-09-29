@@ -71,7 +71,7 @@ const settings = {
   show_build_info: false,
   show_debug_tools: false,
   debug_log_level: 'warning',
-  app_version: '1.5.8',
+  app_version: '1.6.0',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -200,7 +200,7 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   })
   await page.route(/\/api\/settings(?:$|\?|\/update\/check)/, async (route) => {
     if (route.request().url().includes('/api/settings/update/check')) {
-      await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+      await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
       return
     }
     await route.fulfill({ json: settings })
@@ -296,8 +296,9 @@ test('settings groups routine jobs, lifecycle, and network discovery separately'
   await expect(page.getByText('DHCP range 1')).toBeVisible()
   await expect(page.getByText('DHCP range 2')).toBeVisible()
   await expect(page.locator('input[value="10.20.30.20"]')).toBeVisible()
-  await page.getByRole('heading', { name: 'DHCP Ranges' }).scrollIntoViewIfNeeded()
-  await page.screenshot({ path: testInfo.outputPath('settings-multiple-dhcp-ranges.png'), fullPage: false })
+  const dhcpRangesCard = page.getByRole('heading', { name: 'DHCP Ranges' }).locator('..')
+  await dhcpRangesCard.scrollIntoViewIfNeeded()
+  await dhcpRangesCard.screenshot({ path: testInfo.outputPath('settings-multiple-dhcp-ranges.png') })
   await expect(page.getByRole('heading', { name: 'Device retention' })).not.toBeVisible()
   await expect(page.getByRole('heading', { name: 'Passive discovery background job' })).toBeVisible()
   await expect(page.getByLabel('Cycle interval in minutes')).toHaveValue('15')
@@ -360,7 +361,7 @@ test('settings debug tab filters diagnostics and cmdb mapping is collapsible', a
   })
   await page.route(/\/api\/settings(?:$|\?|\/update\/check)/, async (route) => {
     if (route.request().url().includes('/api/settings/update/check')) {
-      await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+      await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
       return
     }
     await route.fulfill({

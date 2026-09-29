@@ -207,21 +207,45 @@ test('device multicast discovery dedupes rows and shows LLDP class hints', async
           linked_device_id: 1,
           linked_device_label: 'Printer 01',
         },
+        {
+          id: 4,
+          protocol: 'sophos_heartbeat',
+          source_ip: '192.0.2.40',
+          source_mac: 'AA:BB:CC:DD:EE:FF',
+          destination_ip: '52.5.76.173',
+          service_name: 'Sophos Security Heartbeat',
+          service_type: 'tls/8347',
+          summary: 'Sophos-managed endpoint heartbeat observed; health status is encrypted',
+          metadata: {
+            transport: 'tls',
+            destination_port: 8347,
+            status_visibility: 'encrypted',
+            status: 'unavailable',
+          },
+          inferred_device_class: null,
+          inference_confidence: null,
+          inference_reasons: [],
+          observed_at: '2026-05-31T20:29:00Z',
+          linked_device_id: 1,
+          linked_device_label: 'Printer 01',
+        },
       ],
     })
   })
 
   await page.goto('/devices/1')
 
-  await expect(page.getByText('2 unique observations')).toBeVisible()
-  await expect(page.locator('#device-passive-discovery tbody tr')).toHaveCount(2)
+  await expect(page.getByText('3 unique observations')).toBeVisible()
+  await expect(page.locator('#device-passive-discovery tbody tr')).toHaveCount(3)
   await expect(page.locator('#device-passive-discovery').getByText('LLDP')).toBeVisible()
   await expect(page.locator('#device-passive-discovery').getByText('Switch · high')).toBeVisible()
   await expect(page.locator('#device-passive-discovery').getByText('lab-sg500x · port Gi1/0/1 · bridge')).toBeVisible()
   await expect(page.locator('#device-passive-discovery').getByText('Workstation · low')).toBeVisible()
+  await expect(page.locator('#device-passive-discovery').getByText('Sophos-managed endpoint heartbeat observed; health status is encrypted')).toBeVisible()
   await expect(page.locator('#device-passive-discovery').getByRole('button', { name: /multicast.*details/i })).toBeVisible()
   await page.locator('#device-passive-discovery').scrollIntoViewIfNeeded()
   await page.locator('#device-passive-discovery').screenshot({ path: `${screenshotDir}/passive-discovery-dedupe.png` })
+  await page.locator('#device-passive-discovery').screenshot({ path: `${screenshotDir}/lanlens-sophos-heartbeat.png` })
   await page.locator('#device-passive-discovery').getByRole('button', { name: /multicast.*details/i }).click()
   await expect(page.getByRole('dialog', { name: 'MULTICAST observation' })).toBeVisible()
   await expect(page.getByText('Multicast discovery detail')).toBeVisible()
@@ -316,7 +340,7 @@ test('device detail shows linked SNMP target without switch MAC table', async ({
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route('**/api/devices/1', async (route) => {
     await route.fulfill({ json: snmpLinkedDevice })

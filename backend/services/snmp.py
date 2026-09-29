@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..models import Device, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
-from .mac_vendor import normalize_mac
+from .mac_vendor import lookup_vendor, normalize_mac
 
 OID_SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 OID_SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"
@@ -484,12 +484,56 @@ def _parse_q_bridge_suffix(suffix: str) -> tuple[Optional[str], Optional[str]]:
 def _parse_bridge_port_map(raw: dict[str, str]) -> dict[int, int]:
     port_map: dict[int, int] = {}
     for suffix, value in raw.items():
-        if not suffix.isdigit():
+        # BRIDGE-MIB indexes rows by dot1dBasePort ("47"), while several
+        # Q-BRIDGE-MIB agents, including UniFi US switches, expose
+        # dot1qBasePortIfIndex as dot1dBasePort.dot1qVlanIndex ("47.1").
+        # The bridge port is therefore the first numeric component.
+        bridge_port = suffix.split(".", 1)[0]
+        if not bridge_port.isdigit():
             continue
-        match = re.search(r"\d+", value)
-        if match:
-            port_map[int(suffix)] = int(match.group(0))
+        numbers = re.findall(r"\d+", value)
+        if numbers:
+            port_map[int(bridge_port)] = int(numbers[-1])
     return port_map
+
+
+def _is_discoverable_unicast_mac(mac: str) -> bool:
+    try:
+        octets = [int(part, 16) for part in normalize_mac(mac).split(":")]
+    except ValueError:
+        return False
+    return len(octets) == 6 and not (octets[0] & 1) and any(octets)
+
+
+def _ensure_device_for_mac_entry(db: Session, mac: str, now: datetime) -> Optional[Device]:
+    """Ensure a learned unicast endpoint is represented in the inventory.
+
+    SNMP forwarding tables often see endpoints in VLANs that LanLens cannot
+    reach with local ARP discovery. Keep those MAC-only devices offline until a
+    reachability scan supplies an IP and status; their SNMP identity still
+    exposes the learned switch, port and VLAN.
+    """
+    if not _is_discoverable_unicast_mac(mac):
+        return None
+    normalized = normalize_mac(mac)
+    device = (
+        db.query(Device)
+        .filter(func.lower(Device.mac_address) == normalized.lower())
+        .first()
+    )
+    if device is not None:
+        return device
+    vendor = lookup_vendor(normalized)
+    device = Device(
+        mac_address=normalized,
+        vendor=vendor if vendor != "Unknown" else None,
+        device_class="Unknown",
+        is_online=False,
+        first_seen=now,
+        last_seen=now,
+    )
+    db.add(device)
+    return device
 
 
 def _parse_counter(raw: Optional[str]) -> Optional[int]:
@@ -514,6 +558,12 @@ def _counter_sum(values: dict[str, dict[str, str]], keys: list[str], if_index: i
     return total if found else None
 
 
+def _counter_rate(current: Optional[int], previous: Optional[int], elapsed_seconds: float, scale: float = 1.0) -> Optional[float]:
+    if current is None or previous is None or elapsed_seconds <= 0 or current < previous:
+        return None
+    return round(((current - previous) / elapsed_seconds) * scale, 3)
+
+
 def _merge_port_maps(*maps: dict[int, int]) -> dict[int, int]:
     merged: dict[int, int] = {}
     for port_map in maps:
@@ -530,6 +580,32 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
     if row is None:
         row = SnmpInterface(switch_id=switch.id, if_index=if_index)
         db.add(row)
+    elapsed_seconds = (now - row.last_seen_at).total_seconds() if row.last_seen_at else 0
+    previous_in_packets = (
+        (row.in_unicast_packets or 0) + (row.in_non_unicast_packets or 0)
+        if row.in_unicast_packets is not None or row.in_non_unicast_packets is not None
+        else None
+    )
+    previous_out_packets = (
+        (row.out_unicast_packets or 0) + (row.out_non_unicast_packets or 0)
+        if row.out_unicast_packets is not None or row.out_non_unicast_packets is not None
+        else None
+    )
+    previous_errors = (
+        (row.in_errors or 0) + (row.out_errors or 0)
+        if row.in_errors is not None or row.out_errors is not None
+        else None
+    )
+    previous_discards = (
+        (row.in_discards or 0) + (row.out_discards or 0)
+        if row.in_discards is not None or row.out_discards is not None
+        else None
+    )
+    previous_layer1_errors = (
+        (row.crc_errors or 0) + (row.collision_errors or 0) + (row.fragment_errors or 0)
+        if row.crc_errors is not None or row.collision_errors is not None or row.fragment_errors is not None
+        else None
+    )
     row.name = values["names"].get(str(if_index)) or row.name
     row.description = values["descr"].get(str(if_index)) or row.description
     row.alias = values["alias"].get(str(if_index)) or row.alias
@@ -555,6 +631,41 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
         if_index,
     )
     row.fragment_errors = _counter_value(values["dot3_frame_too_longs"], if_index)
+    current_in_packets = (
+        (row.in_unicast_packets or 0) + (row.in_non_unicast_packets or 0)
+        if row.in_unicast_packets is not None or row.in_non_unicast_packets is not None
+        else None
+    )
+    current_out_packets = (
+        (row.out_unicast_packets or 0) + (row.out_non_unicast_packets or 0)
+        if row.out_unicast_packets is not None or row.out_non_unicast_packets is not None
+        else None
+    )
+    current_errors = (
+        (row.in_errors or 0) + (row.out_errors or 0)
+        if row.in_errors is not None or row.out_errors is not None
+        else None
+    )
+    current_discards = (
+        (row.in_discards or 0) + (row.out_discards or 0)
+        if row.in_discards is not None or row.out_discards is not None
+        else None
+    )
+    current_layer1_errors = (
+        (row.crc_errors or 0) + (row.collision_errors or 0) + (row.fragment_errors or 0)
+        if row.crc_errors is not None or row.collision_errors is not None or row.fragment_errors is not None
+        else None
+    )
+    row.in_packets_per_second = _counter_rate(current_in_packets, previous_in_packets, elapsed_seconds)
+    row.out_packets_per_second = _counter_rate(current_out_packets, previous_out_packets, elapsed_seconds)
+    row.errors_per_minute = _counter_rate(current_errors, previous_errors, elapsed_seconds, 60)
+    row.discards_per_minute = _counter_rate(current_discards, previous_discards, elapsed_seconds, 60)
+    row.layer1_errors_per_minute = _counter_rate(
+        current_layer1_errors,
+        previous_layer1_errors,
+        elapsed_seconds,
+        60,
+    )
     row.last_seen_at = now
 
 
@@ -566,6 +677,7 @@ def _upsert_mac_entry(
     now: datetime,
     vlan: Optional[str] = None,
 ) -> None:
+    _ensure_device_for_mac_entry(db, mac, now)
     query = db.query(SnmpMacTableEntry).filter(
         SnmpMacTableEntry.switch_id == switch.id,
         SnmpMacTableEntry.mac_address == mac,
@@ -613,6 +725,11 @@ def _interface_stats(iface: Optional[SnmpInterface]) -> dict[str, Any]:
         "interface_crc_errors": iface.crc_errors,
         "interface_collision_errors": iface.collision_errors,
         "interface_fragment_errors": iface.fragment_errors,
+        "interface_in_packets_per_second": iface.in_packets_per_second,
+        "interface_out_packets_per_second": iface.out_packets_per_second,
+        "interface_errors_per_minute": iface.errors_per_minute,
+        "interface_discards_per_minute": iface.discards_per_minute,
+        "interface_layer1_errors_per_minute": iface.layer1_errors_per_minute,
     }
 
 
@@ -699,9 +816,13 @@ def _poll_mac_tables(
     now: datetime,
     steps: list[PollStep],
 ) -> int:
+    # Prefer the BRIDGE-MIB mapping when both tables expose the same bridge
+    # port. Some UniFi US firmware returns a Q-BRIDGE map whose rows all point
+    # at VLAN pseudo-interfaces 1/2, while the BRIDGE-MIB map contains the
+    # correct physical ifIndex values.
     bridge_ports = _merge_port_maps(
-        _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1D_BASE_PORT_IF_INDEX, port, "BRIDGE-MIB base-port map", steps, required=False)),
         _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1Q_BASE_PORT_IF_INDEX, port, "Q-BRIDGE-MIB VLAN base-port map", steps, required=False)),
+        _parse_bridge_port_map(_snmpwalk_step(profile, switch, OID_DOT1D_BASE_PORT_IF_INDEX, port, "BRIDGE-MIB base-port map", steps, required=False)),
     )
     mac_count = 0
 

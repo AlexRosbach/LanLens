@@ -9,7 +9,7 @@ from typing import List, Optional, Set
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
@@ -19,6 +19,7 @@ from ..schemas import (
     DevicePingSampleResponse,
     PassiveDiscoveryObservationResponse,
     DeviceListResponse,
+    DeviceBulkDeleteRequest,
     DeviceChangeEventResponse,
     DeviceMaintenanceUpdate,
     DeviceMergePreview,
@@ -399,7 +400,11 @@ def list_devices(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    query = db.query(Device).options(joinedload(Device.idoit_sync))
+    query = db.query(Device).options(
+        joinedload(Device.idoit_sync),
+        selectinload(Device.port_scans),
+        selectinload(Device.services),
+    )
 
     if archived_only is True:
         query = query.filter(Device.is_archived == True)
@@ -554,7 +559,11 @@ def get_new_devices(
     viewed_subquery = db.query(DeviceView.device_id).filter(DeviceView.user_id == current_user.id)
     devices = (
         db.query(Device)
-        .options(joinedload(Device.idoit_sync))
+        .options(
+            joinedload(Device.idoit_sync),
+            selectinload(Device.port_scans),
+            selectinload(Device.services),
+        )
         .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
         .filter(~Device.id.in_(viewed_subquery))
@@ -590,6 +599,20 @@ def get_new_devices(
         unregistered=unregistered,
         archived=archived,
     )
+
+
+@router.post("/bulk-delete", response_model=MessageResponse)
+def bulk_delete_devices(
+    data: DeviceBulkDeleteRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device_ids = sorted(set(data.device_ids))
+    devices = db.query(Device).filter(Device.id.in_(device_ids)).all()
+    for device in devices:
+        db.delete(device)
+    db.commit()
+    return MessageResponse(message=f"Deleted {len(devices)} devices")
 
 
 @router.get("/{device_id}/ip-history", response_model=List[DeviceIpHistoryResponse])

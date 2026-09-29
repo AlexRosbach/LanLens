@@ -29,6 +29,8 @@ type NodePosition = {
   y: number
 }
 
+type RelationshipFilter = 'all' | 'snmp' | 'passive' | 'host'
+
 const CANVAS_WIDTH = 1700
 const CANVAS_HEIGHT = 1100
 const MIN_ZOOM = 0.48
@@ -72,6 +74,23 @@ function relationTone(edge: TopologyEdge, target?: TopologyNode) {
   if (edge.relationship_type.includes('ospf') || edge.relationship_type.includes('lldp') || edge.relationship_type.includes('cdp')) return '#3b82f6'
   if (edge.relationship_type.includes('stp') || edge.relationship_type.includes('virtual')) return '#f59e0b'
   return '#64748b'
+}
+
+function relationFilterValue(edge: TopologyEdge): RelationshipFilter {
+  if (edge.relationship_type === 'snmp_port') return 'snmp'
+  if (edge.relationship_type === 'host_guest') return 'host'
+  return 'passive'
+}
+
+function edgeVlan(edge: TopologyEdge) {
+  const value = edge.metadata?.vlan
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function metadataText(edge: TopologyEdge, key: string) {
+  const value = edge.metadata?.[key]
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  return ''
 }
 
 function buildEndpointMap(endpoints: SnmpEndpoint[]) {
@@ -187,6 +206,8 @@ export default function NetworkTopology() {
   const [search, setSearch] = useState('')
   const [segment, setSegment] = useState('')
   const [deviceClass, setDeviceClass] = useState('')
+  const [relationship, setRelationship] = useState<RelationshipFilter>('all')
+  const [vlan, setVlan] = useState('')
   const [hideOffline, setHideOffline] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [viewport, setViewport] = useState<MapViewport>(DEFAULT_VIEWPORT)
@@ -239,20 +260,51 @@ export default function NetworkTopology() {
       return a.localeCompare(b)
     })
   ), [topology.nodes])
+  const vlans = useMemo(() => {
+    const values = new Set<string>()
+    topology.nodes.forEach((node) => {
+      if (node.snmp_vlan) values.add(node.snmp_vlan)
+    })
+    topology.edges.forEach((edge) => {
+      const value = edgeVlan(edge)
+      if (value) values.add(value)
+    })
+    return [...values].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b))
+  }, [topology.edges, topology.nodes])
+  const vlanNodeIds = useMemo(() => {
+    if (!vlan) return new Set<number>()
+    const ids = new Set<number>()
+    topology.nodes.forEach((node) => {
+      if (node.snmp_vlan === vlan) ids.add(node.id)
+    })
+    topology.edges.forEach((edge) => {
+      if (edge.relationship_type === 'snmp_port' && edgeVlan(edge) === vlan) {
+        ids.add(edge.source)
+        ids.add(edge.target)
+      }
+    })
+    return ids
+  }, [topology.edges, topology.nodes, vlan])
 
   const filteredNodes = useMemo(() => {
     const needle = normalize(search)
     return topology.nodes.filter((node) => {
       if (segment && node.segment_name !== segment) return false
       if (deviceClass && deviceClassFilterValue(node) !== deviceClass) return false
+      if (vlan && !vlanNodeIds.has(node.id)) return false
       if (hideOffline && !node.is_online) return false
       if (!needle) return true
       return normalize(`${node.label} ${node.ip_address} ${node.device_class} ${node.segment_name}`).includes(needle)
     })
-  }, [deviceClass, hideOffline, search, segment, topology.nodes])
+  }, [deviceClass, hideOffline, search, segment, topology.nodes, vlan, vlanNodeIds])
 
   const visibleIds = new Set(filteredNodes.map((node) => node.id))
-  const visibleEdges = topology.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target))
+  const visibleEdges = topology.edges.filter((edge) => {
+    if (!visibleIds.has(edge.source) || !visibleIds.has(edge.target)) return false
+    if (relationship !== 'all' && relationFilterValue(edge) !== relationship) return false
+    if (vlan && edge.relationship_type === 'snmp_port' && edgeVlan(edge) !== vlan) return false
+    return true
+  })
   const endpointsByDeviceId = useMemo(() => buildEndpointMap(endpoints), [endpoints])
   const positioned = buildPositions(filteredNodes, visibleEdges, endpointsByDeviceId).map((node) => {
     const customPosition = nodePositions[node.id]
@@ -262,6 +314,10 @@ export default function NetworkTopology() {
   const selected = positionedById.get(selectedId ?? -1) ?? positioned[0] ?? null
   const selectedEndpoints = selected ? endpointsByDeviceId.get(selected.id) ?? [] : []
   const selectedEdges = selected ? visibleEdges.filter((edge) => edge.source === selected.id || edge.target === selected.id) : []
+  const selectedRelationship = selectedEdges[0] || null
+  const selectedRelationshipPeer = selectedRelationship && selected
+    ? topology.nodes.find((node) => node.id === (selectedRelationship.source === selected.id ? selectedRelationship.target : selectedRelationship.source))
+    : null
   const selectedChanges = selected ? changes.filter((change) => change.device_id === selected.id) : []
   const snmpEdgeCount = topology.edges.filter((edge) => edge.relationship_type === 'snmp_port').length
   const passiveEdgeCount = topology.edges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'host_guest').length
@@ -431,7 +487,7 @@ export default function NetworkTopology() {
         </div>
       </div>
 
-      <div className="grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[minmax(220px,1.2fr)_180px_180px_auto_auto]">
+      <div className="grid gap-3 rounded-lg border border-border bg-surface p-3 lg:grid-cols-[minmax(220px,1.2fr)_160px_160px_150px_130px_auto_auto]">
         <Input
           placeholder={t('topology_search_placeholder')}
           value={search}
@@ -459,6 +515,26 @@ export default function NetworkTopology() {
             </option>
           ))}
         </select>
+        <select
+          aria-label={t('relationship_filter')}
+          value={relationship}
+          onChange={(event) => setRelationship(event.target.value as RelationshipFilter)}
+          className="h-10 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base outline-none focus:border-primary"
+        >
+          <option value="all">{t('all_relationships')}</option>
+          <option value="snmp">{t('snmp_port_edges')}</option>
+          <option value="passive">{t('passive_edges')}</option>
+          <option value="host">{t('host_edges')}</option>
+        </select>
+        <select
+          aria-label={t('vlan_filter')}
+          value={vlan}
+          onChange={(event) => setVlan(event.target.value)}
+          className="h-10 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base outline-none focus:border-primary"
+        >
+          <option value="">{t('all_vlans')}</option>
+          {vlans.map((item) => <option key={item} value={item}>VLAN {item}</option>)}
+        </select>
         <label className="flex h-10 items-center gap-2 rounded-lg border border-border bg-surface2 px-3 text-sm text-text-base">
           <input
             type="checkbox"
@@ -468,7 +544,7 @@ export default function NetworkTopology() {
           />
           <span className="whitespace-nowrap">{t('hide_offline_devices')}</span>
         </label>
-        <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setSegment(''); setDeviceClass(''); setHideOffline(false) }}>{t('reset_filters')}</Button>
+        <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setSegment(''); setDeviceClass(''); setRelationship('all'); setVlan(''); setHideOffline(false) }}>{t('reset_filters')}</Button>
       </div>
 
       {loading ? (
@@ -558,6 +634,7 @@ export default function NetworkTopology() {
                           data-testid="topology-edge"
                           data-source-id={edge.source}
                           data-target-id={edge.target}
+                          data-relationship-type={edge.relationship_type}
                           d={`M ${source.x} ${source.y} C ${source.x} ${midY}, ${target.x} ${midY}, ${target.x} ${target.y}`}
                           fill="none"
                           stroke={color}
@@ -692,6 +769,21 @@ export default function NetworkTopology() {
                       })}
                       {selectedEdges.length === 0 && <p className="px-3 py-3 text-xs text-text-subtle">{t('topology_no_neighbors')}</p>}
                     </div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-surface2 p-3 text-xs">
+                    <p className="mb-2 font-semibold text-text-base">{t('relationship_details')}</p>
+                    {selectedRelationship ? (
+                      <div className="space-y-1 text-text-subtle">
+                        <p>{t('peer')}: <span className="text-text-base">{selectedRelationshipPeer?.label || t('unknown')}</span></p>
+                        <p>{t('relationship')}: <span className="text-text-base">{relationLabel(selectedRelationship)}</span></p>
+                        <p>{t('evidence')}: <span className="text-text-base">{selectedRelationship.relationship_type.replace(/_/g, ' ')}</span></p>
+                        {edgeVlan(selectedRelationship) && <p>{t('idoit_export_snmp_vlan')}: <span className="text-text-base">{edgeVlan(selectedRelationship)}</span></p>}
+                        {metadataText(selectedRelationship, 'interface_alias') && <p>{t('interface_alias')}: <span className="text-text-base">{metadataText(selectedRelationship, 'interface_alias')}</span></p>}
+                        {metadataText(selectedRelationship, 'last_seen_at') && <p>{t('last_seen')}: <span className="text-text-base">{formatRelativeTime(metadataText(selectedRelationship, 'last_seen_at'), lang)}</span></p>}
+                      </div>
+                    ) : (
+                      <p className="text-text-subtle">{t('topology_no_neighbors')}</p>
+                    )}
                   </div>
                   <div>
                     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-subtle">{t('learned_endpoints')}</p>

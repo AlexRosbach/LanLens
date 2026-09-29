@@ -2,12 +2,13 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt
 
 from ..config import settings
 
 ACCESS_TOKEN_TYPE = "access"
 REFRESH_TOKEN_TYPE = "refresh"
+JWT_ALGORITHM = "HS256"
 
 
 def create_access_token(subject: str) -> str:
@@ -19,7 +20,7 @@ def create_access_token(subject: str) -> str:
         "jti": str(uuid.uuid4()),
         "type": ACCESS_TOKEN_TYPE,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return jwt.encode(payload, settings.secret_key, algorithm=JWT_ALGORITHM)
 
 
 def create_refresh_token(subject: str) -> str:
@@ -31,12 +32,12 @@ def create_refresh_token(subject: str) -> str:
         "jti": str(uuid.uuid4()),
         "type": REFRESH_TOKEN_TYPE,
     }
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+    return jwt.encode(payload, settings.secret_key, algorithm=JWT_ALGORITHM)
 
 
 def decode_token(token: str) -> Optional[dict]:
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[JWT_ALGORITHM])
         return payload
-    except JWTError:
+    except jwt.PyJWTError:
         return None

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Device } from '../api/devices'
+import { Device, devicesApi } from '../api/devices'
 import { Segment, segmentsApi } from '../api/segments'
 import RegisterDeviceModal from '../components/devices/RegisterDeviceModal'
 import DeviceTable from '../components/devices/DeviceTable'
@@ -32,6 +32,8 @@ export default function Dashboard() {
   const [segmentFilter, setSegmentFilter] = useState(() => searchParams.get('segment') ?? '')
   const [registerDevice, setRegisterDevice] = useState<Device | null>(null)
   const [segments, setSegments] = useState<Segment[]>([])
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<Set<number>>(new Set())
+  const [deletingSelected, setDeletingSelected] = useState(false)
 
   const newDevicesCount = devices.filter((d) => d.is_new).length
   const deviceClassOptions = Array.from(new Set([...DEVICE_CLASSES, ...devices.map((d) => d.device_class).filter(Boolean)])).sort()
@@ -75,6 +77,39 @@ export default function Dashboard() {
     }
     return true
   })
+
+  function toggleSelected(deviceId: number) {
+    setSelectedDeviceIds((current) => {
+      const next = new Set(current)
+      if (next.has(deviceId)) next.delete(deviceId)
+      else next.add(deviceId)
+      return next
+    })
+  }
+
+  function toggleAll(deviceIds: number[], selected: boolean) {
+    setSelectedDeviceIds((current) => {
+      const next = new Set(current)
+      deviceIds.forEach((deviceId) => selected ? next.add(deviceId) : next.delete(deviceId))
+      return next
+    })
+  }
+
+  async function deleteSelected() {
+    const deviceIds = Array.from(selectedDeviceIds)
+    if (deviceIds.length === 0 || !window.confirm(t('bulk_delete_confirm', { count: String(deviceIds.length) }))) return
+    setDeletingSelected(true)
+    try {
+      await devicesApi.bulkDelete(deviceIds)
+      setSelectedDeviceIds(new Set())
+      await fetchDevices({ archived_only: filter === 'archived' })
+      toast.success(t('bulk_delete_success', { count: String(deviceIds.length) }))
+    } catch {
+      toast.error(t('bulk_delete_failed'))
+    } finally {
+      setDeletingSelected(false)
+    }
+  }
 
   const summaryCards = [
     { labelKey: 'total' as const, value: stats.total, color: 'text-text-base' },
@@ -149,6 +184,17 @@ export default function Dashboard() {
             ))}
           </select>
         )}
+
+        {selectedDeviceIds.size > 0 && (
+          <button
+            type="button"
+            onClick={deleteSelected}
+            disabled={deletingSelected}
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-danger text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {t('delete_selected_devices', { count: String(selectedDeviceIds.size) })}
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -160,6 +206,9 @@ export default function Dashboard() {
           devices={filtered}
           onRegister={setRegisterDevice}
           onRefresh={() => fetchDevices({ archived_only: filter === 'archived' })}
+          selectedIds={selectedDeviceIds}
+          onToggleSelected={toggleSelected}
+          onToggleAll={toggleAll}
         />
       )}
 

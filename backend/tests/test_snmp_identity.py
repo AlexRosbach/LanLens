@@ -36,9 +36,12 @@ from backend.services.snmp import (
     OID_SYS_NAME,
     OID_SYS_OBJECT_ID,
     _parse_bridge_port_map,
+    _ensure_device_for_mac_entry,
     _parse_mac_suffix,
     _parse_q_bridge_suffix,
     _format_snmp_error,
+    _counter_rate,
+    _merge_port_maps,
     _snmp_command,
     bulk_identities_for_devices,
     detect_vendor,
@@ -58,6 +61,15 @@ class SnmpIdentityTests(unittest.TestCase):
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
 
+    def test_counter_rate_uses_elapsed_time_and_scale(self):
+        self.assertEqual(_counter_rate(160, 100, 30), 2.0)
+        self.assertEqual(_counter_rate(130, 100, 30, 60), 60.0)
+
+    def test_counter_rate_ignores_first_sample_and_counter_resets(self):
+        self.assertIsNone(_counter_rate(100, None, 30))
+        self.assertIsNone(_counter_rate(10, 100, 30))
+        self.assertIsNone(_counter_rate(100, 100, 0))
+
     def _enable_advanced_view(self, db):
         db.add(Setting(key="advanced_view_enabled", value="true"))
         db.commit()
@@ -68,9 +80,67 @@ class SnmpIdentityTests(unittest.TestCase):
 
     def test_parses_bridge_port_to_interface_index_map(self):
         self.assertEqual(
-            _parse_bridge_port_map({"1": "INTEGER: 10001", "2": "INTEGER: 10002", "x": "INTEGER: 3"}),
-            {1: 10001, 2: 10002},
+            _parse_bridge_port_map({
+                "1": "INTEGER: 10001",
+                "2": "INTEGER: 10002",
+                "47.20": "Gauge32: 47",
+                "x": "INTEGER: 3",
+            }),
+            {1: 10001, 2: 10002, 47: 47},
         )
+
+    def test_bridge_mib_port_map_can_override_broken_q_bridge_mapping(self):
+        q_bridge = {6: 1, 18: 1, 47: 2}
+        bridge = {6: 6, 18: 18, 47: 47}
+        self.assertEqual(
+            _merge_port_maps(q_bridge, bridge),
+            bridge,
+        )
+
+    def test_snmp_mac_discovery_creates_missing_unicast_device(self):
+        db = self.Session()
+        try:
+            discovered_at = datetime.utcnow()
+
+            device = _ensure_device_for_mac_entry(
+                db,
+                "00:11:22:33:44:55",
+                discovered_at,
+            )
+            db.commit()
+
+            self.assertIsNotNone(device)
+            self.assertEqual(device.mac_address, "00:11:22:33:44:55")
+            self.assertEqual(device.device_class, "Unknown")
+            self.assertFalse(device.is_online)
+            self.assertEqual(db.query(Device).count(), 1)
+
+            same_device = _ensure_device_for_mac_entry(
+                db,
+                "00:11:22:33:44:55",
+                datetime.utcnow(),
+            )
+            self.assertEqual(same_device.id, device.id)
+            self.assertEqual(db.query(Device).count(), 1)
+        finally:
+            db.close()
+
+    def test_snmp_mac_discovery_ignores_multicast_and_zero_addresses(self):
+        db = self.Session()
+        try:
+            self.assertIsNone(_ensure_device_for_mac_entry(
+                db,
+                "01:00:5E:00:00:01",
+                datetime.utcnow(),
+            ))
+            self.assertIsNone(_ensure_device_for_mac_entry(
+                db,
+                "00:00:00:00:00:00",
+                datetime.utcnow(),
+            ))
+            self.assertEqual(db.query(Device).count(), 0)
+        finally:
+            db.close()
 
     def test_parses_q_bridge_vlan_mac_suffix(self):
         self.assertEqual(_parse_q_bridge_suffix("20.0.17.34.51.68.85"), ("20", "00:11:22:33:44:55"))

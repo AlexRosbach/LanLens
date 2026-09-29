@@ -91,6 +91,11 @@ export interface SnmpSwitchPort {
   crc_errors?: number | null
   collision_errors?: number | null
   fragment_errors?: number | null
+  in_packets_per_second?: number | null
+  out_packets_per_second?: number | null
+  errors_per_minute?: number | null
+  discards_per_minute?: number | null
+  layer1_errors_per_minute?: number | null
   is_active: boolean
   endpoints: SnmpPortEndpoint[]
   last_seen_at: string
