@@ -194,6 +194,9 @@ export const devicesApi = {
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
 
+  bulkDelete: (deviceIds: number[]) =>
+    apiClient.post('/devices/bulk-delete', { device_ids: deviceIds }).then((r) => r.data),
+
   archive: (id: number) =>
     apiClient.post<Device>(`/devices/${id}/archive`).then((r) => r.data),
 
