@@ -417,10 +417,12 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 4. scan_start/scan_end are summarized into ARP targets for the directly reachable Layer-2 network
 5. scapy: Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=target)
    srp() with timeout=3s
-6. Optional routed scan targets are scanned with `nmap -sn -oX - <target>`
+6. Optional routed scan targets are scanned with `nmap -sn -n --disable-arp-ping --discovery-ignore-rst -oX - <target>`. Network and broadcast addresses are excluded for normal IPv4 CIDRs.
 7. For each discovered host:
    a. Normalize MAC to XX:XX:XX:XX:XX:XX when available
-   b. Routed hosts without MAC receive a stable internal `ip:` identifier and are displayed as IP-only discoveries
+   b. Routed hosts receive a stable internal `ip:` identifier and are displayed
+      as IP-only discoveries, because a MAC reported beyond the direct ARP
+      range may belong to a router or a shared Docker ipvlan interface
    c. mac_vendor.py: manuf.MacParser().get_manuf(mac) → vendor string when a real MAC exists
    d. DB upsert:
       - If identifier exists: update ip, last_seen, is_online=True
@@ -612,6 +614,8 @@ Passive discovery uses Scapy for packet capture and parsing. The currently insta
 ### Device Retention
 
 Use **Settings → Network Discovery → Device retention** to keep old discoveries from cluttering the active dashboard. `Archive after inactive days` moves unregistered discovered devices whose `last_seen` is older than the configured threshold into the dashboard's **Archived** filter. Registered/documented devices are not archived or deleted by retention. Archived devices are excluded from the normal device list, online/offline counters and new-device count. If a later scan sees the same device again, LanLens unarchives it automatically.
+
+For immediate cleanup, select one or more rows on the device dashboard and use **Delete selected**. The confirmation removes the selected devices and their attached history. Devices that are still discoverable can reappear on a later scan, so correct the scan range or discovery behavior before deleting false positives.
 
 Use the device detail **Danger Zone** to archive one device immediately without waiting for the retention window. This keeps the device history and documentation but moves it into the dashboard's **Archived** filter.
 

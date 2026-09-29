@@ -10,6 +10,9 @@ export default defineConfig({
   use: {
     baseURL,
     trace: 'retain-on-failure',
+    launchOptions: process.env.LANLENS_CHROMIUM_EXECUTABLE
+      ? { executablePath: process.env.LANLENS_CHROMIUM_EXECUTABLE }
+      : undefined,
   },
   webServer: {
     command: `VITE_CACHE_DIR=${viteCacheDir} npm run dev -- --host 127.0.0.1 --port ${port}`,

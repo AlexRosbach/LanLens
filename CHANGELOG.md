@@ -10,6 +10,8 @@ All notable changes to this project should be documented in this file.
 - Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
 
 ### New Features
+- Added multi-select and bulk deletion to the device dashboard so accidental
+  discovery results can be removed in one confirmed action.
 - Added ascending and descending segment sorting by starting IP address, name,
   total capacity, used addresses or free addresses.
 - Added the optional **DNS names and aliases** inventory for devices, including
@@ -44,6 +46,18 @@ All notable changes to this project should be documented in this file.
   but marks health status as unavailable because the payload is encrypted.
 
 ### Fixes / Hardening
+- Prevented routed Nmap scans from accepting proxy-ARP replies or spoofed TCP
+  resets as proof that every address exists, and excluded IPv4 network and
+  broadcast addresses from routed discovery results.
+- Processed direct MAC identities before routed IP identities during inventory
+  reconciliation, preserving the existing device history of the direct owner.
+- Removed per-device service and port-scan database queries from dashboard
+  loading by prefetching those relationships in bounded queries.
+- Kept routed Nmap discoveries as separate IP-based inventory entries even
+  when Docker ipvlan, proxy ARP or another shared interface reports the same
+  MAC address for multiple reachable hosts, including when ARP and routed scan
+  ranges overlap, and repaired already-collapsed inventory rows without taking
+  the shared MAC identity away from its directly discovered owner.
 - Kept the Settings UI compatible with older settings responses by deriving the
   initial DHCP range from the legacy start/end fields when `dhcp_ranges` is
   absent.
@@ -60,6 +74,10 @@ All notable changes to this project should be documented in this file.
 - Updated Axios, React Router, Vite, PostCSS and Playwright, pinned the remaining
   vulnerable transitive multipart package to its patched release, and committed
   the frontend lockfile for reproducible dependency audits.
+- Refreshed React Router and transitive frontend build dependencies to their
+  patched releases; the production and full frontend dependency audits report
+  no known vulnerabilities. The updates retain the existing MIT, ISC and
+  Apache-2.0 license set and add no direct dependency.
 - Added a checked-in Docker Buildx Bake target for repeatable AMD64/ARM64 builds.
 - Build the platform-neutral frontend stage natively on the Buildx host so ARM64
   images do not need to run the Node/Vite toolchain under QEMU.
@@ -104,6 +122,20 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Prevented routed Nmap scans from accepting proxy-ARP replies or spoofed TCP
+  resets as proof that every address exists, and excluded IPv4 network and
+  broadcast addresses from routed discovery results.
+- Processed direct MAC identities before routed IP identities during inventory
+  reconciliation, preserving the existing device history of the direct owner.
+- Removed per-device service and port-scan database queries from dashboard
+  loading by prefetching those relationships in bounded queries.
+- Kept routed Nmap discoveries as separate IP-based inventory entries even
+  when Docker ipvlan, proxy ARP or another shared interface reports the same
+  MAC address for multiple reachable hosts, including when ARP and routed scan
+  ranges overlap, and repaired already-collapsed inventory rows without taking
+  the shared MAC identity away from its directly discovered owner.
+- Kept Settings compatible with older settings responses by deriving an initial
+  DHCP range from the legacy start/end fields when `dhcp_ranges` is absent.
 - Fixed the documented `LANLENS_API_TOKEN` and
   `LANLENS_API_TOKEN_READ_ONLY` environment variables so persistent tokens are
   actually loaded by the application.

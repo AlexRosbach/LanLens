@@ -79,6 +79,7 @@ def _get_setting_row(db: Session, key: str) -> Optional[Setting]:
 class DiscoveryResult:
     ip: str
     mac: Optional[str] = None
+    source: str = "direct"
 
 
 def _pseudo_mac_for_ip(ip: str) -> str:
@@ -136,7 +137,21 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
 
     try:
         completed = subprocess.run(
-            ["nmap", "-sn", "-n", "-oX", "-", *targets],
+            [
+                "nmap",
+                "-sn",
+                "-n",
+                # Routed targets may still look locally attached to the host
+                # (for example when a gateway uses proxy ARP). Nmap's default
+                # ARP discovery would then accept the proxy reply for every IP.
+                "--disable-arp-ping",
+                # Some firewalls synthesize a TCP RST for every unused address.
+                # A spoofed RST is not sufficient evidence that a host exists.
+                "--discovery-ignore-rst",
+                "-oX",
+                "-",
+                *targets,
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -167,30 +182,70 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
             continue
 
         ip = None
-        mac = None
         for address in host.findall("address"):
             addr_type = address.attrib.get("addrtype")
             if addr_type == "ipv4":
                 ip = address.attrib.get("addr")
-            elif addr_type == "mac":
-                raw_mac = address.attrib.get("addr")
-                mac = normalize_mac(raw_mac) if raw_mac else None
 
-        if ip and ip not in seen_ips:
+        if ip and ip not in seen_ips and _is_usable_routed_host(ip, targets):
             seen_ips.add(ip)
-            results.append(DiscoveryResult(ip=ip, mac=mac))
+            # A MAC reported by a routed ping scan is not a safe device
+            # identity. In particular, Docker ipvlan endpoints can expose the
+            # same parent-interface MAC for many independent IP addresses.
+            # Track routed discoveries by stable IP-derived identifiers. Their
+            # routed source marker also prevents overlapping proxy-ARP replies
+            # from replacing that identity during deduplication.
+            results.append(DiscoveryResult(ip=ip, source="routed"))
 
     return results
 
 
+def _is_usable_routed_host(ip: str, targets: List[str]) -> bool:
+    """Reject IPv4 network/broadcast addresses from routed CIDR results."""
+    try:
+        address = ipaddress.IPv4Address(ip)
+    except ValueError:
+        return False
+
+    for target in targets:
+        if "/" not in target:
+            if address == ipaddress.IPv4Address(target):
+                return True
+            continue
+        network = ipaddress.IPv4Network(target, strict=False)
+        if address not in network:
+            continue
+        if network.prefixlen <= 30 and address in {network.network_address, network.broadcast_address}:
+            return False
+        return True
+    return False
+
+
 def _dedupe_discovery_results(results: List[DiscoveryResult]) -> List[DiscoveryResult]:
-    """Deduplicate discoveries by IP, preferring entries with real MAC addresses."""
+    """Deduplicate discoveries by IP while preserving routed identity semantics.
+
+    An explicit routed target must stay IP-based even when an overlapping ARP
+    scan receives a proxy-ARP response for the same address. Otherwise the
+    proxy MAC wins here and routed hosts collapse back into one device.
+    """
     by_ip: dict[str, DiscoveryResult] = {}
     for result in results:
         existing = by_ip.get(result.ip)
-        if existing is None or (not existing.mac and result.mac):
+        if (
+            existing is None
+            or (result.source == "routed" and existing.source != "routed")
+            or (
+                result.source == existing.source
+                and not existing.mac
+                and result.mac
+            )
+        ):
             by_ip[result.ip] = result
-    return list(by_ip.values())
+    # Process direct identities first. Replacing an earlier proxy-ARP value in
+    # a dict does not change its insertion position, so without this ordering a
+    # routed result could migrate a collapsed row before the real MAC owner had
+    # claimed it.
+    return sorted(by_ip.values(), key=lambda result: result.source == "routed")
 
 
 def _get_hostname(ip: str) -> Optional[str]:
@@ -791,23 +846,44 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         notify_new_devices = not notify_new_devices_row or notify_new_devices_row.value != "false"
 
         found_macs = set()
+        direct_claimed_device_ids: set[int] = set()
         devices_new = 0
 
         for result in results:
             ip = result.ip
-            existing = existing_devices.get(result.mac) if result.mac else None
             ip_matched_existing = existing_devices_by_ip.get(ip)
-            if existing is None and ip_matched_existing is not None and (
-                not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
-            ):
-                existing = ip_matched_existing
-            elif existing is None and ip_matched_existing is not None and result.mac:
-                _record_mac_drift_for_ip(db, ip_matched_existing, ip, result.mac, "scan")
-            mac_normalized = result.mac or (existing.mac_address if existing and existing.mac_address else _pseudo_mac_for_ip(ip))
-            if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
-                existing_devices.pop(existing.mac_address, None)
-                existing.mac_address = result.mac
-                existing_devices[result.mac] = existing
+            if result.source == "routed":
+                mac_normalized = _pseudo_mac_for_ip(ip)
+                existing = existing_devices.get(mac_normalized)
+                if (
+                    existing is None
+                    and ip_matched_existing is not None
+                    and ip_matched_existing.id not in direct_claimed_device_ids
+                ):
+                    existing = ip_matched_existing
+                    previous_identifier = existing.mac_address
+                    if previous_identifier != mac_normalized:
+                        if existing_devices.get(previous_identifier) is existing:
+                            existing_devices.pop(previous_identifier, None)
+                        existing.mac_address = mac_normalized
+                        existing_devices[mac_normalized] = existing
+            else:
+                existing = existing_devices.get(result.mac) if result.mac else None
+                if existing is None and ip_matched_existing is not None and (
+                    not result.mac or _is_ip_only_identifier(ip_matched_existing.mac_address)
+                ):
+                    existing = ip_matched_existing
+                elif existing is None and ip_matched_existing is not None and result.mac:
+                    _record_mac_drift_for_ip(db, ip_matched_existing, ip, result.mac, "scan")
+                mac_normalized = result.mac or (
+                    existing.mac_address
+                    if existing and existing.mac_address
+                    else _pseudo_mac_for_ip(ip)
+                )
+                if result.mac and existing and _is_ip_only_identifier(existing.mac_address):
+                    existing_devices.pop(existing.mac_address, None)
+                    existing.mac_address = result.mac
+                    existing_devices[result.mac] = existing
             found_macs.add(mac_normalized)
 
             vendor = None if _is_ip_only_identifier(mac_normalized) else lookup_vendor(mac_normalized)
@@ -853,6 +929,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 record_ping_sample(db, new_device.id, True, latency_by_ip.get(ip), "scan", seen_at)
                 existing_devices[mac_normalized] = new_device
                 existing_devices_by_ip[ip] = new_device
+                if result.source != "routed":
+                    direct_claimed_device_ids.add(new_device.id)
                 devices_new += 1
 
                 if notify_new_devices and not new_device.notifications_muted and not new_device.ignored:
@@ -872,6 +950,11 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
                 previous_hostname = existing.hostname
                 was_archived = bool(existing.is_archived)
                 existing.ip_address = ip
+                if previous_ip != ip and existing_devices_by_ip.get(previous_ip) is existing:
+                    existing_devices_by_ip.pop(previous_ip, None)
+                existing_devices_by_ip[ip] = existing
+                if result.source != "routed":
+                    direct_claimed_device_ids.add(existing.id)
                 existing.is_online = True
                 existing.is_archived = False
                 existing.archived_at = None

@@ -16,7 +16,7 @@ const baseSettings = {
   show_build_info: false,
   show_debug_tools: false,
   app_version: '1.6.0',
-  build_code: '20260730.0016',
+  build_code: '20260929.0002',
   build_commit: 'test',
   build_branch: 'codex/start-1.5.9-iteration',
   build_created: now,
