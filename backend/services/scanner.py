@@ -137,7 +137,21 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
 
     try:
         completed = subprocess.run(
-            ["nmap", "-sn", "-n", "-oX", "-", *targets],
+            [
+                "nmap",
+                "-sn",
+                "-n",
+                # Routed targets may still look locally attached to the host
+                # (for example when a gateway uses proxy ARP). Nmap's default
+                # ARP discovery would then accept the proxy reply for every IP.
+                "--disable-arp-ping",
+                # Some firewalls synthesize a TCP RST for every unused address.
+                # A spoofed RST is not sufficient evidence that a host exists.
+                "--discovery-ignore-rst",
+                "-oX",
+                "-",
+                *targets,
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -173,7 +187,7 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
             if addr_type == "ipv4":
                 ip = address.attrib.get("addr")
 
-        if ip and ip not in seen_ips:
+        if ip and ip not in seen_ips and _is_usable_routed_host(ip, targets):
             seen_ips.add(ip)
             # A MAC reported by a routed ping scan is not a safe device
             # identity. In particular, Docker ipvlan endpoints can expose the
@@ -184,6 +198,27 @@ def _nmap_ping_scan(targets: List[str]) -> List[DiscoveryResult]:
             results.append(DiscoveryResult(ip=ip, source="routed"))
 
     return results
+
+
+def _is_usable_routed_host(ip: str, targets: List[str]) -> bool:
+    """Reject IPv4 network/broadcast addresses from routed CIDR results."""
+    try:
+        address = ipaddress.IPv4Address(ip)
+    except ValueError:
+        return False
+
+    for target in targets:
+        if "/" not in target:
+            if address == ipaddress.IPv4Address(target):
+                return True
+            continue
+        network = ipaddress.IPv4Network(target, strict=False)
+        if address not in network:
+            continue
+        if network.prefixlen <= 30 and address in {network.network_address, network.broadcast_address}:
+            return False
+        return True
+    return False
 
 
 def _dedupe_discovery_results(results: List[DiscoveryResult]) -> List[DiscoveryResult]:
@@ -206,7 +241,11 @@ def _dedupe_discovery_results(results: List[DiscoveryResult]) -> List[DiscoveryR
             )
         ):
             by_ip[result.ip] = result
-    return list(by_ip.values())
+    # Process direct identities first. Replacing an earlier proxy-ARP value in
+    # a dict does not change its insertion position, so without this ordering a
+    # routed result could migrate a collapsed row before the real MAC owner had
+    # claimed it.
+    return sorted(by_ip.values(), key=lambda result: result.source == "routed")
 
 
 def _get_hostname(ip: str) -> Optional[str]:

@@ -5,6 +5,8 @@ All notable changes to this project should be documented in this file.
 ## Unreleased
 
 ### New Features
+- Added multi-select and bulk deletion to the device dashboard so accidental
+  discovery results can be removed in one confirmed action.
 - Added ascending and descending segment sorting by starting IP address, name,
   total capacity, used addresses or free addresses.
 - Added the optional **DNS names and aliases** inventory for devices, including
@@ -38,6 +40,13 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Prevented routed Nmap scans from accepting proxy-ARP replies or spoofed TCP
+  resets as proof that every address exists, and excluded IPv4 network and
+  broadcast addresses from routed discovery results.
+- Processed direct MAC identities before routed IP identities during inventory
+  reconciliation, preserving the existing device history of the direct owner.
+- Removed per-device service and port-scan database queries from dashboard
+  loading by prefetching those relationships in bounded queries.
 - Kept routed Nmap discoveries as separate IP-based inventory entries even
   when Docker ipvlan, proxy ARP or another shared interface reports the same
   MAC address for multiple reachable hosts, including when ARP and routed scan

@@ -8,7 +8,9 @@ This page collects common setup issues and fixes for LanLens integrations.
 
 Treat this as two separate problems: discovery reachability and CMDB reconciliation.
 
-For VLAN discovery, use **Settings -> Network -> Additional routed scan targets** for routed CIDRs that the LanLens host can reach, for example `10.10.20.0/24`. LanLens uses `nmap -sn` for those targets and tracks each reachable address with a stable IP-based identity. This keeps Docker ipvlan containers and other hosts separate even when the scan sees a shared MAC. Across routed networks, MAC/vendor data is intentionally not used because ARP identity is only reliable inside the local broadcast domain.
+For VLAN discovery, use **Settings -> Network -> Additional routed scan targets** for routed CIDRs that the LanLens host can reach, for example `10.10.20.0/24`. LanLens uses Nmap host discovery with implicit ARP ping disabled and spoofed TCP reset replies ignored, then tracks each reachable address with a stable IP-based identity. This prevents proxy ARP from making an entire CIDR look occupied and keeps Docker ipvlan containers and other hosts separate even when the scan sees a shared MAC. Across routed networks, MAC/vendor data is intentionally not used because ARP identity is only reliable inside the local broadcast domain.
+
+If a previous scan created many false devices, select the affected rows on the dashboard and use **Delete selected**. Fix the routed target or upgrade before cleanup so the entries do not reappear during the next scan.
 
 For larger enterprises, deploy one LanLens instance or scanner near each site/VLAN when MAC-level discovery matters, then consolidate through i-doit/CMDB rather than forcing one central ARP scanner through routed networks.
 

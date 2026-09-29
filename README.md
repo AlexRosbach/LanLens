@@ -25,6 +25,7 @@ LanLens gives you a quick, local view of what is on your network:
 
 - Devices found by MAC/IP device discovery, with vendor hints and online/offline state
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
+- Multi-select cleanup for deleting several unwanted inventory entries in one confirmed action
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, SNMP, custom SNMP OIDs, and scan-detected changes
 - Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
@@ -129,7 +130,7 @@ LanLens forces a password change after the first login. For full MAC/vendor disc
 
 ## Deployment Notes
 
-LanLens uses `network_mode: host` by default because local ARP discovery and first-run subnet detection need raw network access on the host interface. Bridge mode can serve the UI, but direct ARP/MAC discovery will not work the same way and may require manually configured scan targets. Additional routed Nmap targets are tracked by IP so hosts such as Docker ipvlan containers remain separate even when they expose a shared MAC address.
+LanLens uses `network_mode: host` by default because local ARP discovery and first-run subnet detection need raw network access on the host interface. Bridge mode can serve the UI, but direct ARP/MAC discovery will not work the same way and may require manually configured scan targets. Additional routed Nmap targets are tracked by IP so hosts such as Docker ipvlan containers remain separate even when they expose a shared MAC address. Routed discovery disables Nmap's implicit ARP ping and ignores spoofed reset replies so proxy ARP or firewall behavior cannot turn a whole subnet into phantom devices.
 
 Core runtime settings:
 

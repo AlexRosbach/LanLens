@@ -24,6 +24,10 @@ NMAP_SHARED_MAC_XML = """\
 <nmaprun>
   <host>
     <status state="up"/>
+    <address addr="10.10.50.0" addrtype="ipv4"/>
+  </host>
+  <host>
+    <status state="up"/>
     <address addr="10.10.50.60" addrtype="ipv4"/>
     <address addr="02:42:AC:11:00:02" addrtype="mac"/>
   </host>
@@ -31,6 +35,10 @@ NMAP_SHARED_MAC_XML = """\
     <status state="up"/>
     <address addr="10.10.50.61" addrtype="ipv4"/>
     <address addr="02:42:AC:11:00:02" addrtype="mac"/>
+  </host>
+  <host>
+    <status state="up"/>
+    <address addr="10.10.50.255" addrtype="ipv4"/>
   </host>
 </nmaprun>
 """
@@ -57,6 +65,15 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
                 DiscoveryResult(ip="10.10.50.61", source="routed"),
             ],
         )
+
+    def test_nmap_disables_proxy_arp_and_spoofed_rst_discovery(self):
+        completed = Mock(returncode=0, stdout=NMAP_SHARED_MAC_XML, stderr="")
+        with patch("backend.services.scanner.subprocess.run", return_value=completed) as run:
+            _nmap_ping_scan(["10.10.50.0/24"])
+
+        command = run.call_args.args[0]
+        self.assertIn("--disable-arp-ping", command)
+        self.assertIn("--discovery-ignore-rst", command)
 
     def test_routed_result_wins_over_proxy_arp_for_the_same_ip(self):
         shared_mac = "02:42:AC:11:00:02"
@@ -203,9 +220,10 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
         db.close()
 
         arp_results = [
-            DiscoveryResult(ip="192.0.2.1", mac=shared_mac),
             DiscoveryResult(ip="10.10.50.60", mac=shared_mac),
             DiscoveryResult(ip="10.10.50.61", mac=shared_mac),
+            # The direct owner deliberately arrives after the proxy-ARP rows.
+            DiscoveryResult(ip="192.0.2.1", mac=shared_mac),
         ]
         routed_results = [
             DiscoveryResult(ip="10.10.50.60", source="routed"),

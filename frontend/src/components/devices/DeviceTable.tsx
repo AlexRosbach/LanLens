@@ -11,6 +11,9 @@ interface Props {
   devices: Device[]
   onRegister: (device: Device) => void
   onRefresh: () => void
+  selectedIds?: Set<number>
+  onToggleSelected?: (deviceId: number) => void
+  onToggleAll?: (deviceIds: number[], selected: boolean) => void
 }
 
 type SortKey = 'device' | 'ip' | 'vendor' | 'status' | 'last_seen'
@@ -36,7 +39,14 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   )
 }
 
-export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
+export default function DeviceTable({
+  devices,
+  onRegister,
+  onRefresh,
+  selectedIds = new Set<number>(),
+  onToggleSelected,
+  onToggleAll,
+}: Props) {
   const navigate = useNavigate()
   const { t, lang } = useI18n()
   const [sortKey, setSortKey] = useState<SortKey>('ip')
@@ -101,12 +111,22 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
   }
 
   const sorted = sortDevices(devices)
+  const allSelected = sorted.length > 0 && sorted.every((device) => selectedIds.has(device.id))
 
   return (
     <div className="overflow-x-auto rounded-xl border border-border">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border text-text-subtle text-xs uppercase tracking-wider">
+            <th className="w-10 px-3 py-3 text-center font-medium">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={(event) => onToggleAll?.(sorted.map((device) => device.id), event.target.checked)}
+                aria-label={t('select_all_devices')}
+                className="h-4 w-4 accent-primary"
+              />
+            </th>
             <SortTh colKey="device" label={t('col_device')} />
             <SortTh colKey="ip" label={t('col_ip')} />
             <SortTh colKey="vendor" label={t('col_vendor')} className="hidden md:table-cell" />
@@ -126,6 +146,15 @@ export default function DeviceTable({ devices, onRegister, onRefresh }: Props) {
                   transition-colors hover:bg-surface2
                   ${i % 2 === 0 ? 'bg-surface' : 'bg-background/50'}`}
               >
+                <td className="w-10 px-3 py-3 text-center" onClick={(event) => event.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(device.id)}
+                    onChange={() => onToggleSelected?.(device.id)}
+                    aria-label={t('select_device', { name: formatDeviceLabel(device, ipOnlyHostLabel) })}
+                    className="h-4 w-4 accent-primary"
+                  />
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-surface2 border border-border flex items-center justify-center flex-shrink-0">
