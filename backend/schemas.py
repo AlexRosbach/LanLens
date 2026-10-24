@@ -294,6 +294,10 @@ class DeviceUpdate(BaseModel):
     maintenance_note: Optional[str] = None
 
 
+class DeviceBulkDeleteRequest(BaseModel):
+    device_ids: List[int] = Field(min_length=1, max_length=1000)
+
+
 class DeviceMaintenanceUpdate(BaseModel):
     ignored: Optional[bool] = None
     notifications_muted: Optional[bool] = None
