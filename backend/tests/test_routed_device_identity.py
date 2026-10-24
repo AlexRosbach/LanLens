@@ -13,6 +13,7 @@ from backend.models import Device, ScanRun, Setting
 from backend.services.scanner import (
     DiscoveryResult,
     _dedupe_discovery_results,
+    _is_usable_routed_host,
     _nmap_ping_scan,
     _pseudo_mac_for_ip,
     run_scan,
@@ -74,6 +75,17 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("--disable-arp-ping", command)
         self.assertIn("--discovery-ignore-rst", command)
+
+    def test_overlapping_targets_accept_host_regardless_of_target_order(self):
+        targets = ["10.10.50.128/25", "10.10.50.0/24"]
+
+        self.assertTrue(_is_usable_routed_host("10.10.50.128", targets))
+        self.assertTrue(_is_usable_routed_host("10.10.50.128", list(reversed(targets))))
+        self.assertTrue(_is_usable_routed_host("10.10.50.128", ["10.10.50.128/25", "10.10.50.128"]))
+
+    def test_network_or_broadcast_address_is_rejected_when_no_target_allows_it(self):
+        self.assertFalse(_is_usable_routed_host("10.10.50.128", ["10.10.50.128/25"]))
+        self.assertFalse(_is_usable_routed_host("10.10.50.255", ["10.10.50.0/24", "10.10.50.128/25"]))
 
     def test_routed_result_wins_over_proxy_arp_for_the_same_ip(self):
         shared_mac = "02:42:AC:11:00:02"

@@ -387,6 +387,11 @@ def _device_to_response(
         snmp_interface_crc_errors=(snmp_identity or {}).get("interface_crc_errors"),
         snmp_interface_collision_errors=(snmp_identity or {}).get("interface_collision_errors"),
         snmp_interface_fragment_errors=(snmp_identity or {}).get("interface_fragment_errors"),
+        snmp_interface_in_packets_per_second=(snmp_identity or {}).get("interface_in_packets_per_second"),
+        snmp_interface_out_packets_per_second=(snmp_identity or {}).get("interface_out_packets_per_second"),
+        snmp_interface_errors_per_minute=(snmp_identity or {}).get("interface_errors_per_minute"),
+        snmp_interface_discards_per_minute=(snmp_identity or {}).get("interface_discards_per_minute"),
+        snmp_interface_layer1_errors_per_minute=(snmp_identity or {}).get("interface_layer1_errors_per_minute"),
     )
 
 

@@ -78,7 +78,7 @@ function relationTone(edge: TopologyEdge, target?: TopologyNode) {
 
 function relationFilterValue(edge: TopologyEdge): RelationshipFilter {
   if (edge.relationship_type === 'snmp_port') return 'snmp'
-  if (edge.relationship_type === 'host_guest') return 'host'
+  if (edge.relationship_type === 'vm_on_host') return 'host'
   return 'passive'
 }
 
@@ -320,9 +320,9 @@ export default function NetworkTopology() {
     : null
   const selectedChanges = selected ? changes.filter((change) => change.device_id === selected.id) : []
   const snmpEdgeCount = topology.edges.filter((edge) => edge.relationship_type === 'snmp_port').length
-  const passiveEdgeCount = topology.edges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'host_guest').length
+  const passiveEdgeCount = topology.edges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'vm_on_host').length
   const visibleSnmpEdgeCount = visibleEdges.filter((edge) => edge.relationship_type === 'snmp_port').length
-  const visiblePassiveEdgeCount = visibleEdges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'host_guest').length
+  const visiblePassiveEdgeCount = visibleEdges.filter((edge) => edge.relationship_type !== 'snmp_port' && edge.relationship_type !== 'vm_on_host').length
   const zoomPercent = Math.round(viewport.scale * 100)
 
   function zoomMap(nextScale: number, pivotX = CANVAS_WIDTH / 2, pivotY = CANVAS_HEIGHT / 2) {

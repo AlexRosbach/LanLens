@@ -19,7 +19,8 @@
     "zustand": "^4.5.2"
   },
   "overrides": {
-    "form-data": "4.0.6"
+    "form-data": "4.0.6",
+    "postcss-selector-parser": "7.1.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

@@ -181,6 +181,7 @@ const topology = {
     { source: 3, target: 5, relationship_type: 'snmp_port', label: 'eth1', metadata: { vlan: '30' } },
     { source: 2, target: 6, relationship_type: 'snmp_port', label: 'Port 18', metadata: { vlan: '2' } },
     { source: 1, target: 2, relationship_type: 'ospf_neighbor', label: '10.0.0.2', metadata: { router_id: '10.0.0.1' } },
+    { source: 4, target: 5, relationship_type: 'vm_on_host', label: 'VM host', metadata: {} },
     ...Array.from({ length: 16 }, (_, index) => ({
       source: 3,
       target: 10 + index,
@@ -279,6 +280,9 @@ test('network topology visualizes inventory and SNMP relationships', async ({ pa
   await page.getByLabel('Relationship filter').selectOption('passive')
   await expect(page.locator('[data-testid="topology-edge"][data-relationship-type="snmp_port"]')).toHaveCount(0)
   await expect(page.locator('[data-testid="topology-edge"][data-relationship-type="ospf_neighbor"]')).toHaveCount(1)
+  await page.getByLabel('Relationship filter').selectOption('host')
+  await expect(page.locator('[data-testid="topology-edge"][data-relationship-type="vm_on_host"]')).toHaveCount(1)
+  await expect(page.locator('[data-testid="topology-edge"][data-relationship-type="ospf_neighbor"]')).toHaveCount(0)
   await page.getByLabel('Relationship filter').selectOption('all')
   await page.getByLabel('VLAN filter').selectOption('20')
   await expect(page.locator('[data-testid="topology-node"][data-node-id="4"]')).toBeVisible()

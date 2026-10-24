@@ -10,6 +10,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-snmp-identity-tests-123
 from backend.database import Base
 from backend.models import Device, Setting, SnmpCustomQuery, SnmpCustomResult, SnmpInterface, SnmpMacTableEntry, SnmpProfile, SnmpSwitch
 from backend.services import snmp as snmp_service
+from backend.routers.devices import _device_to_response
 from backend.routers.snmp import (
     SnmpSwitchPayload,
     _build_switch_port_visualization,
@@ -40,7 +41,9 @@ from backend.services.snmp import (
     _parse_mac_suffix,
     _parse_q_bridge_suffix,
     _format_snmp_error,
+    _counter_group_rate,
     _counter_rate,
+    _counter_sum,
     _merge_port_maps,
     _snmp_command,
     bulk_identities_for_devices,
@@ -69,6 +72,20 @@ class SnmpIdentityTests(unittest.TestCase):
         self.assertIsNone(_counter_rate(100, None, 30))
         self.assertIsNone(_counter_rate(10, 100, 30))
         self.assertIsNone(_counter_rate(100, 100, 0))
+
+    def test_counter_group_rate_requires_complete_samples_without_component_resets(self):
+        self.assertEqual(_counter_group_rate((160, 90), (100, 60), 30), 3.0)
+        self.assertIsNone(_counter_group_rate((160, None), (100, 60), 30))
+        self.assertIsNone(_counter_group_rate((160, 90), (100, None), 30))
+        self.assertIsNone(_counter_group_rate((200, 10), (100, 20), 30))
+
+    def test_counter_sum_requires_every_component(self):
+        values = {
+            "first": {"7": "10"},
+            "second": {"7": "5"},
+        }
+        self.assertEqual(_counter_sum(values, ["first", "second"], 7), 15)
+        self.assertIsNone(_counter_sum(values, ["first", "missing"], 7))
 
     def _enable_advanced_view(self, db):
         db.add(Setting(key="advanced_view_enabled", value="true"))
@@ -122,6 +139,73 @@ class SnmpIdentityTests(unittest.TestCase):
             )
             self.assertEqual(same_device.id, device.id)
             self.assertEqual(db.query(Device).count(), 1)
+        finally:
+            db.close()
+
+    def test_snmp_mac_discovery_flushes_new_device_when_autoflush_is_disabled(self):
+        db = self.Session(autoflush=False)
+        try:
+            discovered_at = datetime.utcnow()
+            first = _ensure_device_for_mac_entry(db, "00:11:22:33:44:66", discovered_at)
+            second = _ensure_device_for_mac_entry(db, "00:11:22:33:44:66", discovered_at)
+
+            self.assertIsNotNone(first.id)
+            self.assertEqual(second.id, first.id)
+            self.assertEqual(db.query(Device).count(), 1)
+        finally:
+            db.close()
+
+    def test_snmp_mac_discovery_refreshes_archived_mac_only_device(self):
+        db = self.Session()
+        try:
+            original_seen = datetime(2026, 1, 1)
+            discovered_at = datetime(2026, 10, 24)
+            device = Device(
+                mac_address="00:11:22:33:44:77",
+                device_class="Unknown",
+                is_online=True,
+                is_archived=True,
+                archived_at=original_seen,
+                first_seen=original_seen,
+                last_seen=original_seen,
+            )
+            db.add(device)
+            db.commit()
+
+            refreshed = _ensure_device_for_mac_entry(db, device.mac_address, discovered_at)
+
+            self.assertEqual(refreshed.id, device.id)
+            self.assertEqual(refreshed.last_seen, discovered_at)
+            self.assertFalse(refreshed.is_archived)
+            self.assertIsNone(refreshed.archived_at)
+            self.assertFalse(refreshed.is_online)
+        finally:
+            db.close()
+
+    def test_device_response_exposes_snmp_interface_rates(self):
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:88", device_class="Unknown")
+            db.add(device)
+            db.commit()
+            response = _device_to_response(
+                device,
+                snmp_identities={
+                    device.id: {
+                        "interface_in_packets_per_second": 12.5,
+                        "interface_out_packets_per_second": 9.25,
+                        "interface_errors_per_minute": 1.0,
+                        "interface_discards_per_minute": 2.0,
+                        "interface_layer1_errors_per_minute": 3.0,
+                    }
+                },
+            )
+
+            self.assertEqual(response.snmp_interface_in_packets_per_second, 12.5)
+            self.assertEqual(response.snmp_interface_out_packets_per_second, 9.25)
+            self.assertEqual(response.snmp_interface_errors_per_minute, 1.0)
+            self.assertEqual(response.snmp_interface_discards_per_minute, 2.0)
+            self.assertEqual(response.snmp_interface_layer1_errors_per_minute, 3.0)
         finally:
             db.close()
 

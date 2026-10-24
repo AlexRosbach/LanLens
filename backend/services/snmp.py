@@ -522,6 +522,11 @@ def _ensure_device_for_mac_entry(db: Session, mac: str, now: datetime) -> Option
         .first()
     )
     if device is not None:
+        if device.ip_address is None:
+            device.last_seen = now
+            device.is_archived = False
+            device.archived_at = None
+            device.is_online = False
         return device
     vendor = lookup_vendor(normalized)
     device = Device(
@@ -533,6 +538,7 @@ def _ensure_device_for_mac_entry(db: Session, mac: str, now: datetime) -> Option
         last_seen=now,
     )
     db.add(device)
+    db.flush()
     return device
 
 
@@ -548,20 +554,35 @@ def _counter_value(values: dict[str, str], if_index: int) -> Optional[int]:
 
 
 def _counter_sum(values: dict[str, dict[str, str]], keys: list[str], if_index: int) -> Optional[int]:
-    total = 0
-    found = False
+    counters: list[int] = []
     for key in keys:
         value = _counter_value(values.get(key, {}), if_index)
-        if value is not None:
-            total += value
-            found = True
-    return total if found else None
+        if value is None:
+            return None
+        counters.append(value)
+    return sum(counters)
 
 
 def _counter_rate(current: Optional[int], previous: Optional[int], elapsed_seconds: float, scale: float = 1.0) -> Optional[float]:
     if current is None or previous is None or elapsed_seconds <= 0 or current < previous:
         return None
     return round(((current - previous) / elapsed_seconds) * scale, 3)
+
+
+def _counter_group_rate(
+    current: tuple[Optional[int], ...],
+    previous: tuple[Optional[int], ...],
+    elapsed_seconds: float,
+    scale: float = 1.0,
+) -> Optional[float]:
+    if elapsed_seconds <= 0 or len(current) != len(previous):
+        return None
+    if any(value is None for value in (*current, *previous)):
+        return None
+    deltas = [current_value - previous_value for current_value, previous_value in zip(current, previous)]
+    if any(delta < 0 for delta in deltas):
+        return None
+    return round((sum(deltas) / elapsed_seconds) * scale, 3)
 
 
 def _merge_port_maps(*maps: dict[int, int]) -> dict[int, int]:
@@ -581,31 +602,11 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
         row = SnmpInterface(switch_id=switch.id, if_index=if_index)
         db.add(row)
     elapsed_seconds = (now - row.last_seen_at).total_seconds() if row.last_seen_at else 0
-    previous_in_packets = (
-        (row.in_unicast_packets or 0) + (row.in_non_unicast_packets or 0)
-        if row.in_unicast_packets is not None or row.in_non_unicast_packets is not None
-        else None
-    )
-    previous_out_packets = (
-        (row.out_unicast_packets or 0) + (row.out_non_unicast_packets or 0)
-        if row.out_unicast_packets is not None or row.out_non_unicast_packets is not None
-        else None
-    )
-    previous_errors = (
-        (row.in_errors or 0) + (row.out_errors or 0)
-        if row.in_errors is not None or row.out_errors is not None
-        else None
-    )
-    previous_discards = (
-        (row.in_discards or 0) + (row.out_discards or 0)
-        if row.in_discards is not None or row.out_discards is not None
-        else None
-    )
-    previous_layer1_errors = (
-        (row.crc_errors or 0) + (row.collision_errors or 0) + (row.fragment_errors or 0)
-        if row.crc_errors is not None or row.collision_errors is not None or row.fragment_errors is not None
-        else None
-    )
+    previous_in_packets = (row.in_unicast_packets, row.in_non_unicast_packets)
+    previous_out_packets = (row.out_unicast_packets, row.out_non_unicast_packets)
+    previous_errors = (row.in_errors, row.out_errors)
+    previous_discards = (row.in_discards, row.out_discards)
+    previous_layer1_errors = (row.crc_errors, row.collision_errors, row.fragment_errors)
     row.name = values["names"].get(str(if_index)) or row.name
     row.description = values["descr"].get(str(if_index)) or row.description
     row.alias = values["alias"].get(str(if_index)) or row.alias
@@ -631,36 +632,16 @@ def _upsert_interface(db: Session, switch: SnmpSwitch, if_index: int, values: di
         if_index,
     )
     row.fragment_errors = _counter_value(values["dot3_frame_too_longs"], if_index)
-    current_in_packets = (
-        (row.in_unicast_packets or 0) + (row.in_non_unicast_packets or 0)
-        if row.in_unicast_packets is not None or row.in_non_unicast_packets is not None
-        else None
-    )
-    current_out_packets = (
-        (row.out_unicast_packets or 0) + (row.out_non_unicast_packets or 0)
-        if row.out_unicast_packets is not None or row.out_non_unicast_packets is not None
-        else None
-    )
-    current_errors = (
-        (row.in_errors or 0) + (row.out_errors or 0)
-        if row.in_errors is not None or row.out_errors is not None
-        else None
-    )
-    current_discards = (
-        (row.in_discards or 0) + (row.out_discards or 0)
-        if row.in_discards is not None or row.out_discards is not None
-        else None
-    )
-    current_layer1_errors = (
-        (row.crc_errors or 0) + (row.collision_errors or 0) + (row.fragment_errors or 0)
-        if row.crc_errors is not None or row.collision_errors is not None or row.fragment_errors is not None
-        else None
-    )
-    row.in_packets_per_second = _counter_rate(current_in_packets, previous_in_packets, elapsed_seconds)
-    row.out_packets_per_second = _counter_rate(current_out_packets, previous_out_packets, elapsed_seconds)
-    row.errors_per_minute = _counter_rate(current_errors, previous_errors, elapsed_seconds, 60)
-    row.discards_per_minute = _counter_rate(current_discards, previous_discards, elapsed_seconds, 60)
-    row.layer1_errors_per_minute = _counter_rate(
+    current_in_packets = (row.in_unicast_packets, row.in_non_unicast_packets)
+    current_out_packets = (row.out_unicast_packets, row.out_non_unicast_packets)
+    current_errors = (row.in_errors, row.out_errors)
+    current_discards = (row.in_discards, row.out_discards)
+    current_layer1_errors = (row.crc_errors, row.collision_errors, row.fragment_errors)
+    row.in_packets_per_second = _counter_group_rate(current_in_packets, previous_in_packets, elapsed_seconds)
+    row.out_packets_per_second = _counter_group_rate(current_out_packets, previous_out_packets, elapsed_seconds)
+    row.errors_per_minute = _counter_group_rate(current_errors, previous_errors, elapsed_seconds, 60)
+    row.discards_per_minute = _counter_group_rate(current_discards, previous_discards, elapsed_seconds, 60)
+    row.layer1_errors_per_minute = _counter_group_rate(
         current_layer1_errors,
         previous_layer1_errors,
         elapsed_seconds,

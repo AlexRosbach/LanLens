@@ -21,6 +21,7 @@ function ipInRange(ip: string, start: string, end: string): boolean {
 }
 
 type Filter = 'all' | 'online' | 'offline' | 'new' | 'archived'
+const BULK_DELETE_BATCH_SIZE = 1000
 
 export default function Dashboard() {
   const { devices, stats, loading, fetchDevices, updateDevice } = useDeviceStore()
@@ -100,14 +101,24 @@ export default function Dashboard() {
     if (deviceIds.length === 0 || !window.confirm(t('bulk_delete_confirm', { count: String(deviceIds.length) }))) return
     setDeletingSelected(true)
     try {
-      await devicesApi.bulkDelete(deviceIds)
-      setSelectedDeviceIds(new Set())
-      await fetchDevices({ archived_only: filter === 'archived' })
+      for (let offset = 0; offset < deviceIds.length; offset += BULK_DELETE_BATCH_SIZE) {
+        const batch = deviceIds.slice(offset, offset + BULK_DELETE_BATCH_SIZE)
+        await devicesApi.bulkDelete(batch)
+        setSelectedDeviceIds((current) => {
+          const next = new Set(current)
+          batch.forEach((deviceId) => next.delete(deviceId))
+          return next
+        })
+      }
       toast.success(t('bulk_delete_success', { count: String(deviceIds.length) }))
     } catch {
       toast.error(t('bulk_delete_failed'))
     } finally {
-      setDeletingSelected(false)
+      try {
+        await fetchDevices({ archived_only: filter === 'archived' })
+      } finally {
+        setDeletingSelected(false)
+      }
     }
   }
 

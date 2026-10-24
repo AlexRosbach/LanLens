@@ -89,3 +89,61 @@ test('dashboard bulk deletes selected devices in one request', async ({ page }) 
   await expect.poll(() => deletePayload).toEqual({ device_ids: [1, 2] })
   await expect(page.getByText('No devices found')).toBeVisible()
 })
+
+test('dashboard batches large bulk deletes and preserves a failed batch selection', async ({ page }) => {
+  const manyDevices = Array.from({ length: 1001 }, (_, index) => ({
+    ...devices[0],
+    id: index + 1,
+    mac_address: `ip:${String(index + 1).padStart(14, '0')}`,
+    ip_address: `198.51.${Math.floor(index / 254)}.${(index % 254) + 1}`,
+  }))
+  let remaining = [...manyDevices]
+  const deletePayloads: number[][] = []
+  let listRequests = 0
+
+  await page.route('**/api/auth/me', (route) => route.fulfill({ json: { username: 'admin', force_password_change: false } }))
+  await page.route('**/api/settings', (route) => route.fulfill({
+    json: {
+      advanced_view_enabled: false,
+      show_cmdb_integrations: false,
+      show_services_nav: false,
+      show_dhcp_monitor_nav: false,
+      show_network_topology_nav: false,
+      show_plugin_api: false,
+      show_build_info: false,
+      app_version: '1.5.9',
+      build_code: 'test',
+      build_commit: 'test',
+      build_branch: 'test',
+      build_created: now,
+    },
+  }))
+  await page.route('**/api/settings/update/check', (route) => route.fulfill({ json: { current_version: '1.5.9', latest_version: '1.5.9', update_available: false } }))
+  await page.route('**/api/notifications/unread-count', (route) => route.fulfill({ json: { count: 0 } }))
+  await page.route('**/api/segments', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/bulk-delete', async (route) => {
+    const payload = route.request().postDataJSON() as { device_ids: number[] }
+    deletePayloads.push(payload.device_ids)
+    if (deletePayloads.length === 2) {
+      await route.fulfill({ status: 500, json: { detail: 'simulated failure' } })
+      return
+    }
+    remaining = remaining.filter((device) => !payload.device_ids.includes(device.id))
+    await route.fulfill({ json: { message: `Deleted ${payload.device_ids.length} devices`, success: true } })
+  })
+  await page.route('**/api/devices**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname
+    if (!pathname.endsWith('/api/devices')) return route.fallback()
+    listRequests += 1
+    await route.fulfill({ json: { items: remaining, total: remaining.length, online: remaining.length, offline: 0, unregistered: remaining.length, archived: 0 } })
+  })
+
+  page.on('dialog', (dialog) => dialog.accept())
+  await page.goto('/')
+  await page.getByRole('checkbox', { name: 'Select all visible devices' }).check()
+  await page.getByRole('button', { name: 'Delete selected (1001)' }).click()
+
+  await expect.poll(() => deletePayloads.map((payload) => payload.length)).toEqual([1000, 1])
+  await expect.poll(() => listRequests).toBeGreaterThanOrEqual(2)
+  await expect(page.getByRole('button', { name: 'Delete selected (1)' })).toBeVisible()
+})
