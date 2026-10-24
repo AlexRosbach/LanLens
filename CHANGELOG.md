@@ -40,6 +40,10 @@ All notable changes to this project should be documented in this file.
 - Made the Network Topology map roomier and interactive with drag-to-pan, mouse-wheel zoom, inline zoom/reset controls, an offline-device visibility toggle and draggable device cards whose relationship lines stay attached, including multi-row device placement so dense device groups no longer stack on top of each other.
 
 ### Fixes / Hardening
+- Made overlapping routed scan targets order-independent when an address is a
+  subnet boundary in one target but a usable host in another.
+- Split dashboard bulk deletion into API-sized batches and kept failed-batch
+  selections available for retry after earlier batches succeed.
 - Prevented routed Nmap scans from accepting proxy-ARP replies or spoofed TCP
   resets as proof that every address exists, and excluded IPv4 network and
   broadcast addresses from routed discovery results.

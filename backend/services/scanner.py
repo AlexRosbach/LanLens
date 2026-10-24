@@ -216,7 +216,10 @@ def _is_usable_routed_host(ip: str, targets: List[str]) -> bool:
         if address not in network:
             continue
         if network.prefixlen <= 30 and address in {network.network_address, network.broadcast_address}:
-            return False
+            # The same address can be a network or broadcast boundary for a
+            # narrower target while remaining a usable host in another,
+            # overlapping target. Keep checking before rejecting it.
+            continue
         return True
     return False
 
