@@ -58,14 +58,14 @@ test('dashboard bulk deletes selected devices in one request', async ({ page }) 
       show_network_topology_nav: false,
       show_plugin_api: false,
       show_build_info: false,
-      app_version: '1.5.9',
+      app_version: '1.6.0',
       build_code: 'test',
       build_commit: 'test',
       build_branch: 'test',
       build_created: now,
     },
   }))
-  await page.route('**/api/settings/update/check', (route) => route.fulfill({ json: { current_version: '1.5.9', latest_version: '1.5.9', update_available: false } }))
+  await page.route('**/api/settings/update/check', (route) => route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', update_available: false } }))
   await page.route('**/api/notifications/unread-count', (route) => route.fulfill({ json: { count: 0 } }))
   await page.route('**/api/segments', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/devices/bulk-delete', async (route) => {

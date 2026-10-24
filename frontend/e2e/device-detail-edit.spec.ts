@@ -17,7 +17,7 @@ const settings = {
   show_build_info: false,
   cmdb_id_prefix: 'LL',
   cmdb_id_digits: 5,
-  app_version: '1.5.8',
+  app_version: '1.6.0',
   build_code: 'test',
   build_commit: 'test',
   build_branch: 'test',
@@ -87,7 +87,7 @@ test('device detail saves cleared label and asset tag as null values', async ({ 
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route('**/api/client-errors', async (route) => {
     await route.fulfill({ json: { ok: true } })
@@ -155,7 +155,7 @@ test('device detail can test an i-doit sysid lookup and show debug details', asy
     await route.fulfill({ json: { count: 0 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route('**/api/client-errors', async (route) => {
     await route.fulfill({ json: { ok: true } })
@@ -226,7 +226,7 @@ test('device detail renders Docker JSON lines as a readable container table', as
     await route.fulfill({ json: { count: 2 } })
   })
   await page.route('**/api/settings/update/check', async (route) => {
-    await route.fulfill({ json: { current_version: '1.5.8', latest_version: '1.5.8', release_url: '', update_available: false } })
+    await route.fulfill({ json: { current_version: '1.6.0', latest_version: '1.6.0', release_url: '', update_available: false } })
   })
   await page.route('**/api/client-errors', async (route) => {
     await route.fulfill({ json: { ok: true } })
@@ -269,7 +269,7 @@ test('device detail renders Docker JSON lines as a readable container table', as
           finding_type: 'container',
           key: 'docker_containers',
           value: [
-            JSON.stringify({ Names: 'lanlens', Image: 'alexrosbach/lanlens:1.5.8', State: 'running', Status: 'Up 3 hours', Ports: '7765/tcp', Networks: 'host' }),
+            JSON.stringify({ Names: 'lanlens', Image: 'alexrosbach/lanlens:dev', State: 'running', Status: 'Up 3 hours', Ports: '7765/tcp', Networks: 'host' }),
             JSON.stringify({ Names: 'postgres', Image: 'postgres:16-alpine', State: 'running', Status: 'Up 2 days (healthy)', Ports: '5432/tcp', Networks: 'backend' }),
             JSON.stringify({ Names: 'homepage', Image: 'ghcr.io/gethomepage/homepage:latest', State: 'running', Status: 'Up 5 days', Ports: '3000/tcp', Networks: 'frontend' }),
           ].join('\n'),

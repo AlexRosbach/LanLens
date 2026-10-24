@@ -17,6 +17,7 @@ import json
 import logging
 from datetime import datetime
 import re
+import shlex
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
@@ -31,6 +32,7 @@ from ..models import (
     DeepScanRun,
 )
 from .crypto import decrypt_secret
+from .ssh_security import create_verified_ssh_client
 
 logger = logging.getLogger(__name__)
 
@@ -266,8 +268,7 @@ def _run_linux_scan(
     commands = LINUX_PROFILE_COMMANDS.get(profile, LINUX_PROFILE_COMMANDS["os_services"])
 
     auth_method = getattr(credential, "auth_method", "password") or "password"
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = create_verified_ssh_client()
     try:
         if auth_method == "key":
             pkey = _load_ssh_private_key(secret)
@@ -299,7 +300,8 @@ def _run_linux_scan(
                 # Hypervisor config commands (reading all VM/CT config files) can
                 # produce a larger amount of data — allow more time than default.
                 cmd_timeout = 60 if finding_type == "hypervisor" else 20
-                _, stdout, stderr = client.exec_command(cmd, timeout=cmd_timeout)
+                # Commands come only from the fixed profile bundles above.
+                _, stdout, stderr = client.exec_command(cmd, timeout=cmd_timeout)  # nosec B601
                 output = stdout.read().decode(errors="replace").strip()
                 if not output:
                     output = stderr.read().decode(errors="replace").strip()
@@ -451,8 +453,9 @@ def _virsh_domiflist(client: Any, vm_name: str) -> List[str]:
     macs: List[str] = []
     try:
         _, stdout, _ = client.exec_command(
-            f"virsh domiflist '{vm_name}' 2>/dev/null || true", timeout=10
-        )
+            f"virsh domiflist {shlex.quote(vm_name)} 2>/dev/null || true",
+            timeout=10,
+        )  # nosec B601
         for line in stdout.read().decode(errors="replace").splitlines()[2:]:
             parts = line.split()
             if len(parts) >= 5:

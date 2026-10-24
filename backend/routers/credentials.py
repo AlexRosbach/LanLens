@@ -20,6 +20,7 @@ from ..schemas import (
     MessageResponse,
 )
 from ..services.crypto import decrypt_secret, encrypt_secret
+from ..services.ssh_security import create_verified_ssh_client
 
 router = APIRouter(prefix="/api/credentials", tags=["credentials"])
 
@@ -236,8 +237,7 @@ def _test_ssh(ip: str, username: str, secret: str, auth_method: str = "password"
             success=False,
             message="paramiko is not installed. Cannot test SSH connection.",
         )
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = create_verified_ssh_client()
     start = time.monotonic()
     try:
         if auth_method == "key":
@@ -261,7 +261,8 @@ def _test_ssh(ip: str, username: str, secret: str, auth_method: str = "password"
                 allow_agent=False,
                 look_for_keys=False,
             )
-        _, stdout, _ = client.exec_command("echo ok", timeout=5)
+        # Command is a fixed literal and contains no user-controlled shell input.
+        _, stdout, _ = client.exec_command("echo ok", timeout=5)  # nosec B601
         stdout.read()
         latency_ms = round((time.monotonic() - start) * 1000, 1)
         return CredentialTestResponse(
