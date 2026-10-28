@@ -9,6 +9,7 @@ import { SnmpSwitchPort, SnmpSwitchPortsResponse, snmpApi } from '../api/snmp'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
+import ManualConnectEntries from '../components/devices/ManualConnectEntries'
 import DeviceDnsNamesCard from '../components/devices/DeviceDnsNamesCard'
 import DeepScanPanel from '../components/deep-scan/DeepScanPanel'
 import VmHostSection from '../components/deep-scan/VmHostSection'
@@ -37,6 +38,7 @@ interface EditState {
   notes: string
   cmdbId: string
   idoitSysid: string
+  vendorOverride: string
 }
 
 function idoitStatusVariant(status?: string | null): 'success' | 'danger' | 'warning' | 'primary' | 'muted' {
@@ -74,6 +76,7 @@ function toEditState(d: Device): EditState {
     notes: d.notes ?? '',
     cmdbId: d.cmdb_id ?? '',
     idoitSysid: d.idoit_sysid ?? '',
+    vendorOverride: d.vendor_override ?? '',
   }
 }
 
@@ -287,6 +290,7 @@ export default function DeviceDetail() {
       const updated = await devicesApi.update(device.id, {
         label: nullableText(form.label),
         device_class: form.deviceClass.trim() || 'Unknown',
+        vendor_override: nullableText(form.vendorOverride),
         purpose: nullableText(form.purpose),
         description: nullableText(form.description),
         location: nullableText(form.location),
@@ -624,6 +628,7 @@ export default function DeviceDetail() {
             <div className="grid grid-cols-2 gap-3">
               <Input label={t('label')} placeholder={t('device_label_placeholder')} {...field('label')} />
               <Input label={t('asset_tag')} placeholder={t('asset_tag_placeholder')} {...field('assetTag')} />
+              <Input label={t('manufacturer_override')} placeholder={device.vendor_detected ?? t('vendor_unknown')} hint={t('manufacturer_override_hint')} {...field('vendorOverride')} />
               {showCmdbIntegrations && device.idoit_enabled && (
                 <Input label={t('idoit_sysid')} placeholder="SYSID_12345" {...field('idoitSysid')} />
               )}
@@ -718,6 +723,7 @@ export default function DeviceDetail() {
               <InfoRow label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} mono />
               <InfoRow label={t('hostname')} value={device.hostname} mono />
               <InfoRow label={t('vendor')} value={device.vendor} />
+              {device.vendor_override && <InfoRow label={t('manufacturer_detected')} value={device.vendor_detected} />}
               <InfoRow label={t('idoit_export_snmp_switch')} value={device.snmp_switch} />
               <InfoRow label={t('idoit_export_snmp_port')} value={device.snmp_interface || device.snmp_interface_alias} />
               <InfoRow label={t('idoit_export_snmp_vlan')} value={device.snmp_vlan} />
@@ -1221,6 +1227,14 @@ export default function DeviceDetail() {
         )}
       </Card>
       )}
+
+      <Card id="device-manual-connect" className={sectionAnchorClass}>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('manual_connect_title')}</h2>
+        <ManualConnectEntries
+          device={device}
+          onChange={(manual_connect_entries) => setDevice({ ...device, manual_connect_entries })}
+        />
+      </Card>
 
       {/* Services */}
       {advancedViewEnabled && (

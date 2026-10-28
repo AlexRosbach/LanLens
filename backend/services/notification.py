@@ -154,7 +154,7 @@ def _notification_title_and_message(notification: Notification) -> tuple[str, st
             f"New device detected\n\n"
             f"IP: {device.ip_address or 'unknown'}\n"
             f"MAC: {mac_label or '—'}\n"
-            f"Vendor: {device.vendor or 'Unknown'}\n"
+            f"Vendor: {device.effective_vendor or 'Unknown'}\n"
             f"Class: {device.device_class}\n"
             f"Hostname: {device.hostname or '—'}"
         )
@@ -196,7 +196,7 @@ async def send_telegram_for_notification(db: Session, notification: Notification
             f"<b>LanLens — New Device Detected</b>\n\n"
             f"<b>IP:</b> {device.ip_address or 'unknown'}\n"
             f"<b>MAC:</b> <code>{mac_label or '—'}</code>\n"
-            f"<b>Vendor:</b> {device.vendor or 'Unknown'}\n"
+            f"<b>Vendor:</b> {device.effective_vendor or 'Unknown'}\n"
             f"<b>Class:</b> {device.device_class}\n"
             f"<b>Hostname:</b> {device.hostname or '—'}"
             f"{link_line}"

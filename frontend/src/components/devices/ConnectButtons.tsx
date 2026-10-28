@@ -11,19 +11,20 @@ export default function ConnectButtons({ device, compact = false }: Props) {
   const { t } = useI18n()
   const scan = device.latest_scan
   const ip = device.ip_address
+  const manualEntries = device.manual_connect_entries ?? []
 
-  if (!ip) return <span className="text-xs text-text-subtle">{t('no_ip')}</span>
+  if (!ip && manualEntries.length === 0) return <span className="text-xs text-text-subtle">{t('no_ip')}</span>
 
-  if (!scan) {
+  if (!scan && manualEntries.length === 0) {
     if (compact) return null
     return <span className="text-xs text-text-subtle">{t('port_scan_not_scanned_yet')}</span>
   }
 
-  const webLinks = buildWebLinks(ip, scan.open_ports)
+  const webLinks = ip && scan ? buildWebLinks(ip, scan.open_ports) : []
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {scan.ssh_available && (
+      {ip && scan?.ssh_available && (
         <a
           href={buildSshUri(ip)}
           onClick={(e) => e.stopPropagation()}
@@ -32,7 +33,7 @@ export default function ConnectButtons({ device, compact = false }: Props) {
           SSH
         </a>
       )}
-      {scan.rdp_available && (
+      {ip && scan?.rdp_available && (
         <a
           href={devicesApi.getRdpUrl(device.id)}
           onClick={(e) => e.stopPropagation()}
@@ -54,9 +55,22 @@ export default function ConnectButtons({ device, compact = false }: Props) {
           {link.label}
         </a>
       ))}
-      {hasVnc(scan.open_ports) && (
+      {scan && hasVnc(scan.open_ports) && (
         <span className="connect-btn text-text-subtle border-border cursor-default">VNC</span>
       )}
+      {manualEntries.map((entry) => (
+        <a
+          key={entry.id}
+          href={entry.url}
+          target={entry.protocol === 'http' || entry.protocol === 'https' ? '_blank' : undefined}
+          rel={entry.protocol === 'http' || entry.protocol === 'https' ? 'noopener noreferrer' : undefined}
+          onClick={(e) => e.stopPropagation()}
+          title={`${t('manual_connect_entry')}: ${entry.url}`}
+          className="connect-btn text-primary border-primary/30 hover:bg-primary-dim"
+        >
+          {entry.label}
+        </a>
+      ))}
     </div>
   )
 }

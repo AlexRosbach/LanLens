@@ -14,6 +14,37 @@ export interface PortScanResult {
   https_available: boolean
 }
 
+export interface ManualConnectEntry {
+  id: number
+  device_id: number
+  label: string
+  url: string
+  protocol: 'http' | 'https' | 'ssh' | 'rdp' | 'vnc' | 'tcp'
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ManualConnectEntryInput {
+  label: string
+  url: string
+  protocol: ManualConnectEntry['protocol']
+  sort_order?: number
+}
+
+export interface BulkPortScanStatus {
+  job_id: string | null
+  status: 'idle' | 'running' | 'cancelling' | 'cancelled' | 'completed'
+  total: number
+  completed: number
+  succeeded: number
+  failed: number
+  skipped: number
+  cancel_requested: boolean
+  started_at: string | null
+  finished_at: string | null
+}
+
 export interface DeviceIpHistoryEntry {
   id: number
   device_id: number
@@ -62,6 +93,8 @@ export interface Device {
   label: string | null
   device_class: string
   vendor: string | null
+  vendor_detected?: string | null
+  vendor_override?: string | null
   // Segment
   segment_id: number | null
   segment_name: string | null
@@ -107,6 +140,7 @@ export interface Device {
   // Relations
   latest_scan: PortScanResult | null
   services: Service[]
+  manual_connect_entries: ManualConnectEntry[]
   ip_history?: DeviceIpHistoryEntry[]
   snmp_switch?: string | null
   snmp_switch_host?: string | null
@@ -145,6 +179,7 @@ export interface DeviceUpdate {
   preferred_name?: string | null
   preferred_name_mode?: 'automatic' | 'manual' | 'discovered'
   device_class?: string
+  vendor_override?: string | null
   is_registered?: boolean
   purpose?: string | null
   description?: string | null
@@ -196,6 +231,30 @@ export const devicesApi = {
 
   bulkDelete: (deviceIds: number[]) =>
     apiClient.post('/devices/bulk-delete', { device_ids: deviceIds }).then((r) => r.data),
+
+  bulkUpdate: (deviceIds: number[], data: Pick<DeviceUpdate, 'device_class' | 'responsible' | 'location' | 'description'>) =>
+    apiClient.post<{ updated: number; message: string }>('/devices/bulk-update', { device_ids: deviceIds, ...data }).then((r) => r.data),
+
+  startBulkPortScan: (deviceIds?: number[]) =>
+    apiClient.post<BulkPortScanStatus>('/devices/bulk-port-scan', deviceIds?.length ? { device_ids: deviceIds } : {}).then((r) => r.data),
+
+  getBulkPortScanStatus: () =>
+    apiClient.get<BulkPortScanStatus>('/devices/bulk-port-scan/status').then((r) => r.data),
+
+  cancelBulkPortScan: () =>
+    apiClient.post<BulkPortScanStatus>('/devices/bulk-port-scan/cancel').then((r) => r.data),
+
+  listManualConnectEntries: (id: number) =>
+    apiClient.get<ManualConnectEntry[]>(`/devices/${id}/manual-connect`).then((r) => r.data),
+
+  createManualConnectEntry: (id: number, data: ManualConnectEntryInput) =>
+    apiClient.post<ManualConnectEntry>(`/devices/${id}/manual-connect`, data).then((r) => r.data),
+
+  updateManualConnectEntry: (id: number, entryId: number, data: ManualConnectEntryInput) =>
+    apiClient.put<ManualConnectEntry>(`/devices/${id}/manual-connect/${entryId}`, data).then((r) => r.data),
+
+  deleteManualConnectEntry: (id: number, entryId: number) =>
+    apiClient.delete(`/devices/${id}/manual-connect/${entryId}`),
 
   archive: (id: number) =>
     apiClient.post<Device>(`/devices/${id}/archive`).then((r) => r.data),

@@ -1,5 +1,5 @@
 variable "LANLENS_APP_VERSION" {
-  default = "1.6.0"
+  default = "1.6.1"
 }
 
 variable "LANLENS_BUILD_CODE" {
@@ -26,7 +26,7 @@ target "lanlens" {
   context = "."
   dockerfile = "Dockerfile"
   platforms = ["linux/amd64", "linux/arm64"]
-  tags = ["alexrosbach/lanlens:dev"]
+  tags = ["alexrosbach/lanlens:1.6.1-dev"]
   args = {
     LANLENS_APP_VERSION = LANLENS_APP_VERSION
     LANLENS_BUILD_CODE = LANLENS_BUILD_CODE

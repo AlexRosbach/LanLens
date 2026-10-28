@@ -4,10 +4,23 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
-### 1.6.0 Iteration Focus
-- Add a supported, continuously validated ARM64 container path alongside AMD64.
-- Continue hardening Network Topology and SNMP workflows after the 1.5.8 topology release, especially setup clarity, diagnostics and mixed-vendor switch visibility.
-- Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
+### 1.6.1
+
+- Added a background extended port scan for every active device or a selected
+  subset, with bounded concurrency, live progress, cancellation and automatic
+  refresh of the dashboard's Connect actions.
+- Added bulk editing for device class, owner, location and description. Only
+  explicitly enabled fields are changed, and intentional empty values clear an
+  existing field.
+- Added per-device manufacturer overrides while preserving the automatically
+  detected OUI vendor. Overrides are used consistently in the UI, reports and
+  CMDB/i-doit exports and can be cleared to restore automatic detection.
+- Added validated manual connection links per device. They appear alongside
+  scan-detected SSH, RDP and web actions and remain untouched by future scans.
+- Added database migrations, API coverage and end-to-end UI tests for the new
+  1.6.1 workflows. No new runtime dependency or license obligation was added.
+
+### 1.6.0
 
 ### New Features
 - Added multi-select and bulk deletion to the device dashboard so accidental

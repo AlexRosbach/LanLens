@@ -43,6 +43,7 @@ class Device(Base):
     label = Column(String(255), nullable=True)           # short display name
     device_class = Column(String(64), default="Unknown") # Server/VM/IoT/…
     vendor = Column(String(255), nullable=True)          # from OUI lookup
+    vendor_override = Column(String(255), nullable=True) # operator-maintained manufacturer
 
     # ── Documentation fields ───────────────────────────────────────────────────
     purpose = Column(String(512), nullable=True)         # Zweck / Funktion
@@ -110,6 +111,35 @@ class Device(Base):
         cascade="all, delete-orphan",
         order_by="DeviceDnsName.name",
     )
+    manual_connect_entries = relationship(
+        "ManualConnectEntry",
+        back_populates="device",
+        cascade="all, delete-orphan",
+        order_by="ManualConnectEntry.sort_order, ManualConnectEntry.id",
+    )
+
+    @property
+    def effective_vendor(self):
+        return self.vendor_override or self.vendor
+
+
+class ManualConnectEntry(Base):
+    """Operator-maintained connection link kept separate from scan results."""
+    __tablename__ = "manual_connect_entries"
+    __table_args__ = (
+        Index("ix_manual_connect_entries_device", "device_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    label = Column(String(128), nullable=False)
+    url = Column(String(2048), nullable=False)
+    protocol = Column(String(16), nullable=False, default="https")
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    device = relationship("Device", back_populates="manual_connect_entries")
 
 
 class DeviceDnsName(Base):

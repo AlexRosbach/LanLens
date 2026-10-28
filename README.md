@@ -6,7 +6,7 @@
 
 **Self-hosted network inventory, local network scanner, and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.6.0-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.6.1-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -25,7 +25,9 @@ LanLens gives you a quick, local view of what is on your network:
 
 - Devices found by MAC/IP device discovery, with vendor hints and online/offline state
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
-- Multi-select cleanup for deleting several unwanted inventory entries in one confirmed action
+- Multi-select workflows for editing device class, owner, location and description, or deleting several unwanted entries in one confirmed action
+- Network-wide or selected-device extended port scans with progress, cancellation and automatic Connect-column refresh
+- Correctable manufacturer names and manual connection links that remain separate from automatic discovery results
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
 - Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**

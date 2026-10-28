@@ -216,7 +216,7 @@ def device_export(device: Device) -> dict[str, Any]:
         "ip_address": device.ip_address,
         "hostname": device.hostname,
         "label": device.label,
-        "vendor": device.vendor,
+        "vendor": device.effective_vendor,
         "device_class": device.device_class,
         "cmdb_id": device.cmdb_id,
         "asset_tag": device.asset_tag,

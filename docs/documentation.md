@@ -37,7 +37,9 @@ LanLens can:
 - Track online/offline state, IP history, DHCP range membership, open services and scan-detected inventory changes
 - Flag security-awareness signals such as unknown DHCP servers, ARP/MAC drift and VRRP/HSRP peers
 - Poll optional SNMP v1/v2c/v3 targets for IF-MIB inventory, common network-device identity, switch-port context and diagnostics
-- Perform per-device port scans using nmap
+- Perform per-device, selected-device or network-wide port scans using nmap
+- Bulk-edit common device documentation fields and retain manual manufacturer overrides
+- Keep operator-defined connection links separate from automatically detected ports
 - Provide a React-based dark-themed web UI for management and documentation
 - Document device services and group them in the optional Services directory via drag-and-drop or explicit segment selection
 - Send notifications through configured Telegram, webhook/Gotify and email channels
@@ -320,6 +322,30 @@ Uses the global port range from Settings -> Network Discovery -> Port Scan Range
 
 Returns last 5 port scan results.
 
+#### `POST /api/devices/bulk-update`
+
+Updates only the supplied `device_class`, `responsible`, `location` and
+`description` fields for up to 1000 selected device IDs. Supplying a field as
+`null` clears it; omitted fields remain unchanged.
+
+#### Network-wide port scan
+
+- `POST /api/devices/bulk-port-scan` starts a scan for all active devices. Send
+  `{ "device_ids": [1, 2] }` to scan a selected subset.
+- `GET /api/devices/bulk-port-scan/status` returns job progress and counters.
+- `POST /api/devices/bulk-port-scan/cancel` stops scheduling further devices;
+  currently running nmap processes finish before the job becomes cancelled.
+
+At most four devices are scanned concurrently. Devices without a valid IPv4
+address are reported as skipped.
+
+#### Manual connection links
+
+`GET` and `POST /api/devices/{id}/manual-connect` list and create validated
+operator links. `PUT` and `DELETE /api/devices/{id}/manual-connect/{entry_id}`
+update or remove an entry. Supported schemes are `http`, `https`, `ssh`, `rdp`,
+`vnc` and `tcp`. These rows are independent of `PortScan` data.
+
 ---
 
 ### Scan — `/api/scan`
@@ -436,7 +462,7 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### Port Scan Flow
 
 ```
-1. Triggered by: POST /api/devices/{id}/scan-ports, the manual UI action, or the optional scheduled background job
+1. Triggered by: POST /api/devices/{id}/scan-ports, the selected/network-wide bulk endpoint, the manual UI action, or the optional scheduled background job
 2. port_scanner.py: nmap.PortScanner()
 3. Arguments: configured in Settings; default is "-sS -T4 --top-ports 1000" (SYN scan, fast)
    Fallback: "-sT -T4 ..." (TCP connect, no root needed)

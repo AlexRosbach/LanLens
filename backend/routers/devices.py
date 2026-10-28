@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Optional, Set
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import or_
@@ -13,19 +14,26 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, ManualConnectEntry, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
 from ..schemas import (
+    BulkPortScanRequest,
+    BulkPortScanStatus,
     DeviceIpHistoryResponse,
     DevicePingSampleResponse,
     PassiveDiscoveryObservationResponse,
     DeviceListResponse,
     DeviceBulkDeleteRequest,
+    DeviceBulkUpdateRequest,
+    DeviceBulkUpdateResponse,
     DeviceChangeEventResponse,
     DeviceMaintenanceUpdate,
     DeviceMergePreview,
     DeviceMergeRequest,
     DeviceResponse,
     DeviceUpdate,
+    ManualConnectEntryCreate,
+    ManualConnectEntryResponse,
+    ManualConnectEntryUpdate,
     MessageResponse,
     PortInfo,
     PortRangeScanRequest,
@@ -62,6 +70,29 @@ def _parse_ports(raw: str) -> List[PortInfo]:
 
 
 HTTPS_PORTS = {443, 8443, 9443, 9444, 10443}
+BULK_PORT_SCAN_CONCURRENCY = 4
+
+
+@dataclass
+class BulkPortScanJob:
+    job_id: Optional[str] = None
+    status: str = "idle"
+    total: int = 0
+    completed: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    skipped: int = 0
+    cancel_requested: bool = False
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
+_bulk_port_scan_job = BulkPortScanJob()
+_bulk_port_scan_task: Optional[asyncio.Task] = None
+
+
+def _bulk_port_scan_status() -> BulkPortScanStatus:
+    return BulkPortScanStatus(**vars(_bulk_port_scan_job))
 
 
 def _https_port_entries(open_ports: list[dict]) -> list[dict]:
@@ -327,7 +358,9 @@ def _device_to_response(
         display_name=device_display_name(device),
         label=device.label,
         device_class=device.device_class,
-        vendor=device.vendor,
+        vendor=device.effective_vendor,
+        vendor_detected=device.vendor,
+        vendor_override=device.vendor_override,
         segment_id=matched_segment.id if matched_segment else None,
         segment_name=matched_segment.name if matched_segment else None,
         segment_color=matched_segment.color if matched_segment else None,
@@ -365,6 +398,7 @@ def _device_to_response(
         idoit_last_error=device.idoit_sync.last_error if device.idoit_sync else None,
         latest_scan=_latest_scan_response(device),
         services=[ServiceResponse.model_validate(s) for s in device.services],
+        manual_connect_entries=[ManualConnectEntryResponse.model_validate(entry) for entry in device.manual_connect_entries],
         ip_history=ip_history,
         snmp_switch=(snmp_identity or {}).get("switch_name"),
         snmp_switch_host=(snmp_identity or {}).get("switch_host"),
@@ -409,6 +443,7 @@ def list_devices(
         joinedload(Device.idoit_sync),
         selectinload(Device.port_scans),
         selectinload(Device.services),
+        selectinload(Device.manual_connect_entries),
     )
 
     if archived_only is True:
@@ -436,6 +471,7 @@ def list_devices(
             | Device.hostname.ilike(term)
             | Device.preferred_name.ilike(term)
             | Device.vendor.ilike(term)
+            | Device.vendor_override.ilike(term)
             | Device.id.in_(db.query(DeviceDnsName.device_id).filter(DeviceDnsName.name.ilike(term)))
         )
 
@@ -568,6 +604,7 @@ def get_new_devices(
             joinedload(Device.idoit_sync),
             selectinload(Device.port_scans),
             selectinload(Device.services),
+            selectinload(Device.manual_connect_entries),
         )
         .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
@@ -618,6 +655,252 @@ def bulk_delete_devices(
         db.delete(device)
     db.commit()
     return MessageResponse(message=f"Deleted {len(devices)} devices")
+
+
+@router.post("/bulk-update", response_model=DeviceBulkUpdateResponse)
+def bulk_update_devices(
+    data: DeviceBulkUpdateRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    update_fields = data.model_dump(exclude={"device_ids"}, exclude_unset=True)
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="At least one field must be selected for bulk update")
+
+    for field, value in list(update_fields.items()):
+        if isinstance(value, str):
+            value = value.strip()
+            if field == "device_class" and not value:
+                raise HTTPException(status_code=400, detail="Device class must not be empty")
+            update_fields[field] = value or None
+
+    device_ids = sorted(set(data.device_ids))
+    devices = db.query(Device).filter(Device.id.in_(device_ids)).all()
+    for device in devices:
+        for field, value in update_fields.items():
+            old_value = getattr(device, field)
+            if old_value == value:
+                continue
+            setattr(device, field, value)
+            _record_change(db, device.id, "device_updated", field, old_value, value, source="bulk_user")
+    db.commit()
+    return DeviceBulkUpdateResponse(updated=len(devices), message=f"Updated {len(devices)} devices")
+
+
+def _valid_bulk_scan_ip(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    try:
+        ipaddress.IPv4Address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _store_port_scan_result(device_id: int, result: dict) -> None:
+    db = SessionLocal()
+    try:
+        device_exists = db.query(Device.id).filter(Device.id == device_id).first()
+        if not device_exists:
+            return
+        scan = PortScan(
+            device_id=device_id,
+            open_ports=json.dumps(result["open_ports"]),
+            ssh_available=result["ssh_available"],
+            rdp_available=result["rdp_available"],
+            http_available=result["http_available"],
+            https_available=result["https_available"],
+        )
+        db.add(scan)
+        _auto_check_https_certificate(db, device_id, result["open_ports"])
+        db.commit()
+    finally:
+        db.close()
+
+
+async def _run_bulk_port_scan(targets: list[tuple[int, str]], port_spec: str) -> None:
+    job = _bulk_port_scan_job
+    queue: asyncio.Queue[tuple[int, str]] = asyncio.Queue()
+    for target in targets:
+        queue.put_nowait(target)
+
+    async def worker() -> None:
+        while not job.cancel_requested:
+            try:
+                device_id, ip = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                result = await scan_ports_async(ip, port_spec=port_spec)
+                if result is None:
+                    job.failed += 1
+                else:
+                    _store_port_scan_result(device_id, result)
+                    job.succeeded += 1
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Bulk port scan failed for device %s (%s)", device_id, ip)
+                job.failed += 1
+            finally:
+                job.completed += 1
+                queue.task_done()
+
+    try:
+        worker_count = min(BULK_PORT_SCAN_CONCURRENCY, len(targets))
+        if worker_count:
+            await asyncio.gather(*(worker() for _ in range(worker_count)))
+        if job.cancel_requested:
+            remaining = max(job.total - job.completed, 0)
+            job.skipped += remaining
+            job.completed += remaining
+            job.status = "cancelled"
+        else:
+            job.status = "completed"
+    except asyncio.CancelledError:
+        remaining = max(job.total - job.completed, 0)
+        job.skipped += remaining
+        job.completed += remaining
+        job.status = "cancelled"
+        raise
+    finally:
+        job.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+@router.post("/bulk-port-scan", response_model=BulkPortScanStatus, status_code=202)
+async def start_bulk_port_scan(
+    data: BulkPortScanRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    global _bulk_port_scan_job, _bulk_port_scan_task
+    if _bulk_port_scan_job.status in {"running", "cancelling"}:
+        raise HTTPException(status_code=409, detail="A network-wide port scan is already running")
+
+    query = db.query(Device).filter(Device.is_archived == False)
+    if data.device_ids is not None:
+        query = query.filter(Device.id.in_(sorted(set(data.device_ids))))
+    candidates = query.order_by(Device.id.asc()).all()
+    if not candidates:
+        raise HTTPException(status_code=400, detail="No matching active devices were found")
+
+    targets = [(device.id, device.ip_address) for device in candidates if _valid_bulk_scan_ip(device.ip_address)]
+    skipped = len(candidates) - len(targets)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _bulk_port_scan_job = BulkPortScanJob(
+        job_id=str(uuid4()),
+        status="running" if targets else "completed",
+        total=len(candidates),
+        completed=skipped,
+        skipped=skipped,
+        started_at=now,
+        finished_at=now if not targets else None,
+    )
+
+    port_scan_range = db.query(Setting).filter(Setting.key == "port_scan_range").first()
+    port_spec = port_scan_range.value if port_scan_range and port_scan_range.value else "top:1000"
+    if targets:
+        _bulk_port_scan_task = asyncio.create_task(_run_bulk_port_scan(targets, port_spec))
+    else:
+        _bulk_port_scan_task = None
+    return _bulk_port_scan_status()
+
+
+@router.get("/bulk-port-scan/status", response_model=BulkPortScanStatus)
+def get_bulk_port_scan_status(
+    _: User = Depends(get_current_user),
+):
+    return _bulk_port_scan_status()
+
+
+@router.post("/bulk-port-scan/cancel", response_model=BulkPortScanStatus)
+def cancel_bulk_port_scan(
+    _: User = Depends(get_current_user),
+):
+    if _bulk_port_scan_job.status not in {"running", "cancelling"}:
+        raise HTTPException(status_code=409, detail="No network-wide port scan is running")
+    _bulk_port_scan_job.cancel_requested = True
+    _bulk_port_scan_job.status = "cancelling"
+    return _bulk_port_scan_status()
+
+
+@router.get("/{device_id}/manual-connect", response_model=List[ManualConnectEntryResponse])
+def list_manual_connect_entries(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return (
+        db.query(ManualConnectEntry)
+        .filter(ManualConnectEntry.device_id == device_id)
+        .order_by(ManualConnectEntry.sort_order, ManualConnectEntry.id)
+        .all()
+    )
+
+
+@router.post("/{device_id}/manual-connect", response_model=ManualConnectEntryResponse, status_code=201)
+def create_manual_connect_entry(
+    device_id: int,
+    data: ManualConnectEntryCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    entry = ManualConnectEntry(device_id=device_id, **data.model_dump())
+    db.add(entry)
+    db.flush()
+    _record_change(db, device_id, "manual_connect_added", "manual_connect", None, entry.label, source="user")
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.put("/{device_id}/manual-connect/{entry_id}", response_model=ManualConnectEntryResponse)
+def update_manual_connect_entry(
+    device_id: int,
+    entry_id: int,
+    data: ManualConnectEntryUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    entry = db.query(ManualConnectEntry).filter(
+        ManualConnectEntry.id == entry_id,
+        ManualConnectEntry.device_id == device_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Manual connect entry not found")
+    old_label = entry.label
+    for field, value in data.model_dump().items():
+        setattr(entry, field, value)
+    _record_change(db, device_id, "manual_connect_updated", "manual_connect", old_label, entry.label, source="user")
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.delete("/{device_id}/manual-connect/{entry_id}", response_model=MessageResponse)
+def delete_manual_connect_entry(
+    device_id: int,
+    entry_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    entry = db.query(ManualConnectEntry).filter(
+        ManualConnectEntry.id == entry_id,
+        ManualConnectEntry.device_id == device_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Manual connect entry not found")
+    label = entry.label
+    db.delete(entry)
+    _record_change(db, device_id, "manual_connect_deleted", "manual_connect", label, None, source="user")
+    db.commit()
+    return MessageResponse(message="Manual connect entry deleted")
 
 
 @router.get("/{device_id}/ip-history", response_model=List[DeviceIpHistoryResponse])
@@ -745,7 +1028,7 @@ def update_device_maintenance(
 
 
 MERGE_FIELDS = [
-    "label", "device_class", "vendor", "purpose", "description", "location", "responsible",
+    "label", "device_class", "vendor", "vendor_override", "purpose", "description", "location", "responsible",
     "password_location", "os_info", "asset_tag", "notes", "cmdb_id", "hostname", "ip_address",
 ]
 
@@ -852,7 +1135,7 @@ def merge_devices(
 
     db.flush()
 
-    for model in (Service, PortScan, Notification, DeepScanRun, DeepScanFinding, DeviceChangeEvent):
+    for model in (Service, ManualConnectEntry, PortScan, Notification, DeepScanRun, DeepScanFinding, DeviceChangeEvent):
         db.query(model).filter(model.device_id == source.id).update({"device_id": target.id})
     db.query(DeviceHostRelationship).filter(DeviceHostRelationship.host_device_id == source.id).update({"host_device_id": target.id})
     db.query(DeviceHostRelationship).filter(DeviceHostRelationship.child_device_id == source.id).update({"child_device_id": target.id})
@@ -879,7 +1162,12 @@ def get_device(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    device = db.query(Device).options(joinedload(Device.idoit_sync)).filter(Device.id == device_id).first()
+    device = db.query(Device).options(
+        joinedload(Device.idoit_sync),
+        selectinload(Device.port_scans),
+        selectinload(Device.services),
+        selectinload(Device.manual_connect_entries),
+    ).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     dhcp_range = _get_dhcp_ranges(db)
@@ -1221,22 +1509,7 @@ async def _do_port_scan(device_id: int, ip: str, port_spec: str = "top:1000") ->
     result = await scan_ports_async(ip, port_spec=port_spec)
     if result is None:
         return
-
-    db = SessionLocal()
-    try:
-        scan = PortScan(
-            device_id=device_id,
-            open_ports=json.dumps(result["open_ports"]),
-            ssh_available=result["ssh_available"],
-            rdp_available=result["rdp_available"],
-            http_available=result["http_available"],
-            https_available=result["https_available"],
-        )
-        db.add(scan)
-        _auto_check_https_certificate(db, device_id, result["open_ports"])
-        db.commit()
-    finally:
-        db.close()
+    _store_port_scan_result(device_id, result)
 
 
 @router.post("/{device_id}/scan-port-range", response_model=MessageResponse)
