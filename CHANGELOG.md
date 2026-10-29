@@ -6,6 +6,10 @@ All notable changes to this project should be documented in this file.
 
 ### 1.6.1
 
+- Changed the manual **Scan Now** workflow to run network discovery first and
+  then automatically scan all online, non-ignored devices with the configured
+  port range. The scan remains active until both phases finish, so the
+  dashboard refresh includes the newly detected Connect actions.
 - Added a background extended port scan for every active device or a selected
   subset, with bounded concurrency, live progress, cancellation and automatic
   refresh of the dashboard's Connect actions.

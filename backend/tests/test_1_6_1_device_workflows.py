@@ -1,5 +1,7 @@
+import asyncio
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import create_engine
@@ -10,6 +12,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-1-6-1-workflows")
 from backend.database import Base
 from backend.models import Device, ManualConnectEntry, User
 from backend.routers import devices as devices_router
+from backend.routers import scan as scan_router
 from backend.schemas import (
     DeviceBulkUpdateRequest,
     ManualConnectEntryCreate,
@@ -154,6 +157,55 @@ class BulkPortScanRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status.failed, 1)
         self.assertEqual(status.skipped, 1)
         store.assert_called_once_with(1, scan_result)
+
+    async def test_automatic_scan_targets_only_online_non_ignored_devices(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        devices = [
+            Device(mac_address="02:00:00:00:01:01", ip_address="192.0.2.1", is_online=True),
+            Device(mac_address="02:00:00:00:01:02", ip_address="192.0.2.2", is_online=False),
+            Device(mac_address="02:00:00:00:01:03", ip_address="192.0.2.3", is_online=True, ignored=True),
+        ]
+        db.add_all(devices)
+        db.commit()
+
+        try:
+            with patch.object(devices_router, "_run_bulk_port_scan", new_callable=AsyncMock) as runner:
+                status = devices_router._launch_bulk_port_scan(db, online_only=True)
+                await asyncio.sleep(0)
+
+            self.assertEqual(status.total, 1)
+            runner.assert_awaited_once_with([(devices[0].id, "192.0.2.1")], "top:1000")
+        finally:
+            devices_router._bulk_port_scan_job = devices_router.BulkPortScanJob()
+            devices_router._bulk_port_scan_task = None
+            db.close()
+            Base.metadata.drop_all(engine)
+
+
+class ManualScanPipelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_scan_waits_for_follow_up_port_scan(self):
+        completed = False
+
+        async def port_scan():
+            nonlocal completed
+            await asyncio.sleep(0)
+            completed = True
+
+        task = asyncio.create_task(port_scan())
+        scan_router._manual_scan_pipeline_running = True
+        with (
+            patch.object(scan_router, "run_scan", new=AsyncMock(return_value=SimpleNamespace(status="done"))) as discovery,
+            patch.object(devices_router, "start_automatic_bulk_port_scan", return_value=task) as start_ports,
+        ):
+            await scan_router._run_manual_scan_pipeline()
+
+        discovery.assert_awaited_once_with("manual")
+        start_ports.assert_called_once_with()
+        self.assertTrue(completed)
+        self.assertFalse(scan_router._manual_scan_pipeline_running)
 
 
 if __name__ == "__main__":

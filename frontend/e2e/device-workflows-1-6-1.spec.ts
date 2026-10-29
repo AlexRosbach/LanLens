@@ -146,3 +146,46 @@ test('device detail adds a manual connection link', async ({ page }) => {
   await expect.poll(() => createPayload).toMatchObject({ label: 'Reverse proxy', url: 'https://lanlens.example.com', protocol: 'https' })
   await expect(page.getByRole('link', { name: 'Reverse proxy', exact: true })).toBeVisible()
 })
+
+test('Scan Now waits for discovery and automatic port scanning before refreshing connections', async ({ page }) => {
+  let statusRequests = 0
+  let scanStarted = false
+  let deviceRequests = 0
+  const device = { ...baseDevice, latest_scan: null }
+
+  await mockShell(page)
+  await page.route('**/api/segments', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/bulk-port-scan/status', (route) => route.fulfill({
+    json: { job_id: null, status: 'idle', total: 0, completed: 0, succeeded: 0, failed: 0, skipped: 0, cancel_requested: false, started_at: null, finished_at: null },
+  }))
+  await page.route('**/api/scan/start', async (route) => {
+    scanStarted = true
+    await route.fulfill({ json: { message: 'Network discovery and port scan started', success: true } })
+  })
+  await page.route('**/api/scan/status', async (route) => {
+    statusRequests += 1
+    const running = statusRequests === 1
+    await route.fulfill({ json: {
+      is_running: running,
+      last_scan: { id: 1, started_at: now, finished_at: running ? null : now, scan_type: 'manual', devices_found: 1, devices_new: 0, devices_offline: 0, status: running ? 'running' : 'done', error_message: null },
+      current_stats: { total: 1, online: 1, offline: 0, new: 0, archived: 0, unread_notifications: 0 },
+    } })
+  })
+  await page.route('**/api/devices**', (route) => {
+    if (new URL(route.request().url()).pathname !== '/api/devices') return route.fallback()
+    deviceRequests += 1
+    const latest = deviceRequests > 1
+      ? { id: 10, scanned_at: now, open_ports: [{ port: 443, protocol: 'tcp', service: 'https', state: 'open' }], ssh_available: false, rdp_available: false, http_available: false, https_available: true }
+      : null
+    return route.fulfill({ json: { items: [{ ...device, latest_scan: latest }], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Scan Now' }).click()
+
+  await expect.poll(() => scanStarted).toBe(true)
+  await expect(page.getByText('Network discovery started; port scanning will follow automatically')).toBeVisible()
+  await expect(page.getByText('Scan complete, 1 devices found and connections updated')).toBeVisible({ timeout: 7000 })
+  await expect(page.getByRole('link', { name: 'HTTPS' })).toBeVisible()
+  expect(statusRequests).toBeGreaterThanOrEqual(2)
+})

@@ -352,7 +352,10 @@ update or remove an entry. Supported schemes are `http`, `https`, `ssh`, `rdp`,
 
 #### `POST /api/scan/start`
 
-Triggers immediate ARP scan in background.
+Triggers the manual scan pipeline in the background. LanLens first performs
+network discovery and then scans every online, non-ignored device with the
+configured port range. `/api/scan/status` remains running until both phases
+finish, so clients can refresh the inventory after Connect data is persisted.
 
 #### `GET /api/scan/status`
 
@@ -462,7 +465,7 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### Port Scan Flow
 
 ```
-1. Triggered by: POST /api/devices/{id}/scan-ports, the selected/network-wide bulk endpoint, the manual UI action, or the optional scheduled background job
+1. Triggered by: POST /api/devices/{id}/scan-ports, the selected/network-wide bulk endpoint, the automatic follow-up to **Scan Now**, or the optional scheduled background job
 2. port_scanner.py: nmap.PortScanner()
 3. Arguments: configured in Settings; default is "-sS -T4 --top-ports 1000" (SYN scan, fast)
    Fallback: "-sT -T4 ..." (TCP connect, no root needed)

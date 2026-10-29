@@ -27,6 +27,7 @@ LanLens gives you a quick, local view of what is on your network:
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
 - Multi-select workflows for editing device class, owner, location and description, or deleting several unwanted entries in one confirmed action
 - Network-wide or selected-device extended port scans with progress, cancellation and automatic Connect-column refresh
+- A single **Scan Now** action that discovers hosts and then populates their detected Connect services automatically
 - Correctable manufacturer names and manual connection links that remain separate from automatic discovery results
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes

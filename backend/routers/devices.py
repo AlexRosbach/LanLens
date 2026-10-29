@@ -95,6 +95,10 @@ def _bulk_port_scan_status() -> BulkPortScanStatus:
     return BulkPortScanStatus(**vars(_bulk_port_scan_job))
 
 
+def is_bulk_port_scan_running() -> bool:
+    return _bulk_port_scan_job.status in {"running", "cancelling"}
+
+
 def _https_port_entries(open_ports: list[dict]) -> list[dict]:
     entries: list[dict] = []
     for entry in open_ports:
@@ -767,19 +771,18 @@ async def _run_bulk_port_scan(targets: list[tuple[int, str]], port_spec: str) ->
         job.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-@router.post("/bulk-port-scan", response_model=BulkPortScanStatus, status_code=202)
-async def start_bulk_port_scan(
-    data: BulkPortScanRequest,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
+def _launch_bulk_port_scan(
+    db: Session,
+    device_ids: Optional[list[int]] = None,
+    *,
+    online_only: bool = False,
+) -> BulkPortScanStatus:
     global _bulk_port_scan_job, _bulk_port_scan_task
-    if _bulk_port_scan_job.status in {"running", "cancelling"}:
-        raise HTTPException(status_code=409, detail="A network-wide port scan is already running")
-
     query = db.query(Device).filter(Device.is_archived == False)
-    if data.device_ids is not None:
-        query = query.filter(Device.id.in_(sorted(set(data.device_ids))))
+    if online_only:
+        query = query.filter(Device.is_online == True, Device.ignored == False)
+    if device_ids is not None:
+        query = query.filter(Device.id.in_(sorted(set(device_ids))))
     candidates = query.order_by(Device.id.asc()).all()
     if not candidates:
         raise HTTPException(status_code=400, detail="No matching active devices were found")
@@ -806,6 +809,37 @@ async def start_bulk_port_scan(
     return _bulk_port_scan_status()
 
 
+def start_automatic_bulk_port_scan() -> Optional[asyncio.Task]:
+    """Start the follow-up port scan used by a manual network discovery."""
+    if is_bulk_port_scan_running():
+        logger.info("Automatic port scan skipped because another port scan is already running")
+        return None
+
+    db = SessionLocal()
+    try:
+        try:
+            _launch_bulk_port_scan(db, online_only=True)
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                logger.info("Automatic port scan skipped because no online devices were found")
+                return None
+            raise
+        return _bulk_port_scan_task
+    finally:
+        db.close()
+
+
+@router.post("/bulk-port-scan", response_model=BulkPortScanStatus, status_code=202)
+async def start_bulk_port_scan(
+    data: BulkPortScanRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if is_bulk_port_scan_running():
+        raise HTTPException(status_code=409, detail="A network-wide port scan is already running")
+    return _launch_bulk_port_scan(db, data.device_ids)
+
+
 @router.get("/bulk-port-scan/status", response_model=BulkPortScanStatus)
 def get_bulk_port_scan_status(
     _: User = Depends(get_current_user),
@@ -817,7 +851,7 @@ def get_bulk_port_scan_status(
 def cancel_bulk_port_scan(
     _: User = Depends(get_current_user),
 ):
-    if _bulk_port_scan_job.status not in {"running", "cancelling"}:
+    if not is_bulk_port_scan_running():
         raise HTTPException(status_code=409, detail="No network-wide port scan is running")
     _bulk_port_scan_job.cancel_requested = True
     _bulk_port_scan_job.status = "cancelling"
