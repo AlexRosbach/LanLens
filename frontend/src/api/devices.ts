@@ -108,6 +108,7 @@ export interface Device {
   responsible: string | null
   password_location: string | null
   os_info: string | null
+  kernel_version: string | null
   asset_tag: string | null
   notes: string | null
   // CMDB
@@ -187,6 +188,7 @@ export interface DeviceUpdate {
   responsible?: string | null
   password_location?: string | null
   os_info?: string | null
+  kernel_version?: string | null
   asset_tag?: string | null
   notes?: string | null
   cmdb_id?: string | null

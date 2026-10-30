@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -10,9 +11,10 @@ from sqlalchemy.orm import sessionmaker
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-1-6-1-workflows")
 
 from backend.database import Base
-from backend.models import Device, ManualConnectEntry, User
+from backend.models import Credential, DeepScanFinding, DeepScanRun, Device, ManualConnectEntry, User
 from backend.routers import devices as devices_router
 from backend.routers import scan as scan_router
+from backend.services import deep_scanner
 from backend.schemas import (
     DeviceBulkUpdateRequest,
     ManualConnectEntryCreate,
@@ -94,6 +96,22 @@ class DeviceWorkflowTests(unittest.TestCase):
         self.assertEqual(response.items[0].vendor_detected, "Detected Vendor")
         self.assertEqual(response.items[0].vendor_override, "Corrected Vendor")
         self.assertEqual(response.items[0].manual_connect_entries[0].label, "Portal")
+        db.close()
+
+    def test_device_response_exposes_kernel_version(self):
+        db = self.Session()
+        user = User(username="tester", password_hash="unused", force_password_change=False)
+        device = Device(
+            mac_address="02:00:00:00:00:13",
+            ip_address="192.0.2.13",
+            kernel_version="6.8.12-4-pve",
+        )
+        db.add_all([user, device])
+        db.commit()
+
+        response = devices_router.list_devices(db=db, current_user=user)
+
+        self.assertEqual(response.items[0].kernel_version, "6.8.12-4-pve")
         db.close()
 
     def test_manual_connect_entries_can_be_created_updated_and_deleted(self):
@@ -206,6 +224,67 @@ class ManualScanPipelineTests(unittest.IsolatedAsyncioTestCase):
         start_ports.assert_called_once_with()
         self.assertTrue(completed)
         self.assertFalse(scan_router._manual_scan_pipeline_running)
+
+
+class LinuxKernelDeepScanTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(self.engine)
+        self.Session = sessionmaker(bind=self.engine)
+
+    def tearDown(self):
+        Base.metadata.drop_all(self.engine)
+
+    def test_linux_deep_scan_updates_dedicated_kernel_field(self):
+        db = self.Session()
+        device = Device(mac_address="02:00:00:00:02:01", ip_address="192.0.2.21")
+        credential = Credential(
+            name="Linux test",
+            credential_type="linux_ssh",
+            auth_method="password",
+            username="scanner",
+            encrypted_secret="unused",
+        )
+        db.add_all([device, credential])
+        db.commit()
+        run = DeepScanRun(
+            device_id=device.id,
+            credential_id=credential.id,
+            profile="os_services",
+            status="running",
+        )
+        db.add(run)
+        db.commit()
+
+        class Stream:
+            def __init__(self, value: str):
+                self.value = value
+
+            def read(self):
+                return self.value.encode()
+
+        class Client:
+            def connect(self, **_kwargs):
+                return None
+
+            def exec_command(self, command, timeout=20):
+                output = "6.8.12-4-pve\n" if command.startswith("uname -r") else ""
+                return None, Stream(output), Stream("")
+
+            def close(self):
+                return None
+
+        with (
+            patch.dict(sys.modules, {"paramiko": SimpleNamespace()}),
+            patch.object(deep_scanner, "create_verified_ssh_client", return_value=Client()),
+        ):
+            deep_scanner._run_linux_scan(db, device, run, credential, "secret")
+
+        db.refresh(device)
+        self.assertEqual(device.kernel_version, "6.8.12-4-pve")
+        finding = db.query(DeepScanFinding).filter_by(device_id=device.id, key="kernel").one()
+        self.assertIn("6.8.12-4-pve", finding.value_json)
+        db.close()
 
 
 if __name__ == "__main__":

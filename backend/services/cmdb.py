@@ -225,6 +225,7 @@ def device_export(device: Device) -> dict[str, Any]:
         "location": device.location,
         "responsible": device.responsible,
         "os_info": device.os_info,
+        "kernel_version": device.kernel_version,
         "notes": device.notes,
         "is_registered": device.is_registered,
         "is_online": device.is_online,

@@ -289,6 +289,7 @@ class DeviceUpdate(BaseModel):
     responsible: Optional[str] = None
     password_location: Optional[str] = None
     os_info: Optional[str] = None
+    kernel_version: Optional[str] = Field(default=None, max_length=255)
     asset_tag: Optional[str] = None
     notes: Optional[str] = None
     ignored: Optional[bool] = None
@@ -552,6 +553,7 @@ class DeviceResponse(BaseModel):
     responsible: Optional[str]
     password_location: Optional[str]
     os_info: Optional[str]
+    kernel_version: Optional[str] = None
     asset_tag: Optional[str]
     notes: Optional[str]
     # State

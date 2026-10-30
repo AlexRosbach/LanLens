@@ -51,7 +51,7 @@ _LINUX_HARDWARE = [
 
 _LINUX_OS = [
     ("os", "release",   "cat /etc/os-release 2>/dev/null || true"),
-    ("os", "kernel",    "uname -a 2>/dev/null || true"),
+    ("os", "kernel",    "uname -r 2>/dev/null || true"),
     ("os", "hostname",  "hostname -f 2>/dev/null || true"),
     ("os", "uptime",    "uptime 2>/dev/null || true"),
 ]
@@ -308,6 +308,11 @@ def _run_linux_scan(
                 if output:
                     _save_finding(db, device.id, run.id, finding_type, key, output, source=cmd.split()[0])
                     finding_count += 1
+
+                    if finding_type == "os" and key == "kernel":
+                        kernel_version = output.splitlines()[0].strip()[:255]
+                        if kernel_version:
+                            device.kernel_version = kernel_version
 
                     # Parse hypervisor output for VM guest reconciliation
                     if finding_type == "hypervisor":

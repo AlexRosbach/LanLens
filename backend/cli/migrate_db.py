@@ -934,6 +934,13 @@ def migrate():
         else:
             print("Migration: devices.vendor_override already exists — skipped")
 
+        if not _column_exists(conn, "devices", "kernel_version"):
+            conn.execute(text("ALTER TABLE devices ADD COLUMN kernel_version VARCHAR(255)"))
+            conn.commit()
+            print("Migration: added devices.kernel_version")
+        else:
+            print("Migration: devices.kernel_version already exists — skipped")
+
         if IS_SQLITE and not _table_exists(conn, "manual_connect_entries"):
             conn.execute(text(
                 "CREATE TABLE manual_connect_entries ("

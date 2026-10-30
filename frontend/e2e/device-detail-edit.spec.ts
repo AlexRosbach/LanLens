@@ -46,6 +46,7 @@ const device = {
   responsible: '',
   password_location: '',
   os_info: '',
+  kernel_version: '6.8.12-4-pve',
   asset_tag: 'ASSET-123',
   notes: '',
   cmdb_id: null,
@@ -123,11 +124,13 @@ test('device detail saves cleared label and asset tag as null values', async ({ 
   await page.getByRole('button', { name: 'Edit' }).click()
   await page.getByPlaceholder('e.g. NAS Server, Living Room Pi').fill('')
   await page.getByPlaceholder('e.g. SRV-001').fill('')
+  await page.getByPlaceholder('e.g. 6.8.12-4-pve').fill('6.8.13-1-pve')
   await page.getByRole('button', { name: 'Save' }).click()
 
   await expect.poll(() => updatePayload).not.toBeNull()
   expect(updatePayload?.label).toBeNull()
   expect(updatePayload?.asset_tag).toBeNull()
+  expect(updatePayload?.kernel_version).toBe('6.8.13-1-pve')
 })
 
 test('device detail can test an i-doit sysid lookup and show debug details', async ({ page }) => {

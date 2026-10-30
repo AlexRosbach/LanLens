@@ -52,6 +52,7 @@ class Device(Base):
     responsible = Column(String(255), nullable=True)     # Verantwortlicher / Owner
     password_location = Column(String(512), nullable=True) # wo die Zugangsdaten liegen
     os_info = Column(String(255), nullable=True)         # Betriebssystem / Version
+    kernel_version = Column(String(255), nullable=True)  # Linux kernel release (manual or Deep Scan)
     asset_tag = Column(String(128), nullable=True)       # Inventarnummer / Asset-Tag
     notes = Column(Text, nullable=True)                  # freie Notizen
 

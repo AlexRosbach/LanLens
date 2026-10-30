@@ -890,6 +890,12 @@ Findings are stored as key/value pairs grouped by `finding_type`:
 | `vm_guest` | Enumerated VMs with MAC/IP where available |
 | `audit` | Windows features, licensing, IIS, AD, DHCP, SQL Server |
 
+On Linux, a successful profile that includes OS data also copies the value from
+`uname -r` into the device's dedicated **Kernel version** field. This makes the
+current kernel visible in the normal device details and API without opening the
+raw Deep Scan findings. The field remains manually editable, and a scan that
+does not return a kernel value leaves the existing value unchanged.
+
 ### Hypervisor guest matching
 
 When a hypervisor scan completes, LanLens attempts to match each discovered guest VM against known devices:

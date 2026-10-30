@@ -375,6 +375,7 @@ def _device_to_response(
         responsible=device.responsible,
         password_location=device.password_location,
         os_info=device.os_info,
+        kernel_version=device.kernel_version,
         asset_tag=device.asset_tag,
         notes=device.notes,
         is_registered=device.is_registered,
@@ -476,6 +477,7 @@ def list_devices(
             | Device.preferred_name.ilike(term)
             | Device.vendor.ilike(term)
             | Device.vendor_override.ilike(term)
+            | Device.kernel_version.ilike(term)
             | Device.id.in_(db.query(DeviceDnsName.device_id).filter(DeviceDnsName.name.ilike(term)))
         )
 
@@ -1063,7 +1065,7 @@ def update_device_maintenance(
 
 MERGE_FIELDS = [
     "label", "device_class", "vendor", "vendor_override", "purpose", "description", "location", "responsible",
-    "password_location", "os_info", "asset_tag", "notes", "cmdb_id", "hostname", "ip_address",
+    "password_location", "os_info", "kernel_version", "asset_tag", "notes", "cmdb_id", "hostname", "ip_address",
 ]
 
 

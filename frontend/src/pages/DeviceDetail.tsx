@@ -34,6 +34,7 @@ interface EditState {
   responsible: string
   passwordLocation: string
   osInfo: string
+  kernelVersion: string
   assetTag: string
   notes: string
   cmdbId: string
@@ -72,6 +73,7 @@ function toEditState(d: Device): EditState {
     responsible: d.responsible ?? '',
     passwordLocation: d.password_location ?? '',
     osInfo: d.os_info ?? '',
+    kernelVersion: d.kernel_version ?? '',
     assetTag: d.asset_tag ?? '',
     notes: d.notes ?? '',
     cmdbId: d.cmdb_id ?? '',
@@ -297,6 +299,7 @@ export default function DeviceDetail() {
         responsible: nullableText(form.responsible),
         password_location: nullableText(form.passwordLocation),
         os_info: nullableText(form.osInfo),
+        kernel_version: nullableText(form.kernelVersion),
         asset_tag: nullableText(form.assetTag),
         notes: nullableText(form.notes),
         cmdb_id: nullableText(form.cmdbId),
@@ -471,7 +474,7 @@ export default function DeviceDetail() {
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
   const hasDocumentation = device.purpose || device.description || device.location ||
-    device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
+    device.responsible || device.password_location || device.os_info || device.kernel_version || device.asset_tag || device.notes
   const tlsServices = device.services.filter((service) =>
     service.protocol === 'https' ||
     service.url?.toLowerCase().startsWith('https://') ||
@@ -691,6 +694,9 @@ export default function DeviceDetail() {
               <Input label={t('responsible')} placeholder={t('responsible_placeholder')} {...field('responsible')} />
               <Input label={t('os_info')} placeholder={t('os_info_placeholder')} {...field('osInfo')} />
               <div className="col-span-2">
+                <Input label={t('kernel_version')} placeholder={t('kernel_version_placeholder')} {...field('kernelVersion')} />
+              </div>
+              <div className="col-span-2">
                 <Input label={t('password_location')} placeholder={t('password_location_placeholder')} {...field('passwordLocation')} />
               </div>
             </div>
@@ -732,6 +738,7 @@ export default function DeviceDetail() {
               <InfoRow label={t('snmp_last_seen')} value={device.snmp_last_seen_at ? formatRelativeTime(device.snmp_last_seen_at, lang) : null} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />
               <InfoRow label={t('os_info')} value={device.os_info} />
+              <InfoRow label={t('kernel_version')} value={device.kernel_version} mono />
               {device.cmdb_id && (
                 <div>
                   <p className="text-text-subtle text-xs mb-0.5">{t('cmdb_id')}</p>

@@ -21,6 +21,9 @@ All notable changes to this project should be documented in this file.
   CMDB/i-doit exports and can be cleared to restore automatic detection.
 - Added validated manual connection links per device. They appear alongside
   scan-detected SSH, RDP and web actions and remain untouched by future scans.
+- Added a dedicated, manually editable Linux kernel version field. Successful
+  SSH Deep Scans populate it from `uname -r`, and the value is exposed through
+  the device API, inventory reports and generic CMDB export.
 - Added database migrations, API coverage and end-to-end UI tests for the new
   1.6.1 workflows. No new runtime dependency or license obligation was added.
 
