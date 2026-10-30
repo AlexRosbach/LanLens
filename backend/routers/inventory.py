@@ -420,7 +420,7 @@ def export_report(
     if format == "csv":
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["CMDB ID", "Name", "IP", "MAC", "Class", "Vendor", "Online", "Location", "Responsible", "Services"])
+        writer.writerow(["CMDB ID", "Name", "IP", "MAC", "Class", "Vendor", "Online", "Location", "Responsible", "OS / Version", "Kernel Version", "Services"])
         for device in devices:
             writer.writerow([_safe_csv_cell(value) for value in [
                 device.cmdb_id or "",
@@ -428,10 +428,12 @@ def export_report(
                 device.ip_address or "",
                 device.mac_address or "",
                 device.device_class or "",
-                device.vendor or "",
+                device.effective_vendor or "",
                 "yes" if device.is_online else "no",
                 device.location or "",
                 device.responsible or "",
+                device.os_info or "",
+                device.kernel_version or "",
                 ", ".join(s.name for s in services_by_device.get(device.id, [])),
             ]])
         return Response(output.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=lanlens-report.csv"})
@@ -445,10 +447,12 @@ def export_report(
             f"- IP: {device.ip_address or '—'}",
             f"- MAC: {device.mac_address or '—'}",
             f"- Class: {device.device_class or '—'}",
-            f"- Vendor: {device.vendor or '—'}",
+            f"- Vendor: {device.effective_vendor or '—'}",
             f"- Online: {'yes' if device.is_online else 'no'}",
             f"- Location: {device.location or '—'}",
             f"- Responsible: {device.responsible or '—'}",
+            f"- OS / Version: {device.os_info or '—'}",
+            f"- Kernel Version: {device.kernel_version or '—'}",
         ])
         if device.purpose:
             lines.append(f"- Purpose: {device.purpose}")
@@ -473,12 +477,13 @@ def _safe_device_export(device: Device, services: list[Service]) -> dict[str, An
         "ip_address": device.ip_address,
         "mac_address": device.mac_address,
         "device_class": device.device_class,
-        "vendor": device.vendor,
+        "vendor": device.effective_vendor,
         "purpose": device.purpose,
         "description": device.description,
         "location": device.location,
         "responsible": device.responsible,
         "os_info": device.os_info,
+        "kernel_version": device.kernel_version,
         "asset_tag": device.asset_tag,
         "notes": device.notes,
         "is_registered": device.is_registered,

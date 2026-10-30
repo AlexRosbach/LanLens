@@ -1,0 +1,40 @@
+{
+  "name": "@lanlens/mcp-server",
+  "version": "1.6.1",
+  "private": true,
+  "description": "Official MCP companion server for LanLens",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "lanlens-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/bundle.js --banner:js='#!/usr/bin/env node'",
+    "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/test/*.test.js",
+    "test:protocol": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/test/protocol.test.js",
+    "mcpb:stage": "node scripts/stage-mcpb.mjs",
+    "mcpb:pack": "npm run bundle && npm run mcpb:stage && mcpb pack build/mcpb build/lanlens-mcp-1.6.1.mcpb",
+    "mcpb:validate": "npm run bundle && npm run mcpb:stage && mcpb validate build/mcpb/manifest.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.5",
+    "@modelcontextprotocol/node": "2.1.2",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "26.6.6",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "overrides": {
+    "tmp": "0.2.7",
+    "zod": "4.6.7"
+  }
+}

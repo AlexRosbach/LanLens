@@ -91,6 +91,7 @@ export interface AllSettings {
   show_ssdp_discovery: boolean
   show_tls_checks: boolean
   show_ping_history: boolean
+  show_os_inference: boolean
   show_build_info: boolean
   show_debug_tools: boolean
   debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace'
@@ -119,6 +120,7 @@ function normalizeSettings(data: AllSettings): AllSettings {
   return {
     ...data,
     dhcp_ranges: data.dhcp_ranges?.length ? data.dhcp_ranges : legacyRange,
+    show_os_inference: data.show_os_inference ?? false,
   }
 }
 
@@ -249,6 +251,7 @@ export const settingsApi = {
     show_ssdp_discovery: boolean,
     show_tls_checks: boolean,
     show_ping_history: boolean,
+    show_os_inference: boolean,
     show_build_info: boolean,
     show_debug_tools: boolean,
     debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace',
@@ -265,6 +268,7 @@ export const settingsApi = {
       show_ssdp_discovery,
       show_tls_checks,
       show_ping_history,
+      show_os_inference,
       show_build_info,
       show_debug_tools,
       debug_log_level,

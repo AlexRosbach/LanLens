@@ -53,7 +53,7 @@ const settings = {
   show_tls_checks: true,
   show_ping_history: true,
   show_build_info: true,
-  app_version: '1.6.0',
+  app_version: '1.6.1',
   build_code: 'docs',
   build_commit: 'docs',
   build_branch: 'docs',

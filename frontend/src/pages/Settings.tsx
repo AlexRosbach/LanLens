@@ -1599,6 +1599,7 @@ export default function Settings() {
         current.show_ssdp_discovery,
         current.show_tls_checks,
         current.show_ping_history,
+        current.show_os_inference,
         current.show_build_info,
         current.show_debug_tools,
         current.debug_log_level,
@@ -1721,6 +1722,13 @@ export default function Settings() {
           label: t('show_ping_history'),
           description: t('show_ping_history_hint'),
           onChange: (checked: boolean) => setSettings({ ...current, show_ping_history: checked }),
+        },
+        {
+          key: 'os-inference',
+          checked: current.show_os_inference,
+          label: t('show_os_inference'),
+          description: t('show_os_inference_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_os_inference: checked }),
         },
         {
           key: 'dhcp-monitor',

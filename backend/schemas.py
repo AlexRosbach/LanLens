@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field
+from urllib.parse import urlsplit
+
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -274,6 +276,7 @@ class DeviceUpdate(BaseModel):
     preferred_name: Optional[str] = None
     preferred_name_mode: Optional[str] = None
     device_class: Optional[str] = None
+    vendor_override: Optional[str] = Field(default=None, max_length=255)
     is_registered: Optional[bool] = None
     segment_id: Optional[int] = None
     cmdb_id: Optional[str] = None
@@ -286,6 +289,7 @@ class DeviceUpdate(BaseModel):
     responsible: Optional[str] = None
     password_location: Optional[str] = None
     os_info: Optional[str] = None
+    kernel_version: Optional[str] = Field(default=None, max_length=255)
     asset_tag: Optional[str] = None
     notes: Optional[str] = None
     ignored: Optional[bool] = None
@@ -296,6 +300,91 @@ class DeviceUpdate(BaseModel):
 
 class DeviceBulkDeleteRequest(BaseModel):
     device_ids: List[int] = Field(min_length=1, max_length=1000)
+
+
+class DeviceBulkUpdateRequest(BaseModel):
+    device_ids: List[int] = Field(min_length=1, max_length=1000)
+    device_class: Optional[str] = Field(default=None, max_length=64)
+    responsible: Optional[str] = Field(default=None, max_length=255)
+    location: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = None
+
+
+class DeviceBulkUpdateResponse(BaseModel):
+    updated: int
+    message: str
+
+
+class BulkPortScanRequest(BaseModel):
+    device_ids: Optional[List[int]] = Field(default=None, min_length=1)
+
+
+class BulkPortScanStatus(BaseModel):
+    job_id: Optional[str] = None
+    status: str = "idle"
+    total: int = 0
+    completed: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    skipped: int = 0
+    cancel_requested: bool = False
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
+CONNECT_PROTOCOLS = {"http", "https", "ssh", "rdp", "vnc", "tcp"}
+
+
+class ManualConnectEntryCreate(BaseModel):
+    label: str = Field(min_length=1, max_length=128)
+    url: str = Field(min_length=1, max_length=2048)
+    protocol: str = Field(default="https", max_length=16)
+    sort_order: int = 0
+
+    @field_validator("label")
+    @classmethod
+    def validate_label(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Label must not be empty")
+        return value
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in CONNECT_PROTOCOLS:
+            raise ValueError("Unsupported connection protocol")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        value = value.strip()
+        parsed = urlsplit(value)
+        if parsed.scheme.lower() not in CONNECT_PROTOCOLS:
+            raise ValueError("Connection URL must use http, https, ssh, rdp, vnc, or tcp")
+        if not parsed.hostname:
+            raise ValueError("Connection URL must include a host")
+        return value
+
+
+class ManualConnectEntryUpdate(ManualConnectEntryCreate):
+    pass
+
+
+class ManualConnectEntryResponse(BaseModel):
+    id: int
+    device_id: int
+    label: str
+    url: str
+    protocol: str
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class DeviceMaintenanceUpdate(BaseModel):
@@ -449,6 +538,8 @@ class DeviceResponse(BaseModel):
     label: Optional[str]
     device_class: str
     vendor: Optional[str]
+    vendor_detected: Optional[str] = None
+    vendor_override: Optional[str] = None
     # Segment
     segment_id: Optional[int] = None
     segment_name: Optional[str] = None
@@ -462,6 +553,10 @@ class DeviceResponse(BaseModel):
     responsible: Optional[str]
     password_location: Optional[str]
     os_info: Optional[str]
+    kernel_version: Optional[str] = None
+    inferred_os_family: Optional[str] = None
+    os_inference_confidence: Optional[str] = None
+    os_inference_reasons: List[str] = Field(default_factory=list)
     asset_tag: Optional[str]
     notes: Optional[str]
     # State
@@ -494,6 +589,7 @@ class DeviceResponse(BaseModel):
     # Relations
     latest_scan: Optional[PortScanResponse] = None
     services: List[ServiceResponse] = []
+    manual_connect_entries: List[ManualConnectEntryResponse] = []
     ip_history: List[DeviceIpHistoryResponse] = []
     snmp_switch: Optional[str] = None
     snmp_switch_host: Optional[str] = None
@@ -735,6 +831,7 @@ class UiSettings(BaseModel):
     show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
+    show_os_inference: bool = False
     show_build_info: bool = False
     show_debug_tools: bool = False
     debug_log_level: str = "warning"
@@ -845,6 +942,7 @@ class AllSettings(BaseModel):
     show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
+    show_os_inference: bool = False
     show_build_info: bool = False
     show_debug_tools: bool = False
     debug_log_level: str = "warning"

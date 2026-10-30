@@ -416,7 +416,7 @@ def _json_safe_device_value(device: Device, field_name: str) -> Any:
 
 
 def _looks_like_server(device: Device) -> bool:
-    vendor = (device.vendor or "").lower()
+    vendor = (device.effective_vendor or "").lower()
     hostname = (device.hostname or device.label or "").lower()
     server_vendors = ("dell emc", "hewlett packard enterprise", "supermicro", "ibm", "lenovo system x")
     if any(vendor_name in vendor for vendor_name in server_vendors):
@@ -512,7 +512,7 @@ def build_export_row(
         "ip_address": device.ip_address or "",
         "mac_address": device.mac_address or "",
         "hostname": device.hostname or "",
-        "manufacturer": device.vendor or "",
+        "manufacturer": device.effective_vendor or "",
         "model": model or "",
         "serial": serial or "",
         "os_info": os_info or "",
@@ -1303,7 +1303,7 @@ def _lanlens_inventory_summary(device: Device, findings: dict[str, dict[str, Any
     lines.append(f"MAC: {device.mac_address or '-'}")
     lines.append(f"IP: {device.ip_address or '-'}")
     lines.append(f"Hostname: {device.hostname or '-'}")
-    lines.append(f"Vendor: {device.vendor or '-'}")
+    lines.append(f"Vendor: {device.effective_vendor or '-'}")
     lines.append(f"Online: {'yes' if device.is_online else 'no'}")
     lines.append(f"First seen: {device.first_seen.isoformat() if device.first_seen else '-'}")
     lines.append(f"Last seen: {device.last_seen.isoformat() if device.last_seen else '-'}")
@@ -1354,7 +1354,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     findings = _latest_findings(db, device)
     model = _hardware_field_text(hw.get("computer_system"), ("Model", "model")) or hw.get("model") or _first_finding_text(findings, [("hardware", "model")], 500)
     serial = _hardware_field_text(hw.get("bios"), ("SerialNumber", "serial", "Serial")) or hw.get("serial") or _first_finding_text(findings, [("hardware", "serial")], 500)
-    vendor = device.vendor or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255)
+    vendor = device.effective_vendor or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255)
     os_info = device.os_info or _first_finding_text(findings, [("os", "release"), ("os", "operating_system"), ("os", "kernel")], 1000)
     cpu_raw = hw.get("cpu") or hw.get("processor") or _first_finding_text(findings, [("hardware", "cpu"), ("hardware", "processor")], 1500)
     memory = hw.get("memory") or hw.get("physical_memory") or _first_finding_text(findings, [("hardware", "memory"), ("hardware", "physical_memory")], 1500)

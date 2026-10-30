@@ -37,7 +37,9 @@ LanLens can:
 - Track online/offline state, IP history, DHCP range membership, open services and scan-detected inventory changes
 - Flag security-awareness signals such as unknown DHCP servers, ARP/MAC drift and VRRP/HSRP peers
 - Poll optional SNMP v1/v2c/v3 targets for IF-MIB inventory, common network-device identity, switch-port context and diagnostics
-- Perform per-device port scans using nmap
+- Perform per-device, selected-device or network-wide port scans using nmap
+- Bulk-edit common device documentation fields and retain manual manufacturer overrides
+- Keep operator-defined connection links separate from automatically detected ports
 - Provide a React-based dark-themed web UI for management and documentation
 - Document device services and group them in the optional Services directory via drag-and-drop or explicit segment selection
 - Send notifications through configured Telegram, webhook/Gotify and email channels
@@ -320,13 +322,40 @@ Uses the global port range from Settings -> Network Discovery -> Port Scan Range
 
 Returns last 5 port scan results.
 
+#### `POST /api/devices/bulk-update`
+
+Updates only the supplied `device_class`, `responsible`, `location` and
+`description` fields for up to 1000 selected device IDs. Supplying a field as
+`null` clears it; omitted fields remain unchanged.
+
+#### Network-wide port scan
+
+- `POST /api/devices/bulk-port-scan` starts a scan for all active devices. Send
+  `{ "device_ids": [1, 2] }` to scan a selected subset.
+- `GET /api/devices/bulk-port-scan/status` returns job progress and counters.
+- `POST /api/devices/bulk-port-scan/cancel` stops scheduling further devices;
+  currently running nmap processes finish before the job becomes cancelled.
+
+At most four devices are scanned concurrently. Devices without a valid IPv4
+address are reported as skipped.
+
+#### Manual connection links
+
+`GET` and `POST /api/devices/{id}/manual-connect` list and create validated
+operator links. `PUT` and `DELETE /api/devices/{id}/manual-connect/{entry_id}`
+update or remove an entry. Supported schemes are `http`, `https`, `ssh`, `rdp`,
+`vnc` and `tcp`. These rows are independent of `PortScan` data.
+
 ---
 
 ### Scan — `/api/scan`
 
 #### `POST /api/scan/start`
 
-Triggers immediate ARP scan in background.
+Triggers the manual scan pipeline in the background. LanLens first performs
+network discovery and then scans every online, non-ignored device with the
+configured port range. `/api/scan/status` remains running until both phases
+finish, so clients can refresh the inventory after Connect data is persisted.
 
 #### `GET /api/scan/status`
 
@@ -436,7 +465,7 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### Port Scan Flow
 
 ```
-1. Triggered by: POST /api/devices/{id}/scan-ports, the manual UI action, or the optional scheduled background job
+1. Triggered by: POST /api/devices/{id}/scan-ports, the selected/network-wide bulk endpoint, the automatic follow-up to **Scan Now**, or the optional scheduled background job
 2. port_scanner.py: nmap.PortScanner()
 3. Arguments: configured in Settings; default is "-sS -T4 --top-ports 1000" (SYN scan, fast)
    Fallback: "-sT -T4 ..." (TCP connect, no root needed)
@@ -861,6 +890,12 @@ Findings are stored as key/value pairs grouped by `finding_type`:
 | `vm_guest` | Enumerated VMs with MAC/IP where available |
 | `audit` | Windows features, licensing, IIS, AD, DHCP, SQL Server |
 
+On Linux, a successful profile that includes OS data also copies the value from
+`uname -r` into the device's dedicated **Kernel version** field. This makes the
+current kernel visible in the normal device details and API without opening the
+raw Deep Scan findings. The field remains manually editable, and a scan that
+does not return a kernel value leaves the existing value unchanged.
+
 ### Hypervisor guest matching
 
 When a hypervisor scan completes, LanLens attempts to match each discovered guest VM against known devices:
@@ -879,6 +914,7 @@ When `auto_scan_enabled` is set on a device, the deep scan scheduler (which poll
 - Credentials are encrypted using Fernet symmetric encryption. The key is derived from `SECRET_KEY` via SHA-256 and URL-safe base64 encoding.
 - The `encrypted_secret` column is never returned by any API endpoint.
 - All API endpoints require a valid session (HTTP-only cookie or Bearer token). For persistent REST integrations, set `LANLENS_API_TOKEN` to a random value of at least 32 characters and send it as `Authorization: Bearer <token>`. The token permits only GET/HEAD/OPTIONS requests by default. Set `LANLENS_API_TOKEN_READ_ONLY=false` only for an integration that genuinely needs write methods; the token has the authority of the first configured LanLens user and must be protected like an administrator credential. Generate a suitable value with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
+- The optional official MCP companion exposes a deliberately smaller, secret-free integration surface for Claude, Codex, ChatGPT and other MCP clients. It supports local stdio and authenticated Streamable HTTP, ships as `alexrosbach/lanlens-mcp`, and has a one-click Claude Desktop bundle. See [MCP companion](mcp.md) for setup, client examples, transports, and its double-gated metadata write tool.
 - SSH credential tests and deep scans reject unknown or changed host keys. Put
   verified OpenSSH host-key entries in `/data/ssh_known_hosts` inside the
   container, or point `LANLENS_SSH_KNOWN_HOSTS` at another mounted file. Verify

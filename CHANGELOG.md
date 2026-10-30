@@ -4,10 +4,44 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
-### 1.6.0 Iteration Focus
-- Add a supported, continuously validated ARM64 container path alongside AMD64.
-- Continue hardening Network Topology and SNMP workflows after the 1.5.8 topology release, especially setup clarity, diagnostics and mixed-vendor switch visibility.
-- Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
+### 1.6.1
+
+- Changed the manual **Scan Now** workflow to run network discovery first and
+  then automatically scan all online, non-ignored devices with the configured
+  port range. The scan remains active until both phases finish, so the
+  dashboard refresh includes the newly detected Connect actions.
+- Added a background extended port scan for every active device or a selected
+  subset, with bounded concurrency, live progress, cancellation and automatic
+  refresh of the dashboard's Connect actions.
+- Added bulk editing for device class, owner, location and description. Only
+  explicitly enabled fields are changed, and intentional empty values clear an
+  existing field.
+- Added per-device manufacturer overrides while preserving the automatically
+  detected OUI vendor. Overrides are used consistently in the UI, reports and
+  CMDB/i-doit exports and can be cleared to restore automatic detection.
+- Added validated manual connection links per device. They appear alongside
+  scan-detected SSH, RDP and web actions and remain untouched by future scans.
+- Added a dedicated, manually editable Linux kernel version field. Successful
+  SSH Deep Scans populate it from `uname -r`, and the value is exposed through
+  the device API, inventory reports and generic CMDB export.
+- Added an optional pre-Deep-Scan OS-family estimate. It conservatively labels
+  devices as Linux, Windows or Unknown from existing class, hostname, vendor
+  and open-port evidence, shows its confidence and reasons, and never
+  overwrites documented or Deep-Scan-derived operating-system data.
+- Added the official LanLens MCP companion for Claude, Codex, ChatGPT and other
+  MCP clients. It provides stdio and authenticated Streamable HTTP transports,
+  a multi-architecture companion image, a one-click Claude Desktop MCP bundle,
+  safe inventory/topology/notification tools and an explicitly enabled,
+  allow-listed device metadata mutation.
+- Hardened bulk editing and extended scans for inventories above 1,000 devices,
+  concurrent discovery, cancellation races and non-blocking result storage.
+- Kept extended-scan progress visible when a job starts after the dashboard was
+  opened, and protected newly discovered kernel values from stale edit forms.
+- Added database migrations, API coverage and end-to-end UI tests for the new
+  1.6.1 workflows. The MCP companion adds only MIT- and Apache-2.0-licensed
+  runtime dependencies, documented in the third-party notices.
+
+### 1.6.0
 
 ### New Features
 - Added multi-select and bulk deletion to the device dashboard so accidental

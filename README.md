@@ -6,7 +6,7 @@
 
 **Self-hosted network inventory, local network scanner, and documentation dashboard**
 
-[![Version](https://img.shields.io/badge/version-1.6.0-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.6.1-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -25,7 +25,11 @@ LanLens gives you a quick, local view of what is on your network:
 
 - Devices found by MAC/IP device discovery, with vendor hints and online/offline state
 - A practical device inventory for names, notes, owners, locations, services, ports, and history
-- Multi-select cleanup for deleting several unwanted inventory entries in one confirmed action
+- Multi-select workflows for editing device class, owner, location and description, or deleting several unwanted entries in one confirmed action
+- Network-wide or selected-device extended port scans with progress, cancellation and automatic Connect-column refresh
+- A single **Scan Now** action that discovers hosts and then populates their detected Connect services automatically
+- Correctable manufacturer names and manual connection links that remain separate from automatic discovery results
+- An optional, clearly labelled Linux/Windows/Unknown estimate before Deep Scan, based only on existing discovery clues with confidence and evidence shown
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
 - Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
@@ -41,6 +45,8 @@ Optional expert views add SNMP switch-port context with counter-rate trends and 
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
+
+The optional OS-family estimate is heuristic metadata, not authoritative fingerprinting. It does not use credentials and never overwrites manually documented or Deep-Scan-derived OS information.
 
 ---
 
@@ -164,6 +170,7 @@ Maintainers can validate both supported platforms with `docker buildx bake`.
 
 - [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
 - [DNS names and AXFR](docs/dns-names-axfr.md): preferred names, alias inventory, read-only zone transfers, optional TSIG, and least-privilege setup
+- [MCP companion](docs/mcp.md): install LanLens tools in Claude Desktop, Claude Code, Codex, ChatGPT, or another MCP client using stdio or authenticated Streamable HTTP
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 

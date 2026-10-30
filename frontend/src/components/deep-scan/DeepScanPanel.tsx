@@ -43,9 +43,10 @@ function StatusBadge({ run }: { run: DeepScanRun | null }) {
 
 interface Props {
   deviceId: number
+  onScanCompleted?: () => void | Promise<void>
 }
 
-export default function DeepScanPanel({ deviceId }: Props) {
+export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
   const { t, lang } = useI18n()
 
   const [config, setConfig] = useState<DeepScanConfig | null>(null)
@@ -104,6 +105,9 @@ export default function DeepScanPanel({ deviceId }: Props) {
         if (run.status === 'done') {
           deepScanApi.getFindings(deviceId).then((fr) => setFindings(fr.data))
           deepScanApi.getRelationships(deviceId).then((rr) => setRelationships(rr.data))
+          if (statusChanged) {
+            Promise.resolve(onScanCompleted?.()).catch(() => {})
+          }
         }
 
         if (statusChanged && run.status === 'error') {
@@ -114,7 +118,7 @@ export default function DeepScanPanel({ deviceId }: Props) {
       })
     }, 3000)
     return () => clearInterval(timer)
-  }, [deviceId, latestRun?.id, latestRun?.status, t])
+  }, [deviceId, latestRun?.id, latestRun?.status, onScanCompleted, t])
 
   const handleTrigger = async () => {
     setTriggering(true)
