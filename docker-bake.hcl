@@ -26,7 +26,7 @@ target "lanlens-mcp" {
   context = "."
   dockerfile = "mcp/Dockerfile"
   platforms = ["linux/amd64", "linux/arm64"]
-  tags = ["alexrosbach/lanlens-mcp:1.6.1-dev"]
+  tags = ["alexrosbach/lanlens:1.6.1-mcp-dev"]
   args = {
     LANLENS_APP_VERSION = LANLENS_APP_VERSION
     LANLENS_BUILD_CODE = LANLENS_BUILD_CODE

@@ -37,7 +37,7 @@ docker run --rm \
   -e LANLENS_MCP_HTTP_TOKEN=replace-with-a-different-random-token \
   -e LANLENS_MCP_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal \
   --add-host host.docker.internal:host-gateway \
-  alexrosbach/lanlens-mcp:1.6.1-dev
+  alexrosbach/lanlens:1.6.1-mcp-dev
 ```
 
 Or use the optional Compose profile after setting `LANLENS_API_TOKEN` and
