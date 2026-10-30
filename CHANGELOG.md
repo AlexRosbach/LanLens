@@ -28,12 +28,18 @@ All notable changes to this project should be documented in this file.
   devices as Linux, Windows or Unknown from existing class, hostname, vendor
   and open-port evidence, shows its confidence and reasons, and never
   overwrites documented or Deep-Scan-derived operating-system data.
+- Added the official LanLens MCP companion for Claude, Codex, ChatGPT and other
+  MCP clients. It provides stdio and authenticated Streamable HTTP transports,
+  a multi-architecture companion image, a one-click Claude Desktop MCP bundle,
+  safe inventory/topology/notification tools and an explicitly enabled,
+  allow-listed device metadata mutation.
 - Hardened bulk editing and extended scans for inventories above 1,000 devices,
   concurrent discovery, cancellation races and non-blocking result storage.
 - Kept extended-scan progress visible when a job starts after the dashboard was
   opened, and protected newly discovered kernel values from stale edit forms.
 - Added database migrations, API coverage and end-to-end UI tests for the new
-  1.6.1 workflows. No new runtime dependency or license obligation was added.
+  1.6.1 workflows. The MCP companion adds only MIT- and Apache-2.0-licensed
+  runtime dependencies, documented in the third-party notices.
 
 ### 1.6.0
 

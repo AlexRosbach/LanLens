@@ -1,0 +1,76 @@
+{
+  "manifest_version": "0.3",
+  "name": "lanlens",
+  "display_name": "LanLens",
+  "version": "1.6.1",
+  "description": "Query a self-hosted LanLens inventory from Claude through the official read-only-by-default MCP companion.",
+  "long_description": "The official LanLens MCP companion exposes safe inventory, device, service, port, topology, segment, notification, and network-change tools. Credentials, secrets, password locations, private notes, and raw authentication material are never returned. An allow-listed device metadata write tool can be enabled explicitly.",
+  "author": {
+    "name": "LanLens",
+    "url": "https://github.com/AlexRosbach/LanLens"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlexRosbach/LanLens"
+  },
+  "homepage": "https://github.com/AlexRosbach/LanLens",
+  "documentation": "https://github.com/AlexRosbach/LanLens/blob/main/docs/mcp.md",
+  "support": "https://github.com/AlexRosbach/LanLens/issues",
+  "icon": "logo.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js", "--transport=stdio"],
+      "env": {
+        "LANLENS_URL": "${user_config.lanlens_url}",
+        "LANLENS_API_TOKEN": "${user_config.api_token}",
+        "LANLENS_MCP_ENABLE_WRITES": "${user_config.enable_writes}"
+      }
+    }
+  },
+  "tools": [
+    {"name": "get_health", "description": "Get LanLens health and build metadata."},
+    {"name": "list_devices", "description": "Search and filter the safe LanLens inventory."},
+    {"name": "get_device", "description": "Get one safe device inventory record."},
+    {"name": "list_services", "description": "List discovered or documented services."},
+    {"name": "list_open_ports", "description": "List recent port scans for a device."},
+    {"name": "get_topology", "description": "Get safe network topology nodes and relationships."},
+    {"name": "list_segments", "description": "List configured network segments."},
+    {"name": "list_notifications", "description": "List recent LanLens notifications."},
+    {"name": "list_network_changes", "description": "List recent audited network changes."}
+  ],
+  "tools_generated": true,
+  "keywords": ["lanlens", "network", "inventory", "mcp", "monitoring", "self-hosted"],
+  "license": "MIT",
+  "privacy_policies": [],
+  "user_config": {
+    "lanlens_url": {
+      "type": "string",
+      "title": "LanLens URL",
+      "description": "Base URL of your LanLens instance, reachable from this computer.",
+      "default": "http://127.0.0.1:7765",
+      "required": true
+    },
+    "api_token": {
+      "type": "string",
+      "title": "LanLens API token",
+      "description": "Persistent LanLens Bearer token. Use the default read-only token policy whenever possible.",
+      "sensitive": true,
+      "required": true
+    },
+    "enable_writes": {
+      "type": "boolean",
+      "title": "Enable device metadata writes",
+      "description": "Expose the allow-listed update tool. The LanLens token must separately permit writes.",
+      "default": false,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {"node": ">=22"}
+  }
+}

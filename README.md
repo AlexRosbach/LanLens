@@ -170,6 +170,7 @@ Maintainers can validate both supported platforms with `docker buildx bake`.
 
 - [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki): setup, configuration, scanning behavior, integrations, troubleshooting, and common workflows
 - [DNS names and AXFR](docs/dns-names-axfr.md): preferred names, alias inventory, read-only zone transfers, optional TSIG, and least-privilege setup
+- [MCP companion](docs/mcp.md): install LanLens tools in Claude Desktop, Claude Code, Codex, ChatGPT, or another MCP client using stdio or authenticated Streamable HTTP
 - [Changelog](CHANGELOG.md): release history and migration notes
 - [Security Policy](SECURITY.md): vulnerability reporting and supported versions
 

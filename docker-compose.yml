@@ -24,9 +24,9 @@ services:
       # Set it manually only if you need to restore/migrate encrypted credentials.
       # - SECRET_KEY=your-64-char-random-string
       # Persistent REST API Bearer token (minimum 32 characters, read-only by default)
-      # - LANLENS_API_TOKEN=generate-a-long-random-token
+      - LANLENS_API_TOKEN=${LANLENS_API_TOKEN:-}
       # Set false only when this token must call POST/PUT/PATCH/DELETE endpoints
-      # - LANLENS_API_TOKEN_READ_ONLY=true
+      - LANLENS_API_TOKEN_READ_ONLY=${LANLENS_API_TOKEN_READ_ONLY:-true}
       # Initial admin password (will be changed on first login)
       - DEFAULT_ADMIN_PASSWORD=admin
       # Host-mode HTTP port for the LanLens UI (for example 80, 8080, 7765)
@@ -52,6 +52,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  lanlens-mcp:
+    image: alexrosbach/lanlens-mcp:1.6.1-dev
+    profiles: ["mcp"]
+    container_name: lanlens-mcp
+    restart: unless-stopped
+    depends_on:
+      lanlens:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8787:8787"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - LANLENS_URL=http://host.docker.internal:${LANLENS_PORT:-7765}
+      - LANLENS_API_TOKEN=${LANLENS_API_TOKEN:-}
+      - LANLENS_MCP_ENABLE_WRITES=${LANLENS_MCP_ENABLE_WRITES:-false}
+      - LANLENS_MCP_HTTP_TOKEN=${LANLENS_MCP_HTTP_TOKEN:-}
+      - LANLENS_MCP_ALLOWED_HOSTS=localhost,127.0.0.1,[::1],lanlens-mcp
 
 volumes:
   lanlens_data:

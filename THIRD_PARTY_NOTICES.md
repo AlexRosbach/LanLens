@@ -57,6 +57,23 @@ The direct frontend development dependencies are permissively licensed:
 | TypeScript | Apache-2.0 |
 | Vite | MIT |
 
+### MCP companion
+
+The optional LanLens MCP companion is distributed as a separate image and
+Claude Desktop bundle. Its direct runtime dependencies are permissively
+licensed:
+
+| Dependency | Reported license | Use in LanLens MCP |
+|---|---|---|
+| @modelcontextprotocol/server | Apache-2.0 | MCP server, tools, resources, and stdio/HTTP protocol handling |
+| @modelcontextprotocol/node | Apache-2.0 | Node HTTP transport adapter and request guards |
+| @hono/node-server | MIT | Node adapter used by the MCP transport stack |
+| Zod | MIT | Tool input validation and generated JSON schemas |
+
+The MCP development and packaging dependencies are also permissive:
+`@modelcontextprotocol/client` (Apache-2.0), `@anthropic-ai/mcpb` (MIT),
+esbuild (MIT), TypeScript (Apache-2.0), and `@types/node` (MIT).
+
 The AXFR integration directly uses `dnspython` (ISC), which is already present
 as a runtime dependency of the existing `pydantic[email]` installation.
 
