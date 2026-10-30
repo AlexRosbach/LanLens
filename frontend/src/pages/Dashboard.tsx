@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, devicesApi } from '../api/devices'
@@ -23,7 +23,6 @@ function ipInRange(ip: string, start: string, end: string): boolean {
 }
 
 type Filter = 'all' | 'online' | 'offline' | 'new' | 'archived'
-const BULK_DELETE_BATCH_SIZE = 1000
 
 export default function Dashboard() {
   const { devices, stats, loading, fetchDevices, updateDevice } = useDeviceStore()
@@ -40,6 +39,7 @@ export default function Dashboard() {
   const [bulkEditOpen, setBulkEditOpen] = useState(false)
   const [bulkEditing, setBulkEditing] = useState(false)
   const [bulkScanStatus, setBulkScanStatus] = useState<BulkPortScanStatus | null>(null)
+  const bulkScanStatusRef = useRef<BulkPortScanStatus | null>(null)
   const [startingBulkScan, setStartingBulkScan] = useState(false)
 
   const newDevicesCount = devices.filter((d) => d.is_new).length
@@ -51,16 +51,32 @@ export default function Dashboard() {
   }, [fetchDevices, filter])
 
   useEffect(() => {
-    devicesApi.getBulkPortScanStatus().then(setBulkScanStatus).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    if (!bulkScanStatus || !['running', 'cancelling'].includes(bulkScanStatus.status)) return
-    const timer = window.setInterval(async () => {
+    let polling = false
+    const poll = async () => {
+      if (polling) return
+      polling = true
       try {
         const status = await devicesApi.getBulkPortScanStatus()
-        setBulkScanStatus(status)
-        if (status.status === 'completed' || status.status === 'cancelled') {
+        const previous = bulkScanStatusRef.current
+        bulkScanStatusRef.current = status
+        if (
+          !previous
+          || previous.job_id !== status.job_id
+          || previous.status !== status.status
+          || previous.total !== status.total
+          || previous.completed !== status.completed
+          || previous.succeeded !== status.succeeded
+          || previous.failed !== status.failed
+          || previous.skipped !== status.skipped
+          || previous.cancel_requested !== status.cancel_requested
+        ) {
+          setBulkScanStatus(status)
+        }
+        if (
+          previous &&
+          ['running', 'cancelling'].includes(previous.status) &&
+          ['completed', 'cancelled'].includes(status.status)
+        ) {
           await fetchDevices({ archived_only: filter === 'archived' })
           toast.success(t(status.status === 'completed' ? 'bulk_scan_completed' : 'bulk_scan_cancelled', {
             succeeded: status.succeeded,
@@ -69,10 +85,14 @@ export default function Dashboard() {
         }
       } catch {
         // Keep the last visible progress state; the next poll may recover.
+      } finally {
+        polling = false
       }
-    }, 1000)
+    }
+    void poll()
+    const timer = window.setInterval(poll, 3000)
     return () => window.clearInterval(timer)
-  }, [bulkScanStatus?.status, fetchDevices, filter, t])
+  }, [fetchDevices, filter, t])
 
   const filterLabels: Record<Filter, string> = {
     all: t('filter_all'),
@@ -131,15 +151,13 @@ export default function Dashboard() {
     if (deviceIds.length === 0 || !window.confirm(t('bulk_delete_confirm', { count: String(deviceIds.length) }))) return
     setDeletingSelected(true)
     try {
-      for (let offset = 0; offset < deviceIds.length; offset += BULK_DELETE_BATCH_SIZE) {
-        const batch = deviceIds.slice(offset, offset + BULK_DELETE_BATCH_SIZE)
-        await devicesApi.bulkDelete(batch)
+      await devicesApi.bulkDelete(deviceIds, (batch) => {
         setSelectedDeviceIds((current) => {
           const next = new Set(current)
           batch.forEach((deviceId) => next.delete(deviceId))
           return next
         })
-      }
+      })
       toast.success(t('bulk_delete_success', { count: String(deviceIds.length) }))
     } catch {
       toast.error(t('bulk_delete_failed'))
@@ -160,11 +178,14 @@ export default function Dashboard() {
       const result = await devicesApi.bulkUpdate(deviceIds, fields)
       toast.success(t('bulk_edit_success', { count: result.updated }))
       setBulkEditOpen(false)
-      await fetchDevices({ archived_only: filter === 'archived' })
     } catch {
       toast.error(t('bulk_edit_failed'))
     } finally {
-      setBulkEditing(false)
+      try {
+        await fetchDevices({ archived_only: filter === 'archived' })
+      } finally {
+        setBulkEditing(false)
+      }
     }
   }
 
@@ -173,6 +194,7 @@ export default function Dashboard() {
     try {
       const selected = Array.from(selectedDeviceIds)
       const status = await devicesApi.startBulkPortScan(selected.length ? selected : undefined)
+      bulkScanStatusRef.current = status
       setBulkScanStatus(status)
       toast.success(t('bulk_scan_started', { count: status.total }))
     } catch {

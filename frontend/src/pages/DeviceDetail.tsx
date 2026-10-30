@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, DeviceIpHistoryEntry, DevicePingSample, PassiveDiscoveryObservation, devicesApi } from '../api/devices'
@@ -289,7 +289,7 @@ export default function DeviceDetail() {
     }
     setSaving(true)
     try {
-      const updated = await devicesApi.update(device.id, {
+      const payload = {
         label: nullableText(form.label),
         device_class: form.deviceClass.trim() || 'Unknown',
         vendor_override: nullableText(form.vendorOverride),
@@ -299,13 +299,17 @@ export default function DeviceDetail() {
         responsible: nullableText(form.responsible),
         password_location: nullableText(form.passwordLocation),
         os_info: nullableText(form.osInfo),
-        kernel_version: nullableText(form.kernelVersion),
         asset_tag: nullableText(form.assetTag),
         notes: nullableText(form.notes),
         cmdb_id: nullableText(form.cmdbId),
         idoit_sysid: form.idoitSysid.trim() || null,
         is_registered: true,
-      })
+      }
+      const kernelVersion = nullableText(form.kernelVersion)
+      if (kernelVersion !== device.kernel_version) {
+        Object.assign(payload, { kernel_version: kernelVersion })
+      }
+      const updated = await devicesApi.update(device.id, payload)
       setDevice(updated)
       setForm(toEditState(updated))
       setEditing(false)
@@ -316,6 +320,20 @@ export default function DeviceDetail() {
       setSaving(false)
     }
   }
+
+  const handleDeepScanCompleted = useCallback(async () => {
+    if (!device) return
+    const previousKernelVersion = device.kernel_version ?? ''
+    const refreshed = await devicesApi.get(device.id)
+    setDevice(refreshed)
+    setForm((current) => {
+      if (!current || !editing) return toEditState(refreshed)
+      if (current.kernelVersion === previousKernelVersion) {
+        return { ...current, kernelVersion: refreshed.kernel_version ?? '' }
+      }
+      return current
+    })
+  }, [device, editing])
 
   function handleCancelEdit() {
     if (device) setForm(toEditState(device))
@@ -754,6 +772,33 @@ export default function DeviceDetail() {
                 <p className="text-text-muted text-xs">{formatRelativeTime(device.last_seen, lang)}</p>
               </div>
             </div>
+
+            {device.inferred_os_family && (
+              <div className="rounded-lg border border-border bg-surface2/40 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-text-muted">{t('os_family_estimate')}</p>
+                    <p className="mt-1 text-xs text-text-subtle">{t('os_family_estimate_hint')}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={device.inferred_os_family === 'Unknown' ? 'muted' : 'primary'}>{device.inferred_os_family}</Badge>
+                    {device.os_inference_confidence && (
+                      <span className="text-xs text-text-subtle">
+                        {t('os_inference_confidence')}: {device.os_inference_confidence}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {device.os_inference_reasons && device.os_inference_reasons.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">{t('os_inference_evidence')}</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-text-muted">
+                      {device.os_inference_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
 
             {showCmdbIntegrations && device.idoit_enabled && (
               <div className="border-t border-border pt-4">
@@ -1266,7 +1311,7 @@ export default function DeviceDetail() {
       {/* Deep Scan */}
       <Card id="device-deep-scan" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('deep_scan')}</h2>
-        <DeepScanPanel deviceId={device.id} />
+        <DeepScanPanel deviceId={device.id} onScanCompleted={handleDeepScanCompleted} />
       </Card>
 
       {/* Open Ports */}

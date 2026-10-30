@@ -316,7 +316,7 @@ class DeviceBulkUpdateResponse(BaseModel):
 
 
 class BulkPortScanRequest(BaseModel):
-    device_ids: Optional[List[int]] = Field(default=None, min_length=1, max_length=1000)
+    device_ids: Optional[List[int]] = Field(default=None, min_length=1)
 
 
 class BulkPortScanStatus(BaseModel):
@@ -554,6 +554,9 @@ class DeviceResponse(BaseModel):
     password_location: Optional[str]
     os_info: Optional[str]
     kernel_version: Optional[str] = None
+    inferred_os_family: Optional[str] = None
+    os_inference_confidence: Optional[str] = None
+    os_inference_reasons: List[str] = Field(default_factory=list)
     asset_tag: Optional[str]
     notes: Optional[str]
     # State
@@ -828,6 +831,7 @@ class UiSettings(BaseModel):
     show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
+    show_os_inference: bool = False
     show_build_info: bool = False
     show_debug_tools: bool = False
     debug_log_level: str = "warning"
@@ -938,6 +942,7 @@ class AllSettings(BaseModel):
     show_ssdp_discovery: bool = False
     show_tls_checks: bool = False
     show_ping_history: bool = False
+    show_os_inference: bool = False
     show_build_info: bool = False
     show_debug_tools: bool = False
     debug_log_level: str = "warning"

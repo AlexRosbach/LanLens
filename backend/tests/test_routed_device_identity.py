@@ -145,7 +145,9 @@ class RoutedDeviceIdentityTests(unittest.TestCase):
             "backend.services.scanner._send_notification_deliveries",
             new=AsyncMock(),
         ):
-            self.assertIsNotNone(asyncio.run(run_scan("test")))
+            completed_run = asyncio.run(run_scan("test"))
+            self.assertIsNotNone(completed_run)
+            self.assertEqual(completed_run.status, "done")
 
         db = self.Session()
         try:

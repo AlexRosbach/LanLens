@@ -29,6 +29,7 @@ LanLens gives you a quick, local view of what is on your network:
 - Network-wide or selected-device extended port scans with progress, cancellation and automatic Connect-column refresh
 - A single **Scan Now** action that discovers hosts and then populates their detected Connect services automatically
 - Correctable manufacturer names and manual connection links that remain separate from automatic discovery results
+- An optional, clearly labelled Linux/Windows/Unknown estimate before Deep Scan, based only on existing discovery clues with confidence and evidence shown
 - Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
 - Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
@@ -44,6 +45,8 @@ Optional expert views add SNMP switch-port context with counter-rate trends and 
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
+
+The optional OS-family estimate is heuristic metadata, not authoritative fingerprinting. It does not use credentials and never overwrites manually documented or Deep-Scan-derived OS information.
 
 ---
 

@@ -109,6 +109,9 @@ export interface Device {
   password_location: string | null
   os_info: string | null
   kernel_version: string | null
+  inferred_os_family?: 'Linux' | 'Windows' | 'Unknown' | null
+  os_inference_confidence?: 'low' | 'medium' | 'high' | null
+  os_inference_reasons?: string[]
   asset_tag: string | null
   notes: string | null
   // CMDB
@@ -200,6 +203,9 @@ export interface DeviceUpdate {
   maintenance_note?: string | null
 }
 
+const BULK_UPDATE_BATCH_SIZE = 1000
+const BULK_DELETE_BATCH_SIZE = 1000
+
 export const devicesApi = {
   list: (params?: {
     online_only?: boolean
@@ -231,11 +237,23 @@ export const devicesApi = {
 
   delete: (id: number) => apiClient.delete(`/devices/${id}`),
 
-  bulkDelete: (deviceIds: number[]) =>
-    apiClient.post('/devices/bulk-delete', { device_ids: deviceIds }).then((r) => r.data),
+  bulkDelete: async (deviceIds: number[], onBatchDeleted?: (deviceIds: number[]) => void) => {
+    for (let offset = 0; offset < deviceIds.length; offset += BULK_DELETE_BATCH_SIZE) {
+      const batch = deviceIds.slice(offset, offset + BULK_DELETE_BATCH_SIZE)
+      await apiClient.post('/devices/bulk-delete', { device_ids: batch })
+      onBatchDeleted?.(batch)
+    }
+  },
 
-  bulkUpdate: (deviceIds: number[], data: Pick<DeviceUpdate, 'device_class' | 'responsible' | 'location' | 'description'>) =>
-    apiClient.post<{ updated: number; message: string }>('/devices/bulk-update', { device_ids: deviceIds, ...data }).then((r) => r.data),
+  bulkUpdate: async (deviceIds: number[], data: Pick<DeviceUpdate, 'device_class' | 'responsible' | 'location' | 'description'>) => {
+    let updated = 0
+    for (let offset = 0; offset < deviceIds.length; offset += BULK_UPDATE_BATCH_SIZE) {
+      const batch = deviceIds.slice(offset, offset + BULK_UPDATE_BATCH_SIZE)
+      const response = await apiClient.post<{ updated: number; message: string }>('/devices/bulk-update', { device_ids: batch, ...data })
+      updated += response.data.updated
+    }
+    return { updated, message: `Updated ${updated} devices` }
+  },
 
   startBulkPortScan: (deviceIds?: number[]) =>
     apiClient.post<BulkPortScanStatus>('/devices/bulk-port-scan', deviceIds?.length ? { device_ids: deviceIds } : {}).then((r) => r.data),

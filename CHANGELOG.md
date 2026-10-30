@@ -24,6 +24,14 @@ All notable changes to this project should be documented in this file.
 - Added a dedicated, manually editable Linux kernel version field. Successful
   SSH Deep Scans populate it from `uname -r`, and the value is exposed through
   the device API, inventory reports and generic CMDB export.
+- Added an optional pre-Deep-Scan OS-family estimate. It conservatively labels
+  devices as Linux, Windows or Unknown from existing class, hostname, vendor
+  and open-port evidence, shows its confidence and reasons, and never
+  overwrites documented or Deep-Scan-derived operating-system data.
+- Hardened bulk editing and extended scans for inventories above 1,000 devices,
+  concurrent discovery, cancellation races and non-blocking result storage.
+- Kept extended-scan progress visible when a job starts after the dashboard was
+  opened, and protected newly discovered kernel values from stale edit forms.
 - Added database migrations, API coverage and end-to-end UI tests for the new
   1.6.1 workflows. No new runtime dependency or license obligation was added.
 

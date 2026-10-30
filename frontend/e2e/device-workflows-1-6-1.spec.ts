@@ -117,6 +117,64 @@ test('dashboard bulk edits devices, starts a selected extended scan, and shows m
   await expect(page.getByText('Extended scan: 0 / 2 devices')).toBeVisible()
 })
 
+test('dashboard batches bulk edits for more than one thousand selected devices', async ({ page }) => {
+  const batchSizes: number[] = []
+
+  await page.route('**/api/devices/bulk-update', async (route) => {
+    const payload = route.request().postDataJSON() as { device_ids: number[] }
+    batchSizes.push(payload.device_ids.length)
+    await route.fulfill({ json: { updated: payload.device_ids.length, message: 'Updated devices' } })
+  })
+
+  await page.goto('/login')
+  const updated = await page.evaluate(async () => {
+    const { devicesApi } = await import('/src/api/devices.ts')
+    const result = await devicesApi.bulkUpdate(
+      Array.from({ length: 1001 }, (_, index) => index + 1),
+      { responsible: 'Network Team' },
+    )
+    return result.updated
+  })
+
+  await expect.poll(() => batchSizes).toEqual([1000, 1])
+  expect(updated).toBe(1001)
+})
+
+test('dashboard discovers a port scan that starts after the initial idle status', async ({ page }) => {
+  let statusRequests = 0
+  let deviceRequests = 0
+
+  await mockShell(page)
+  await page.route('**/api/segments', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/bulk-port-scan/status', (route) => {
+    statusRequests += 1
+    const status = statusRequests === 1 ? 'idle' : statusRequests === 2 ? 'running' : 'completed'
+    return route.fulfill({ json: {
+      job_id: status === 'idle' ? null : 'automatic-job',
+      status,
+      total: status === 'idle' ? 0 : 1,
+      completed: status === 'completed' ? 1 : 0,
+      succeeded: status === 'completed' ? 1 : 0,
+      failed: 0,
+      skipped: 0,
+      cancel_requested: false,
+      started_at: status === 'idle' ? null : now,
+      finished_at: status === 'completed' ? now : null,
+    } })
+  })
+  await page.route('**/api/devices**', (route) => {
+    if (new URL(route.request().url()).pathname !== '/api/devices') return route.fallback()
+    deviceRequests += 1
+    return route.fulfill({ json: { items: [baseDevice], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
+  })
+
+  await page.goto('/')
+
+  await expect(page.getByText('Extended scan completed: 1 / 1 devices scanned')).toBeVisible({ timeout: 8000 })
+  expect(statusRequests).toBeGreaterThanOrEqual(3)
+  expect(deviceRequests).toBeGreaterThanOrEqual(2)
+})
+
 test('device detail adds a manual connection link', async ({ page }) => {
   let createPayload: Record<string, unknown> | null = null
   const device = { ...baseDevice, manual_connect_entries: [] }
@@ -181,7 +239,7 @@ test('Scan Now waits for discovery and automatic port scanning before refreshing
   })
 
   await page.goto('/')
-  await page.getByRole('button', { name: 'Scan Now' }).click()
+  await page.getByRole('button', { name: 'Scan Now' }).evaluate((button: HTMLButtonElement) => button.click())
 
   await expect.poll(() => scanStarted).toBe(true)
   await expect(page.getByText('Network discovery started; port scanning will follow automatically')).toBeVisible()

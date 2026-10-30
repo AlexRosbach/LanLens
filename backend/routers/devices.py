@@ -44,7 +44,8 @@ from ..services.idoit import build_object_url, get_config as get_idoit_config, g
 from ..services.mac_vendor import lookup_vendor, normalize_mac
 from ..services.port_scanner import normalize_port_spec, scan_ports_async, scan_single_port_async
 from ..services.scanner import _arp_scan, _get_hostname, _ping_host, add_network_change_notification, record_device_ip_history, record_ping_sample
-from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled
+from ..services.settings_helpers import is_advanced_feature_enabled, is_advanced_view_enabled, is_os_inference_enabled
+from ..services.os_inference import infer_os_family
 from ..services.passive_discovery import deduplicate_observations, linked_devices_for_observations, observation_to_response
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
@@ -322,6 +323,7 @@ def _device_to_response(
     idoit_portal_url: Optional[str] = None,
     idoit_enabled: bool = False,
     snmp_identities: Optional[dict] = None,
+    os_inference_enabled: Optional[bool] = None,
 ) -> DeviceResponse:
     from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
@@ -352,6 +354,14 @@ def _device_to_response(
     else:
         snmp_identity = identity_for_device(db, device) if db is not None and is_advanced_view_enabled(db) else None
 
+    if os_inference_enabled is None:
+        os_inference_enabled = db is not None and is_os_inference_enabled(db)
+    os_inference = None
+    if os_inference_enabled:
+        latest_scan = _latest_scan_response(device)
+        open_ports = [port.port for port in latest_scan.open_ports] if latest_scan else []
+        os_inference = infer_os_family(device, open_ports)
+
     return DeviceResponse(
         id=device.id,
         mac_address=device.mac_address,
@@ -376,6 +386,9 @@ def _device_to_response(
         password_location=device.password_location,
         os_info=device.os_info,
         kernel_version=device.kernel_version,
+        inferred_os_family=os_inference.family if os_inference else None,
+        os_inference_confidence=os_inference.confidence if os_inference else None,
+        os_inference_reasons=os_inference.reasons if os_inference else [],
         asset_tag=device.asset_tag,
         notes=device.notes,
         is_registered=device.is_registered,
@@ -493,6 +506,7 @@ def list_devices(
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
     snmp_identities = bulk_identities_for_devices(db, all_devices) if is_advanced_view_enabled(db) else {}
+    os_inference_enabled = is_os_inference_enabled(db)
 
     # Batch-fetch hardware findings for device list display (cpu, memory, model)
     hardware_summaries: dict = {}
@@ -587,6 +601,7 @@ def list_devices(
                 idoit_portal_url=idoit_config.portal_url,
                 idoit_enabled=idoit_config.enabled,
                 snmp_identities=snmp_identities,
+                os_inference_enabled=os_inference_enabled,
             )
             for d in all_devices
         ],
@@ -628,6 +643,7 @@ def get_new_devices(
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
     snmp_identities = bulk_identities_for_devices(db, devices) if is_advanced_view_enabled(db) else {}
+    os_inference_enabled = is_os_inference_enabled(db)
     return DeviceListResponse(
         items=[
             _device_to_response(
@@ -638,6 +654,7 @@ def get_new_devices(
                 idoit_portal_url=idoit_config.portal_url,
                 idoit_enabled=idoit_config.enabled,
                 snmp_identities=snmp_identities,
+                os_inference_enabled=os_inference_enabled,
             )
             for d in devices
         ],
@@ -673,11 +690,15 @@ def bulk_update_devices(
     if not update_fields:
         raise HTTPException(status_code=400, detail="At least one field must be selected for bulk update")
 
+    if "device_class" in update_fields and (
+        not isinstance(update_fields["device_class"], str)
+        or not update_fields["device_class"].strip()
+    ):
+        raise HTTPException(status_code=400, detail="Device class must not be empty")
+
     for field, value in list(update_fields.items()):
         if isinstance(value, str):
             value = value.strip()
-            if field == "device_class" and not value:
-                raise HTTPException(status_code=400, detail="Device class must not be empty")
             update_fields[field] = value or None
 
     device_ids = sorted(set(data.device_ids))
@@ -741,7 +762,7 @@ async def _run_bulk_port_scan(targets: list[tuple[int, str]], port_spec: str) ->
                 if result is None:
                     job.failed += 1
                 else:
-                    _store_port_scan_result(device_id, result)
+                    await asyncio.to_thread(_store_port_scan_result, device_id, result)
                     job.succeeded += 1
             except asyncio.CancelledError:
                 raise
@@ -784,8 +805,15 @@ def _launch_bulk_port_scan(
     if online_only:
         query = query.filter(Device.is_online == True, Device.ignored == False)
     if device_ids is not None:
-        query = query.filter(Device.id.in_(sorted(set(device_ids))))
-    candidates = query.order_by(Device.id.asc()).all()
+        selected_ids = sorted(set(device_ids))
+        candidates = []
+        for offset in range(0, len(selected_ids), 900):
+            candidates.extend(
+                query.filter(Device.id.in_(selected_ids[offset:offset + 900])).all()
+            )
+        candidates.sort(key=lambda device: device.id)
+    else:
+        candidates = query.order_by(Device.id.asc()).all()
     if not candidates:
         raise HTTPException(status_code=400, detail="No matching active devices were found")
 
@@ -837,8 +865,10 @@ async def start_bulk_port_scan(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    if is_bulk_port_scan_running():
-        raise HTTPException(status_code=409, detail="A network-wide port scan is already running")
+    from .scan import _manual_scan_is_running
+
+    if _manual_scan_is_running():
+        raise HTTPException(status_code=409, detail="A discovery or network-wide port scan is already running")
     return _launch_bulk_port_scan(db, data.device_ids)
 
 
@@ -850,7 +880,7 @@ def get_bulk_port_scan_status(
 
 
 @router.post("/bulk-port-scan/cancel", response_model=BulkPortScanStatus)
-def cancel_bulk_port_scan(
+async def cancel_bulk_port_scan(
     _: User = Depends(get_current_user),
 ):
     if not is_bulk_port_scan_running():
