@@ -1022,7 +1022,10 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - vendor, model and serial number -> `C__CATG__MODEL`
 - inventory number / CMDB ID -> `C__CATG__ACCOUNTING.inventory_no`
 - purpose, description and notes -> `C__CATG__GLOBAL`
-- operating system text -> `C__CATG__OPERATING_SYSTEM.description`
+- operating system -> exact `C__OBJTYPE__OPERATING_SYSTEM` object lookup and
+  `C__CATG__OPERATING_SYSTEM.application` assignment; the detected version is
+  written to `assigned_version` and kernel details remain supplemental
+  description text
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
 - open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries using i-doit's listener fields (`protocol`, `protocol_layer_5`, `port_from`, `port_to`, and `description`)
 - TLS certificate records -> structured `C__CATG__CERTIFICATE` entries using `common_name`, `expire_date`, `type`, and a consolidated `description`
@@ -1040,6 +1043,13 @@ configured `TZ` offset. Persistent REST access reads `LANLENS_API_TOKEN` and
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
 
 Some i-doit fields such as responsible person, location and selected certificate/application attributes are object references or installation-specific dropdown values in standard i-doit data models, not plain text. LanLens sends the known plain fields and treats uncertain category fields as best-effort optional writes so an unsupported optional field does not block the whole device sync. Operators can still add explicit custom mapping entries once the target i-doit field is known.
+
+Operating systems are handled as real i-doit software objects rather than as
+free text. In `match_only` mode the matching Operating System object must already
+exist in i-doit. With `create_missing`, LanLens may create the exact detected OS
+title as `C__OBJTYPE__OPERATING_SYSTEM` and then link it to the device. Repeated
+syncs reuse the matching OS object and update the same device assignment instead
+of appending duplicate description entries.
 
 The built-in SQLite database uses WAL mode and a busy timeout. i-doit sync
 releases its local write transaction before waiting for remote JSON-RPC calls,

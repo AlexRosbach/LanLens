@@ -37,6 +37,14 @@ All notable changes to this project should be documented in this file.
   concurrent discovery, cancellation races and non-blocking result storage.
 - Kept extended-scan progress visible when a job starts after the dashboard was
   opened, and protected newly discovered kernel values from stale edit forms.
+- Fixed i-doit operating-system synchronization so detected OS data resolves or
+  creates a dedicated `C__OBJTYPE__OPERATING_SYSTEM` object and links it through
+  `C__CATG__OPERATING_SYSTEM.application`, instead of writing the OS name into a
+  description field. Version and kernel details remain structured assignment
+  metadata, and repeated syncs reuse the existing relationship.
+- Updated the MIT-licensed `follow-redirects` and Hono HTTP runtime packages to
+  patched releases after redirect credential-handling, request-routing and
+  WebSocket-upgrade advisories.
 - Added database migrations, API coverage and end-to-end UI tests for the new
   1.6.1 workflows. The MCP companion adds only MIT- and Apache-2.0-licensed
   runtime dependencies, documented in the third-party notices.

@@ -46,7 +46,7 @@ def _safe_csv_cell(value: Any) -> Any:
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 13,
+    "version": 14,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -83,7 +83,12 @@ DEFAULT_MAPPING = {
         "purpose": "C__CATG__GLOBAL.purpose",
         "description": "C__CATG__GLOBAL.description",
         "notes": "C__CATG__GLOBAL.description",
-        "os_info": "C__CATG__OPERATING_SYSTEM.description",
+        # Operating systems are real i-doit software objects. LanLens resolves
+        # this source separately and links the matching
+        # C__OBJTYPE__OPERATING_SYSTEM object through
+        # C__CATG__OPERATING_SYSTEM.application instead of copying the OS name
+        # into a free-text description.
+        "os_info": "",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
         "serial": "C__CATG__MODEL.serial",
@@ -936,6 +941,32 @@ def _os_assigned_version(raw: Any) -> Optional[str]:
     return text.splitlines()[0][:255]
 
 
+def _operating_system_assignment(raw: Any, kernel_version: Optional[str] = None) -> Optional[dict[str, str]]:
+    """Return normalized i-doit OS-object assignment metadata.
+
+    i-doit's global Operating System category requires an object-browser link;
+    the detected operating-system name itself is not a description value.
+    Keep the complete detected label as the OS object title and split out a
+    useful version for the installation relationship when possible.
+    """
+    title = _os_assigned_version(raw)
+    if not title:
+        return None
+    title = re.sub(r"\s+", " ", title).strip()[:255]
+    version_candidates = re.findall(r"(?<![A-Za-z0-9])\d+(?:\.\d+){0,3}(?:[-_][A-Za-z0-9.]+)?", title)
+    assigned_version = max(
+        version_candidates,
+        key=lambda value: (value.count("."), len(value)),
+        default="",
+    )[:255]
+    result = {"title": title}
+    if assigned_version:
+        result["assigned_version"] = assigned_version
+    if kernel_version and kernel_version.strip():
+        result["description"] = f"Kernel: {kernel_version.strip()[:240]}"
+    return result
+
+
 def _latest_open_ports(db: Optional[Session], device: Device) -> Optional[str]:
     if db is None or not device.id:
         return None
@@ -1447,7 +1478,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         # empty so LanLens does not pollute generic i-doit descriptions.
         sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
         _append_field(fields, sync_status_field, sync_reference)
-    return {
+    payload = {
         "objectType": object_type_for_device(device, config),
         "title": label,
         "identity": {
@@ -1459,6 +1490,9 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         },
         "fields": fields,
     }
+    if operating_system := _operating_system_assignment(os_info, device.kernel_version):
+        payload["operatingSystem"] = operating_system
+    return payload
 
 
 def payload_hash(payload: dict[str, Any]) -> str:
@@ -1492,6 +1526,7 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__MEMORY": ("title", "manufacturer", "capacity"),
     "C__CATG__DRIVE": ("serial", "mount_point", "title"),
     "C__CATG__CERTIFICATE": ("common_name",),
+    "C__CATG__OPERATING_SYSTEM": ("application",),
 }
 COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__NET_CONNECTIONS_FOLDER": ("port_from", "port_to", "protocol"),
@@ -1601,6 +1636,21 @@ def _plain_category_value(value: Any) -> Any:
     return value
 
 
+def _object_reference_id(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        for key in ("id", "objID", "object_id", "object", "isys_obj__id"):
+            candidate = value.get(key)
+            if candidate not in (None, ""):
+                try:
+                    return str(_object_id_as_int(candidate))
+                except IdoitConnectionError:
+                    continue
+    try:
+        return str(_object_id_as_int(value))
+    except IdoitConnectionError:
+        return None
+
+
 def _category_entries(result: Any) -> list[dict[str, Any]]:
     if isinstance(result, list):
         return [entry for entry in result if isinstance(entry, dict)]
@@ -1655,6 +1705,14 @@ def _object_entry_sysid(entry: dict[str, Any]) -> str:
         value = _plain_category_value(entry.get(key))
         if value not in (None, ""):
             return str(value).strip()
+    return ""
+
+
+def _object_entry_type_constant(entry: dict[str, Any]) -> str:
+    for key in ("type_const", "object_type_const", "objecttype_const", "type", "object_type"):
+        value = _plain_category_value(entry.get(key))
+        if isinstance(value, str) and value.startswith("C__OBJTYPE__"):
+            return value.strip()
     return ""
 
 
@@ -1885,6 +1943,41 @@ class IdoitClient:
                     if object_id:
                         return object_id
         return None
+
+    async def resolve_operating_system(self, title: str, create_missing: bool = False) -> dict[str, Any]:
+        """Resolve an exact i-doit Operating System object without using app objects.
+
+        Operating-system assignments are object-browser relationships. Restrict
+        lookup and creation to C__OBJTYPE__OPERATING_SYSTEM so an Application
+        object with the same display name can never be linked accidentally.
+        """
+        wanted = re.sub(r"\s+", " ", (title or "").strip())[:255]
+        if not wanted:
+            return {"object_id": None, "action": "skipped_empty"}
+        object_type = "C__OBJTYPE__OPERATING_SYSTEM"
+        queries = (
+            {"filter": {"title": wanted, "type": object_type}},
+            {"filter": {"type": object_type}, "q": wanted},
+            {"type": object_type, "q": wanted},
+        )
+        for params in queries:
+            try:
+                result = await self.read_objects(params)
+            except IdoitConnectionError:
+                continue
+            for entry in _category_entries(result):
+                if _normalized_match_text(_object_entry_title(entry)) != _normalized_match_text(wanted):
+                    continue
+                candidate_type = _object_entry_type_constant(entry)
+                if candidate_type and candidate_type != object_type:
+                    continue
+                object_id = _object_entry_id(entry)
+                if object_id:
+                    return {"object_id": object_id, "action": "matched", "title": wanted}
+        if not create_missing:
+            return {"object_id": None, "action": "match_required", "title": wanted}
+        object_id = await self.create_object(wanted, object_type)
+        return {"object_id": object_id, "action": "created", "title": wanted}
 
     async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
         """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
@@ -2331,6 +2424,12 @@ class IdoitClient:
             if expected in (None, ""):
                 continue
             for entry in entries:
+                if field == "application":
+                    expected_reference = _object_reference_id(data.get(field))
+                    current_reference = _object_reference_id(entry.get(field))
+                    if expected_reference and current_reference == expected_reference:
+                        return _category_entry_id(entry)
+                    continue
                 current = _plain_category_value(entry.get(field))
                 if current not in (None, "") and str(current).strip().lower() == str(expected).strip().lower():
                     return _category_entry_id(entry)
@@ -2537,6 +2636,26 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         categories, direct_fields = _category_payloads(payload.get("fields") if isinstance(payload.get("fields"), dict) else {})
         if direct_fields:
             details["direct_fields_skipped"] = direct_fields
+        sync_warnings: list[str] = []
+        operating_system = payload.get("operatingSystem") if isinstance(payload.get("operatingSystem"), dict) else None
+        if operating_system and operating_system.get("title"):
+            os_resolution = await client.resolve_operating_system(
+                str(operating_system["title"]),
+                create_missing=config.create_policy == "create_missing",
+            )
+            details["operating_system"] = os_resolution
+            os_object_id = os_resolution.get("object_id")
+            if os_object_id:
+                os_entry: dict[str, Any] = {"application": _object_id_as_int(os_object_id)}
+                for field in ("assigned_version", "description"):
+                    if operating_system.get(field) not in (None, ""):
+                        os_entry[field] = operating_system[field]
+                categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
+            else:
+                sync_warnings.append(
+                    "C__CATG__OPERATING_SYSTEM: no exact Operating System object match; "
+                    "enable create-missing or create the OS object in i-doit"
+                )
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
         if global_category.get("description") is None:
             cleaned_description = await client.cleanup_lanlens_global_description(object_id)
@@ -2545,7 +2664,6 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         if global_category.get("cmdb_status") == "C__CMDB_STATUS__OUT_OF_OPERATION":
             global_category["cmdb_status"] = await client.out_of_operation_status_id()
             details["offline_retirement_applied"] = True
-        sync_warnings: list[str] = []
         for category, data in categories.items():
             entries = data if isinstance(data, list) else [data]
             category_results: list[dict[str, Any]] = []

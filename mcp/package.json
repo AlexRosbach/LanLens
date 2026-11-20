@@ -21,7 +21,7 @@
     "mcpb:validate": "npm run bundle && npm run mcpb:stage && mcpb validate build/mcpb/manifest.json"
   },
   "dependencies": {
-    "@hono/node-server": "2.1.5",
+    "@hono/node-server": "2.1.11",
     "@modelcontextprotocol/node": "2.1.2",
     "@modelcontextprotocol/server": "2.4.0",
     "zod": "4.6.7"

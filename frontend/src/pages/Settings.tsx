@@ -92,7 +92,7 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'cmdb_id', labelKey: 'idoit_field_cmdb_id', placeholder: 'C__CATG__ACCOUNTING.inventory_no' },
   { key: 'purpose', labelKey: 'idoit_field_purpose', placeholder: '' },
   { key: 'notes', labelKey: 'idoit_field_notes', placeholder: '' },
-  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: 'C__CATG__OPERATING_SYSTEM.assigned_version' },
+  { key: 'os_info', labelKey: 'idoit_field_os_info', placeholder: '', automaticLabelKey: 'idoit_os_object_assignment' },
   { key: 'cpu', labelKey: 'idoit_field_cpu', placeholder: 'C__CATG__CPU.title' },
   { key: 'model', labelKey: 'idoit_field_model', placeholder: 'C__CATG__MODEL.title' },
   { key: 'serial', labelKey: 'idoit_field_serial', placeholder: 'C__CATG__MODEL.serial' },
@@ -3629,11 +3629,17 @@ export default function Settings() {
                               <tr key={field.key}>
                                 <td className="px-3 py-2 text-text-muted whitespace-nowrap">{t(field.labelKey)}</td>
                                 <td className="px-3 py-2 min-w-80">
-                                  <Input
-                                    value={idoitMappingState.mapping?.fields?.[field.key] || ''}
-                                    onChange={(e) => updateIdoitFieldMapping(field.key, e.target.value)}
-                                    placeholder={field.placeholder}
-                                  />
+                                  {'automaticLabelKey' in field ? (
+                                    <div className="rounded-lg border border-border bg-surface2 px-3 py-2 text-sm text-text-subtle">
+                                      {t(field.automaticLabelKey)}
+                                    </div>
+                                  ) : (
+                                    <Input
+                                      value={idoitMappingState.mapping?.fields?.[field.key] || ''}
+                                      onChange={(e) => updateIdoitFieldMapping(field.key, e.target.value)}
+                                      placeholder={field.placeholder}
+                                    />
+                                  )}
                                 </td>
                               </tr>
                             ))}
