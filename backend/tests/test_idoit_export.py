@@ -510,6 +510,18 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             for item in calls if item[0] == "search"
         ))
 
+    async def test_operating_system_resolution_does_not_create_after_failed_lookups(self):
+        class FailedLookupClient(IdoitClient):
+            async def read_objects(self, params):
+                raise IdoitConnectionError("temporary i-doit outage", stage="read_objects")
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("must not create an OS when every existence check failed")
+
+        client = FailedLookupClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.resolve_operating_system("Ubuntu 24.04 LTS", create_missing=True)
+
     async def test_match_only_uses_manual_idoit_sysid_before_other_identity(self):
         db = self.Session()
 

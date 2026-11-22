@@ -6,6 +6,13 @@ All notable changes to this project should be documented in this file.
 
 ### 1.6.1
 
+- Hardened the MCP companion against malformed HTTP host headers and prevented
+  it from exposing service URL credentials, credential-bearing URL components
+  or private device-note audit values. Extended-scan results are now discarded
+  if discovery changed a device's address while the scan was running.
+- Applied manufacturer overrides consistently to mapped generic-CMDB vendor
+  fields, prevented i-doit OS-object creation after failed existence checks,
+  and refresh the dashboard when it first observes an already-completed scan.
 - Changed the manual **Scan Now** workflow to run network discovery first and
   then automatically scan all online, non-ignored devices with the configured
   port range. The scan remains active until both phases finish, so the

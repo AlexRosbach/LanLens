@@ -72,11 +72,14 @@ export default function Dashboard() {
         ) {
           setBulkScanStatus(status)
         }
-        if (
-          previous &&
-          ['running', 'cancelling'].includes(previous.status) &&
-          ['completed', 'cancelled'].includes(status.status)
-        ) {
+        const terminal = ['completed', 'cancelled'].includes(status.status)
+        const completedActiveJob = previous
+          && ['running', 'cancelling'].includes(previous.status)
+          && terminal
+        const newlyObservedTerminalJob = previous
+          && previous.job_id !== status.job_id
+          && terminal
+        if (completedActiveJob || newlyObservedTerminalJob) {
           await fetchDevices({ archived_only: filter === 'archived' })
           toast.success(t(status.status === 'completed' ? 'bulk_scan_completed' : 'bulk_scan_cancelled', {
             succeeded: status.succeeded,

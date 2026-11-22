@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {sanitizeDevice, sanitizeTopology} from '../src/sanitize.js';
+import {sanitizeDevice, sanitizeNetworkChange, sanitizeService, sanitizeTopology} from '../src/sanitize.js';
 import {deviceFixture} from './helpers.js';
 
 test('device output omits secret and operator-private fields', () => {
@@ -22,4 +22,31 @@ test('topology output omits raw discovery metadata', () => {
   });
   assert.equal('metadata' in (sanitized.nodes as Record<string, unknown>[])[0]!, false);
   assert.equal('metadata' in (sanitized.edges as Record<string, unknown>[])[0]!, false);
+});
+
+test('service output removes URL credentials and credential-bearing components', () => {
+  const sanitized = sanitizeService({
+    id: 7,
+    name: 'Admin portal',
+    url: 'https://operator:secret@example.test/admin?access_token=private#invite=private',
+  });
+
+  assert.equal(sanitized.url, 'https://example.test/admin');
+  assert.equal(JSON.stringify(sanitized).includes('secret'), false);
+  assert.equal(JSON.stringify(sanitized).includes('private'), false);
+});
+
+test('network change output redacts private note values using the API field_name contract', () => {
+  const sanitized = sanitizeNetworkChange({
+    id: 9,
+    device_id: 1,
+    event_type: 'device_updated',
+    field_name: 'notes',
+    old_value: 'private old note',
+    new_value: 'private new note',
+  });
+
+  assert.equal(sanitized.field, 'notes');
+  assert.equal('old_value' in sanitized, false);
+  assert.equal('new_value' in sanitized, false);
 });

@@ -1960,10 +1960,14 @@ class IdoitClient:
             {"filter": {"type": object_type}, "q": wanted},
             {"type": object_type, "q": wanted},
         )
+        successful_lookup = False
+        last_error: IdoitConnectionError | None = None
         for params in queries:
             try:
                 result = await self.read_objects(params)
-            except IdoitConnectionError:
+                successful_lookup = True
+            except IdoitConnectionError as exc:
+                last_error = exc
                 continue
             for entry in _category_entries(result):
                 if _normalized_match_text(_object_entry_title(entry)) != _normalized_match_text(wanted):
@@ -1974,6 +1978,8 @@ class IdoitClient:
                 object_id = _object_entry_id(entry)
                 if object_id:
                     return {"object_id": object_id, "action": "matched", "title": wanted}
+        if not successful_lookup and last_error is not None:
+            raise last_error
         if not create_missing:
             return {"object_id": None, "action": "match_required", "title": wanted}
         object_id = await self.create_object(wanted, object_type)

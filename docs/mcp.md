@@ -1,5 +1,12 @@
 # LanLens MCP companion
 
+## Privacy boundary
+
+The companion removes credentials from service URLs (including URL userinfo,
+queries and fragments) and never returns private device notes through audit
+history. Treat MCP access as inventory access nonetheless: use the authenticated
+HTTP transport and limit its allowed hosts to the intended clients.
+
 LanLens ships an official Model Context Protocol (MCP) companion that lets Claude,
 Codex, ChatGPT, and other MCP clients query the self-hosted LanLens REST API. The
 companion is read-only by default and never returns credentials, secrets, password

@@ -246,7 +246,8 @@ def build_payload(device: Device, config: CmdbConfig) -> dict[str, Any]:
     for source, target in fields.items():
         if source not in allowed_device_fields() or not isinstance(target, str) or not target.strip():
             continue
-        payload[target.strip()] = _json_safe_value(getattr(device, source, None))
+        value = device.effective_vendor if source == "vendor" else getattr(device, source, None)
+        payload[target.strip()] = _json_safe_value(value)
     identity_field = config.identity_field if config.identity_field in allowed_device_fields() else "mac_address"
     return {
         "source": "LanLens",

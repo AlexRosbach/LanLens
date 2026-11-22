@@ -40,7 +40,22 @@ export function sanitizeDevice(value: unknown): JsonObject {
 }
 
 export function sanitizeService(value: unknown): JsonObject {
-  return pick(object(value), SERVICE_FIELDS);
+  const source = object(value);
+  const result = pick(source, SERVICE_FIELDS.filter((field) => field !== 'url'));
+  const rawUrl = source.url;
+  if (typeof rawUrl === 'string') {
+    try {
+      const url = new URL(rawUrl);
+      url.username = '';
+      url.password = '';
+      url.search = '';
+      url.hash = '';
+      result.url = url.toString();
+    } catch {
+      // An unparseable URL is not useful to the MCP client and could contain a secret.
+    }
+  }
+  return result;
 }
 
 export function sanitizePortScan(value: unknown): JsonObject {
@@ -89,11 +104,20 @@ export function sanitizeNotification(value: unknown): JsonObject {
 }
 
 export function sanitizeNetworkChange(value: unknown): JsonObject {
-  return pick(object(value), [
+  const source = object(value);
+  const field = String(source.field_name ?? source.field ?? '');
+  const privateFields = new Set(['notes', 'maintenance_note']);
+  const result = pick(source, [
     'id', 'event_id', 'device_id', 'device_label', 'device', 'ip_address',
-    'mac_address', 'device_class', 'event_type', 'field', 'old_value', 'new_value',
+    'mac_address', 'device_class', 'event_type',
     'source', 'message', 'created_at', 'timestamp',
   ]);
+  if (field) result.field = field;
+  if (!privateFields.has(field)) {
+    if (source.old_value !== undefined) result.old_value = source.old_value;
+    if (source.new_value !== undefined) result.new_value = source.new_value;
+  }
+  return result;
 }
 
 export function sanitizeSegment(value: unknown): JsonObject {

@@ -724,12 +724,12 @@ def _valid_bulk_scan_ip(value: Optional[str]) -> bool:
         return False
 
 
-def _store_port_scan_result(device_id: int, result: dict) -> None:
+def _store_port_scan_result(device_id: int, scanned_ip: str, result: dict) -> bool:
     db = SessionLocal()
     try:
-        device_exists = db.query(Device.id).filter(Device.id == device_id).first()
-        if not device_exists:
-            return
+        device = db.query(Device).filter(Device.id == device_id).first()
+        if not device or device.ip_address != scanned_ip:
+            return False
         scan = PortScan(
             device_id=device_id,
             open_ports=json.dumps(result["open_ports"]),
@@ -741,6 +741,7 @@ def _store_port_scan_result(device_id: int, result: dict) -> None:
         db.add(scan)
         _auto_check_https_certificate(db, device_id, result["open_ports"])
         db.commit()
+        return True
     finally:
         db.close()
 
@@ -762,8 +763,11 @@ async def _run_bulk_port_scan(targets: list[tuple[int, str]], port_spec: str) ->
                 if result is None:
                     job.failed += 1
                 else:
-                    await asyncio.to_thread(_store_port_scan_result, device_id, result)
-                    job.succeeded += 1
+                    stored = await asyncio.to_thread(_store_port_scan_result, device_id, ip, result)
+                    if stored:
+                        job.succeeded += 1
+                    else:
+                        job.skipped += 1
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -1575,7 +1579,7 @@ async def _do_port_scan(device_id: int, ip: str, port_spec: str = "top:1000") ->
     result = await scan_ports_async(ip, port_spec=port_spec)
     if result is None:
         return
-    _store_port_scan_result(device_id, result)
+    await asyncio.to_thread(_store_port_scan_result, device_id, ip, result)
 
 
 @router.post("/{device_id}/scan-port-range", response_model=MessageResponse)

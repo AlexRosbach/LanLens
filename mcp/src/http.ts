@@ -28,7 +28,15 @@ export async function serveHttp(config: LanLensMcpConfig): Promise<void> {
   const validateOrigin = originValidation(config.allowedHosts.map((host) => host.replace(/^\[|\]$/g, '')));
 
   const httpServer = createServer((request, response) => {
-    const path = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`).pathname;
+    let path: string;
+    try {
+      path = new URL(request.url ?? '/', 'http://localhost').pathname;
+      if (request.headers.host) new URL(`http://${request.headers.host}`);
+    } catch {
+      response.writeHead(400, {'content-type': 'application/json'});
+      response.end(JSON.stringify({error: 'Malformed request target or Host header'}));
+      return;
+    }
     if (path === '/health' && request.method === 'GET') {
       response.writeHead(200, {'content-type': 'application/json'});
       response.end(JSON.stringify({

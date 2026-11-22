@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {spawn, type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:http';
+import {connect} from 'node:net';
 import test from 'node:test';
 
 import {Client, StreamableHTTPClientTransport} from '@modelcontextprotocol/client';
@@ -31,6 +32,17 @@ async function waitForHealth(url: string, child: ChildProcess): Promise<void> {
   throw new Error('MCP HTTP server did not start');
 }
 
+async function rawRequest(port: number, request: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1');
+    const chunks: Buffer[] = [];
+    socket.once('error', reject);
+    socket.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    socket.once('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    socket.once('connect', () => socket.end(request));
+  });
+}
+
 test('serves authenticated Streamable HTTP and rejects unauthenticated calls', async () => {
   const mock = await startMockLanLens();
   const port = await availablePort();
@@ -51,6 +63,10 @@ test('serves authenticated Streamable HTTP and rejects unauthenticated calls', a
   child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
 
   try {
+    await waitForHealth(`http://127.0.0.1:${port}/health`, child);
+    const malformedHost = await rawRequest(port, 'GET /mcp HTTP/1.1\r\nHost: [\r\nConnection: close\r\n\r\n');
+    assert.match(malformedHost, /^HTTP\/1\.1 400/);
+    assert.equal(child.exitCode, null);
     await waitForHealth(`http://127.0.0.1:${port}/health`, child);
     const unauthorized = await fetch(`http://127.0.0.1:${port}/mcp`, {
       method: 'POST',

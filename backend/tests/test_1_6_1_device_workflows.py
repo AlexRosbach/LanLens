@@ -18,6 +18,7 @@ from backend.models import Credential, DeepScanFinding, DeepScanRun, Device, Man
 from backend.routers import devices as devices_router
 from backend.routers import scan as scan_router
 from backend.routers import settings as settings_router
+from backend.services.cmdb import build_payload, get_config as get_cmdb_config
 from backend.services import deep_scanner
 from backend.schemas import (
     BulkPortScanRequest,
@@ -96,6 +97,22 @@ class DeviceWorkflowTests(unittest.TestCase):
         self.assertEqual(device.effective_vendor, "Corrected Vendor")
         device.vendor_override = None
         self.assertEqual(device.effective_vendor, "Detected Vendor")
+
+    def test_generic_cmdb_mapping_uses_vendor_override(self):
+        db = self.Session()
+        device = Device(
+            mac_address="02:00:00:00:00:10",
+            vendor="Detected Vendor",
+            vendor_override="Corrected Vendor",
+        )
+        db.add(device)
+        db.commit()
+
+        payload = build_payload(device, get_cmdb_config(db))
+
+        self.assertEqual(payload["device"]["vendor"], "Corrected Vendor")
+        self.assertEqual(payload["lanlens"]["vendor"], "Corrected Vendor")
+        db.close()
 
     def test_device_response_exposes_effective_vendor_and_manual_links(self):
         db = self.Session()
@@ -264,7 +281,7 @@ class BulkPortScanRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status.succeeded, 1)
         self.assertEqual(status.failed, 1)
         self.assertEqual(status.skipped, 1)
-        store.assert_called_once_with(1, scan_result)
+        store.assert_called_once_with(1, "192.0.2.1", scan_result)
 
     async def test_runner_offloads_result_storage_from_event_loop(self):
         devices_router._bulk_port_scan_job = devices_router.BulkPortScanJob(
@@ -286,7 +303,24 @@ class BulkPortScanRunnerTests(unittest.IsolatedAsyncioTestCase):
         ):
             await devices_router._run_bulk_port_scan([(1, "192.0.2.1")], "top:1000")
 
-        to_thread.assert_awaited_once_with(devices_router._store_port_scan_result, 1, scan_result)
+        to_thread.assert_awaited_once_with(devices_router._store_port_scan_result, 1, "192.0.2.1", scan_result)
+
+    async def test_runner_skips_result_when_device_address_changed_during_scan(self):
+        devices_router._bulk_port_scan_job = devices_router.BulkPortScanJob(
+            job_id="test-job",
+            status="running",
+            total=1,
+        )
+        scan_result = {"open_ports": [], "ssh_available": False, "rdp_available": False, "http_available": False, "https_available": False}
+        with (
+            patch.object(devices_router, "scan_ports_async", new=AsyncMock(return_value=scan_result)),
+            patch.object(asyncio, "to_thread", new=AsyncMock(return_value=False)),
+        ):
+            await devices_router._run_bulk_port_scan([(1, "192.0.2.1")], "top:1000")
+
+        status = devices_router._bulk_port_scan_status()
+        self.assertEqual(status.succeeded, 0)
+        self.assertEqual(status.skipped, 1)
 
     async def test_automatic_scan_targets_only_online_non_ignored_devices(self):
         engine = create_engine("sqlite:///:memory:")
