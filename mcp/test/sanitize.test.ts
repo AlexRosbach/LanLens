@@ -9,10 +9,17 @@ test('device output omits secret and operator-private fields', () => {
   assert.equal(sanitized.id, 1);
   assert.equal('password_location' in sanitized, false);
   assert.equal('notes' in sanitized, false);
+  assert.equal('maintenance_note' in sanitized, false);
   assert.equal('manual_connect_entries' in sanitized, false);
   assert.deepEqual((sanitized.latest_scan as {open_ports: unknown[]}).open_ports, [
     {port: 22, protocol: 'tcp', service: 'ssh'},
   ]);
+});
+
+test('device output omits private maintenance notes', () => {
+  const sanitized = sanitizeDevice({...deviceFixture, maintenance_note: 'replace switch PSU next Tuesday'});
+  assert.equal('maintenance_note' in sanitized, false);
+  assert.equal(JSON.stringify(sanitized).includes('replace switch PSU'), false);
 });
 
 test('topology output omits raw discovery metadata', () => {

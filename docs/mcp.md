@@ -48,7 +48,9 @@ docker run --rm \
 ```
 
 Or use the optional Compose profile after setting `LANLENS_API_TOKEN` and
-`LANLENS_MCP_HTTP_TOKEN` in a local `.env` file:
+`LANLENS_MCP_HTTP_TOKEN` in a local `.env` file. If LanLens uses a custom HTTP
+port, set the same `LANLENS_PORT` value there; Compose applies it to both the
+LanLens service and the MCP companion upstream:
 
 ```bash
 docker compose --profile mcp up -d

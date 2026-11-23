@@ -22,7 +22,7 @@ const DEVICE_FIELDS = [
   'os_inference_confidence', 'os_inference_reasons', 'asset_tag', 'is_registered',
   'is_new', 'is_online', 'first_seen', 'last_seen', 'hardware_summary', 'host_label',
   'cmdb_id', 'ignored', 'notifications_muted', 'maintenance_until',
-  'maintenance_note', 'is_archived', 'archived_at', 'snmp_switch',
+  'is_archived', 'archived_at', 'snmp_switch',
   'snmp_interface', 'snmp_interface_alias', 'snmp_vlan', 'snmp_last_seen_at',
 ] as const;
 

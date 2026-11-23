@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.models import DeepScanFinding, DeepScanRun, Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, Setting, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
 from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
@@ -20,6 +21,30 @@ class IdoitExportCsvTest(unittest.TestCase):
 
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
+
+    def test_v13_default_named_mapping_preserves_operator_customizations(self):
+        db = self.Session()
+        try:
+            mapping = {
+                "name": "Default i-doit mapping",
+                "version": 13,
+                "objectType": "C__OBJTYPE__SERVER",
+                "fields": {
+                    "hostname": "C__CATG__GLOBAL.custom_hostname",
+                    "os_info": "C__CATG__OPERATING_SYSTEM.description",
+                },
+            }
+            db.add(Setting(key="idoit_mapping_json", value=json.dumps(mapping)))
+            db.commit()
+
+            config = get_config(db)
+
+            self.assertEqual(config.mapping["version"], 14)
+            self.assertEqual(config.mapping["objectType"], "C__OBJTYPE__SERVER")
+            self.assertEqual(config.mapping["fields"]["hostname"], "C__CATG__GLOBAL.custom_hostname")
+            self.assertEqual(config.mapping["fields"]["os_info"], "")
+        finally:
+            db.close()
 
     def test_rows_to_export_csv_skips_unchecked_rows(self):
         csv_body = rows_to_export_csv([
@@ -278,6 +303,47 @@ class IdoitExportCsvTest(unittest.TestCase):
             self.assertIn("Rack shelf 2, patch planned", fields["C__CATG__GLOBAL.description"])
             self.assertNotIn("Ubuntu 24.04 LTS", fields["C__CATG__GLOBAL.description"])
             self.assertEqual(DEFAULT_MAPPING["fields"]["notes"], "C__CATG__GLOBAL.description")
+        finally:
+            db.close()
+
+    def test_operating_system_assignment_uses_documented_os_not_kernel_fallback(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:66",
+                ip_address="192.0.2.66",
+                kernel_version="6.8.12-4-pve",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+            run = DeepScanRun(device_id=device.id, profile="os_services", status="done")
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            db.add(DeepScanFinding(
+                device_id=device.id,
+                run_id=run.id,
+                finding_type="os",
+                key="kernel",
+                value_json=json.dumps("6.8.12-4-pve"),
+            ))
+            db.commit()
+
+            self.assertNotIn("operatingSystem", device_payload(device, get_config(db), db))
+
+            db.add(DeepScanFinding(
+                device_id=device.id,
+                run_id=run.id,
+                finding_type="os",
+                key="operating_system",
+                value_json=json.dumps({"Caption": "Windows 11 Pro", "Version": "24H2"}),
+            ))
+            db.commit()
+
+            assignment = device_payload(device, get_config(db), db)["operatingSystem"]
+            self.assertEqual(assignment["title"], "Windows 11 Pro 24H2")
+            self.assertEqual(assignment["description"], "Kernel: 6.8.12-4-pve")
         finally:
             db.close()
 
@@ -1028,6 +1094,19 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             ),
             "17",
         )
+
+    async def test_operating_system_category_read_failure_prevents_duplicate_assignment(self):
+        class UnavailableOperatingSystemClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                raise IdoitConnectionError("temporary i-doit outage", stage="read_category")
+
+        client = UnavailableOperatingSystemClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.find_reusable_category_entry(
+                "42",
+                "C__CATG__OPERATING_SYSTEM",
+                {"application": 99},
+            )
 
     def test_truncated_sync_log_keeps_identity_match_debug(self):
         details = {

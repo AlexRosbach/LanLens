@@ -8,6 +8,7 @@ returned session token. Cloud-specific differences should stay in configuration
 from __future__ import annotations
 
 import base64
+import copy
 import csv
 import hashlib
 import io
@@ -223,14 +224,14 @@ def get_config(db: Session) -> IdoitConfig:
     except Exception as exc:
         mapping = {}
         mapping_error = f"Mapping JSON is invalid: {exc}"
-    if _needs_default_mapping_upgrade(mapping):
+    if upgraded_mapping := _upgrade_default_mapping(mapping):
         # Existing installations may still have an older default mapping stored
         # in the DB. That mapping used invalid/too-generic category fields like
         # C__CATG__GLOBAL.comment, C__CATG__GLOBAL.location_path and
         # C__CATG__MODEL.type, so simply changing SETTING_DEFAULTS would not
         # help those installations.
-        mapping = DEFAULT_MAPPING
-        raw_mapping = json.dumps(DEFAULT_MAPPING, indent=2)
+        mapping = upgraded_mapping
+        raw_mapping = json.dumps(upgraded_mapping, indent=2)
     try:
         timeout = max(3, min(120, int(_get_setting(db, "idoit_timeout_seconds") or "15")))
     except ValueError:
@@ -265,16 +266,33 @@ def get_config(db: Session) -> IdoitConfig:
     )
 
 
-def _needs_default_mapping_upgrade(mapping: Any) -> bool:
+def _upgrade_default_mapping(mapping: Any) -> Optional[dict[str, Any]]:
     if not isinstance(mapping, dict):
-        return False
+        return None
     try:
         version = int(mapping.get("version") or 1)
     except (TypeError, ValueError):
         version = 1
     fields = mapping.get("fields") if isinstance(mapping.get("fields"), dict) else {}
     if mapping.get("name") != "Default i-doit mapping":
-        return False
+        return None
+    # Version 13 only needs its old free-text OS mapping retired. It is common
+    # for operators to retain the default mapping name while customizing fields
+    # or object types, so replacing the complete document would silently lose
+    # their configuration.
+    if version == 13:
+        upgraded = copy.deepcopy(mapping)
+        upgraded_fields = upgraded.setdefault("fields", {})
+        if not isinstance(upgraded_fields, dict):
+            return None
+        changed = False
+        if upgraded_fields.get("os_info") == "C__CATG__OPERATING_SYSTEM.description":
+            upgraded_fields["os_info"] = ""
+            changed = True
+        if upgraded.get("version") != DEFAULT_MAPPING["version"]:
+            upgraded["version"] = DEFAULT_MAPPING["version"]
+            changed = True
+        return upgraded if changed else None
     rejected_defaults = {
         "C__CATG__IP.ADDRESS",
         "C__CATG__NETWORK_PORT.MAC",
@@ -289,7 +307,9 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
         for field in description_dump_fields
     ) and version < 4
     global_description_dump = version < 10 and any(value == "C__CATG__GLOBAL.description" for value in fields.values())
-    return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description or global_description_dump
+    if version < 13 or any(value in rejected_defaults for value in fields.values()) or dumps_into_description or global_description_dump:
+        return copy.deepcopy(DEFAULT_MAPPING)
+    return None
 
 
 def _normalized_default_object_type(value: Optional[str]) -> str:
@@ -735,6 +755,18 @@ def _first_finding_text(findings: dict[str, dict[str, Any]], candidates: list[tu
         text = _finding_text(findings, finding_type, key, limit)
         if text:
             return text
+    return None
+
+
+def _first_documented_os_value(findings: dict[str, dict[str, Any]]) -> Any:
+    """Return an untruncated OS identity from deep-scan output, never a kernel."""
+    for finding_type, key in (("os", "release"), ("os", "operating_system")):
+        entry = findings.get(finding_type, {}).get(key)
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("value")
+        if _os_assigned_version(value):
+            return value
     return None
 
 
@@ -1386,7 +1418,10 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     model = _hardware_field_text(hw.get("computer_system"), ("Model", "model")) or hw.get("model") or _first_finding_text(findings, [("hardware", "model")], 500)
     serial = _hardware_field_text(hw.get("bios"), ("SerialNumber", "serial", "Serial")) or hw.get("serial") or _first_finding_text(findings, [("hardware", "serial")], 500)
     vendor = device.effective_vendor or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255)
-    os_info = device.os_info or _first_finding_text(findings, [("os", "release"), ("os", "operating_system"), ("os", "kernel")], 1000)
+    # An OS assignment must use a documented operating-system value. A kernel
+    # release is supplementary metadata, not an OS object title, and JSON must
+    # remain intact until _os_assigned_version extracts its display fields.
+    os_info = device.os_info or _first_documented_os_value(findings)
     cpu_raw = hw.get("cpu") or hw.get("processor") or _first_finding_text(findings, [("hardware", "cpu"), ("hardware", "processor")], 1500)
     memory = hw.get("memory") or hw.get("physical_memory") or _first_finding_text(findings, [("hardware", "memory"), ("hardware", "physical_memory")], 1500)
     disks = hw.get("disks") or _first_finding_text(findings, [("hardware", "disks"), ("hardware", "disk_drives")], 2500)
@@ -2405,6 +2440,10 @@ class IdoitClient:
         try:
             result = await self.read_category(object_id, category)
         except IdoitConnectionError:
+            # A failed read cannot establish that an existing OS assignment is
+            # absent. Propagate it so a retry never appends a duplicate link.
+            if category == "C__CATG__OPERATING_SYSTEM":
+                raise
             return None
         entries = _category_entries(result)
         if not entries:

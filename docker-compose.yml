@@ -30,7 +30,7 @@ services:
       # Initial admin password (will be changed on first login)
       - DEFAULT_ADMIN_PASSWORD=admin
       # Host-mode HTTP port for the LanLens UI (for example 80, 8080, 7765)
-      - LANLENS_PORT=7765
+      - LANLENS_PORT=${LANLENS_PORT:-7765}
       # Internal API port used behind nginx (leave as-is unless you know why)
       - BACKEND_PORT=17765
       # Timezone (e.g. Europe/Berlin, America/New_York, UTC)

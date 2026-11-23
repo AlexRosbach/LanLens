@@ -6,6 +6,11 @@ All notable changes to this project should be documented in this file.
 
 ### 1.6.1
 
+- Preserved customized v13 i-doit mappings while migrating only their obsolete
+  free-text OS mapping. OS assignments now use complete documented OS values,
+  never kernel releases, and defer a write when their existing i-doit category
+  cannot be read. MCP device output no longer exposes maintenance notes, and
+  the Compose MCP upstream follows a customized `LANLENS_PORT` consistently.
 - Hardened the MCP companion against malformed HTTP host headers and prevented
   it from exposing service URL credentials, credential-bearing URL components
   or private device-note audit values. Extended-scan results are now discarded
