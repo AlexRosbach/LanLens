@@ -61,6 +61,16 @@ _LINUX_SERVICES = [
      "systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null || true"),
 ]
 
+_LINUX_SOFTWARE = [
+    ("software", "installed_software",
+     "if command -v dpkg-query >/dev/null 2>&1; then "
+     "dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' 2>/dev/null | head -n 2000; "
+     "elif command -v rpm >/dev/null 2>&1; then "
+     "rpm -qa --qf '%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n' 2>/dev/null | head -n 2000; "
+     "elif command -v apk >/dev/null 2>&1; then "
+     "apk info -v 2>/dev/null | head -n 2000; fi"),
+]
+
 _LINUX_CONTAINERS = [
     ("container", "docker_containers",
      "docker ps --format '{{json .}}' 2>/dev/null || true"),
@@ -100,12 +110,12 @@ _LINUX_HYPERVISOR = [
 ]
 
 LINUX_PROFILE_COMMANDS: Dict[str, List[Tuple[str, str, str]]] = {
-    "hardware_only":        _LINUX_HARDWARE + _LINUX_OS[:2],
-    "os_services":          _LINUX_HARDWARE + _LINUX_OS + _LINUX_SERVICES,
-    "linux_container_host": _LINUX_HARDWARE + _LINUX_OS + _LINUX_SERVICES + _LINUX_CONTAINERS,
-    "hypervisor_inventory": _LINUX_HARDWARE + _LINUX_OS + _LINUX_SERVICES + _LINUX_HYPERVISOR,
+    "hardware_only":        _LINUX_HARDWARE + _LINUX_OS[:2] + _LINUX_SOFTWARE,
+    "os_services":          _LINUX_HARDWARE + _LINUX_OS + _LINUX_SERVICES + _LINUX_SOFTWARE,
+    "linux_container_host": _LINUX_HARDWARE + _LINUX_OS + _LINUX_SERVICES + _LINUX_SOFTWARE + _LINUX_CONTAINERS,
+    "hypervisor_inventory": _LINUX_HARDWARE + _LINUX_OS + _LINUX_SERVICES + _LINUX_SOFTWARE + _LINUX_HYPERVISOR,
     "full":                 _LINUX_HARDWARE + _LINUX_OS + _LINUX_SERVICES
-                            + _LINUX_CONTAINERS + _LINUX_HYPERVISOR,
+                            + _LINUX_SOFTWARE + _LINUX_CONTAINERS + _LINUX_HYPERVISOR,
 }
 LINUX_PROFILE_COMMANDS["windows_audit"] = []  # not applicable for Linux
 
@@ -134,6 +144,18 @@ _WIN_SERVICES = [
      "$ProgressPreference='SilentlyContinue'; Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object Name,DisplayName,Status | ConvertTo-Json -Compress"),
 ]
 
+_WIN_SOFTWARE = [
+    ("software", "installed_software",
+     "$ProgressPreference='SilentlyContinue'; "
+     "$paths=@('HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',"
+     "'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'); "
+     "$apps=foreach($path in $paths){Get-ItemProperty $path -ErrorAction SilentlyContinue | "
+     "Where-Object {$_.DisplayName} | Select-Object @{n='Name';e={$_.DisplayName}},"
+     "@{n='Version';e={$_.DisplayVersion}},Publisher,"
+     "@{n='Architecture';e={if($path -like '*WOW6432Node*'){'x86'}else{'x64'}}}}; "
+     "$apps | Sort-Object Name,Version -Unique | Select-Object -First 2000 | ConvertTo-Json -Compress"),
+]
+
 _WIN_AUDIT = [
     ("audit", "windows_features",
      "$ProgressPreference='SilentlyContinue'; Get-WindowsFeature | Where-Object {$_.InstallState -eq 'Installed'} | Select-Object Name,DisplayName | ConvertTo-Json -Compress"),
@@ -152,13 +174,13 @@ _WIN_AUDIT = [
 ]
 
 WIN_PROFILE_COMMANDS: Dict[str, List[Tuple[str, str, str]]] = {
-    "hardware_only":  _WIN_HARDWARE + _WIN_OS,
-    "os_services":    _WIN_HARDWARE + _WIN_OS + _WIN_SERVICES,
-    "windows_audit":  _WIN_HARDWARE + _WIN_OS + _WIN_SERVICES + _WIN_AUDIT,
-    "full":           _WIN_HARDWARE + _WIN_OS + _WIN_SERVICES + _WIN_AUDIT,
+    "hardware_only":  _WIN_HARDWARE + _WIN_OS + _WIN_SOFTWARE,
+    "os_services":    _WIN_HARDWARE + _WIN_OS + _WIN_SERVICES + _WIN_SOFTWARE,
+    "windows_audit":  _WIN_HARDWARE + _WIN_OS + _WIN_SERVICES + _WIN_SOFTWARE + _WIN_AUDIT,
+    "full":           _WIN_HARDWARE + _WIN_OS + _WIN_SERVICES + _WIN_SOFTWARE + _WIN_AUDIT,
 }
 WIN_PROFILE_COMMANDS["linux_container_host"] = []
-WIN_PROFILE_COMMANDS["hypervisor_inventory"] = _WIN_HARDWARE + _WIN_OS + _WIN_AUDIT[3:4]  # Hyper-V
+WIN_PROFILE_COMMANDS["hypervisor_inventory"] = _WIN_HARDWARE + _WIN_OS + _WIN_SOFTWARE + _WIN_AUDIT[3:4]  # Hyper-V
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────

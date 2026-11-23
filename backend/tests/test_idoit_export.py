@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
 from backend.models import DeepScanFinding, DeepScanRun, Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, Setting, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
-from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
+from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, _drive_entries, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
 class IdoitExportCsvTest(unittest.TestCase):
@@ -75,6 +75,19 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertIn("Passive Discovery", rows[0])
         self.assertNotIn("SNMP-VLAN", rows[0])
         self.assertIn("Identity Confidence", rows[0])
+
+    def test_drive_capacity_is_normalized_to_idoit_gigabytes(self):
+        entries = _drive_entries([
+            {"Model": "NVMe", "Size": "476.94 GB"},
+            {"Model": "SATA", "Size": "102400 MB"},
+            {"Model": "Archive", "Size": "2 TB"},
+        ])
+
+        self.assertEqual(entries, [
+            {"title": "NVMe", "capacity": 476.94, "unit": 3},
+            {"title": "SATA", "capacity": 100.0, "unit": 3},
+            {"title": "Archive", "capacity": 2048.0, "unit": 3},
+        ])
 
     def test_build_export_rows_uses_bulk_snmp_identity(self):
         db = self.Session()
@@ -575,6 +588,42 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             or item[1].get("type") == "C__OBJTYPE__OPERATING_SYSTEM"
             for item in calls if item[0] == "search"
         ))
+
+    async def test_operating_system_resolution_matches_unambiguous_normalized_title(self):
+        class NormalizedSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [{
+                    "id": "99",
+                    "title": "Ubuntu Linux 24.04 LTS",
+                    "type_const": "C__OBJTYPE__OPERATING_SYSTEM",
+                }]
+
+        client = NormalizedSearchClient(get_config(self.Session()))
+        resolution = await client.resolve_operating_system("Ubuntu 24.04.3 LTS")
+
+        self.assertEqual(resolution, {
+            "object_id": "99",
+            "action": "matched_normalized",
+            "title": "Ubuntu 24.04.3 LTS",
+            "matched_title": "Ubuntu Linux 24.04 LTS",
+        })
+
+    async def test_operating_system_resolution_does_not_guess_between_normalized_titles(self):
+        class AmbiguousSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [
+                    {"id": "99", "title": "Windows Server 2022 Standard", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "100", "title": "Windows Server 2022 Datacenter", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("ambiguous existing OS titles must not create a new object")
+
+        client = AmbiguousSearchClient(get_config(self.Session()))
+        resolution = await client.resolve_operating_system("Microsoft Windows Server 2022", create_missing=True)
+
+        self.assertEqual(resolution["action"], "ambiguous_match")
+        self.assertIsNone(resolution["object_id"])
 
     async def test_operating_system_resolution_does_not_create_after_failed_lookups(self):
         class FailedLookupClient(IdoitClient):

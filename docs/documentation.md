@@ -1046,10 +1046,15 @@ Some i-doit fields such as responsible person, location and selected certificate
 
 Operating systems are handled as real i-doit software objects rather than as
 free text. In `match_only` mode the matching Operating System object must already
-exist in i-doit. With `create_missing`, LanLens may create the exact detected OS
-title as `C__OBJTYPE__OPERATING_SYSTEM` and then link it to the device. Repeated
-syncs reuse the matching OS object and update the same device assignment instead
-of appending duplicate description entries.
+exist in i-doit. LanLens first uses an exact title and then accepts harmless,
+unambiguous variations such as vendor prefixes, `Linux`/`LTS`, edition labels and
+point releases; it never guesses when multiple OS objects could match. With
+`create_missing`, LanLens may create the detected OS title as
+`C__OBJTYPE__OPERATING_SYSTEM` and then link it to the device. Repeated syncs
+reuse the matching OS object and update the same device assignment instead of
+appending duplicate description entries. Hardware drive and memory capacities
+are sent in i-doit's GB unit, regardless of whether discovery reported bytes,
+MB, GB or TB.
 
 The built-in SQLite database uses WAL mode and a busy timeout. i-doit sync
 releases its local write transaction before waiting for remote JSON-RPC calls,

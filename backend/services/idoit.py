@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -877,19 +878,23 @@ def _size_to_value_unit(value: Any) -> tuple[Optional[float], Optional[int]]:
         return None, None
     amount = float(match.group(1))
     unit = (match.group(2) or "").lower().replace("ib", "b")
-    # i-doit dialog ids in default installations: 1=MB, 2=GB, 3=TB.
+    # i-doit's standard memory-unit dialog uses id 3 for GB.  Normalize all
+    # source values to GB so hardware inventories do not depend on a host
+    # reporting bytes, MiB, GiB, or TB.  (The old 1/2/3 mapping labelled
+    # ordinary GB drives as MB in i-doit.)
     if unit in {"", "b"}:
         amount = amount / (1024 ** 3)
-        return round(amount, 2), 2
-    if unit in {"k", "kb"}:
-        return round(amount / (1024 ** 2), 2), 2
-    if unit in {"m", "mb"}:
-        return round(amount, 2), 1
-    if unit in {"g", "gb"}:
-        return round(amount, 2), 2
-    if unit in {"t", "tb"}:
-        return round(amount, 2), 3
-    return amount, None
+    elif unit in {"k", "kb"}:
+        amount = amount / (1024 ** 2)
+    elif unit in {"m", "mb"}:
+        amount = amount / 1024
+    elif unit in {"t", "tb"}:
+        amount = amount * 1024
+    elif unit in {"p", "pb"}:
+        amount = amount * (1024 ** 2)
+    elif unit not in {"g", "gb"}:
+        return amount, None
+    return round(amount, 2), 3
 
 
 def _memory_entries(raw: Any) -> list[dict[str, Any]]:
@@ -1769,6 +1774,25 @@ def _normalized_match_text(value: Any) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def _operating_system_match_key(value: Any) -> str:
+    """Normalize harmless operating-system title variations for lookup only.
+
+    Major/minor version tokens stay part of the key, while vendor, edition and
+    point-release noise is removed.  The resolver still accepts this fallback
+    only when it yields one unambiguous Operating System object.
+    """
+    text = unicodedata.normalize("NFKD", _normalized_match_text(value))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = re.sub(r"(\d+)\.(\d+)(?:\.\d+)+", r"\1.\2", text)
+    text = re.sub(r"[^a-z0-9.]+", " ", text)
+    ignored = {
+        "gnu", "linux", "lts", "microsoft", "operating", "system",
+        "edition", "standard", "datacenter", "enterprise", "professional",
+        "pro", "home",
+    }
+    return " ".join(part for part in text.split() if part not in ignored)
+
+
 def _normalized_match_mac(value: Any) -> str:
     text = str(_plain_category_value(value) or "").strip()
     normalized = normalize_mac(text)
@@ -1990,13 +2014,21 @@ class IdoitClient:
         if not wanted:
             return {"object_id": None, "action": "skipped_empty"}
         object_type = "C__OBJTYPE__OPERATING_SYSTEM"
-        queries = (
+        wanted_key = _operating_system_match_key(wanted)
+        lookup_title = " ".join(wanted_key.split())
+        queries = [
             {"filter": {"title": wanted, "type": object_type}},
             {"filter": {"type": object_type}, "q": wanted},
             {"type": object_type, "q": wanted},
-        )
+        ]
+        if lookup_title and _normalized_match_text(lookup_title) != _normalized_match_text(wanted):
+            queries.extend((
+                {"filter": {"type": object_type}, "q": lookup_title},
+                {"type": object_type, "q": lookup_title},
+            ))
         successful_lookup = False
         last_error: IdoitConnectionError | None = None
+        normalized_candidates: dict[str, dict[str, str]] = {}
         for params in queries:
             try:
                 result = await self.read_objects(params)
@@ -2013,6 +2045,37 @@ class IdoitClient:
                 object_id = _object_entry_id(entry)
                 if object_id:
                     return {"object_id": object_id, "action": "matched", "title": wanted}
+                continue
+            if not wanted_key:
+                continue
+            for entry in _category_entries(result):
+                candidate_type = _object_entry_type_constant(entry)
+                if candidate_type and candidate_type != object_type:
+                    continue
+                candidate_title = _object_entry_title(entry)
+                if _operating_system_match_key(candidate_title) != wanted_key:
+                    continue
+                object_id = _object_entry_id(entry)
+                if object_id:
+                    normalized_candidates[object_id] = {
+                        "object_id": object_id,
+                        "title": candidate_title,
+                    }
+        if len(normalized_candidates) == 1:
+            matched = next(iter(normalized_candidates.values()))
+            return {
+                "object_id": matched["object_id"],
+                "action": "matched_normalized",
+                "title": wanted,
+                "matched_title": matched["title"],
+            }
+        if len(normalized_candidates) > 1:
+            return {
+                "object_id": None,
+                "action": "ambiguous_match",
+                "title": wanted,
+                "candidates": [candidate["title"] for candidate in normalized_candidates.values()],
+            }
         if not successful_lookup and last_error is not None:
             raise last_error
         if not create_missing:

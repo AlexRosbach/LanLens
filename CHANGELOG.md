@@ -6,6 +6,10 @@ All notable changes to this project should be documented in this file.
 
 ### 1.6.1
 
+- Improved i-doit OS-object matching for harmless vendor, Linux/LTS, edition
+  and point-release title differences while refusing ambiguous matches. Drive
+  and memory capacities are now normalized to i-doit's GB unit instead of
+  labelling ordinary GB values as MB.
 - Preserved customized v13 i-doit mappings while migrating only their obsolete
   free-text OS mapping. OS assignments now use complete documented OS values,
   never kernel releases, and defer a write when their existing i-doit category

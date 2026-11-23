@@ -16,11 +16,12 @@ import DeepScanConfigForm from './DeepScanConfigForm'
 import FindingsGrid from './FindingsGrid'
 import HostGuestPanel from './HostGuestPanel'
 
-type Tab = 'hardware' | 'os' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest'
+type Tab = 'hardware' | 'os' | 'software' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest'
 
 const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'hardware',    labelKey: 'tab_hardware' },
   { key: 'os',         labelKey: 'tab_os' },
+  { key: 'software',   labelKey: 'tab_software' },
   { key: 'service',    labelKey: 'tab_services' },
   { key: 'container',  labelKey: 'tab_containers' },
   { key: 'audit',      labelKey: 'tab_audit' },

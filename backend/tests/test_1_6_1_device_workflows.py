@@ -495,5 +495,25 @@ class LinuxKernelDeepScanTests(unittest.TestCase):
         db.close()
 
 
+class SoftwareInventoryDeepScanTests(unittest.TestCase):
+    def test_linux_profiles_collect_bounded_package_versions(self):
+        commands = [command for finding_type, key, command in deep_scanner.LINUX_PROFILE_COMMANDS["os_services"]
+                    if finding_type == "software" and key == "installed_software"]
+
+        self.assertEqual(len(commands), 1)
+        self.assertIn("dpkg-query", commands[0])
+        self.assertIn("rpm -qa", commands[0])
+        self.assertIn("head -n 2000", commands[0])
+
+    def test_windows_profiles_read_uninstall_registry_without_win32_product(self):
+        commands = [command for finding_type, key, command in deep_scanner.WIN_PROFILE_COMMANDS["os_services"]
+                    if finding_type == "software" and key == "installed_software"]
+
+        self.assertEqual(len(commands), 1)
+        self.assertIn("CurrentVersion\\Uninstall", commands[0])
+        self.assertNotIn("Win32_Product", commands[0])
+        self.assertIn("Select-Object -First 2000", commands[0])
+
+
 if __name__ == "__main__":
     unittest.main()
