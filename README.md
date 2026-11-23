@@ -4,9 +4,9 @@
 
 # LanLens
 
-> **It is more than a port scanner.**
+> **LanLens — more than just a port scanner.**
 
-**Self-hosted network inventory, local network scanner, and documentation dashboard**
+### Self-hosted network inventory & documentation — from discovery to deep insight
 
 [![Version](https://img.shields.io/badge/version-1.6.1-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
@@ -21,31 +21,26 @@ LanLens turns a Docker host into a local network scanner that discovers MAC/IP d
 
 ---
 
-## Your Network at a Glance
+## LanLens at a Glance
 
-LanLens gives you a quick, local view of what is on your network:
+### Know what is on your network
 
-- Devices found by MAC/IP device discovery, with vendor hints and online/offline state
-- A practical device inventory for names, notes, owners, locations, services, ports, and history
-- Multi-select workflows for editing device class, owner, location and description, or deleting several unwanted entries in one confirmed action
-- Network-wide or selected-device extended port scans with progress, cancellation and automatic Connect-column refresh
-- A single **Scan Now** action that discovers hosts and then populates their detected Connect services automatically
-- Correctable manufacturer names and manual connection links that remain separate from automatic discovery results
-- An optional, clearly labelled Linux/Windows/Unknown estimate before Deep Scan, based only on existing discovery clues with confidence and evidence shown
-- Segments for routers, switches, servers, IoT, cameras, clients, and unknown devices, with sortable capacity statistics
-- Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
-- Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
-- Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
-- Installed-software and version inventory from authenticated deep scans
-- Optional outbound Windows inventory agent for endpoints outside the local LAN
+- Discover devices with MAC/IP identity, vendor hints, online state and detected services.
+- Turn discoveries into a maintained inventory with owners, locations, documentation, history and manual connection links.
+- Run focused or network-wide port scans with live progress and automatic Connect links.
 
-Why people use it:
+### Get the context that matters
 
-- **Fast start:** a Docker network scanner for networks from home labs to small IT and enterprise environments.
-- **Less spreadsheet work:** turn scan results into a maintained self-hosted network inventory.
-- **Local by default:** no cloud account is required, and there is no product telemetry pipeline.
+- Deep Scan reveals hardware, operating system, running services and installed software with versions.
+- The optional Windows Agent reports inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM required.
+- Visualize topology, scan changes and relevant network-security signals when expert modules are enabled.
 
-Optional expert views add SNMP switch-port context with counter-rate trends and MAC-only discovery across learned VLANs, custom SNMP OID/table polling by device class or target tag, a feature-gated network topology map with pan, zoom, draggable device cards, offline-device filtering, relationship/VLAN filters and selected-link evidence details, passive LLDP/CDP/STP/OSPF discovery hints, services, TLS checks, notifications, and CMDB/i-doit integration when you need them. Credentials are masked in API responses; protect the database volume and backups because configured secrets live there.
+### Keep inventory useful beyond LanLens
+
+- Export and synchronize reviewed device, OS, drive and software data with CMDB/i-doit.
+- Use local-first self-hosting with no cloud account and no product telemetry pipeline.
+
+<p align="center"><strong>From the first discovery to a useful, connected inventory.</strong></p>
 
 > [!IMPORTANT]
 > Use LanLens only in networks you own or where you have explicit permission to scan and monitor devices. Network discovery and port scanning can be misused against third-party systems.
@@ -103,6 +98,14 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 | CMDB / i-doit settings | Reviewed i-doit CSV export |
 |---|---|
 | ![LanLens CMDB and i-doit settings](docs/screenshots/lanlens-idoit-settings.png) | ![LanLens editable i-doit CSV export](docs/screenshots/lanlens-idoit-export.png) |
+
+| Services directory | Notification rules |
+|---|---|
+| ![LanLens services directory](docs/screenshots/lanlens-services.png) | ![LanLens notification rules](docs/screenshots/lanlens-notification-rules.png) |
+
+| SNMP counter trends | Feature controls |
+|---|---|
+| ![LanLens SNMP counter trends](docs/screenshots/lanlens-snmp-counter-trends.png) | ![LanLens feature controls](docs/screenshots/lanlens-settings-features.png) |
 
 ---
 

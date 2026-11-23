@@ -1004,6 +1004,43 @@ def _operating_system_assignment(raw: Any, kernel_version: Optional[str] = None)
     return result
 
 
+def _software_assignments(findings: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
+    """Extract a bounded, de-duplicated software inventory for i-doit links.
+
+    The product title is resolved against an Application object, while the
+    detected version stays on the host's Application assignment.  This mirrors
+    the OS relationship and prevents a separate object for every version.
+    """
+    entry = findings.get("software", {}).get("installed_software")
+    raw = entry.get("value") if isinstance(entry, dict) else None
+    values = _decode_finding_value(raw)
+    if not isinstance(values, list):
+        return []
+    result: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in values[:2000]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("name") or item.get("Name") or "").strip()[:255]
+        if not title:
+            continue
+        version = str(item.get("version") or item.get("Version") or "").strip()[:255]
+        publisher = str(item.get("publisher") or item.get("Publisher") or "").strip()[:500]
+        identity = (title.casefold(), version.casefold())
+        if identity in seen:
+            continue
+        seen.add(identity)
+        assignment = {"title": title}
+        if version:
+            assignment["assigned_version"] = version
+        if publisher:
+            assignment["description"] = f"Publisher: {publisher}"
+        result.append(assignment)
+        if len(result) >= 500:
+            break
+    return result
+
+
 def _latest_open_ports(db: Optional[Session], device: Device) -> Optional[str]:
     if db is None or not device.id:
         return None
@@ -1532,6 +1569,8 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     }
     if operating_system := _operating_system_assignment(os_info, device.kernel_version):
         payload["operatingSystem"] = operating_system
+    if applications := _software_assignments(findings):
+        payload["applications"] = applications
     return payload
 
 
@@ -1567,6 +1606,7 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__DRIVE": ("serial", "mount_point", "title"),
     "C__CATG__CERTIFICATE": ("common_name",),
     "C__CATG__OPERATING_SYSTEM": ("application",),
+    "C__CATG__APPLICATION": ("application",),
 }
 COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__NET_CONNECTIONS_FOLDER": ("port_from", "port_to", "protocol"),
@@ -2076,6 +2116,41 @@ class IdoitClient:
                 "title": wanted,
                 "candidates": [candidate["title"] for candidate in normalized_candidates.values()],
             }
+        if not successful_lookup and last_error is not None:
+            raise last_error
+        if not create_missing:
+            return {"object_id": None, "action": "match_required", "title": wanted}
+        object_id = await self.create_object(wanted, object_type)
+        return {"object_id": object_id, "action": "created", "title": wanted}
+
+    async def resolve_application(self, title: str, create_missing: bool = False) -> dict[str, Any]:
+        """Resolve one i-doit Application object for a detected software title."""
+        wanted = re.sub(r"\s+", " ", (title or "").strip())[:255]
+        if not wanted:
+            return {"object_id": None, "action": "skipped_empty"}
+        object_type = "C__OBJTYPE__APPLICATION"
+        queries = (
+            {"filter": {"title": wanted, "type": object_type}},
+            {"filter": {"type": object_type}, "q": wanted},
+            {"type": object_type, "q": wanted},
+        )
+        successful_lookup = False
+        last_error: IdoitConnectionError | None = None
+        for params in queries:
+            try:
+                result = await self.read_objects(params)
+                successful_lookup = True
+            except IdoitConnectionError as exc:
+                last_error = exc
+                continue
+            for entry in _category_entries(result):
+                if _normalized_match_text(_object_entry_title(entry)) != _normalized_match_text(wanted):
+                    continue
+                candidate_type = _object_entry_type_constant(entry)
+                if candidate_type and candidate_type != object_type:
+                    continue
+                if object_id := _object_entry_id(entry):
+                    return {"object_id": object_id, "action": "matched", "title": wanted}
         if not successful_lookup and last_error is not None:
             raise last_error
         if not create_missing:
@@ -2764,6 +2839,34 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     "C__CATG__OPERATING_SYSTEM: no exact Operating System object match; "
                     "enable create-missing or create the OS object in i-doit"
                 )
+        applications = payload.get("applications") if isinstance(payload.get("applications"), list) else []
+        application_entries: list[dict[str, Any]] = []
+        application_details: list[dict[str, Any]] = []
+        for application in applications:
+            if not isinstance(application, dict) or not application.get("title"):
+                continue
+            resolution = await client.resolve_application(
+                str(application["title"]), create_missing=config.create_policy == "create_missing",
+            )
+            application_details.append(resolution)
+            application_id = resolution.get("object_id")
+            if application_id:
+                assignment: dict[str, Any] = {"application": _object_id_as_int(application_id)}
+                for field in ("assigned_version", "description"):
+                    if application.get(field) not in (None, ""):
+                        assignment[field] = application[field]
+                application_entries.append(assignment)
+            else:
+                sync_warnings.append(
+                    f"C__CATG__APPLICATION: no exact Application object match for {application['title']!r}; "
+                    "enable create-missing or create the Application object in i-doit"
+                )
+        if application_entries:
+            existing_applications = categories.get("C__CATG__APPLICATION")
+            existing_entries = existing_applications if isinstance(existing_applications, list) else ([existing_applications] if isinstance(existing_applications, dict) else [])
+            categories["C__CATG__APPLICATION"] = [*existing_entries, *application_entries]
+        if application_details:
+            details["applications"] = application_details
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
         if global_category.get("description") is None:
             cleaned_description = await client.cleanup_lanlens_global_description(object_id)

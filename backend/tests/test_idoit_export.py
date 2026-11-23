@@ -360,6 +360,32 @@ class IdoitExportCsvTest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_payload_extracts_installed_software_for_application_assignments(self):
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:77", hostname="software-host")
+            db.add(device)
+            db.commit()
+            run = DeepScanRun(device_id=device.id, profile="windows_agent", status="done")
+            db.add(run)
+            db.commit()
+            db.add(DeepScanFinding(
+                device_id=device.id, run_id=run.id, finding_type="software", key="installed_software",
+                value_json=json.dumps([
+                    {"name": "Mozilla Firefox", "version": "132.0", "publisher": "Mozilla"},
+                    {"name": "Mozilla Firefox", "version": "132.0", "publisher": "Mozilla"},
+                    {"name": "7-Zip", "version": "24.09", "publisher": "Igor Pavlov"},
+                ]),
+            ))
+            db.commit()
+
+            self.assertEqual(device_payload(device, get_config(db), db)["applications"], [
+                {"title": "Mozilla Firefox", "assigned_version": "132.0", "description": "Publisher: Mozilla"},
+                {"title": "7-Zip", "assigned_version": "24.09", "description": "Publisher: Igor Pavlov"},
+            ])
+        finally:
+            db.close()
+
     def test_default_idoit_payload_maps_new_inventory_to_standard_categories(self):
         db = self.Session()
         try:
@@ -562,6 +588,46 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                 "assigned_version": "24.04",
                 "description": "Kernel: 6.8.0-48-generic",
             }])
+        finally:
+            db.close()
+
+    async def test_sync_links_detected_software_to_existing_application_objects(self):
+        db = self.Session()
+        saved_categories = []
+
+        class FakeClient:
+            def __init__(self, config): pass
+            async def login(self): return {"session-id": "test"}
+            async def find_existing_object(self, payload): return {"object_id": "42", "confidence": 100, "matched_by": "mac_address"}
+            async def read_object(self, object_id): return {"id": object_id, "type_title": "Client", "sysid": "SYS-42"}
+            async def object_type_title(self, object_id): return "Client"
+            async def update_object_title(self, object_id, title): return {"id": object_id}
+            async def resolve_application(self, title, create_missing=False):
+                return {"object_id": "101" if title == "Mozilla Firefox" else "102", "action": "matched", "title": title}
+            async def save_category_best_effort(self, object_id, category, data):
+                saved_categories.append((category, data)); return {"status": "saved", "result": True}
+            async def cleanup_lanlens_global_description(self, object_id): return None
+            async def object_sysid(self, object_id): return "SYS-42"
+
+        try:
+            update_config(db, {"idoit_enabled": True, "idoit_base_url": "https://idoit.example.test", "idoit_api_key": "secret"})
+            device = Device(mac_address="00:11:22:33:44:88", hostname="app-host", is_registered=True)
+            db.add(device); db.commit()
+            run = DeepScanRun(device_id=device.id, profile="windows_agent", status="done")
+            db.add(run); db.commit()
+            db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="software", key="installed_software", value_json=json.dumps([
+                {"name": "Mozilla Firefox", "version": "132.0", "publisher": "Mozilla"},
+                {"name": "7-Zip", "version": "24.09"},
+            ])))
+            db.commit()
+            with patch("backend.services.idoit.IdoitClient", FakeClient):
+                result = await sync_device_to_idoit(db, device, mode="manual")
+            self.assertEqual(result["status"], "synced")
+            applications = [data for category, data in saved_categories if category == "C__CATG__APPLICATION"]
+            self.assertEqual(applications, [
+                {"application": 101, "assigned_version": "132.0", "description": "Publisher: Mozilla"},
+                {"application": 102, "assigned_version": "24.09"},
+            ])
         finally:
             db.close()
 

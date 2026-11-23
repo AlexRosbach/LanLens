@@ -51,7 +51,8 @@ export default function Login() {
         <div className="flex flex-col items-center mb-8">
           <img src={withBasePath('/logo.svg')} alt="LanLens" className="w-16 h-16 mb-4" />
           <h1 className="text-2xl font-bold text-text-base tracking-tight">LanLens</h1>
-          <p className="text-sm text-text-muted mt-1">{t('network_monitoring_dashboard')}</p>
+          <p className="text-sm text-primary mt-1 font-medium">more than just a port scanner</p>
+          <p className="text-xs text-text-muted mt-1">{t('network_monitoring_dashboard')}</p>
         </div>
 
         {/* Login form */}

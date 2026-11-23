@@ -150,7 +150,10 @@ export default function Sidebar({ onClose }: Props) {
           className="flex items-center gap-3 hover:opacity-80 transition-opacity"
         >
           <img src={withBasePath('/logo.svg')} alt="LanLens" className="w-8 h-8" />
-          <span className="text-lg font-bold text-text-base tracking-tight">LanLens</span>
+          <span className="min-w-0 text-left">
+            <span className="block text-lg font-bold text-text-base tracking-tight">LanLens</span>
+            <span className="block text-[10px] leading-3 text-text-subtle whitespace-normal">more than just a port scanner</span>
+          </span>
         </button>
         {/* Close button on mobile */}
         {onClose && (

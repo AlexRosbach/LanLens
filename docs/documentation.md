@@ -27,7 +27,7 @@
 
 ## Overview
 
-LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. **It is more than a port scanner:** it helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, collect deep inventory, and prepare CMDB/i-doit export data without requiring a cloud account.
+LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. **LanLens — more than just a port scanner:** it helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, collect deep inventory, and prepare CMDB/i-doit export data without requiring a cloud account.
 
 LanLens can:
 
@@ -899,6 +899,12 @@ can be revoked from the same tab. Each enrolled service receives its own
 replacement-safe credential and monotonically increasing report sequence;
 LanLens rejects revoked credentials and replayed reports. Use HTTPS with a
 valid certificate and revoke a token after a limited rollout.
+
+During i-doit synchronization, LanLens resolves each discovered software title
+against an existing `C__OBJTYPE__APPLICATION` object and writes the detected
+version to the host's `C__CATG__APPLICATION.assigned_version` assignment. Just
+like OS reconciliation, an ambiguous or missing match is not guessed; choose
+the `create_missing` policy or create the application object in i-doit first.
 
 ### Finding types
 
