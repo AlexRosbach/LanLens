@@ -110,6 +110,30 @@ function buildContainerTable(text: string): { headers: string[]; rows: string[][
   }
 }
 
+function buildSoftwareTable(value: unknown): { headers: string[]; rows: string[][] } | null {
+  const normalized = normalizeStructuredValue(value)
+  const items = asArray(normalized).filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+  if (items.length > 0) {
+    return {
+      headers: ['Name', 'Version', 'Publisher', 'Architecture'],
+      rows: items.map((item) => [
+        String(item.Name || item.name || '—'),
+        String(item.Version || item.version || '—'),
+        String(item.Publisher || item.publisher || '—'),
+        String(item.Architecture || item.architecture || '—'),
+      ]),
+    }
+  }
+  if (typeof normalized !== 'string') return null
+  const rows = normalized.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+    const columns = line.split('\t')
+    if (columns.length >= 2) return [columns[0], columns[1], '—', columns[2] || '—']
+    const separator = line.lastIndexOf('-')
+    return separator > 0 ? [line.slice(0, separator), line.slice(separator + 1), '—', '—'] : [line, '—', '—', '—']
+  })
+  return rows.length > 0 ? { headers: ['Name', 'Version', 'Publisher', 'Architecture'], rows } : null
+}
+
 /** Try to parse a key=value or KEY=VALUE block (for example /etc/os-release) into pairs. */
 function parseKvBlock(text: string): { key: string; value: string }[] | null {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -452,6 +476,7 @@ const KEY_LABEL_KEYS: Record<string, string> = {
   physical_memory: 'finding_physical_memory',
   disk_drives: 'finding_disk_drives',
   operating_system: 'finding_operating_system',
+  installed_software: 'finding_installed_software',
   running_services: 'finding_running_services',
   windows_features: 'finding_windows_features',
   licensing: 'finding_licensing',
@@ -475,6 +500,21 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
 
   if (finding.key === 'docker_containers' || finding.key === 'podman_containers') {
     const table = buildContainerTable(rawText)
+    if (table) {
+      return (
+        <div className="py-3 border-b border-border last:border-0 space-y-2">
+          <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">{label}</p>
+          <DataTable headers={table.headers} rows={table.rows} />
+          {normalizeSource(finding.source) && (
+            <span className="text-xs text-text-subtle">{t('source_label', { source: normalizeSource(finding.source) ?? '' })}</span>
+          )}
+        </div>
+      )
+    }
+  }
+
+  if (finding.key === 'installed_software') {
+    const table = buildSoftwareTable(normalizedValue)
     if (table) {
       return (
         <div className="py-3 border-b border-border last:border-0 space-y-2">
@@ -525,7 +565,7 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
     )
   }
 
-  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances' || finding.key === 'iis_sites' || finding.key === 'hyper_v_vms' || finding.key === 'dhcp_scopes') && normalizedValue && typeof normalizedValue === 'object') {
+  if ((finding.key === 'processor' || finding.key === 'physical_memory' || finding.key === 'disk_drives' || finding.key === 'installed_software' || finding.key === 'running_services' || finding.key === 'windows_features' || finding.key === 'sql_instances' || finding.key === 'iis_sites' || finding.key === 'hyper_v_vms' || finding.key === 'dhcp_scopes') && normalizedValue && typeof normalizedValue === 'object') {
     const items = asArray(normalizedValue).map((item) => item as Record<string, unknown>)
     const table = buildTableFromItems(items)
     if (table) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Device, DeviceIpHistoryEntry, DevicePingSample, PassiveDiscoveryObservation, devicesApi } from '../api/devices'
@@ -9,6 +9,7 @@ import { SnmpSwitchPort, SnmpSwitchPortsResponse, snmpApi } from '../api/snmp'
 import ConnectButtons from '../components/devices/ConnectButtons'
 import DeviceClassIcon, { DEVICE_CLASSES, isVmClass } from '../components/devices/DeviceClassIcon'
 import ServicesList from '../components/devices/ServicesList'
+import ManualConnectEntries from '../components/devices/ManualConnectEntries'
 import DeviceDnsNamesCard from '../components/devices/DeviceDnsNamesCard'
 import DeepScanPanel from '../components/deep-scan/DeepScanPanel'
 import VmHostSection from '../components/deep-scan/VmHostSection'
@@ -33,10 +34,12 @@ interface EditState {
   responsible: string
   passwordLocation: string
   osInfo: string
+  kernelVersion: string
   assetTag: string
   notes: string
   cmdbId: string
   idoitSysid: string
+  vendorOverride: string
 }
 
 function idoitStatusVariant(status?: string | null): 'success' | 'danger' | 'warning' | 'primary' | 'muted' {
@@ -70,10 +73,12 @@ function toEditState(d: Device): EditState {
     responsible: d.responsible ?? '',
     passwordLocation: d.password_location ?? '',
     osInfo: d.os_info ?? '',
+    kernelVersion: d.kernel_version ?? '',
     assetTag: d.asset_tag ?? '',
     notes: d.notes ?? '',
     cmdbId: d.cmdb_id ?? '',
     idoitSysid: d.idoit_sysid ?? '',
+    vendorOverride: d.vendor_override ?? '',
   }
 }
 
@@ -284,9 +289,10 @@ export default function DeviceDetail() {
     }
     setSaving(true)
     try {
-      const updated = await devicesApi.update(device.id, {
+      const payload = {
         label: nullableText(form.label),
         device_class: form.deviceClass.trim() || 'Unknown',
+        vendor_override: nullableText(form.vendorOverride),
         purpose: nullableText(form.purpose),
         description: nullableText(form.description),
         location: nullableText(form.location),
@@ -298,7 +304,12 @@ export default function DeviceDetail() {
         cmdb_id: nullableText(form.cmdbId),
         idoit_sysid: form.idoitSysid.trim() || null,
         is_registered: true,
-      })
+      }
+      const kernelVersion = nullableText(form.kernelVersion)
+      if (kernelVersion !== device.kernel_version) {
+        Object.assign(payload, { kernel_version: kernelVersion })
+      }
+      const updated = await devicesApi.update(device.id, payload)
       setDevice(updated)
       setForm(toEditState(updated))
       setEditing(false)
@@ -309,6 +320,20 @@ export default function DeviceDetail() {
       setSaving(false)
     }
   }
+
+  const handleDeepScanCompleted = useCallback(async () => {
+    if (!device) return
+    const previousKernelVersion = device.kernel_version ?? ''
+    const refreshed = await devicesApi.get(device.id)
+    setDevice(refreshed)
+    setForm((current) => {
+      if (!current || !editing) return toEditState(refreshed)
+      if (current.kernelVersion === previousKernelVersion) {
+        return { ...current, kernelVersion: refreshed.kernel_version ?? '' }
+      }
+      return current
+    })
+  }, [device, editing])
 
   function handleCancelEdit() {
     if (device) setForm(toEditState(device))
@@ -467,7 +492,7 @@ export default function DeviceDetail() {
   if (!device || !form) return <p className="text-text-muted">{t('device_not_found')}</p>
 
   const hasDocumentation = device.purpose || device.description || device.location ||
-    device.responsible || device.password_location || device.os_info || device.asset_tag || device.notes
+    device.responsible || device.password_location || device.os_info || device.kernel_version || device.asset_tag || device.notes
   const tlsServices = device.services.filter((service) =>
     service.protocol === 'https' ||
     service.url?.toLowerCase().startsWith('https://') ||
@@ -624,6 +649,7 @@ export default function DeviceDetail() {
             <div className="grid grid-cols-2 gap-3">
               <Input label={t('label')} placeholder={t('device_label_placeholder')} {...field('label')} />
               <Input label={t('asset_tag')} placeholder={t('asset_tag_placeholder')} {...field('assetTag')} />
+              <Input label={t('manufacturer_override')} placeholder={device.vendor_detected ?? t('vendor_unknown')} hint={t('manufacturer_override_hint')} {...field('vendorOverride')} />
               {showCmdbIntegrations && device.idoit_enabled && (
                 <Input label={t('idoit_sysid')} placeholder="SYSID_12345" {...field('idoitSysid')} />
               )}
@@ -686,6 +712,9 @@ export default function DeviceDetail() {
               <Input label={t('responsible')} placeholder={t('responsible_placeholder')} {...field('responsible')} />
               <Input label={t('os_info')} placeholder={t('os_info_placeholder')} {...field('osInfo')} />
               <div className="col-span-2">
+                <Input label={t('kernel_version')} placeholder={t('kernel_version_placeholder')} {...field('kernelVersion')} />
+              </div>
+              <div className="col-span-2">
                 <Input label={t('password_location')} placeholder={t('password_location_placeholder')} {...field('passwordLocation')} />
               </div>
             </div>
@@ -718,6 +747,7 @@ export default function DeviceDetail() {
               <InfoRow label={t('mac_address')} value={formatMac(device.mac_address, t('ip_only_host'))} mono />
               <InfoRow label={t('hostname')} value={device.hostname} mono />
               <InfoRow label={t('vendor')} value={device.vendor} />
+              {device.vendor_override && <InfoRow label={t('manufacturer_detected')} value={device.vendor_detected} />}
               <InfoRow label={t('idoit_export_snmp_switch')} value={device.snmp_switch} />
               <InfoRow label={t('idoit_export_snmp_port')} value={device.snmp_interface || device.snmp_interface_alias} />
               <InfoRow label={t('idoit_export_snmp_vlan')} value={device.snmp_vlan} />
@@ -726,6 +756,7 @@ export default function DeviceDetail() {
               <InfoRow label={t('snmp_last_seen')} value={device.snmp_last_seen_at ? formatRelativeTime(device.snmp_last_seen_at, lang) : null} />
               <InfoRow label={t('asset_tag')} value={device.asset_tag} />
               <InfoRow label={t('os_info')} value={device.os_info} />
+              <InfoRow label={t('kernel_version')} value={device.kernel_version} mono />
               {device.cmdb_id && (
                 <div>
                   <p className="text-text-subtle text-xs mb-0.5">{t('cmdb_id')}</p>
@@ -741,6 +772,33 @@ export default function DeviceDetail() {
                 <p className="text-text-muted text-xs">{formatRelativeTime(device.last_seen, lang)}</p>
               </div>
             </div>
+
+            {device.inferred_os_family && (
+              <div className="rounded-lg border border-border bg-surface2/40 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-text-muted">{t('os_family_estimate')}</p>
+                    <p className="mt-1 text-xs text-text-subtle">{t('os_family_estimate_hint')}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={device.inferred_os_family === 'Unknown' ? 'muted' : 'primary'}>{device.inferred_os_family}</Badge>
+                    {device.os_inference_confidence && (
+                      <span className="text-xs text-text-subtle">
+                        {t('os_inference_confidence')}: {device.os_inference_confidence}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {device.os_inference_reasons && device.os_inference_reasons.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">{t('os_inference_evidence')}</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-text-muted">
+                      {device.os_inference_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
 
             {showCmdbIntegrations && device.idoit_enabled && (
               <div className="border-t border-border pt-4">
@@ -1222,6 +1280,14 @@ export default function DeviceDetail() {
       </Card>
       )}
 
+      <Card id="device-manual-connect" className={sectionAnchorClass}>
+        <h2 className="text-sm font-semibold text-text-muted mb-3">{t('manual_connect_title')}</h2>
+        <ManualConnectEntries
+          device={device}
+          onChange={(manual_connect_entries) => setDevice({ ...device, manual_connect_entries })}
+        />
+      </Card>
+
       {/* Services */}
       {advancedViewEnabled && (
       <Card id="device-services" className={sectionAnchorClass}>
@@ -1245,7 +1311,7 @@ export default function DeviceDetail() {
       {/* Deep Scan */}
       <Card id="device-deep-scan" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('deep_scan')}</h2>
-        <DeepScanPanel deviceId={device.id} />
+        <DeepScanPanel deviceId={device.id} onScanCompleted={handleDeepScanCompleted} />
       </Card>
 
       {/* Open Ports */}

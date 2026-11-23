@@ -12,6 +12,33 @@ from ..schemas import MessageResponse, ScanInventoryStats, ScanRunResponse, Scan
 from ..services.scanner import is_scan_running, run_scan
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
+_manual_scan_pipeline_running = False
+
+
+async def _run_manual_scan_pipeline() -> None:
+    """Run discovery and then populate Connect data for all online devices."""
+    global _manual_scan_pipeline_running
+    _manual_scan_pipeline_running = True
+    try:
+        scan_run = await run_scan("manual")
+        if not scan_run or scan_run.status != "done":
+            return
+
+        from .devices import start_automatic_bulk_port_scan
+
+        port_scan_task = start_automatic_bulk_port_scan()
+        if port_scan_task is not None:
+            await port_scan_task
+    finally:
+        _manual_scan_pipeline_running = False
+
+
+def _manual_scan_is_running() -> bool:
+    if _manual_scan_pipeline_running or is_scan_running():
+        return True
+    from .devices import is_bulk_port_scan_running
+
+    return is_bulk_port_scan_running()
 
 
 def _configured_datetime(value: datetime | None) -> datetime | None:
@@ -45,10 +72,12 @@ async def start_scan(
     background_tasks: BackgroundTasks,
     _: User = Depends(get_current_user),
 ):
-    if is_scan_running():
+    global _manual_scan_pipeline_running
+    if _manual_scan_is_running():
         return MessageResponse(message="Scan already running", success=False)
-    background_tasks.add_task(run_scan, "manual")
-    return MessageResponse(message="Network scan started")
+    _manual_scan_pipeline_running = True
+    background_tasks.add_task(_run_manual_scan_pipeline)
+    return MessageResponse(message="Network discovery and port scan started")
 
 
 @router.get("/status", response_model=ScanStatusResponse)
@@ -63,7 +92,7 @@ def get_scan_status(
     new = active.filter(Device.is_registered == False).count()
     archived = db.query(Device).filter(Device.is_archived == True).count()
     return ScanStatusResponse(
-        is_running=is_scan_running(),
+        is_running=_manual_scan_is_running(),
         last_scan=_scan_run_response(last),
         current_stats=ScanInventoryStats(
             total=total,

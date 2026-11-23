@@ -8,12 +8,14 @@ returned session token. Cloud-specific differences should stay in configuration
 from __future__ import annotations
 
 import base64
+import copy
 import csv
 import hashlib
 import io
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -46,7 +48,7 @@ def _safe_csv_cell(value: Any) -> Any:
 
 DEFAULT_MAPPING = {
     "name": "Default i-doit mapping",
-    "version": 13,
+    "version": 14,
     # Use Client as neutral fallback: it is not Server, but still supports common
     # hardware categories like CPU/model/OS in default i-doit installations.
     "objectType": "C__OBJTYPE__CLIENT",
@@ -83,7 +85,12 @@ DEFAULT_MAPPING = {
         "purpose": "C__CATG__GLOBAL.purpose",
         "description": "C__CATG__GLOBAL.description",
         "notes": "C__CATG__GLOBAL.description",
-        "os_info": "C__CATG__OPERATING_SYSTEM.description",
+        # Operating systems are real i-doit software objects. LanLens resolves
+        # this source separately and links the matching
+        # C__OBJTYPE__OPERATING_SYSTEM object through
+        # C__CATG__OPERATING_SYSTEM.application instead of copying the OS name
+        # into a free-text description.
+        "os_info": "",
         "cpu": "C__CATG__CPU.title",
         "model": "C__CATG__MODEL.title",
         "serial": "C__CATG__MODEL.serial",
@@ -218,14 +225,14 @@ def get_config(db: Session) -> IdoitConfig:
     except Exception as exc:
         mapping = {}
         mapping_error = f"Mapping JSON is invalid: {exc}"
-    if _needs_default_mapping_upgrade(mapping):
+    if upgraded_mapping := _upgrade_default_mapping(mapping):
         # Existing installations may still have an older default mapping stored
         # in the DB. That mapping used invalid/too-generic category fields like
         # C__CATG__GLOBAL.comment, C__CATG__GLOBAL.location_path and
         # C__CATG__MODEL.type, so simply changing SETTING_DEFAULTS would not
         # help those installations.
-        mapping = DEFAULT_MAPPING
-        raw_mapping = json.dumps(DEFAULT_MAPPING, indent=2)
+        mapping = upgraded_mapping
+        raw_mapping = json.dumps(upgraded_mapping, indent=2)
     try:
         timeout = max(3, min(120, int(_get_setting(db, "idoit_timeout_seconds") or "15")))
     except ValueError:
@@ -260,16 +267,33 @@ def get_config(db: Session) -> IdoitConfig:
     )
 
 
-def _needs_default_mapping_upgrade(mapping: Any) -> bool:
+def _upgrade_default_mapping(mapping: Any) -> Optional[dict[str, Any]]:
     if not isinstance(mapping, dict):
-        return False
+        return None
     try:
         version = int(mapping.get("version") or 1)
     except (TypeError, ValueError):
         version = 1
     fields = mapping.get("fields") if isinstance(mapping.get("fields"), dict) else {}
     if mapping.get("name") != "Default i-doit mapping":
-        return False
+        return None
+    # Version 13 only needs its old free-text OS mapping retired. It is common
+    # for operators to retain the default mapping name while customizing fields
+    # or object types, so replacing the complete document would silently lose
+    # their configuration.
+    if version == 13:
+        upgraded = copy.deepcopy(mapping)
+        upgraded_fields = upgraded.setdefault("fields", {})
+        if not isinstance(upgraded_fields, dict):
+            return None
+        changed = False
+        if upgraded_fields.get("os_info") == "C__CATG__OPERATING_SYSTEM.description":
+            upgraded_fields["os_info"] = ""
+            changed = True
+        if upgraded.get("version") != DEFAULT_MAPPING["version"]:
+            upgraded["version"] = DEFAULT_MAPPING["version"]
+            changed = True
+        return upgraded if changed else None
     rejected_defaults = {
         "C__CATG__IP.ADDRESS",
         "C__CATG__NETWORK_PORT.MAC",
@@ -284,7 +308,9 @@ def _needs_default_mapping_upgrade(mapping: Any) -> bool:
         for field in description_dump_fields
     ) and version < 4
     global_description_dump = version < 10 and any(value == "C__CATG__GLOBAL.description" for value in fields.values())
-    return version < DEFAULT_MAPPING["version"] or any(value in rejected_defaults for value in fields.values()) or dumps_into_description or global_description_dump
+    if version < 13 or any(value in rejected_defaults for value in fields.values()) or dumps_into_description or global_description_dump:
+        return copy.deepcopy(DEFAULT_MAPPING)
+    return None
 
 
 def _normalized_default_object_type(value: Optional[str]) -> str:
@@ -416,7 +442,7 @@ def _json_safe_device_value(device: Device, field_name: str) -> Any:
 
 
 def _looks_like_server(device: Device) -> bool:
-    vendor = (device.vendor or "").lower()
+    vendor = (device.effective_vendor or "").lower()
     hostname = (device.hostname or device.label or "").lower()
     server_vendors = ("dell emc", "hewlett packard enterprise", "supermicro", "ibm", "lenovo system x")
     if any(vendor_name in vendor for vendor_name in server_vendors):
@@ -512,7 +538,7 @@ def build_export_row(
         "ip_address": device.ip_address or "",
         "mac_address": device.mac_address or "",
         "hostname": device.hostname or "",
-        "manufacturer": device.vendor or "",
+        "manufacturer": device.effective_vendor or "",
         "model": model or "",
         "serial": serial or "",
         "os_info": os_info or "",
@@ -733,6 +759,18 @@ def _first_finding_text(findings: dict[str, dict[str, Any]], candidates: list[tu
     return None
 
 
+def _first_documented_os_value(findings: dict[str, dict[str, Any]]) -> Any:
+    """Return an untruncated OS identity from deep-scan output, never a kernel."""
+    for finding_type, key in (("os", "release"), ("os", "operating_system")):
+        entry = findings.get(finding_type, {}).get(key)
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("value")
+        if _os_assigned_version(value):
+            return value
+    return None
+
+
 def _cpu_title(cpu_raw: Optional[str]) -> Optional[str]:
     if not cpu_raw:
         return None
@@ -840,19 +878,23 @@ def _size_to_value_unit(value: Any) -> tuple[Optional[float], Optional[int]]:
         return None, None
     amount = float(match.group(1))
     unit = (match.group(2) or "").lower().replace("ib", "b")
-    # i-doit dialog ids in default installations: 1=MB, 2=GB, 3=TB.
+    # i-doit's standard memory-unit dialog uses id 3 for GB.  Normalize all
+    # source values to GB so hardware inventories do not depend on a host
+    # reporting bytes, MiB, GiB, or TB.  (The old 1/2/3 mapping labelled
+    # ordinary GB drives as MB in i-doit.)
     if unit in {"", "b"}:
         amount = amount / (1024 ** 3)
-        return round(amount, 2), 2
-    if unit in {"k", "kb"}:
-        return round(amount / (1024 ** 2), 2), 2
-    if unit in {"m", "mb"}:
-        return round(amount, 2), 1
-    if unit in {"g", "gb"}:
-        return round(amount, 2), 2
-    if unit in {"t", "tb"}:
-        return round(amount, 2), 3
-    return amount, None
+    elif unit in {"k", "kb"}:
+        amount = amount / (1024 ** 2)
+    elif unit in {"m", "mb"}:
+        amount = amount / 1024
+    elif unit in {"t", "tb"}:
+        amount = amount * 1024
+    elif unit in {"p", "pb"}:
+        amount = amount * (1024 ** 2)
+    elif unit not in {"g", "gb"}:
+        return amount, None
+    return round(amount, 2), 3
 
 
 def _memory_entries(raw: Any) -> list[dict[str, Any]]:
@@ -934,6 +976,69 @@ def _os_assigned_version(raw: Any) -> Optional[str]:
         if line.startswith("PRETTY_NAME="):
             return line.split("=", 1)[1].strip().strip('"')[:255]
     return text.splitlines()[0][:255]
+
+
+def _operating_system_assignment(raw: Any, kernel_version: Optional[str] = None) -> Optional[dict[str, str]]:
+    """Return normalized i-doit OS-object assignment metadata.
+
+    i-doit's global Operating System category requires an object-browser link;
+    the detected operating-system name itself is not a description value.
+    Keep the complete detected label as the OS object title and split out a
+    useful version for the installation relationship when possible.
+    """
+    title = _os_assigned_version(raw)
+    if not title:
+        return None
+    title = re.sub(r"\s+", " ", title).strip()[:255]
+    version_candidates = re.findall(r"(?<![A-Za-z0-9])\d+(?:\.\d+){0,3}(?:[-_][A-Za-z0-9.]+)?", title)
+    assigned_version = max(
+        version_candidates,
+        key=lambda value: (value.count("."), len(value)),
+        default="",
+    )[:255]
+    result = {"title": title}
+    if assigned_version:
+        result["assigned_version"] = assigned_version
+    if kernel_version and kernel_version.strip():
+        result["description"] = f"Kernel: {kernel_version.strip()[:240]}"
+    return result
+
+
+def _software_assignments(findings: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
+    """Extract a bounded, de-duplicated software inventory for i-doit links.
+
+    The product title is resolved against an Application object, while the
+    detected version stays on the host's Application assignment.  This mirrors
+    the OS relationship and prevents a separate object for every version.
+    """
+    entry = findings.get("software", {}).get("installed_software")
+    raw = entry.get("value") if isinstance(entry, dict) else None
+    values = _decode_finding_value(raw)
+    if not isinstance(values, list):
+        return []
+    result: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in values[:2000]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("name") or item.get("Name") or "").strip()[:255]
+        if not title:
+            continue
+        version = str(item.get("version") or item.get("Version") or "").strip()[:255]
+        publisher = str(item.get("publisher") or item.get("Publisher") or "").strip()[:500]
+        identity = (title.casefold(), version.casefold())
+        if identity in seen:
+            continue
+        seen.add(identity)
+        assignment = {"title": title}
+        if version:
+            assignment["assigned_version"] = version
+        if publisher:
+            assignment["description"] = f"Publisher: {publisher}"
+        result.append(assignment)
+        if len(result) >= 500:
+            break
+    return result
 
 
 def _latest_open_ports(db: Optional[Session], device: Device) -> Optional[str]:
@@ -1303,7 +1408,7 @@ def _lanlens_inventory_summary(device: Device, findings: dict[str, dict[str, Any
     lines.append(f"MAC: {device.mac_address or '-'}")
     lines.append(f"IP: {device.ip_address or '-'}")
     lines.append(f"Hostname: {device.hostname or '-'}")
-    lines.append(f"Vendor: {device.vendor or '-'}")
+    lines.append(f"Vendor: {device.effective_vendor or '-'}")
     lines.append(f"Online: {'yes' if device.is_online else 'no'}")
     lines.append(f"First seen: {device.first_seen.isoformat() if device.first_seen else '-'}")
     lines.append(f"Last seen: {device.last_seen.isoformat() if device.last_seen else '-'}")
@@ -1354,8 +1459,11 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     findings = _latest_findings(db, device)
     model = _hardware_field_text(hw.get("computer_system"), ("Model", "model")) or hw.get("model") or _first_finding_text(findings, [("hardware", "model")], 500)
     serial = _hardware_field_text(hw.get("bios"), ("SerialNumber", "serial", "Serial")) or hw.get("serial") or _first_finding_text(findings, [("hardware", "serial")], 500)
-    vendor = device.vendor or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255)
-    os_info = device.os_info or _first_finding_text(findings, [("os", "release"), ("os", "operating_system"), ("os", "kernel")], 1000)
+    vendor = device.effective_vendor or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255)
+    # An OS assignment must use a documented operating-system value. A kernel
+    # release is supplementary metadata, not an OS object title, and JSON must
+    # remain intact until _os_assigned_version extracts its display fields.
+    os_info = device.os_info or _first_documented_os_value(findings)
     cpu_raw = hw.get("cpu") or hw.get("processor") or _first_finding_text(findings, [("hardware", "cpu"), ("hardware", "processor")], 1500)
     memory = hw.get("memory") or hw.get("physical_memory") or _first_finding_text(findings, [("hardware", "memory"), ("hardware", "physical_memory")], 1500)
     disks = hw.get("disks") or _first_finding_text(findings, [("hardware", "disks"), ("hardware", "disk_drives")], 2500)
@@ -1447,7 +1555,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         # empty so LanLens does not pollute generic i-doit descriptions.
         sync_reference = f"LanLens sync reference: {device.cmdb_id or device.mac_address}"
         _append_field(fields, sync_status_field, sync_reference)
-    return {
+    payload = {
         "objectType": object_type_for_device(device, config),
         "title": label,
         "identity": {
@@ -1459,6 +1567,11 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         },
         "fields": fields,
     }
+    if operating_system := _operating_system_assignment(os_info, device.kernel_version):
+        payload["operatingSystem"] = operating_system
+    if applications := _software_assignments(findings):
+        payload["applications"] = applications
+    return payload
 
 
 def payload_hash(payload: dict[str, Any]) -> str:
@@ -1492,6 +1605,8 @@ MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__MEMORY": ("title", "manufacturer", "capacity"),
     "C__CATG__DRIVE": ("serial", "mount_point", "title"),
     "C__CATG__CERTIFICATE": ("common_name",),
+    "C__CATG__OPERATING_SYSTEM": ("application",),
+    "C__CATG__APPLICATION": ("application",),
 }
 COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS = {
     "C__CATG__NET_CONNECTIONS_FOLDER": ("port_from", "port_to", "protocol"),
@@ -1601,6 +1716,21 @@ def _plain_category_value(value: Any) -> Any:
     return value
 
 
+def _object_reference_id(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        for key in ("id", "objID", "object_id", "object", "isys_obj__id"):
+            candidate = value.get(key)
+            if candidate not in (None, ""):
+                try:
+                    return str(_object_id_as_int(candidate))
+                except IdoitConnectionError:
+                    continue
+    try:
+        return str(_object_id_as_int(value))
+    except IdoitConnectionError:
+        return None
+
+
 def _category_entries(result: Any) -> list[dict[str, Any]]:
     if isinstance(result, list):
         return [entry for entry in result if isinstance(entry, dict)]
@@ -1658,6 +1788,14 @@ def _object_entry_sysid(entry: dict[str, Any]) -> str:
     return ""
 
 
+def _object_entry_type_constant(entry: dict[str, Any]) -> str:
+    for key in ("type_const", "object_type_const", "objecttype_const", "type", "object_type"):
+        value = _plain_category_value(entry.get(key))
+        if isinstance(value, str) and value.startswith("C__OBJTYPE__"):
+            return value.strip()
+    return ""
+
+
 def _identity_terms(payload: dict[str, Any]) -> dict[str, str]:
     identity = payload.get("identity") if isinstance(payload.get("identity"), dict) else {}
     result: dict[str, str] = {}
@@ -1674,6 +1812,25 @@ def _identity_terms(payload: dict[str, Any]) -> dict[str, str]:
 def _normalized_match_text(value: Any) -> str:
     text = str(_plain_category_value(value) or "").strip().lower()
     return re.sub(r"\s+", " ", text)
+
+
+def _operating_system_match_key(value: Any) -> str:
+    """Normalize harmless operating-system title variations for lookup only.
+
+    Major/minor version tokens stay part of the key, while vendor, edition and
+    point-release noise is removed.  The resolver still accepts this fallback
+    only when it yields one unambiguous Operating System object.
+    """
+    text = unicodedata.normalize("NFKD", _normalized_match_text(value))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = re.sub(r"(\d+)\.(\d+)(?:\.\d+)+", r"\1.\2", text)
+    text = re.sub(r"[^a-z0-9.]+", " ", text)
+    ignored = {
+        "gnu", "linux", "lts", "microsoft", "operating", "system",
+        "edition", "standard", "datacenter", "enterprise", "professional",
+        "pro", "home",
+    }
+    return " ".join(part for part in text.split() if part not in ignored)
 
 
 def _normalized_match_mac(value: Any) -> str:
@@ -1885,6 +2042,121 @@ class IdoitClient:
                     if object_id:
                         return object_id
         return None
+
+    async def resolve_operating_system(self, title: str, create_missing: bool = False) -> dict[str, Any]:
+        """Resolve an exact i-doit Operating System object without using app objects.
+
+        Operating-system assignments are object-browser relationships. Restrict
+        lookup and creation to C__OBJTYPE__OPERATING_SYSTEM so an Application
+        object with the same display name can never be linked accidentally.
+        """
+        wanted = re.sub(r"\s+", " ", (title or "").strip())[:255]
+        if not wanted:
+            return {"object_id": None, "action": "skipped_empty"}
+        object_type = "C__OBJTYPE__OPERATING_SYSTEM"
+        wanted_key = _operating_system_match_key(wanted)
+        lookup_title = " ".join(wanted_key.split())
+        queries = [
+            {"filter": {"title": wanted, "type": object_type}},
+            {"filter": {"type": object_type}, "q": wanted},
+            {"type": object_type, "q": wanted},
+        ]
+        if lookup_title and _normalized_match_text(lookup_title) != _normalized_match_text(wanted):
+            queries.extend((
+                {"filter": {"type": object_type}, "q": lookup_title},
+                {"type": object_type, "q": lookup_title},
+            ))
+        successful_lookup = False
+        last_error: IdoitConnectionError | None = None
+        normalized_candidates: dict[str, dict[str, str]] = {}
+        for params in queries:
+            try:
+                result = await self.read_objects(params)
+                successful_lookup = True
+            except IdoitConnectionError as exc:
+                last_error = exc
+                continue
+            for entry in _category_entries(result):
+                if _normalized_match_text(_object_entry_title(entry)) != _normalized_match_text(wanted):
+                    continue
+                candidate_type = _object_entry_type_constant(entry)
+                if candidate_type and candidate_type != object_type:
+                    continue
+                object_id = _object_entry_id(entry)
+                if object_id:
+                    return {"object_id": object_id, "action": "matched", "title": wanted}
+                continue
+            if not wanted_key:
+                continue
+            for entry in _category_entries(result):
+                candidate_type = _object_entry_type_constant(entry)
+                if candidate_type and candidate_type != object_type:
+                    continue
+                candidate_title = _object_entry_title(entry)
+                if _operating_system_match_key(candidate_title) != wanted_key:
+                    continue
+                object_id = _object_entry_id(entry)
+                if object_id:
+                    normalized_candidates[object_id] = {
+                        "object_id": object_id,
+                        "title": candidate_title,
+                    }
+        if len(normalized_candidates) == 1:
+            matched = next(iter(normalized_candidates.values()))
+            return {
+                "object_id": matched["object_id"],
+                "action": "matched_normalized",
+                "title": wanted,
+                "matched_title": matched["title"],
+            }
+        if len(normalized_candidates) > 1:
+            return {
+                "object_id": None,
+                "action": "ambiguous_match",
+                "title": wanted,
+                "candidates": [candidate["title"] for candidate in normalized_candidates.values()],
+            }
+        if not successful_lookup and last_error is not None:
+            raise last_error
+        if not create_missing:
+            return {"object_id": None, "action": "match_required", "title": wanted}
+        object_id = await self.create_object(wanted, object_type)
+        return {"object_id": object_id, "action": "created", "title": wanted}
+
+    async def resolve_application(self, title: str, create_missing: bool = False) -> dict[str, Any]:
+        """Resolve one i-doit Application object for a detected software title."""
+        wanted = re.sub(r"\s+", " ", (title or "").strip())[:255]
+        if not wanted:
+            return {"object_id": None, "action": "skipped_empty"}
+        object_type = "C__OBJTYPE__APPLICATION"
+        queries = (
+            {"filter": {"title": wanted, "type": object_type}},
+            {"filter": {"type": object_type}, "q": wanted},
+            {"type": object_type, "q": wanted},
+        )
+        successful_lookup = False
+        last_error: IdoitConnectionError | None = None
+        for params in queries:
+            try:
+                result = await self.read_objects(params)
+                successful_lookup = True
+            except IdoitConnectionError as exc:
+                last_error = exc
+                continue
+            for entry in _category_entries(result):
+                if _normalized_match_text(_object_entry_title(entry)) != _normalized_match_text(wanted):
+                    continue
+                candidate_type = _object_entry_type_constant(entry)
+                if candidate_type and candidate_type != object_type:
+                    continue
+                if object_id := _object_entry_id(entry):
+                    return {"object_id": object_id, "action": "matched", "title": wanted}
+        if not successful_lookup and last_error is not None:
+            raise last_error
+        if not create_missing:
+            return {"object_id": None, "action": "match_required", "title": wanted}
+        object_id = await self.create_object(wanted, object_type)
+        return {"object_id": object_id, "action": "created", "title": wanted}
 
     async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
         """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
@@ -2306,6 +2578,10 @@ class IdoitClient:
         try:
             result = await self.read_category(object_id, category)
         except IdoitConnectionError:
+            # A failed read cannot establish that an existing OS assignment is
+            # absent. Propagate it so a retry never appends a duplicate link.
+            if category == "C__CATG__OPERATING_SYSTEM":
+                raise
             return None
         entries = _category_entries(result)
         if not entries:
@@ -2331,6 +2607,12 @@ class IdoitClient:
             if expected in (None, ""):
                 continue
             for entry in entries:
+                if field == "application":
+                    expected_reference = _object_reference_id(data.get(field))
+                    current_reference = _object_reference_id(entry.get(field))
+                    if expected_reference and current_reference == expected_reference:
+                        return _category_entry_id(entry)
+                    continue
                 current = _plain_category_value(entry.get(field))
                 if current not in (None, "") and str(current).strip().lower() == str(expected).strip().lower():
                     return _category_entry_id(entry)
@@ -2537,6 +2819,54 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         categories, direct_fields = _category_payloads(payload.get("fields") if isinstance(payload.get("fields"), dict) else {})
         if direct_fields:
             details["direct_fields_skipped"] = direct_fields
+        sync_warnings: list[str] = []
+        operating_system = payload.get("operatingSystem") if isinstance(payload.get("operatingSystem"), dict) else None
+        if operating_system and operating_system.get("title"):
+            os_resolution = await client.resolve_operating_system(
+                str(operating_system["title"]),
+                create_missing=config.create_policy == "create_missing",
+            )
+            details["operating_system"] = os_resolution
+            os_object_id = os_resolution.get("object_id")
+            if os_object_id:
+                os_entry: dict[str, Any] = {"application": _object_id_as_int(os_object_id)}
+                for field in ("assigned_version", "description"):
+                    if operating_system.get(field) not in (None, ""):
+                        os_entry[field] = operating_system[field]
+                categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
+            else:
+                sync_warnings.append(
+                    "C__CATG__OPERATING_SYSTEM: no exact Operating System object match; "
+                    "enable create-missing or create the OS object in i-doit"
+                )
+        applications = payload.get("applications") if isinstance(payload.get("applications"), list) else []
+        application_entries: list[dict[str, Any]] = []
+        application_details: list[dict[str, Any]] = []
+        for application in applications:
+            if not isinstance(application, dict) or not application.get("title"):
+                continue
+            resolution = await client.resolve_application(
+                str(application["title"]), create_missing=config.create_policy == "create_missing",
+            )
+            application_details.append(resolution)
+            application_id = resolution.get("object_id")
+            if application_id:
+                assignment: dict[str, Any] = {"application": _object_id_as_int(application_id)}
+                for field in ("assigned_version", "description"):
+                    if application.get(field) not in (None, ""):
+                        assignment[field] = application[field]
+                application_entries.append(assignment)
+            else:
+                sync_warnings.append(
+                    f"C__CATG__APPLICATION: no exact Application object match for {application['title']!r}; "
+                    "enable create-missing or create the Application object in i-doit"
+                )
+        if application_entries:
+            existing_applications = categories.get("C__CATG__APPLICATION")
+            existing_entries = existing_applications if isinstance(existing_applications, list) else ([existing_applications] if isinstance(existing_applications, dict) else [])
+            categories["C__CATG__APPLICATION"] = [*existing_entries, *application_entries]
+        if application_details:
+            details["applications"] = application_details
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
         if global_category.get("description") is None:
             cleaned_description = await client.cleanup_lanlens_global_description(object_id)
@@ -2545,7 +2875,6 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         if global_category.get("cmdb_status") == "C__CMDB_STATUS__OUT_OF_OPERATION":
             global_category["cmdb_status"] = await client.out_of_operation_status_id()
             details["offline_retirement_applied"] = True
-        sync_warnings: list[str] = []
         for category, data in categories.items():
             entries = data if isinstance(data, list) else [data]
             category_results: list[dict[str, Any]] = []

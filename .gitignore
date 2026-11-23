@@ -27,6 +27,7 @@ node_modules/
 frontend/dist/
 frontend/test-results/
 frontend/.vite/
+mcp/dist-tests/
 
 # OS
 .DS_Store

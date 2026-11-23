@@ -216,7 +216,7 @@ def device_export(device: Device) -> dict[str, Any]:
         "ip_address": device.ip_address,
         "hostname": device.hostname,
         "label": device.label,
-        "vendor": device.vendor,
+        "vendor": device.effective_vendor,
         "device_class": device.device_class,
         "cmdb_id": device.cmdb_id,
         "asset_tag": device.asset_tag,
@@ -225,6 +225,7 @@ def device_export(device: Device) -> dict[str, Any]:
         "location": device.location,
         "responsible": device.responsible,
         "os_info": device.os_info,
+        "kernel_version": device.kernel_version,
         "notes": device.notes,
         "is_registered": device.is_registered,
         "is_online": device.is_online,
@@ -245,7 +246,8 @@ def build_payload(device: Device, config: CmdbConfig) -> dict[str, Any]:
     for source, target in fields.items():
         if source not in allowed_device_fields() or not isinstance(target, str) or not target.strip():
             continue
-        payload[target.strip()] = _json_safe_value(getattr(device, source, None))
+        value = device.effective_vendor if source == "vendor" else getattr(device, source, None)
+        payload[target.strip()] = _json_safe_value(value)
     identity_field = config.identity_field if config.identity_field in allowed_device_fields() else "mac_address"
     return {
         "source": "LanLens",

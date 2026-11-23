@@ -1,13 +1,78 @@
 # Changelog
 
+## 1.6.1 — Build 20261123.0004
+
+- Added outbound Windows inventory-agent enrolment with revocable, expiry-controlled installation tokens and an admin PowerShell installer generated in Deep Scan settings.
+- Added installed-software/version inventory to Linux and Windows deep scans and to the device findings UI.
+- Improved i-doit operating-system reconciliation against existing OS objects and corrected exported drive capacities to GB.
+- Synchronize discovered software as versioned assignments to existing i-doit Application objects.
+
 All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
-### 1.6.0 Iteration Focus
-- Add a supported, continuously validated ARM64 container path alongside AMD64.
-- Continue hardening Network Topology and SNMP workflows after the 1.5.8 topology release, especially setup clarity, diagnostics and mixed-vendor switch visibility.
-- Review the remaining traffic-awareness, endpoint-security and recommendation work without enabling data export or adding dependencies before privacy, license and deployment impact are understood.
+### 1.6.1
+
+- Improved i-doit OS-object matching for harmless vendor, Linux/LTS, edition
+  and point-release title differences while refusing ambiguous matches. Drive
+  and memory capacities are now normalized to i-doit's GB unit instead of
+  labelling ordinary GB values as MB.
+- Preserved customized v13 i-doit mappings while migrating only their obsolete
+  free-text OS mapping. OS assignments now use complete documented OS values,
+  never kernel releases, and defer a write when their existing i-doit category
+  cannot be read. MCP device output no longer exposes maintenance notes, and
+  the Compose MCP upstream follows a customized `LANLENS_PORT` consistently.
+- Hardened the MCP companion against malformed HTTP host headers and prevented
+  it from exposing service URL credentials, credential-bearing URL components
+  or private device-note audit values. Extended-scan results are now discarded
+  if discovery changed a device's address while the scan was running.
+- Applied manufacturer overrides consistently to mapped generic-CMDB vendor
+  fields, prevented i-doit OS-object creation after failed existence checks,
+  and refresh the dashboard when it first observes an already-completed scan.
+- Changed the manual **Scan Now** workflow to run network discovery first and
+  then automatically scan all online, non-ignored devices with the configured
+  port range. The scan remains active until both phases finish, so the
+  dashboard refresh includes the newly detected Connect actions.
+- Added a background extended port scan for every active device or a selected
+  subset, with bounded concurrency, live progress, cancellation and automatic
+  refresh of the dashboard's Connect actions.
+- Added bulk editing for device class, owner, location and description. Only
+  explicitly enabled fields are changed, and intentional empty values clear an
+  existing field.
+- Added per-device manufacturer overrides while preserving the automatically
+  detected OUI vendor. Overrides are used consistently in the UI, reports and
+  CMDB/i-doit exports and can be cleared to restore automatic detection.
+- Added validated manual connection links per device. They appear alongside
+  scan-detected SSH, RDP and web actions and remain untouched by future scans.
+- Added a dedicated, manually editable Linux kernel version field. Successful
+  SSH Deep Scans populate it from `uname -r`, and the value is exposed through
+  the device API, inventory reports and generic CMDB export.
+- Added an optional pre-Deep-Scan OS-family estimate. It conservatively labels
+  devices as Linux, Windows or Unknown from existing class, hostname, vendor
+  and open-port evidence, shows its confidence and reasons, and never
+  overwrites documented or Deep-Scan-derived operating-system data.
+- Added the official LanLens MCP companion for Claude, Codex, ChatGPT and other
+  MCP clients. It provides stdio and authenticated Streamable HTTP transports,
+  a multi-architecture companion image, a one-click Claude Desktop MCP bundle,
+  safe inventory/topology/notification tools and an explicitly enabled,
+  allow-listed device metadata mutation.
+- Hardened bulk editing and extended scans for inventories above 1,000 devices,
+  concurrent discovery, cancellation races and non-blocking result storage.
+- Kept extended-scan progress visible when a job starts after the dashboard was
+  opened, and protected newly discovered kernel values from stale edit forms.
+- Fixed i-doit operating-system synchronization so detected OS data resolves or
+  creates a dedicated `C__OBJTYPE__OPERATING_SYSTEM` object and links it through
+  `C__CATG__OPERATING_SYSTEM.application`, instead of writing the OS name into a
+  description field. Version and kernel details remain structured assignment
+  metadata, and repeated syncs reuse the existing relationship.
+- Updated the MIT-licensed `follow-redirects` and Hono HTTP runtime packages to
+  patched releases after redirect credential-handling, request-routing and
+  WebSocket-upgrade advisories.
+- Added database migrations, API coverage and end-to-end UI tests for the new
+  1.6.1 workflows. The MCP companion adds only MIT- and Apache-2.0-licensed
+  runtime dependencies, documented in the third-party notices.
+
+### 1.6.0
 
 ### New Features
 - Added multi-select and bulk deletion to the device dashboard so accidental

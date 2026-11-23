@@ -27,9 +27,11 @@
 
 ## Overview
 
-LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. It helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, and prepare CMDB/i-doit export data without requiring a cloud account.
+LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. **LanLens — more than just a port scanner:** it helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, collect deep inventory, and prepare CMDB/i-doit export data without requiring a cloud account.
 
 LanLens can:
+
+- receive inventory from an optional outbound Windows agent, including installed software and versions, without opening inbound WinRM access;
 
 - Periodically scan the local network via ARP broadcast
 - Identify device vendors from MAC addresses using the offline IEEE OUI database
@@ -37,7 +39,9 @@ LanLens can:
 - Track online/offline state, IP history, DHCP range membership, open services and scan-detected inventory changes
 - Flag security-awareness signals such as unknown DHCP servers, ARP/MAC drift and VRRP/HSRP peers
 - Poll optional SNMP v1/v2c/v3 targets for IF-MIB inventory, common network-device identity, switch-port context and diagnostics
-- Perform per-device port scans using nmap
+- Perform per-device, selected-device or network-wide port scans using nmap
+- Bulk-edit common device documentation fields and retain manual manufacturer overrides
+- Keep operator-defined connection links separate from automatically detected ports
 - Provide a React-based dark-themed web UI for management and documentation
 - Document device services and group them in the optional Services directory via drag-and-drop or explicit segment selection
 - Send notifications through configured Telegram, webhook/Gotify and email channels
@@ -320,13 +324,40 @@ Uses the global port range from Settings -> Network Discovery -> Port Scan Range
 
 Returns last 5 port scan results.
 
+#### `POST /api/devices/bulk-update`
+
+Updates only the supplied `device_class`, `responsible`, `location` and
+`description` fields for up to 1000 selected device IDs. Supplying a field as
+`null` clears it; omitted fields remain unchanged.
+
+#### Network-wide port scan
+
+- `POST /api/devices/bulk-port-scan` starts a scan for all active devices. Send
+  `{ "device_ids": [1, 2] }` to scan a selected subset.
+- `GET /api/devices/bulk-port-scan/status` returns job progress and counters.
+- `POST /api/devices/bulk-port-scan/cancel` stops scheduling further devices;
+  currently running nmap processes finish before the job becomes cancelled.
+
+At most four devices are scanned concurrently. Devices without a valid IPv4
+address are reported as skipped.
+
+#### Manual connection links
+
+`GET` and `POST /api/devices/{id}/manual-connect` list and create validated
+operator links. `PUT` and `DELETE /api/devices/{id}/manual-connect/{entry_id}`
+update or remove an entry. Supported schemes are `http`, `https`, `ssh`, `rdp`,
+`vnc` and `tcp`. These rows are independent of `PortScan` data.
+
 ---
 
 ### Scan — `/api/scan`
 
 #### `POST /api/scan/start`
 
-Triggers immediate ARP scan in background.
+Triggers the manual scan pipeline in the background. LanLens first performs
+network discovery and then scans every online, non-ignored device with the
+configured port range. `/api/scan/status` remains running until both phases
+finish, so clients can refresh the inventory after Connect data is persisted.
 
 #### `GET /api/scan/status`
 
@@ -436,7 +467,7 @@ Returns a `.rdp` file download with the device's IP pre-configured.
 ### Port Scan Flow
 
 ```
-1. Triggered by: POST /api/devices/{id}/scan-ports, the manual UI action, or the optional scheduled background job
+1. Triggered by: POST /api/devices/{id}/scan-ports, the selected/network-wide bulk endpoint, the automatic follow-up to **Scan Now**, or the optional scheduled background job
 2. port_scanner.py: nmap.PortScanner()
 3. Arguments: configured in Settings; default is "-sS -T4 --top-ports 1000" (SYN scan, fast)
    Fallback: "-sT -T4 ..." (TCP connect, no root needed)
@@ -847,6 +878,34 @@ In the Device Detail page, expand the **Deep Scan** card:
 5. Click **Save Configuration**
 6. Click **Run Deep Scan** to trigger an immediate scan
 
+### Outbound Windows agent
+
+For Windows systems that cannot or should not accept inbound WinRM connections,
+open **Deep Scan → Windows Agent**. Create an installation token, choose an
+expiry (or **Never expires**), enter the public HTTPS URL of LanLens and choose
+the reporting interval. LanLens shows a one-time, administrator PowerShell
+command containing that token.
+
+The command downloads the small agent source from the selected LanLens instance,
+compiles it with the built-in Windows .NET Framework compiler, registers the
+result as the `LanLensAgent` Windows service, enrolls it, then starts it. The
+service reports operating-system information, active network identity and
+installed software including version and publisher over outbound HTTPS. It can
+therefore inventory endpoints outside the local LAN as long as they can reach
+the configured URL.
+
+Installation tokens are stored as hashes, are shown only at creation time, and
+can be revoked from the same tab. Each enrolled service receives its own
+replacement-safe credential and monotonically increasing report sequence;
+LanLens rejects revoked credentials and replayed reports. Use HTTPS with a
+valid certificate and revoke a token after a limited rollout.
+
+During i-doit synchronization, LanLens resolves each discovered software title
+against an existing `C__OBJTYPE__APPLICATION` object and writes the detected
+version to the host's `C__CATG__APPLICATION.assigned_version` assignment. Just
+like OS reconciliation, an ambiguous or missing match is not guessed; choose
+the `create_missing` policy or create the application object in i-doit first.
+
 ### Finding types
 
 Findings are stored as key/value pairs grouped by `finding_type`:
@@ -860,6 +919,13 @@ Findings are stored as key/value pairs grouped by `finding_type`:
 | `hypervisor` | VM list from virsh/qm/pct |
 | `vm_guest` | Enumerated VMs with MAC/IP where available |
 | `audit` | Windows features, licensing, IIS, AD, DHCP, SQL Server |
+| `software` | Installed packages/applications with version and publisher |
+
+On Linux, a successful profile that includes OS data also copies the value from
+`uname -r` into the device's dedicated **Kernel version** field. This makes the
+current kernel visible in the normal device details and API without opening the
+raw Deep Scan findings. The field remains manually editable, and a scan that
+does not return a kernel value leaves the existing value unchanged.
 
 ### Hypervisor guest matching
 
@@ -879,6 +945,7 @@ When `auto_scan_enabled` is set on a device, the deep scan scheduler (which poll
 - Credentials are encrypted using Fernet symmetric encryption. The key is derived from `SECRET_KEY` via SHA-256 and URL-safe base64 encoding.
 - The `encrypted_secret` column is never returned by any API endpoint.
 - All API endpoints require a valid session (HTTP-only cookie or Bearer token). For persistent REST integrations, set `LANLENS_API_TOKEN` to a random value of at least 32 characters and send it as `Authorization: Bearer <token>`. The token permits only GET/HEAD/OPTIONS requests by default. Set `LANLENS_API_TOKEN_READ_ONLY=false` only for an integration that genuinely needs write methods; the token has the authority of the first configured LanLens user and must be protected like an administrator credential. Generate a suitable value with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`.
+- The optional official MCP companion exposes a deliberately smaller, secret-free integration surface for Claude, Codex, ChatGPT and other MCP clients. It supports local stdio and authenticated Streamable HTTP, ships as `alexrosbach/lanlens-mcp`, and has a one-click Claude Desktop bundle. See [MCP companion](mcp.md) for setup, client examples, transports, and its double-gated metadata write tool.
 - SSH credential tests and deep scans reject unknown or changed host keys. Put
   verified OpenSSH host-key entries in `/data/ssh_known_hosts` inside the
   container, or point `LANLENS_SSH_KNOWN_HOSTS` at another mounted file. Verify
@@ -986,7 +1053,10 @@ Default i-doit JSON-RPC field mapping writes the LanLens values that have reliab
 - vendor, model and serial number -> `C__CATG__MODEL`
 - inventory number / CMDB ID -> `C__CATG__ACCOUNTING.inventory_no`
 - purpose, description and notes -> `C__CATG__GLOBAL`
-- operating system text -> `C__CATG__OPERATING_SYSTEM.description`
+- operating system -> exact `C__OBJTYPE__OPERATING_SYSTEM` object lookup and
+  `C__CATG__OPERATING_SYSTEM.application` assignment; the detected version is
+  written to `assigned_version` and kernel details remain supplemental
+  description text
 - CPU, memory and drive findings -> their matching hardware categories when deep-scan data is available
 - open-port and documented service records -> structured `C__CATG__NET_CONNECTIONS_FOLDER` entries using i-doit's listener fields (`protocol`, `protocol_layer_5`, `port_from`, `port_to`, and `description`)
 - TLS certificate records -> structured `C__CATG__CERTIFICATE` entries using `common_name`, `expire_date`, `type`, and a consolidated `description`
@@ -1004,6 +1074,18 @@ configured `TZ` offset. Persistent REST access reads `LANLENS_API_TOKEN` and
 Passive discovery data is available as optional mapping sources too. `mdns_discovery`, `upnp_discovery` and `passive_discovery` can be mapped to an operator-chosen i-doit text/category field, and the full LanLens inventory summary includes mDNS and UPnP/SSDP observations when they are linked to the device.
 
 Some i-doit fields such as responsible person, location and selected certificate/application attributes are object references or installation-specific dropdown values in standard i-doit data models, not plain text. LanLens sends the known plain fields and treats uncertain category fields as best-effort optional writes so an unsupported optional field does not block the whole device sync. Operators can still add explicit custom mapping entries once the target i-doit field is known.
+
+Operating systems are handled as real i-doit software objects rather than as
+free text. In `match_only` mode the matching Operating System object must already
+exist in i-doit. LanLens first uses an exact title and then accepts harmless,
+unambiguous variations such as vendor prefixes, `Linux`/`LTS`, edition labels and
+point releases; it never guesses when multiple OS objects could match. With
+`create_missing`, LanLens may create the detected OS title as
+`C__OBJTYPE__OPERATING_SYSTEM` and then link it to the device. Repeated syncs
+reuse the matching OS object and update the same device assignment instead of
+appending duplicate description entries. Hardware drive and memory capacities
+are sent in i-doit's GB unit, regardless of whether discovery reported bytes,
+MB, GB or TB.
 
 The built-in SQLite database uses WAL mode and a busy timeout. i-doit sync
 releases its local write transaction before waiting for remote JSON-RPC calls,

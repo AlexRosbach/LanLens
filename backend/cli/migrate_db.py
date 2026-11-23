@@ -926,6 +926,82 @@ def migrate():
         else:
             print("Migration: device_dns_names already exists — skipped")
 
+        # ── v1.6.1 ── Device manufacturer overrides and manual connect links ─
+        if not _column_exists(conn, "devices", "vendor_override"):
+            conn.execute(text("ALTER TABLE devices ADD COLUMN vendor_override VARCHAR(255)"))
+            conn.commit()
+            print("Migration: added devices.vendor_override")
+        else:
+            print("Migration: devices.vendor_override already exists — skipped")
+
+        if not _column_exists(conn, "devices", "kernel_version"):
+            conn.execute(text("ALTER TABLE devices ADD COLUMN kernel_version VARCHAR(255)"))
+            conn.commit()
+            print("Migration: added devices.kernel_version")
+        else:
+            print("Migration: devices.kernel_version already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "manual_connect_entries"):
+            conn.execute(text(
+                "CREATE TABLE manual_connect_entries ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE, "
+                "label VARCHAR(128) NOT NULL, "
+                "url VARCHAR(2048) NOT NULL, "
+                "protocol VARCHAR(16) NOT NULL DEFAULT 'https', "
+                "sort_order INTEGER NOT NULL DEFAULT 0, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE INDEX ix_manual_connect_entries_device "
+                "ON manual_connect_entries(device_id)"
+            ))
+            conn.commit()
+            print("Migration: created manual_connect_entries")
+        elif not IS_SQLITE:
+            print("Migration: manual_connect_entries — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: manual_connect_entries already exists — skipped")
+
+        # ── v1.6.1 ── Outbound Windows inventory-agent enrolment ────────────
+        if IS_SQLITE and not _table_exists(conn, "agent_enrollment_tokens"):
+            conn.execute(text(
+                "CREATE TABLE agent_enrollment_tokens ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name VARCHAR(128) NOT NULL, "
+                "token_hash VARCHAR(64) NOT NULL UNIQUE, "
+                "expires_at DATETIME, revoked_at DATETIME, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                "last_used_at DATETIME)"
+            ))
+            conn.commit()
+            print("Migration: created agent_enrollment_tokens")
+        elif not IS_SQLITE:
+            print("Migration: agent_enrollment_tokens — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: agent_enrollment_tokens already exists — skipped")
+
+        if IS_SQLITE and not _table_exists(conn, "windows_agents"):
+            conn.execute(text(
+                "CREATE TABLE windows_agents ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "agent_id VARCHAR(64) NOT NULL UNIQUE, "
+                "device_id INTEGER NOT NULL UNIQUE REFERENCES devices(id) ON DELETE CASCADE, "
+                "enrollment_token_id INTEGER REFERENCES agent_enrollment_tokens(id) ON DELETE SET NULL, "
+                "secret_hash VARCHAR(64) NOT NULL, "
+                "last_sequence INTEGER NOT NULL DEFAULT 0, last_seen_at DATETIME, revoked_at DATETIME, "
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            ))
+            conn.execute(text("CREATE INDEX ix_windows_agents_device ON windows_agents(device_id)"))
+            conn.commit()
+            print("Migration: created windows_agents")
+        elif not IS_SQLITE:
+            print("Migration: windows_agents — skipped (non-SQLite, handled by create_all)")
+        else:
+            print("Migration: windows_agents already exists — skipped")
+
         conn.commit()
 
 

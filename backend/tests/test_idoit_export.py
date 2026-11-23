@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -8,8 +9,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
-from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
+from backend.models import DeepScanFinding, DeepScanRun, Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, Setting, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, _drive_entries, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
 class IdoitExportCsvTest(unittest.TestCase):
@@ -20,6 +21,30 @@ class IdoitExportCsvTest(unittest.TestCase):
 
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
+
+    def test_v13_default_named_mapping_preserves_operator_customizations(self):
+        db = self.Session()
+        try:
+            mapping = {
+                "name": "Default i-doit mapping",
+                "version": 13,
+                "objectType": "C__OBJTYPE__SERVER",
+                "fields": {
+                    "hostname": "C__CATG__GLOBAL.custom_hostname",
+                    "os_info": "C__CATG__OPERATING_SYSTEM.description",
+                },
+            }
+            db.add(Setting(key="idoit_mapping_json", value=json.dumps(mapping)))
+            db.commit()
+
+            config = get_config(db)
+
+            self.assertEqual(config.mapping["version"], 14)
+            self.assertEqual(config.mapping["objectType"], "C__OBJTYPE__SERVER")
+            self.assertEqual(config.mapping["fields"]["hostname"], "C__CATG__GLOBAL.custom_hostname")
+            self.assertEqual(config.mapping["fields"]["os_info"], "")
+        finally:
+            db.close()
 
     def test_rows_to_export_csv_skips_unchecked_rows(self):
         csv_body = rows_to_export_csv([
@@ -50,6 +75,19 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertIn("Passive Discovery", rows[0])
         self.assertNotIn("SNMP-VLAN", rows[0])
         self.assertIn("Identity Confidence", rows[0])
+
+    def test_drive_capacity_is_normalized_to_idoit_gigabytes(self):
+        entries = _drive_entries([
+            {"Model": "NVMe", "Size": "476.94 GB"},
+            {"Model": "SATA", "Size": "102400 MB"},
+            {"Model": "Archive", "Size": "2 TB"},
+        ])
+
+        self.assertEqual(entries, [
+            {"title": "NVMe", "capacity": 476.94, "unit": 3},
+            {"title": "SATA", "capacity": 100.0, "unit": 3},
+            {"title": "Archive", "capacity": 2048.0, "unit": 3},
+        ])
 
     def test_build_export_rows_uses_bulk_snmp_identity(self):
         db = self.Session()
@@ -253,7 +291,7 @@ class IdoitExportCsvTest(unittest.TestCase):
         finally:
             db.close()
 
-    def test_default_idoit_payload_maps_notes_and_os_to_standard_text_fields(self):
+    def test_default_idoit_payload_keeps_os_out_of_description_fields(self):
         db = self.Session()
         try:
             device = Device(
@@ -271,10 +309,80 @@ class IdoitExportCsvTest(unittest.TestCase):
             payload = device_payload(device, get_config(db), db)
             fields = payload["fields"]
 
-            self.assertEqual(fields["C__CATG__OPERATING_SYSTEM.description"], "Ubuntu 24.04 LTS")
+            self.assertNotIn("C__CATG__OPERATING_SYSTEM.description", fields)
+            self.assertEqual(payload["operatingSystem"]["title"], "Ubuntu 24.04 LTS")
+            self.assertEqual(payload["operatingSystem"]["assigned_version"], "24.04")
             self.assertIn("Runs the workshop dashboard", fields["C__CATG__GLOBAL.description"])
             self.assertIn("Rack shelf 2, patch planned", fields["C__CATG__GLOBAL.description"])
+            self.assertNotIn("Ubuntu 24.04 LTS", fields["C__CATG__GLOBAL.description"])
             self.assertEqual(DEFAULT_MAPPING["fields"]["notes"], "C__CATG__GLOBAL.description")
+        finally:
+            db.close()
+
+    def test_operating_system_assignment_uses_documented_os_not_kernel_fallback(self):
+        db = self.Session()
+        try:
+            device = Device(
+                mac_address="00:11:22:33:44:66",
+                ip_address="192.0.2.66",
+                kernel_version="6.8.12-4-pve",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+            run = DeepScanRun(device_id=device.id, profile="os_services", status="done")
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            db.add(DeepScanFinding(
+                device_id=device.id,
+                run_id=run.id,
+                finding_type="os",
+                key="kernel",
+                value_json=json.dumps("6.8.12-4-pve"),
+            ))
+            db.commit()
+
+            self.assertNotIn("operatingSystem", device_payload(device, get_config(db), db))
+
+            db.add(DeepScanFinding(
+                device_id=device.id,
+                run_id=run.id,
+                finding_type="os",
+                key="operating_system",
+                value_json=json.dumps({"Caption": "Windows 11 Pro", "Version": "24H2"}),
+            ))
+            db.commit()
+
+            assignment = device_payload(device, get_config(db), db)["operatingSystem"]
+            self.assertEqual(assignment["title"], "Windows 11 Pro 24H2")
+            self.assertEqual(assignment["description"], "Kernel: 6.8.12-4-pve")
+        finally:
+            db.close()
+
+    def test_payload_extracts_installed_software_for_application_assignments(self):
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:77", hostname="software-host")
+            db.add(device)
+            db.commit()
+            run = DeepScanRun(device_id=device.id, profile="windows_agent", status="done")
+            db.add(run)
+            db.commit()
+            db.add(DeepScanFinding(
+                device_id=device.id, run_id=run.id, finding_type="software", key="installed_software",
+                value_json=json.dumps([
+                    {"name": "Mozilla Firefox", "version": "132.0", "publisher": "Mozilla"},
+                    {"name": "Mozilla Firefox", "version": "132.0", "publisher": "Mozilla"},
+                    {"name": "7-Zip", "version": "24.09", "publisher": "Igor Pavlov"},
+                ]),
+            ))
+            db.commit()
+
+            self.assertEqual(device_payload(device, get_config(db), db)["applications"], [
+                {"title": "Mozilla Firefox", "assigned_version": "132.0", "description": "Publisher: Mozilla"},
+                {"title": "7-Zip", "assigned_version": "24.09", "description": "Publisher: Igor Pavlov"},
+            ])
         finally:
             db.close()
 
@@ -410,6 +518,190 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(device.idoit_sync.idoit_sysid, "SYS-42")
         finally:
             db.close()
+
+    async def test_sync_links_real_operating_system_object(self):
+        db = self.Session()
+        saved_categories = []
+
+        class FakeClient:
+            def __init__(self, config):
+                self.config = config
+
+            async def login(self):
+                return {"session-id": "test"}
+
+            async def find_existing_object(self, payload):
+                return {"object_id": "42", "confidence": 100, "matched_by": "mac_address"}
+
+            async def read_object(self, object_id):
+                return {"id": object_id, "type_title": "Client", "sysid": "SYS-42"}
+
+            async def object_type_title(self, object_id):
+                return "Client"
+
+            async def update_object_title(self, object_id, title):
+                return {"id": object_id, "title": title}
+
+            async def resolve_operating_system(self, title, create_missing=False):
+                self.assert_create_missing = create_missing
+                return {"object_id": "99", "action": "matched", "title": title}
+
+            async def save_category_best_effort(self, object_id, category, data):
+                saved_categories.append((object_id, category, data))
+                return {"status": "saved", "result": True}
+
+            async def cleanup_lanlens_global_description(self, object_id):
+                return None
+
+            async def object_sysid(self, object_id):
+                return "SYS-42"
+
+        try:
+            update_config(db, {
+                "idoit_enabled": True,
+                "idoit_base_url": "https://idoit.example.test",
+                "idoit_api_key": "secret",
+                "idoit_create_policy": "match_only",
+            })
+            device = Device(
+                mac_address="00:11:22:33:44:55",
+                ip_address="192.0.2.10",
+                hostname="client-01",
+                os_info="Ubuntu 24.04 LTS",
+                kernel_version="6.8.0-48-generic",
+                is_registered=True,
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+            with patch("backend.services.idoit.IdoitClient", FakeClient):
+                result = await sync_device_to_idoit(db, device, mode="manual")
+
+            self.assertEqual(result["status"], "synced")
+            operating_system_saves = [
+                data for _object_id, category, data in saved_categories
+                if category == "C__CATG__OPERATING_SYSTEM"
+            ]
+            self.assertEqual(operating_system_saves, [{
+                "application": 99,
+                "assigned_version": "24.04",
+                "description": "Kernel: 6.8.0-48-generic",
+            }])
+        finally:
+            db.close()
+
+    async def test_sync_links_detected_software_to_existing_application_objects(self):
+        db = self.Session()
+        saved_categories = []
+
+        class FakeClient:
+            def __init__(self, config): pass
+            async def login(self): return {"session-id": "test"}
+            async def find_existing_object(self, payload): return {"object_id": "42", "confidence": 100, "matched_by": "mac_address"}
+            async def read_object(self, object_id): return {"id": object_id, "type_title": "Client", "sysid": "SYS-42"}
+            async def object_type_title(self, object_id): return "Client"
+            async def update_object_title(self, object_id, title): return {"id": object_id}
+            async def resolve_application(self, title, create_missing=False):
+                return {"object_id": "101" if title == "Mozilla Firefox" else "102", "action": "matched", "title": title}
+            async def save_category_best_effort(self, object_id, category, data):
+                saved_categories.append((category, data)); return {"status": "saved", "result": True}
+            async def cleanup_lanlens_global_description(self, object_id): return None
+            async def object_sysid(self, object_id): return "SYS-42"
+
+        try:
+            update_config(db, {"idoit_enabled": True, "idoit_base_url": "https://idoit.example.test", "idoit_api_key": "secret"})
+            device = Device(mac_address="00:11:22:33:44:88", hostname="app-host", is_registered=True)
+            db.add(device); db.commit()
+            run = DeepScanRun(device_id=device.id, profile="windows_agent", status="done")
+            db.add(run); db.commit()
+            db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="software", key="installed_software", value_json=json.dumps([
+                {"name": "Mozilla Firefox", "version": "132.0", "publisher": "Mozilla"},
+                {"name": "7-Zip", "version": "24.09"},
+            ])))
+            db.commit()
+            with patch("backend.services.idoit.IdoitClient", FakeClient):
+                result = await sync_device_to_idoit(db, device, mode="manual")
+            self.assertEqual(result["status"], "synced")
+            applications = [data for category, data in saved_categories if category == "C__CATG__APPLICATION"]
+            self.assertEqual(applications, [
+                {"application": 101, "assigned_version": "132.0", "description": "Publisher: Mozilla"},
+                {"application": 102, "assigned_version": "24.09"},
+            ])
+        finally:
+            db.close()
+
+    async def test_operating_system_resolution_uses_dedicated_object_type(self):
+        calls = []
+
+        class FakeSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                calls.append(("search", params))
+                return []
+
+            async def create_object(self, title, object_type):
+                calls.append(("create", title, object_type))
+                return "99"
+
+        client = FakeSearchClient(get_config(self.Session()))
+        resolution = await client.resolve_operating_system("Ubuntu 24.04 LTS", create_missing=True)
+
+        self.assertEqual(resolution["object_id"], "99")
+        self.assertEqual(resolution["action"], "created")
+        self.assertIn(("create", "Ubuntu 24.04 LTS", "C__OBJTYPE__OPERATING_SYSTEM"), calls)
+        self.assertTrue(all(
+            item[1].get("filter", {}).get("type") == "C__OBJTYPE__OPERATING_SYSTEM"
+            or item[1].get("type") == "C__OBJTYPE__OPERATING_SYSTEM"
+            for item in calls if item[0] == "search"
+        ))
+
+    async def test_operating_system_resolution_matches_unambiguous_normalized_title(self):
+        class NormalizedSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [{
+                    "id": "99",
+                    "title": "Ubuntu Linux 24.04 LTS",
+                    "type_const": "C__OBJTYPE__OPERATING_SYSTEM",
+                }]
+
+        client = NormalizedSearchClient(get_config(self.Session()))
+        resolution = await client.resolve_operating_system("Ubuntu 24.04.3 LTS")
+
+        self.assertEqual(resolution, {
+            "object_id": "99",
+            "action": "matched_normalized",
+            "title": "Ubuntu 24.04.3 LTS",
+            "matched_title": "Ubuntu Linux 24.04 LTS",
+        })
+
+    async def test_operating_system_resolution_does_not_guess_between_normalized_titles(self):
+        class AmbiguousSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [
+                    {"id": "99", "title": "Windows Server 2022 Standard", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "100", "title": "Windows Server 2022 Datacenter", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("ambiguous existing OS titles must not create a new object")
+
+        client = AmbiguousSearchClient(get_config(self.Session()))
+        resolution = await client.resolve_operating_system("Microsoft Windows Server 2022", create_missing=True)
+
+        self.assertEqual(resolution["action"], "ambiguous_match")
+        self.assertIsNone(resolution["object_id"])
+
+    async def test_operating_system_resolution_does_not_create_after_failed_lookups(self):
+        class FailedLookupClient(IdoitClient):
+            async def read_objects(self, params):
+                raise IdoitConnectionError("temporary i-doit outage", stage="read_objects")
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("must not create an OS when every existence check failed")
+
+        client = FailedLookupClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.resolve_operating_system("Ubuntu 24.04 LTS", create_missing=True)
 
     async def test_match_only_uses_manual_idoit_sysid_before_other_identity(self):
         db = self.Session()
@@ -897,6 +1189,39 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                 {"protocol": "TCP", "port_from": 22, "port_to": 22},
             )
         )
+
+    async def test_operating_system_assignment_reuses_object_reference(self):
+        class OperatingSystemClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return [{
+                    "id": "17",
+                    "application": {"id": "99", "title": "Ubuntu 24.04 LTS"},
+                    "assigned_version": "24.04",
+                }]
+
+        client = OperatingSystemClient(get_config(self.Session()))
+
+        self.assertEqual(
+            await client.find_reusable_category_entry(
+                "42",
+                "C__CATG__OPERATING_SYSTEM",
+                {"application": 99, "assigned_version": "24.04"},
+            ),
+            "17",
+        )
+
+    async def test_operating_system_category_read_failure_prevents_duplicate_assignment(self):
+        class UnavailableOperatingSystemClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                raise IdoitConnectionError("temporary i-doit outage", stage="read_category")
+
+        client = UnavailableOperatingSystemClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.find_reusable_category_entry(
+                "42",
+                "C__CATG__OPERATING_SYSTEM",
+                {"application": 99},
+            )
 
     def test_truncated_sync_log_keeps_identity_match_debug(self):
         details = {

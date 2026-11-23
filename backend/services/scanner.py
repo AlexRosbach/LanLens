@@ -1010,6 +1010,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             f"{devices_new} new, {devices_offline} went offline, "
             f"{retention_result['archived']} archived, {retention_result['deleted']} deleted"
         )
+        db.refresh(scan_run)
+        db.expunge(scan_run)
         return scan_run
 
     except Exception as e:
@@ -1021,6 +1023,8 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
             db.commit()
         except Exception:
             db.rollback()
+        db.refresh(scan_run)
+        db.expunge(scan_run)
         return scan_run
 
     finally:

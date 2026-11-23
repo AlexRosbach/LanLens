@@ -81,7 +81,7 @@ SETTING_KEYS = [
     "cmdb_id_prefix", "cmdb_id_digits",
     "advanced_view_enabled", "show_cmdb_integrations", "show_services_nav", "show_dhcp_monitor_nav", "show_network_topology_nav",
     "show_plugin_api", "show_passive_discovery", "show_mdns_discovery", "show_ssdp_discovery",
-    "show_tls_checks", "show_ping_history", "show_build_info", "show_debug_tools", "debug_log_level",
+    "show_tls_checks", "show_ping_history", "show_os_inference", "show_build_info", "show_debug_tools", "debug_log_level",
 ]
 
 
@@ -271,6 +271,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         show_ssdp_discovery=_get(db, "show_ssdp_discovery", "false") == "true",
         show_tls_checks=_get(db, "show_tls_checks", "false") == "true",
         show_ping_history=_get(db, "show_ping_history", "false") == "true",
+        show_os_inference=_get(db, "show_os_inference", "false") == "true",
         show_build_info=_get(db, "show_build_info", "false") == "true",
         show_debug_tools=_get(db, "show_debug_tools", "false") == "true",
         debug_log_level=_get(db, "debug_log_level", "warning") if _get(db, "debug_log_level", "warning") in {"info", "warning", "error", "debug", "trace"} else "warning",
@@ -564,6 +565,7 @@ def update_ui_settings(
     _set(db, "show_ssdp_discovery", "true" if data.show_ssdp_discovery else "false")
     _set(db, "show_tls_checks", "true" if data.show_tls_checks else "false")
     _set(db, "show_ping_history", "true" if data.show_ping_history else "false")
+    _set(db, "show_os_inference", "true" if data.show_os_inference else "false")
     _set(db, "show_build_info", "true" if data.show_build_info else "false")
     _set(db, "show_debug_tools", "true" if data.show_debug_tools else "false")
     _set(db, "debug_log_level", data.debug_log_level if data.debug_log_level in {"info", "warning", "error", "debug", "trace"} else "warning")

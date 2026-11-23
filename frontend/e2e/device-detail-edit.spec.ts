@@ -46,6 +46,7 @@ const device = {
   responsible: '',
   password_location: '',
   os_info: '',
+  kernel_version: '6.8.12-4-pve',
   asset_tag: 'ASSET-123',
   notes: '',
   cmdb_id: null,
@@ -121,13 +122,88 @@ test('device detail saves cleared label and asset tag as null values', async ({ 
 
   await page.goto('/devices/1')
   await page.getByRole('button', { name: 'Edit' }).click()
-  await page.getByPlaceholder('e.g. NAS Server, Living Room Pi').fill('')
-  await page.getByPlaceholder('e.g. SRV-001').fill('')
-  await page.getByRole('button', { name: 'Save' }).click()
+  for (const [placeholder, value] of [
+    ['e.g. NAS Server, Living Room Pi', ''],
+    ['e.g. SRV-001', ''],
+    ['e.g. 6.8.12-4-pve', '6.8.13-1-pve'],
+  ] as const) {
+    await page.getByPlaceholder(placeholder).evaluate((input: HTMLInputElement, nextValue) => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      valueSetter?.call(input, nextValue)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }, value)
+  }
+  await page.getByRole('button', { name: 'Save' }).evaluate((button: HTMLButtonElement) => button.click())
 
   await expect.poll(() => updatePayload).not.toBeNull()
   expect(updatePayload?.label).toBeNull()
   expect(updatePayload?.asset_tag).toBeNull()
+  expect(updatePayload?.kernel_version).toBe('6.8.13-1-pve')
+})
+
+test('device detail omits an unchanged kernel value from unrelated edits', async ({ page }) => {
+  let updatePayload: Record<string, unknown> | null = null
+  const kernelDevice = { ...device, kernel_version: '6.8.12-4-pve' }
+
+  await page.route('**/api/auth/me', (route) => route.fulfill({ json: { username: 'admin', force_password_change: false } }))
+  await page.route('**/api/settings', (route) => route.fulfill({ json: settings }))
+  await page.route('**/api/notifications/unread-count', (route) => route.fulfill({ json: { count: 0 } }))
+  await page.route('**/api/settings/update/check', (route) => route.fulfill({ json: { current_version: '1.6.1', latest_version: '1.6.1', update_available: false } }))
+  await page.route('**/api/client-errors', (route) => route.fulfill({ json: { ok: true } }))
+  await page.route('**/api/devices', (route) => route.fulfill({ json: { items: [kernelDevice], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } }))
+  await page.route('**/api/devices/1/mark-viewed', (route) => route.fulfill({ json: { message: 'ok' } }))
+  await page.route('**/api/devices/1/ip-history', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/1/timeline', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/1/deep-scan/**', (route) => route.fulfill({ json: route.request().url().includes('/config') ? {} : [] }))
+  await page.route('**/api/credentials', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/1', async (route) => {
+    if (route.request().method() === 'PUT') {
+      updatePayload = route.request().postDataJSON() as Record<string, unknown>
+      await route.fulfill({ json: { ...kernelDevice, purpose: 'Updated purpose' } })
+      return
+    }
+    await route.fulfill({ json: kernelDevice })
+  })
+
+  await page.goto('/devices/1')
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.getByPlaceholder('e.g. Virtualisation host').fill('Updated purpose')
+  await page.getByRole('button', { name: 'Save' }).evaluate((button: HTMLButtonElement) => button.click())
+
+  await expect.poll(() => updatePayload).not.toBeNull()
+  expect(updatePayload).not.toHaveProperty('kernel_version')
+})
+
+test('device detail labels a pre-deep-scan OS estimate and its evidence', async ({ page }, testInfo) => {
+  const inferredDevice = {
+    ...device,
+    inferred_os_family: 'Windows',
+    os_inference_confidence: 'high',
+    os_inference_reasons: ['RDP port 3389 is open', 'SMB port 445 is open'],
+  }
+
+  await page.route(/^https?:\/\/[^/]+\/api\//, (route) => {
+    const path = new URL(route.request().url()).pathname.replace(/\/$/, '')
+    if (path === '/api/auth/me') return route.fulfill({ json: { username: 'admin', force_password_change: false } })
+    if (path === '/api/settings') return route.fulfill({ json: { ...settings, show_os_inference: true } })
+    if (path === '/api/settings/update/check') return route.fulfill({ json: { current_version: '1.6.1', latest_version: '1.6.1', update_available: false } })
+    if (path === '/api/notifications/unread-count') return route.fulfill({ json: { count: 0 } })
+    if (path === '/api/devices') return route.fulfill({ json: { items: [inferredDevice], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } })
+    if (path === '/api/devices/1') return route.fulfill({ json: inferredDevice })
+    if (path === '/api/devices/1/mark-viewed') return route.fulfill({ json: { message: 'ok' } })
+    if (path === '/api/devices/1/deep-scan/config') return route.fulfill({ json: {} })
+    if (path === '/api/client-errors') return route.fulfill({ json: { ok: true } })
+    return route.fulfill({ json: [] })
+  })
+
+  await page.goto('/devices/1')
+
+  await expect(page.getByText('Estimated OS family')).toBeVisible()
+  await expect(page.getByText('Windows', { exact: true })).toBeVisible()
+  await expect(page.getByText('RDP port 3389 is open')).toBeVisible()
+  await expect(page.getByText(/not an authoritative operating-system identification/)).toBeVisible()
+  await page.getByText('Estimated OS family').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('os-family-estimate.png'), fullPage: false })
 })
 
 test('device detail can test an i-doit sysid lookup and show debug details', async ({ page }) => {

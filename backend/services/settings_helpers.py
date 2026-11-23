@@ -32,3 +32,8 @@ def is_advanced_feature_enabled(db: Session, key: str) -> bool:
 def is_advanced_view_enabled(db: Session) -> bool:
     """Return true when advanced/backend expert features are enabled."""
     return get_setting_value(db, "advanced_view_enabled", "false") == "true"
+
+
+def is_os_inference_enabled(db: Session) -> bool:
+    """Return true when pre-deep-scan OS-family inference is enabled."""
+    return get_setting_value(db, "show_os_inference", "false") == "true"

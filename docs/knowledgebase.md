@@ -41,7 +41,7 @@ LanLens uses conservative i-doit standard categories for the initial mapping:
 | Vendor | `C__CATG__MODEL.manufacturer` |
 | Asset tag / CMDB ID | `C__CATG__ACCOUNTING.inventory_no` |
 | Purpose | `C__CATG__GLOBAL.purpose` |
-| OS info | `C__CATG__OPERATING_SYSTEM.description` |
+| OS info | Exact `C__OBJTYPE__OPERATING_SYSTEM` object linked through `C__CATG__OPERATING_SYSTEM.application`; detected version in `assigned_version` |
 | Description / notes | `C__CATG__GLOBAL.description` |
 | CPU | `C__CATG__CPU.title` plus derived standard CPU fields when accepted |
 | Model | `C__CATG__MODEL.title` |

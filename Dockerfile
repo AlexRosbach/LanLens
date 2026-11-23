@@ -8,7 +8,7 @@ COPY frontend/package.json ./
 COPY frontend/package-lock.json ./
 RUN npm ci --silent
 
-ARG LANLENS_APP_VERSION=1.6.0
+ARG LANLENS_APP_VERSION=1.6.1
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
@@ -48,7 +48,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get purge -y --auto-remove gcc python3-dev \
   && rm -rf /var/lib/apt/lists/* /tmp/requirements.txt
 
-ARG LANLENS_APP_VERSION=1.6.0
+ARG LANLENS_APP_VERSION=1.6.1
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown

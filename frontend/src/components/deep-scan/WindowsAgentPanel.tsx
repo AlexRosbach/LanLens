@@ -1,0 +1,70 @@
+import { useEffect, useMemo, useState } from 'react'
+import toast from 'react-hot-toast'
+import { agentsApi, type CreatedEnrollmentToken, type EnrollmentToken } from '../../api/agents'
+import Button from '../ui/Button'
+import Input from '../ui/Input'
+
+const durations = [
+  { label: '1 hour', value: 60 }, { label: '24 hours', value: 1440 },
+  { label: '7 days', value: 10080 }, { label: '30 days', value: 43200 },
+  { label: 'Never expires', value: null },
+]
+
+export default function WindowsAgentPanel() {
+  const [tokens, setTokens] = useState<EnrollmentToken[]>([])
+  const [name, setName] = useState('Windows inventory agent')
+  const [duration, setDuration] = useState<number | null>(10080)
+  const [interval, setInterval] = useState(60)
+  const [serverUrl, setServerUrl] = useState(() => window.location.origin)
+  const [created, setCreated] = useState<CreatedEnrollmentToken | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const command = useMemo(() => !created ? '' : [
+    'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command',
+    `"& ([ScriptBlock]::Create((iwr -UseBasicParsing '${serverUrl.replace(/\/$/, '')}/api/agents/windows/install.ps1').Content)) -ServerUrl '${serverUrl.replace(/\/$/, '')}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval}"`,
+  ].join(' '), [created, interval, serverUrl])
+
+  async function refresh() {
+    try { setTokens((await agentsApi.listTokens()).data) } catch { toast.error('Could not load installation tokens') }
+  }
+  useEffect(() => { void refresh() }, [])
+
+  async function create() {
+    if (!name.trim()) { toast.error('Enter a token name'); return }
+    if (!serverUrl.startsWith('https://')) { toast.error('Use a public HTTPS URL for off-LAN agents'); return }
+    setLoading(true)
+    try {
+      const result = (await agentsApi.createToken({ name: name.trim(), expires_in_minutes: duration })).data
+      setCreated(result)
+      await refresh()
+      toast.success('Installation token created')
+    } catch (error: any) { toast.error(error.response?.data?.detail || 'Could not create token') } finally { setLoading(false) }
+  }
+
+  async function revoke(id: number) {
+    try { await agentsApi.revokeToken(id); await refresh(); toast.success('Installation token revoked') }
+    catch { toast.error('Could not revoke token') }
+  }
+  async function copy() { await navigator.clipboard.writeText(command); toast.success('PowerShell command copied') }
+
+  return <div className="space-y-5">
+    <div className="rounded-xl border border-primary/25 bg-primary-dim/30 p-4">
+      <h3 className="font-semibold text-text-base">Outbound Windows Agent</h3>
+      <p className="mt-1 text-sm text-text-muted">Installs a Windows service that sends inventory over HTTPS to LanLens. No inbound WinRM connection is required.</p>
+    </div>
+    <div className="grid gap-4 md:grid-cols-2">
+      <Input label="Installation token name" value={name} onChange={(e) => setName(e.target.value)} />
+      <div className="flex flex-col gap-1"><label className="text-sm font-medium text-text-muted">Token validity</label><select className="input-field" value={duration ?? 'never'} onChange={(e) => setDuration(e.target.value === 'never' ? null : Number(e.target.value))}>{durations.map((item) => <option key={String(item.value)} value={item.value ?? 'never'}>{item.label}</option>)}</select></div>
+      <Input label="Public LanLens HTTPS URL" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} hint="This URL must be reachable from the Windows endpoint." />
+      <Input label="Reporting interval (minutes)" type="number" min={5} max={1440} value={interval} onChange={(e) => setInterval(Math.max(5, Number(e.target.value) || 60))} />
+    </div>
+    <Button onClick={create} loading={loading}>Create installation command</Button>
+    {created && <div className="rounded-xl border border-success/40 bg-surface2 p-4 space-y-3">
+      <p className="text-sm text-text-base">Run this once in an elevated PowerShell session. The token is shown only now.</p>
+      <textarea readOnly value={command} className="input-field min-h-32 font-mono text-xs" />
+      <Button variant="outline" size="sm" onClick={copy}>Copy PowerShell command</Button>
+    </div>}
+    <div className="space-y-2"><h3 className="font-semibold text-text-base">Installation tokens</h3>
+      {tokens.length === 0 ? <p className="text-sm text-text-subtle">No installation tokens yet.</p> : tokens.map((token) => <div key={token.id} className="rounded-lg border border-border bg-surface2 p-3 flex items-center justify-between gap-3"><div><p className="text-sm font-medium text-text-base">{token.name}</p><p className="text-xs text-text-subtle">{token.revoked_at ? 'Revoked' : token.expires_at ? `Expires ${new Date(token.expires_at).toLocaleString()}` : 'Never expires'}</p></div>{!token.revoked_at && <Button size="sm" variant="ghost" onClick={() => revoke(token.id)}><span className="text-danger">Revoke</span></Button>}</div>)}</div>
+  </div>
+}
