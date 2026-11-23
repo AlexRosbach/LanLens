@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.1 — Build 20261123.0003
+
+- Added outbound Windows inventory-agent enrolment with revocable, expiry-controlled installation tokens and an admin PowerShell installer generated in Deep Scan settings.
+- Added installed-software/version inventory to Linux and Windows deep scans and to the device findings UI.
+- Improved i-doit operating-system reconciliation against existing OS objects and corrected exported drive capacities to GB.
+
 All notable changes to this project should be documented in this file.
 
 ## Unreleased

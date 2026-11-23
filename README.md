@@ -4,6 +4,8 @@
 
 # LanLens
 
+> **It is more than a port scanner.**
+
 **Self-hosted network inventory, local network scanner, and documentation dashboard**
 
 [![Version](https://img.shields.io/badge/version-1.6.1-6366f1)](https://github.com/AlexRosbach/LanLens)
@@ -11,7 +13,7 @@
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
 
-LanLens turns a Docker host into a local network scanner that discovers MAC/IP devices, builds a device inventory, and gives operators in home lab, small IT, and enterprise environments a clean web UI for documentation, security awareness, and CMDB/i-doit export workflows.
+LanLens turns a Docker host into a local network scanner that discovers MAC/IP devices, builds a device inventory, and gives operators in home lab, small IT, and enterprise environments a clean web UI for documentation, security awareness, deep inventory, and CMDB/i-doit export workflows.
 
 [Wiki](https://github.com/AlexRosbach/LanLens/wiki) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/alexrosbach/lanlens) · [Website](https://lanlens.org/) · [Legal Notice](https://lanlens.org/privacy.html)
 
@@ -34,6 +36,8 @@ LanLens gives you a quick, local view of what is on your network:
 - Awareness signals for DHCP, ARP/MAC, LLDP/CDP, STP/RSTP, OSPF, Sophos Security Heartbeat presence, SNMP, custom SNMP OIDs, and scan-detected changes
 - Multiple DHCP address ranges for installations scanning several networks, configurable under **Settings → Network Discovery**
 - Export paths for CMDB/i-doit workflows when inventory data should leave LanLens
+- Installed-software and version inventory from authenticated deep scans
+- Optional outbound Windows inventory agent for endpoints outside the local LAN
 
 Why people use it:
 

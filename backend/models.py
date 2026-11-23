@@ -86,6 +86,8 @@ class Device(Base):
     deep_scan_runs = relationship("DeepScanRun", back_populates="device", cascade="all, delete-orphan")
     deep_scan_findings = relationship("DeepScanFinding", back_populates="device",
                                       cascade="all, delete-orphan")
+    inventory_agent = relationship("WindowsAgent", back_populates="device", uselist=False,
+                                   cascade="all, delete-orphan")
     idoit_sync = relationship("IdoitDeviceSync", back_populates="device", uselist=False,
                               cascade="all, delete-orphan")
     idoit_sync_logs = relationship("IdoitSyncLog", back_populates="device", passive_deletes=True)
@@ -739,6 +741,43 @@ class DeepScanFinding(Base):
 
     device = relationship("Device", back_populates="deep_scan_findings")
     run = relationship("DeepScanRun", back_populates="findings")
+
+
+class AgentEnrollmentToken(Base):
+    """Revocable installation token for the outbound Windows inventory agent."""
+    __tablename__ = "agent_enrollment_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(128), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    expires_at = Column(DateTime, nullable=True)  # null intentionally means no expiry
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+
+    agents = relationship("WindowsAgent", back_populates="enrollment_token")
+
+
+class WindowsAgent(Base):
+    """One outbound-only Windows agent identity bound to a LanLens device."""
+    __tablename__ = "windows_agents"
+    __table_args__ = (
+        UniqueConstraint("agent_id", name="uq_windows_agents_agent_id"),
+        Index("ix_windows_agents_device", "device_id"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String(64), nullable=False, unique=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, unique=True)
+    enrollment_token_id = Column(Integer, ForeignKey("agent_enrollment_tokens.id", ondelete="SET NULL"), nullable=True)
+    secret_hash = Column(String(64), nullable=False)
+    last_sequence = Column(Integer, default=0, nullable=False)
+    last_seen_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    device = relationship("Device", back_populates="inventory_agent")
+    enrollment_token = relationship("AgentEnrollmentToken", back_populates="agents")
 
 
 class AutoScanRule(Base):

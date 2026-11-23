@@ -1131,6 +1131,27 @@ class DeepScanFindingResponse(BaseModel):
         from_attributes = True
 
 
+class AgentEnrollmentTokenCreate(BaseModel):
+    name: str
+    expires_in_minutes: Optional[int] = None  # null is deliberately unlimited
+
+
+class AgentEnrollmentTokenResponse(BaseModel):
+    id: int
+    name: str
+    expires_at: Optional[datetime]
+    revoked_at: Optional[datetime]
+    created_at: datetime
+    last_used_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class AgentEnrollmentTokenCreated(AgentEnrollmentTokenResponse):
+    token: str
+
+
 class DeviceHostRelationshipResponse(BaseModel):
     id: int
     child_device_id: int

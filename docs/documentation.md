@@ -27,9 +27,11 @@
 
 ## Overview
 
-LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. It helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, and prepare CMDB/i-doit export data without requiring a cloud account.
+LanLens is a single-container Docker application for self-hosted network inventory, local network scanning, device inventory, and lightweight network documentation for environments from home labs to enterprise networks. **It is more than a port scanner:** it helps operators discover MAC/IP devices, keep a practical device inventory, review network changes, collect deep inventory, and prepare CMDB/i-doit export data without requiring a cloud account.
 
 LanLens can:
+
+- receive inventory from an optional outbound Windows agent, including installed software and versions, without opening inbound WinRM access;
 
 - Periodically scan the local network via ARP broadcast
 - Identify device vendors from MAC addresses using the offline IEEE OUI database
@@ -876,6 +878,28 @@ In the Device Detail page, expand the **Deep Scan** card:
 5. Click **Save Configuration**
 6. Click **Run Deep Scan** to trigger an immediate scan
 
+### Outbound Windows agent
+
+For Windows systems that cannot or should not accept inbound WinRM connections,
+open **Deep Scan → Windows Agent**. Create an installation token, choose an
+expiry (or **Never expires**), enter the public HTTPS URL of LanLens and choose
+the reporting interval. LanLens shows a one-time, administrator PowerShell
+command containing that token.
+
+The command downloads the small agent source from the selected LanLens instance,
+compiles it with the built-in Windows .NET Framework compiler, registers the
+result as the `LanLensAgent` Windows service, enrolls it, then starts it. The
+service reports operating-system information, active network identity and
+installed software including version and publisher over outbound HTTPS. It can
+therefore inventory endpoints outside the local LAN as long as they can reach
+the configured URL.
+
+Installation tokens are stored as hashes, are shown only at creation time, and
+can be revoked from the same tab. Each enrolled service receives its own
+replacement-safe credential and monotonically increasing report sequence;
+LanLens rejects revoked credentials and replayed reports. Use HTTPS with a
+valid certificate and revoke a token after a limited rollout.
+
 ### Finding types
 
 Findings are stored as key/value pairs grouped by `finding_type`:
@@ -889,6 +913,7 @@ Findings are stored as key/value pairs grouped by `finding_type`:
 | `hypervisor` | VM list from virsh/qm/pct |
 | `vm_guest` | Enumerated VMs with MAC/IP where available |
 | `audit` | Windows features, licensing, IIS, AD, DHCP, SQL Server |
+| `software` | Installed packages/applications with version and publisher |
 
 On Linux, a successful profile that includes OS data also copies the value from
 `uname -r` into the device's dedicated **Kernel version** field. This makes the
