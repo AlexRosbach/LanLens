@@ -1411,6 +1411,7 @@ export default function Settings() {
       const payload = {
         idoit_enabled: idoitConfig.idoit_enabled,
         idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_allow_insecure_http: idoitConfig.idoit_allow_insecure_http,
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
@@ -1450,6 +1451,7 @@ export default function Settings() {
       const result = await idoitApi.testConnection({
         idoit_enabled: idoitConfig.idoit_enabled,
         idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_allow_insecure_http: idoitConfig.idoit_allow_insecure_http,
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
@@ -3422,6 +3424,12 @@ export default function Settings() {
                       placeholder="https://idoit.example.com"
                     />
                     <p className="mt-1 text-xs text-text-subtle">{t('idoit_https_required')}</p>
+                    <label className="mt-2 flex items-center gap-2 text-sm text-text-muted">
+                      <input type="checkbox" checked={idoitConfig.idoit_allow_insecure_http}
+                        onChange={e => setIdoitConfig({ ...idoitConfig, idoit_allow_insecure_http: e.target.checked })} />
+                      {t('idoit_allow_http')}
+                    </label>
+                    {idoitConfig.idoit_allow_insecure_http && <p className="mt-1 text-xs text-warning">{t('idoit_http_warning')}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-text-subtle mb-1">{t('idoit_jsonrpc_path')}</label>

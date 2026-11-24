@@ -2,7 +2,7 @@
 
 ## HTTPS (issue #141)
 
-Use the actual HTTPS endpoint (for example `https://cmdb.example.test/idoit`) and the JSON-RPC path. Existing HTTP installations must migrate to HTTPS before syncing. API keys and Basic authentication must never be sent over HTTP. LanLens uses DNS validation and a pinned IP connection with TLS hostname verification and SNI. It does not follow redirects or disable certificate validation. For an internal CA, mount a trusted **combined CA bundle** containing public roots and your internal CA into the backend container read-only and set `SSL_CERT_FILE` to its absolute path. Restart the container and run Test connection. Do not mount private CA keys. Correct the server certificate chain, hostname or trust store if verification fails.
+Use the actual HTTPS endpoint (for example `https://cmdb.example.test/idoit`) and the JSON-RPC path. For legacy installations that cannot yet provide HTTPS, explicitly enable **Allow insecure HTTP** in the i-doit settings. This is disabled by default. HTTP transmits API credentials and inventory without transport encryption; use only on a trusted isolated network and migrate to HTTPS as soon as possible. No automatic HTTPS-to-HTTP downgrade is performed. LanLens uses DNS validation and a pinned IP connection with TLS hostname verification and SNI. It does not follow redirects or disable certificate validation. For an internal CA, mount a trusted **combined CA bundle** containing public roots and your internal CA into the backend container read-only and set `SSL_CERT_FILE` to its absolute path. Restart the container and run Test connection. Do not mount private CA keys. Correct the server certificate chain, hostname or trust store if verification fails.
 
 ## Diagnose application matching
 

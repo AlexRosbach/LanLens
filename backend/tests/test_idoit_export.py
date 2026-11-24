@@ -1452,6 +1452,9 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         from dataclasses import replace
         from backend.services.idoit import validate_idoit_https_url
         validate_idoit_https_url("https://example.test/idoit/src/jsonrpc.php")
+        validate_idoit_https_url("http://example.test/idoit/src/jsonrpc.php", allow_insecure_http=True)
+        with self.assertRaises(ValueError):
+            validate_idoit_https_url("http://user:password@example.test", allow_insecure_http=True)
         for url in ("http://example.test", "https://user:password@example.test", "https://example.test/?key=x"):
             with self.assertRaises(ValueError):
                 validate_idoit_https_url(url)
@@ -1460,6 +1463,13 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(IdoitConnectionError) as error:
             await client.call("idoit.login")
         self.assertEqual(error.exception.stage, "url_validation")
+        db = self.Session()
+        try:
+            cfg = update_config(db, {"idoit_allow_insecure_http": True, "idoit_base_url": "http://example.test"})
+            self.assertTrue(cfg.allow_insecure_http)
+            self.assertTrue(get_config(db).allow_insecure_http)
+        finally:
+            db.close()
 
     async def test_application_save_checks_readback(self):
         class ReadbackClient(IdoitClient):

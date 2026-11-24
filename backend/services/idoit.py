@@ -116,6 +116,7 @@ DEFAULT_MAPPING = {
 SETTING_DEFAULTS = {
     "idoit_enabled": "false",
     "idoit_base_url": "",
+    "idoit_allow_insecure_http": "false",
     "idoit_portal_url": "",
     "idoit_jsonrpc_path": "/src/jsonrpc.php",
     "idoit_api_key": "",
@@ -183,6 +184,7 @@ class IdoitConfig:
     mapping: dict[str, Any]
     mapping_error: Optional[str] = None
     mapping_raw: str = ""
+    allow_insecure_http: bool = False
 
 
 def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php") -> str:
@@ -203,17 +205,18 @@ def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php"
     return base + path
 
 
-def validate_idoit_https_url(url: str) -> None:
-    """Require authenticated JSON-RPC traffic to use verified TLS."""
+def validate_idoit_https_url(url: str, allow_insecure_http: bool = False) -> None:
+    """Prefer verified TLS; plaintext HTTP requires explicit operator opt-in."""
     try:
         parsed = urlsplit(url)
-        if parsed.scheme.lower() != "https" or not parsed.hostname:
+        allowed_schemes = {"https", "http"} if allow_insecure_http else {"https"}
+        if parsed.scheme.lower() not in allowed_schemes or not parsed.hostname:
             raise ValueError("i-doit JSON-RPC requires an https:// URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("i-doit URL must not include credentials, query parameters or fragments")
         _ = parsed.port
     except ValueError:
-        raise ValueError("i-doit JSON-RPC requires a valid https:// URL without embedded credentials, query or fragment") from None
+        raise ValueError("Use a valid i-doit HTTPS URL without embedded credentials, query or fragment. HTTP requires explicit insecure HTTP permission.") from None
 
 
 def _get_setting(db: Session, key: str) -> str:
@@ -262,6 +265,7 @@ def get_config(db: Session) -> IdoitConfig:
         offline_retire_days = 7
     return IdoitConfig(
         enabled=_get_setting(db, "idoit_enabled") == "true",
+        allow_insecure_http=_get_setting(db, "idoit_allow_insecure_http") == "true",
         base_url=(_get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
         jsonrpc_path=(_get_setting(db, "idoit_jsonrpc_path") or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
         portal_url=(_get_setting(db, "idoit_portal_url") or _get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
@@ -2064,7 +2068,7 @@ class IdoitClient:
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         try:
-            validate_idoit_https_url(self.endpoint)
+            validate_idoit_https_url(self.endpoint, self.config.allow_insecure_http)
         except ValueError as exc:
             raise IdoitConnectionError(str(exc), stage="url_validation") from exc
         headers = {"Content-Type": "application/json"}

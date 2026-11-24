@@ -50,6 +50,7 @@ def _device_display_name(device: Optional[Device], fallback_id: Optional[int]) -
 class IdoitConfigPayload(BaseModel):
     idoit_enabled: Optional[bool] = None
     idoit_base_url: Optional[str] = None
+    idoit_allow_insecure_http: Optional[bool] = None
     idoit_jsonrpc_path: Optional[str] = None
     idoit_portal_url: Optional[str] = None
     idoit_api_key: Optional[str] = None
@@ -103,6 +104,7 @@ def _config_response(db: Session) -> dict[str, Any]:
     return {
         "idoit_enabled": cfg.enabled,
         "idoit_base_url": cfg.base_url,
+        "idoit_allow_insecure_http": cfg.allow_insecure_http,
         "idoit_jsonrpc_path": cfg.jsonrpc_path,
         "idoit_portal_url": cfg.portal_url,
         "idoit_api_key_configured": bool(cfg.api_key),
@@ -149,6 +151,7 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         offline_retire_days = cfg.offline_retire_days
     return IdoitConfig(
         enabled=bool(data.get("idoit_enabled", cfg.enabled)),
+        allow_insecure_http=bool(data.get("idoit_allow_insecure_http", cfg.allow_insecure_http)),
         base_url=(data.get("idoit_base_url", cfg.base_url) or "").strip().rstrip("/"),
         jsonrpc_path=(data.get("idoit_jsonrpc_path", cfg.jsonrpc_path) or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
         portal_url=(data.get("idoit_portal_url", cfg.portal_url) or "").strip().rstrip("/"),
@@ -195,9 +198,10 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
         data["idoit_sync_scope"] = "manual" if data.get("idoit_sync_scope") == "manual" else "all"
     if "idoit_create_policy" in data:
         data["idoit_create_policy"] = "create_missing" if data.get("idoit_create_policy") == "create_missing" else "match_only"
-    if base_url := data.get("idoit_base_url"):
+    current = get_config(db)
+    if base_url := data.get("idoit_base_url", current.base_url):
         try:
-            validate_idoit_https_url(base_url)
+            validate_idoit_https_url(base_url, bool(data.get("idoit_allow_insecure_http", current.allow_insecure_http)))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         valid, reason = await validate_webhook_url(base_url, "i-doit base URL")
@@ -227,6 +231,10 @@ async def test_connection(payload: Optional[IdoitConfigPayload] = None, db: Sess
         if not cfg.api_key:
             missing.append("API key")
         raise HTTPException(status_code=400, detail={"message": f"Missing required i-doit setting(s): {', '.join(missing)}", "stage": "configuration", "endpoint": ""})
+    try:
+        validate_idoit_https_url(cfg.base_url, cfg.allow_insecure_http)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     valid, reason = await validate_webhook_url(cfg.base_url, "i-doit base URL")
     if not valid:
         raise HTTPException(status_code=400, detail=reason)
@@ -349,6 +357,10 @@ async def test_device_sysid_lookup(
     requested_sysid = requested_sysid.strip()
     if not requested_sysid:
         raise HTTPException(status_code=400, detail={"message": "No i-doit SYSID is stored for this device", "stage": "configuration", "endpoint": ""})
+    try:
+        validate_idoit_https_url(cfg.base_url, cfg.allow_insecure_http)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     valid, reason = await validate_webhook_url(cfg.base_url, "i-doit base URL")
     if not valid:
         raise HTTPException(status_code=400, detail=reason)

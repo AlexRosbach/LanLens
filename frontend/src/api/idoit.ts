@@ -3,6 +3,7 @@ import apiClient from './client'
 export interface IdoitConfig {
   idoit_enabled: boolean
   idoit_base_url: string
+  idoit_allow_insecure_http: boolean
   idoit_jsonrpc_path: string
   idoit_portal_url: string
   idoit_api_key_configured: boolean
@@ -30,6 +31,7 @@ export interface IdoitConfig {
 export interface IdoitConfigUpdate {
   idoit_enabled: boolean
   idoit_base_url: string
+  idoit_allow_insecure_http: boolean
   idoit_jsonrpc_path: string
   idoit_portal_url: string
   idoit_api_key?: string
