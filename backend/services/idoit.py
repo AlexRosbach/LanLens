@@ -1652,7 +1652,7 @@ FIRST_ENTRY_REUSE_CATEGORIES = {
 # Explicitly mapped/default identity fields still report warnings when rejected.
 OPTIONAL_IDOIT_CATEGORY_FIELDS = {
     "C__CATG__MODEL": {"manufacturer"},
-    "C__CATG__CPU": {"manufacturer", "type", "frequency", "frequency_unit", "cores", "description"},
+    "C__CATG__CPU": {"manufacturer", "type", "frequency", "frequency_unit", "cores"},
     "C__CATG__MEMORY": {"quantity", "manufacturer", "type", "capacity", "unit"},
     "C__CATG__DRIVE": {"serial", "mount_point", "capacity", "unit", "firmware", "drive_type"},
     "C__CATG__NET_CONNECTIONS_FOLDER": {"protocol", "protocol_layer_5", "port_from", "port_to", "description"},
@@ -1693,6 +1693,17 @@ def _safe_log_details(details: dict[str, Any]) -> str:
         for key in ("identity_match", "match_debug", "match_required", "create_policy"):
             if key in details:
                 summary[key] = details[key]
+        if "applications" in details:
+            counts: dict[str, int] = {}
+            for item in details["applications"]:
+                action = str(item.get("action", "unknown"))
+                counts[action] = counts.get(action, 0) + 1
+            summary["application_resolution_counts"] = counts
+        if "category_results" in details and "C__CATG__CPU" in details["category_results"]:
+            cpu_result = details["category_results"]["C__CATG__CPU"]
+            if isinstance(cpu_result, dict):
+                summary["cpu_save_status"] = cpu_result.get("status")
+                summary["cpu_rejected_fields"] = sorted(cpu_result.get("failed_fields", {}))
         if "payload" in details:
             summary["payload"] = _payload_log_summary(details["payload"])
     return json.dumps(summary, default=str, sort_keys=True)[:MAX_SYNC_LOG_DETAILS_CHARS]
@@ -1771,7 +1782,9 @@ def _category_entries(result: Any) -> list[dict[str, Any]]:
         if isinstance(nested, list):
             return [entry for entry in nested if isinstance(entry, dict)]
         if isinstance(nested, dict):
-            return [nested]
+            if nested and all(str(k).isdigit() and isinstance(v, dict) for k, v in nested.items()):
+                return list(nested.values())
+            return [nested] if nested else []
     if result and all(isinstance(value, dict) for value in result.values()):
         return list(result.values())
     # Some i-doit versions return one single-value category entry directly.
@@ -2008,6 +2021,8 @@ class IdoitClient:
         self.endpoint = build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path)
         self._session_id: Optional[str] = None
         self.last_identity_match_debug: dict[str, Any] = {}
+        self._application_catalog: dict[str, dict[str, str]] | None = None
+        self._application_catalog_complete = False
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         headers = {"Content-Type": "application/json"}
@@ -2237,7 +2252,7 @@ class IdoitClient:
             return {"object_id": None, "action": "skipped_empty"}
         wanted = candidates[0]
         object_type = "C__OBJTYPE__APPLICATION"
-        for candidate in candidates:
+        for candidate in candidates if self._application_catalog is None else ():
             result = await self._resolve_inventory_object(candidate, object_type, False)
             if result["action"] == "ambiguous_match":
                 return {**result, "title": wanted}
@@ -2246,10 +2261,61 @@ class IdoitClient:
                     return {**result, "action": "matched_normalized", "title": wanted,
                             "matched_title": candidate}
                 return result
+        # Some API versions return no rows for a title filter even though the
+        # product is present in the typed catalog. Query that catalog once per
+        # client/session and compare complete candidate titles locally.
+        if self._application_catalog is None:
+            await self._load_application_catalog()
+        if not self._application_catalog_complete:
+            return {"object_id": None, "action": "lookup_incomplete", "title": wanted}
+        for candidate in candidates:
+            matches = self._application_catalog.get(_normalized_match_text(candidate), {})
+            if len(matches) > 1:
+                return {"object_id": None, "action": "ambiguous_match", "title": wanted,
+                        "candidates": list(matches.values())}
+            if len(matches) == 1:
+                object_id, matched_title = next(iter(matches.items()))
+                result = {"object_id": object_id, "action": "matched" if candidate == wanted else "matched_normalized",
+                          "title": wanted, "lookup": "typed_catalog"}
+                if candidate != wanted:
+                    result["matched_title"] = matched_title
+                return result
         if not create_missing:
-            return {"object_id": None, "action": "match_required", "title": wanted}
+            return {"object_id": None, "action": "match_required", "title": wanted, "lookup": "typed_catalog"}
         object_id = await self.create_object(wanted, object_type)
+        self._application_catalog.setdefault(_normalized_match_text(wanted), {})[object_id] = wanted
         return {"object_id": object_id, "action": "created", "title": wanted}
+
+    async def _load_application_catalog(self) -> None:
+        catalog: dict[str, dict[str, str]] = {}
+        seen: set[str] = set()
+        page_size, maximum = 500, 10000
+        complete = False
+        for offset in range(0, maximum, page_size):
+            entries = _category_entries(await self.read_objects({
+                "filter": {"type": "C__OBJTYPE__APPLICATION", "status": "C__RECORD_STATUS__NORMAL"},
+                "limit": f"{offset},{page_size}", "order_by": "id", "sort": "ASC",
+            }))
+            ids = {oid for entry in entries if (oid := _object_entry_id(entry))}
+            if entries and (not ids or ids & seen):
+                break  # Pagination may have been ignored; do not guess or create.
+            for entry in entries:
+                candidate_type = _object_entry_type_constant(entry)
+                if candidate_type and candidate_type != "C__OBJTYPE__APPLICATION":
+                    continue
+                status = str(_plain_category_value(entry.get("status")) or "")
+                if status and status not in ("2", "C__RECORD_STATUS__NORMAL"):
+                    continue
+                title = _object_entry_title(entry)
+                oid = _object_entry_id(entry)
+                if title and oid:
+                    catalog.setdefault(_normalized_match_text(title), {})[oid] = title
+            seen.update(ids)
+            if len(entries) < page_size:
+                complete = True
+                break
+        self._application_catalog = catalog
+        self._application_catalog_complete = complete
 
     async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
         """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
@@ -2608,7 +2674,11 @@ class IdoitClient:
         params: dict[str, Any] = {"object": object_int, "objID": object_int, "category": category, "data": data}
         if entry_id:
             params["entry"] = _object_id_as_int(entry_id)
-        return await self.call("cmdb.category.save", params)
+        result = await self.call("cmdb.category.save", params)
+        if result is False or (isinstance(result, dict) and result.get("success") is False):
+            raise IdoitConnectionError("i-doit rejected the category save", stage="jsonrpc_error",
+                                       endpoint=self.endpoint, jsonrpc_error=result)
+        return result
 
     async def save_category_best_effort(self, object_id: str, category: str, data: dict[str, Any]) -> dict[str, Any]:
         """Save a category without letting one invalid field abort the sync.
@@ -2635,8 +2705,14 @@ class IdoitClient:
                 # every field-level retry instead of sending incomplete rows.
                 if field != "title" and data.get("title") not in (None, ""):
                     retry_data["title"] = data["title"]
+                if category in {"C__CATG__APPLICATION", "C__CATG__OPERATING_SYSTEM"} and field != "application" and data.get("application"):
+                    retry_data["application"] = data["application"]
                 try:
                     saved[field] = await self.save_category(object_id, category, retry_data, entry_id)
+                    if not entry_id and category in {"C__CATG__APPLICATION", "C__CATG__OPERATING_SYSTEM", "C__CATG__CPU"}:
+                        entry_id = await self.find_reusable_category_entry(object_id, category, data)
+                        if not entry_id:
+                            break  # Do not create additional partial rows.
                 except IdoitConnectionError as field_error:
                     failed[field] = field_error.to_detail()
             if not saved:
@@ -2673,7 +2749,7 @@ class IdoitClient:
         except IdoitConnectionError:
             # A failed read cannot establish that an existing software assignment
             # is absent. Propagate it rather than appending duplicate links.
-            if category in {"C__CATG__OPERATING_SYSTEM", "C__CATG__APPLICATION"}:
+            if category in {"C__CATG__OPERATING_SYSTEM", "C__CATG__APPLICATION", "C__CATG__CPU"}:
                 raise
             return None
         entries = _category_entries(result)
@@ -2694,6 +2770,30 @@ class IdoitClient:
                     ):
                         return _category_entry_id(entry)
             return None
+        if category == "C__CATG__CPU":
+            # Reuse the unique existing CPU even if an older sync stored its
+            # model in a structured JSON description instead of the title.
+            expected = _normalized_match_text(data.get("title") or data.get("type"))
+            if not expected:
+                return None
+            matches = set()
+            for entry in entries:
+                status = str(_plain_category_value(entry.get("status")) or "")
+                if status and status not in ("2", "C__RECORD_STATUS__NORMAL"):
+                    continue
+                legacy = _decode_finding_value(_plain_category_value(entry.get("description")))
+                if isinstance(legacy, list) and len(legacy) == 1:
+                    legacy = legacy[0]
+                legacy_title = (legacy.get("Name") or legacy.get("name") or legacy.get("ModelName")
+                                or legacy.get("model_name")) if isinstance(legacy, dict) else None
+                identities = [entry.get("title"), entry.get("type"), legacy_title]
+                if any(_normalized_match_text(value) == expected for value in identities):
+                    if entry_id := _category_entry_id(entry):
+                        matches.add(entry_id)
+            if len(matches) > 1:
+                raise IdoitConnectionError("Multiple CPU entries match; refusing to overwrite an ambiguous entry",
+                                           stage="category_match", endpoint=self.endpoint)
+            return next(iter(matches), None)
         match_fields = MULTIVALUE_CATEGORY_MATCH_FIELDS[category]
         for field in match_fields:
             expected = _plain_category_value(data.get(field))

@@ -782,6 +782,46 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         for title in ("Example Suite 2025", "Example Suite Enterprise 2.0"):
             self.assertEqual((await client.resolve_application(title))["action"], "match_required")
 
+    async def test_application_catalog_recovers_from_empty_title_filters(self):
+        class CatalogClient(IdoitClient):
+            catalog_calls = 0
+
+            async def read_objects(self, params):
+                self.assert_type = params["filter"]["type"]
+                if "title" in params["filter"]:
+                    return []
+                self.catalog_calls += 1
+                return {"data": {
+                    "101": {"id": "101", "title": "Example Archive", "type": "7", "status": "2"},
+                    "102": {"id": "102", "title": "Example Editor", "type": "7", "status": "2"},
+                    "103": {"id": "103", "title": "Example Archive", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                }}
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("catalog match must be reused")
+
+        client = CatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Archive 21.07 (x64)", create_missing=True)
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(result["lookup"], "typed_catalog")
+        self.assertEqual((await client.resolve_application("Example Editor 4.1"))["object_id"], "102")
+        self.assertEqual(client.catalog_calls, 1)
+        self.assertEqual(client.assert_type, "C__OBJTYPE__APPLICATION")
+
+    async def test_application_catalog_refuses_incomplete_pagination(self):
+        class CatalogClient(IdoitClient):
+            async def read_objects(self, params):
+                if "title" in params["filter"]:
+                    return []
+                return [{"id": str(i), "title": f"Application {i}", "type": "7"} for i in range(1, 501)]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("incomplete lookup cannot create")
+
+        client = CatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Missing", create_missing=True)
+        self.assertEqual(result["action"], "lookup_incomplete")
+
     async def test_application_resolution_rejects_ambiguous_fallback(self):
         class SearchClient(IdoitClient):
             async def read_objects(self, params):
@@ -1319,6 +1359,43 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attempts[0], {"title": "Demo model", "manufacturer": "Demo vendor"})
         self.assertEqual(attempts[1], {"title": "Demo model"})
         self.assertEqual(attempts[2], {"manufacturer": "Demo vendor", "title": "Demo model"})
+
+    async def test_cpu_reuses_legacy_description_entry(self):
+        class CpuClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return [{"id": "17", "title": "Old title", "description": json.dumps({
+                    "Name": "Example CPU", "NumberOfCores": 4, "MaxClockSpeed": 3200,
+                })}, {"id": "18", "title": "Other CPU"}]
+
+        client = CpuClient(get_config(self.Session()))
+        self.assertEqual(await client.find_reusable_category_entry(
+            "42", "C__CATG__CPU", {"title": "Example CPU", "description": "Processor: Example CPU"}
+        ), "17")
+
+    async def test_cpu_description_rejection_is_not_silenced(self):
+        class CpuClient(IdoitClient):
+            async def find_reusable_category_entry(self, object_id, category, data):
+                return "17"
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                if "description" in data:
+                    raise IdoitConnectionError("description rejected", stage="jsonrpc_error")
+                return {"success": True, "entry": 17}
+
+        client = CpuClient(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__CPU",
+            {"title": "Example CPU", "description": "Processor: Example CPU"})
+        self.assertEqual(result["status"], "partial")
+        self.assertIn("description", result["failed_fields"])
+
+    async def test_category_save_rejects_explicit_unsuccessful_result(self):
+        class RejectingClient(IdoitClient):
+            async def call(self, method, params=None):
+                return {"success": False, "message": "rejected"}
+
+        client = RejectingClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.save_category("42", "C__CATG__CPU", {"title": "Example CPU"}, "17")
 
     async def test_listener_reuse_requires_same_transport_and_complete_port_range(self):
         class ListenerClient(IdoitClient):
