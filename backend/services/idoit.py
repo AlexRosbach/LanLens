@@ -33,6 +33,7 @@ from .notification import request_json_via_validated_url
 from .passive_discovery import deduplicate_observations
 from .snmp import bulk_identities_for_devices, identity_for_device
 from .dns_names import device_display_name
+from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +388,7 @@ def _allowed_device_mapping_fields() -> set[str]:
         "licenses",
         "relationships",
         "lanlens_inventory",
-    }
+    } | IDOIT_VSPHERE_FIELDS
 
 
 def validate_mapping(
@@ -1650,6 +1651,8 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "lanlens_inventory": _lanlens_inventory_summary(device, findings, db),
         "hardware_summary": _hardware_summary(hw),
     }
+    if IDOIT_VSPHERE_FIELDS.intersection(_mapping_fields(config)):
+        source.update(idoit_vsphere_values(db, device))
     fields = {}
     for lanlens_field, idoit_field in _mapping_fields(config).items():
         if not isinstance(idoit_field, str) or not idoit_field.strip():

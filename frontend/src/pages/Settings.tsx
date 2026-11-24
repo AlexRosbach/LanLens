@@ -111,6 +111,15 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'relationships', labelKey: 'idoit_field_relationships', placeholder: '' },
   { key: 'lanlens_inventory', labelKey: 'idoit_field_lanlens_inventory', placeholder: '' },
   { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
+  { key: 'vsphere_instance_uuid', labelKey: 'vsphere_instance_uuid', placeholder: '' },
+  { key: 'vsphere_bios_uuid', labelKey: 'vsphere_bios_uuid', placeholder: '' },
+  { key: 'vsphere_vcenter_uuid', labelKey: 'vsphere_vcenter_uuid', placeholder: '' },
+  { key: 'vsphere_host', labelKey: 'vsphere_host', placeholder: '' },
+  { key: 'vsphere_cluster', labelKey: 'vsphere_cluster', placeholder: '' },
+  { key: 'vsphere_datacenter', labelKey: 'vsphere_datacenter', placeholder: '' },
+  { key: 'vsphere_power_state', labelKey: 'vsphere_state', placeholder: '' },
+  { key: 'vsphere_disk_uuids', labelKey: 'vsphere_disk_uuids', placeholder: '' },
+  { key: 'vsphere_disk_inventory', labelKey: 'vsphere_disks', placeholder: '' },
 ] as const
 
 const IDOIT_EXPORT_EDIT_FIELDS = [

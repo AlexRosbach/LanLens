@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.database import Base
 from backend.models import Device, DeviceHostRelationship, VsphereConnection, VsphereInventoryObject
-from backend.services.vsphere import VsphereClient, VsphereError, reconcile_inventory, validate_endpoint, disk_inventory
+from backend.services.vsphere import VsphereClient, VsphereError, reconcile_inventory, validate_endpoint, disk_inventory, idoit_vsphere_values
 
 
 class VsphereTests(unittest.IsolatedAsyncioTestCase):
@@ -132,3 +132,16 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(disks), 2)
         self.assertEqual(disks[0]["uuid"], disks[1]["uuid"])
         self.assertIsNone(disk_inventory({"2000":{"capacity":10}}, None)[0]["uuid"])
+
+    def test_mapping_ignores_disabled_and_stale_inventory(self):
+        row = self.db.get(VsphereConnection, 1)
+        item = {"kind":"vm","external_id":"vm-1","name":"Example","power_state":"POWERED_OFF",
+                "instance_uuid":"11111111-2222-3333-4444-555555555555","macs":["00:50:56:12:34:56"],"ips":[]}
+        reconcile_inventory(self.db,1,[item],datetime.utcnow())
+        device = self.db.query(Device).one()
+        self.assertEqual(idoit_vsphere_values(self.db, device), {})
+        row.enabled = True
+        self.db.flush()
+        self.assertEqual(idoit_vsphere_values(self.db, device)["vsphere_power_state"], "POWERED_OFF")
+        reconcile_inventory(self.db,1,[],datetime.utcnow())
+        self.assertEqual(idoit_vsphere_values(self.db, device), {})

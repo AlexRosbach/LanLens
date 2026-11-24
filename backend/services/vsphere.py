@@ -13,7 +13,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, VsphereInventoryObject
+from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, VsphereConnection, VsphereInventoryObject
 from .mac_vendor import normalize_mac
 from .notification import request_json_via_validated_url
 from .scanner import _matching_ignore_rules
@@ -22,6 +22,10 @@ MAX_HOSTS = 100
 MAX_VMS = 500
 MAX_DISKS = 128
 VI_PATH = "/sdk/vim25/8.0.1.0"
+IDOIT_VSPHERE_FIELDS = {"vsphere_" + name for name in (
+    "instance_uuid", "bios_uuid", "vcenter_uuid", "host", "cluster", "datacenter",
+    "power_state", "disk_uuids", "disk_inventory")}
+
 VISIBLE_FIELDS = ("host_id", "cluster_id", "datacenter_id", "power_state", "macs", "ips",
                   "guest_os", "instance_uuid", "bios_uuid", "cpu_count", "memory_size_mib", "disks")
 
@@ -520,3 +524,38 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
         record(item, d, status)
     db.flush()
     return dict(counts)
+
+
+def idoit_vsphere_values(db, device):
+    """Only export a uniquely linked, current VM from an enabled integration."""
+    if db is None or device.id is None:
+        return {}
+    rows = (db.query(VsphereInventoryObject).join(VsphereConnection)
+            .filter(VsphereConnection.enabled.is_(True), VsphereInventoryObject.kind == "vm",
+                    VsphereInventoryObject.device_id == device.id,
+                    VsphereInventoryObject.match_status.in_(("existing", "created"))).all())
+    if len(rows) != 1:
+        return {}
+    row = rows[0]
+    metadata = json.loads(row.metadata_json)
+    if not isinstance(metadata, dict):
+        return {}
+    values = {}
+    for field in ("instance_uuid", "bios_uuid", "vcenter_uuid", "power_state"):
+        values["vsphere_" + field] = metadata.get(field)
+    for kind in ("host", "cluster", "datacenter"):
+        identifier = metadata.get(kind + "_id")
+        item = db.query(VsphereInventoryObject).filter_by(connection_id=row.connection_id, kind=kind,
+                                                        external_id=identifier).first() if identifier else None
+        if item and item.match_status != "stale":
+            values["vsphere_" + kind] = item.name
+    connection = db.get(VsphereConnection, row.connection_id)
+    if "disks" in visible_fields(connection):
+        disks = metadata.get("disks")
+        if isinstance(disks, list):
+            values["vsphere_disk_uuids"] = ", ".join(sorted({d["uuid"] for d in disks
+                if isinstance(d, dict) and _uuid(d.get("uuid"))}))
+            values["vsphere_disk_inventory"] = "\n".join(
+                f'{d.get("label") or d.get("disk_id")}: {d.get("uuid") or "UUID unavailable"}; {d.get("capacity_bytes") if d.get("capacity_bytes") is not None else "unknown"} B'
+                for d in disks if isinstance(d, dict))
+    return values

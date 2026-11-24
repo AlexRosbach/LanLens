@@ -4,14 +4,21 @@ import apiClient from '../../api/client'
 import { useI18n } from '../../i18n'
 
 type Config = { verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
-type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: { host_id?: string; power_state?: string; macs?: string[]; ips?: string[]; guest_os?: string } }
+type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: Record<string, unknown> }
 type Inventory = { total: number; items: Item[] }
-type Result = { hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
+type Result = { clusters?: number; datacenters?: number; hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
 const control = 'rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base disabled:opacity-50'
 const statuses = {
   existing: 'vsphere_existing', created: 'vsphere_created', unmatched: 'vsphere_unmatched',
   ambiguous: 'vsphere_ambiguous', ignored: 'vsphere_ignored', no_mac: 'vsphere_no_mac', stale: 'vsphere_stale',
 } as const
+
+const fields = [
+  ['host_id','vsphere_host'], ['cluster_id','vsphere_cluster'], ['datacenter_id','vsphere_datacenter'],
+  ['power_state','vsphere_state'], ['macs','vsphere_macs'], ['ips','vsphere_ips'], ['guest_os','vsphere_guest_os'],
+  ['instance_uuid','vsphere_instance_uuid'], ['bios_uuid','vsphere_bios_uuid'], ['cpu_count','vsphere_cpu'],
+  ['memory_size_mib','vsphere_memory'], ['disks','vsphere_disks'],
+] as const
 
 export default function VsphereCard({featureOnly = false}: {featureOnly?: boolean}) {
   const { t } = useI18n()
@@ -22,11 +29,12 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
   const [error, setError] = useState('')
   const [result, setResult] = useState<Result | null>(null)
   const [message, setMessage] = useState('')
-  const [kind, setKind] = useState<'host'|'vm'>('vm')
+  const [kind, setKind] = useState<'host'|'vm'|'cluster'|'datacenter'>('vm')
   const [page, setPage] = useState(0)
   const [inventory, setInventory] = useState<Inventory | null>(null)
   const [refresh, setRefresh] = useState(0)
   const [hostNames, setHostNames] = useState<Record<string, string>>({})
+  const [topologyNames, setTopologyNames] = useState<Record<string, string>>({})
   const failure = (e: unknown) => {
     const detail = (e as {response?: {data?: {detail?: unknown}}})?.response?.data?.detail
     setError(typeof detail === 'string' ? detail : t('vsphere_failed'))
@@ -46,6 +54,8 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
     apiClient.get<Inventory>('/vsphere/inventory', {params: {kind:'host', limit:100}})
       .then(r => {if (active) setHostNames(Object.fromEntries(r.data.items.map(i => [i.external_id,i.name])))})
       .catch(() => {})
+    Promise.all((['cluster','datacenter'] as const).map(k => apiClient.get<Inventory>('/vsphere/inventory', {params:{kind:k,limit:100}})))
+      .then(rs=>{if(active) setTopologyNames(Object.fromEntries(rs.flatMap(r=>r.data.items.map(i=>[i.external_id,i.name]))))}).catch(()=>{})
     return () => {active=false}
   }, [enabled, featureOnly, kind, page, refresh])
   function edit(patch: Partial<Config>) {
@@ -78,6 +88,14 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
     try {setConfig((await apiClient.put<Config>('/vsphere/enabled',{enabled:value})).data)}
     catch(e){failure(e)} finally {setBusy(false)}
   }
+  function renderField(key: string, value: unknown): string {
+    if (value === null || value === undefined || value === '') return '—'
+    if (typeof value === 'string') return key === 'host_id' ? hostNames[value] || value :
+      (key === 'cluster_id' || key === 'datacenter_id') ? topologyNames[value] || value : value
+    if (Array.isArray(value)) return value.map(v => typeof v === 'object' && v !== null ?
+      [v.label || v.disk_id, v.uuid || '—', typeof v.capacity_bytes === 'number' ? v.capacity_bytes + ' B' : '', v.backing_file].filter(Boolean).join(' · ') : String(v)).join('\n') || '—'
+    return String(value)
+  }
   if (featureOnly) return <section className="rounded-xl border border-border bg-surface p-4 space-y-2">
     <h3 className="font-semibold text-text-base">{t('vsphere_title')}</h3>
     <p className="text-sm text-text-muted">{t('vsphere_hint')}</p>
@@ -96,6 +114,14 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       </div>
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={!config.verify_tls} disabled={busy} onChange={e=>edit({verify_tls:!e.target.checked})}/>{t('idoit_skip_tls')}</label>
       {!config.verify_tls && <p role="alert" className="text-sm text-warning">{t('idoit_skip_tls_warning')}</p>}
+      <div className="space-y-2">
+        <h3 className="font-medium text-sm">{t('vsphere_fields')}</h3>
+        <p className="text-xs text-text-muted">{t('vsphere_fields_hint')}</p>
+        <div className="grid gap-2 md:grid-cols-3">{fields.map(([key,label])=><label key={key} className="flex gap-2 items-center text-sm">
+          <input type="checkbox" checked={config.visible_fields.includes(key)} disabled={busy} onChange={e=>edit({visible_fields:e.target.checked ? [...config.visible_fields,key] : config.visible_fields.filter(v=>v!==key)})}/>{t(label)}
+        </label>)}</div>
+        <button className={control} disabled={busy} onClick={()=>edit({visible_fields:fields.map(([key])=>key)})}>{t('vsphere_reset_fields')}</button>
+      </div>
       <div className="flex flex-wrap gap-2">
         <button className={control} disabled={busy} onClick={save}>{t('save_changes')}</button>
         <button className={control} disabled={busy||!enabled} onClick={()=>run('test')}>{t('vsphere_test')}</button>
@@ -104,20 +130,19 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       {message && <p className="text-sm text-success">{message}</p>}
       {busy && <p className="text-sm text-text-muted">{t('applications_loading')}</p>}
       {result && <div className="text-sm text-text-muted space-y-1">
-        <p>{t('vsphere_hosts')}: {result.hosts ?? result.host_count ?? '—'} · {t('vsphere_vms')}: {result.vms ?? '—'}</p>
+        <p>{t('vsphere_hosts')}: {result.hosts ?? result.host_count ?? '—'} · {t('vsphere_vms')}: {result.vms ?? '—'} · {t('vsphere_cluster')}: {result.clusters ?? '—'} · {t('vsphere_datacenter')}: {result.datacenters ?? '—'}</p>
         {Object.entries(result.counts??{}).map(([k,v])=><p key={k}>{k in statuses?t(statuses[k as keyof typeof statuses]):k}: {v}</p>)}
         {result.warnings?.map((w,i)=><p key={i} className="text-warning">{w}</p>)}
       </div>}
       {enabled && <>
         {config.last_discovery_at && <p className="text-xs text-text-muted">{t('vsphere_last_scan')}: {new Date(config.last_discovery_at).toLocaleString()}</p>}
-        <div className="flex gap-2">{(['host','vm'] as const).map(k=><button key={k} className={control+(kind===k?' border-primary text-primary':'')} aria-pressed={kind===k} onClick={()=>{setKind(k);setPage(0);setInventory(null)}}>{t(k==='host'?'vsphere_hosts':'vsphere_vms')}</button>)}</div>
+        <div className="flex gap-2">{(['host','vm','cluster','datacenter'] as const).map(k=><button key={k} className={control+(kind===k?' border-primary text-primary':'')} aria-pressed={kind===k} onClick={()=>{setKind(k);setPage(0);setInventory(null)}}>{t(k==='host'?'vsphere_hosts':k==='vm'?'vsphere_vms':k==='cluster'?'vsphere_cluster':'vsphere_datacenter')}</button>)}</div>
         {inventory?.total===0 && <p className="text-sm text-text-muted">{t('vsphere_no_results')}</p>}
         {!!inventory?.items.length && <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="text-text-muted"><tr>
-          <th className="p-2">{t('col_device')}</th><th className="p-2">{t('vsphere_host')}</th><th className="p-2">MAC / IP</th><th className="p-2">{t('vsphere_state')}</th><th className="p-2">{t('vsphere_match')}</th>
+          <th className="p-2">{t('col_device')}</th>{fields.filter(([key])=>config.visible_fields.includes(key)).map(([key,label])=><th className="p-2" key={key}>{t(label)}</th>)}<th className="p-2">{t('vsphere_match')}</th>
         </tr></thead><tbody className="divide-y divide-border">{inventory.items.map(i=><tr key={i.id}>
-          <td className="p-2">{i.device_id ? <Link className="text-primary hover:underline" to={'/devices/'+i.device_id}>{i.name}</Link>:i.name}<div className="text-xs text-text-subtle">{i.metadata.guest_os}</div></td>
-          <td className="p-2 text-text-muted">{i.metadata.host_id ? hostNames[i.metadata.host_id]||i.metadata.host_id : '—'}</td>
-          <td className="p-2 text-text-muted">{i.metadata.macs?.join(', ')||'—'}<div>{i.metadata.ips?.join(', ')}</div></td><td className="p-2 text-text-muted">{i.metadata.power_state||'—'}</td>
+          <td className="p-2">{i.device_id ? <Link className="text-primary hover:underline" to={'/devices/'+i.device_id}>{i.name}</Link>:i.name}</td>
+          {fields.filter(([key])=>config.visible_fields.includes(key)).map(([key])=><td key={key} className="p-2 text-text-muted whitespace-pre-wrap break-words min-w-24">{renderField(key,i.metadata[key])}</td>)}
           <td className="p-2">{i.match_status in statuses?t(statuses[i.match_status as keyof typeof statuses]):i.match_status}</td>
         </tr>)}</tbody></table></div>}
         {inventory && <div className="flex gap-2 items-center text-sm"><button className={control} disabled={page===0} onClick={()=>setPage(v=>v-1)}>{t('vsphere_previous')}</button><span>{page+1} / {Math.max(1,Math.ceil(inventory.total/25))}</span><button className={control} disabled={(page+1)*25>=inventory.total} onClick={()=>setPage(v=>v+1)}>{t('vsphere_next')}</button></div>}
