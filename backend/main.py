@@ -11,6 +11,7 @@ from .database import SessionLocal
 from .models import TokenBlacklist
 from .routers import admin, agents, auth, auto_scan_rules, client_errors, cmdb, connect, credentials, debug, deep_scan, devices, dhcp_monitor, dns_names, idoit, inventory, notifications, plugins, scan, scan_nodes, segments, services, snmp
 from .routers import settings as settings_router
+from .routers import vsphere
 from .services import deep_scan_scheduler, dns_names_scheduler, idoit_scheduler, passive_discovery_scheduler, scheduler
 from .services.initial_discovery import prepare_initial_scan_bootstrap
 from .services.scanner import run_scan
@@ -142,6 +143,7 @@ app.include_router(idoit.router)
 app.include_router(cmdb.router)
 app.include_router(dhcp_monitor.router)
 app.include_router(inventory.router)
+app.include_router(vsphere.router)
 app.include_router(inventory.ignore_router)
 app.include_router(inventory.backup_router)
 app.include_router(plugins.router)

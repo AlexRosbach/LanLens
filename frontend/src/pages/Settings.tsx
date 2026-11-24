@@ -15,6 +15,7 @@ import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDi
 import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
+import VsphereCard from '../components/settings/VsphereCard'
 import DnsNamesSettingsCard from '../components/settings/DnsNamesSettingsCard'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
@@ -3296,6 +3297,7 @@ export default function Settings() {
         <div className="space-y-4">
           <DocumentationExportCard />
           <DeviceMergeCard />
+          {current.advanced_view_enabled && <VsphereCard />}
         </div>
       </div>
       )}

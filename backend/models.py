@@ -813,3 +813,33 @@ class DeviceHostRelationship(Base):
 
     child_device = relationship("Device", foreign_keys=[child_device_id], back_populates="child_relationships")
     host_device = relationship("Device", foreign_keys=[host_device_id], back_populates="host_relationships")
+
+
+class VsphereConnection(Base):
+    """Single optional vCenter integration, separate from exported settings."""
+    __tablename__ = "vsphere_connections"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    endpoint = Column(String(512), nullable=False, default="")
+    username = Column(String(255), nullable=False, default="")
+    encrypted_secret = Column(Text, nullable=False, default="")
+    revision = Column(Integer, nullable=False, default=0)
+    last_discovery_at = Column(DateTime, nullable=True)
+
+
+class VsphereInventoryObject(Base):
+    """Last observed vCenter inventory; never represents a synthetic device."""
+    __tablename__ = "vsphere_inventory_objects"
+    __table_args__ = (UniqueConstraint("connection_id", "kind", "external_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    connection_id = Column(Integer, ForeignKey("vsphere_connections.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String(16), nullable=False)
+    external_id = Column(String(128), nullable=False)
+    instance_uuid = Column(String(64), nullable=True)
+    name = Column(String(255), nullable=False)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    match_status = Column(String(32), nullable=False)
+    observed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
