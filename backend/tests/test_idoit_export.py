@@ -104,10 +104,26 @@ class IdoitExportCsvTest(unittest.TestCase):
         ])
 
         self.assertEqual(entries, [
-            {"title": "NVMe", "capacity": 476.94, "unit": 3},
-            {"title": "SATA", "capacity": 100.0, "unit": 3},
-            {"title": "Archive", "capacity": 2048.0, "unit": 3},
+            {"title": "NVMe [LanLens disk: Observed 476.94 GB #1]", "capacity": 476.94, "unit": 3},
+            {"title": "SATA [LanLens disk: Observed 100 GB #1]", "capacity": 100.0, "unit": 3},
+            {"title": "Archive [LanLens disk: Observed 2048 GB #1]", "capacity": 2048.0, "unit": 3},
         ])
+
+    def test_identical_disks_have_distinct_locators(self):
+        entries = _drive_entries([
+            {"Model": "Example Virtual Disk", "Size": "100 GB", "Index": 0, "SerialNumber": "0000"},
+            {"Model": "Example Virtual Disk", "Size": "100 GB", "Index": 1, "SerialNumber": "0000"},
+        ])
+        self.assertEqual([row["title"] for row in entries], [
+            "Example Virtual Disk [LanLens disk: Disk 0]",
+            "Example Virtual Disk [LanLens disk: Disk 1]",
+        ])
+        self.assertTrue(all("serial" not in row for row in entries))
+        legacy = _drive_entries([{"Model": "Example", "Size": "100 GB"}] * 2)
+        self.assertNotEqual(legacy[0]["title"], legacy[1]["title"])
+        linux = _drive_entries("NAME SIZE TYPE MODEL\nsda 100G disk Example\nsdb 100G disk Example\nsr0 1G rom CD")
+        self.assertEqual(len(linux), 2)
+        self.assertNotEqual(linux[0]["title"], linux[1]["title"])
 
     def test_build_export_rows_uses_bulk_snmp_identity(self):
         db = self.Session()
@@ -1501,6 +1517,74 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(_pinned_tls_context("http"))
         finally:
             db.close()
+
+    async def test_drive_sync_creates_distinct_entries_and_updates_only_matching_disk(self):
+        class DriveClient(IdoitClient):
+            def __init__(self, config):
+                super().__init__(config)
+                self.rows = [{"id": "90", "title": "Example Virtual Disk"}]
+                self.writes = []
+
+            async def read_category(self, object_id, category):
+                return [dict(row) for row in self.rows]
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                self.writes.append(entry_id)
+                if entry_id:
+                    row = next(row for row in self.rows if row["id"] == entry_id)
+                    row.update(data)
+                else:
+                    row = {"id": str(90 + len(self.rows)), **data}
+                    self.rows.append(row)
+                return {"success": True, "entry": row["id"]}
+
+        client = DriveClient(get_config(self.Session()))
+        disks = _drive_entries([
+            {"Model": "Example Virtual Disk", "Size": "100 GB", "Index": 0},
+            {"Model": "Example Virtual Disk", "Size": "200 GB", "Index": 1},
+        ])
+        for _ in range(2):
+            for disk in disks:
+                result = await client.save_category_best_effort("42", "C__CATG__DRIVE", disk)
+                self.assertEqual(result["status"], "saved")
+        self.assertEqual(client.writes, [None, None, "91", "92"])
+        self.assertEqual(len(client.rows), 3)
+        self.assertEqual(client.rows[0], {"id": "90", "title": "Example Virtual Disk"})
+        self.assertEqual([row["capacity"] for row in client.rows[1:]], [100.0, 200.0])
+
+    async def test_drive_conflicting_serial_does_not_overwrite_and_ambiguous_match_does_not_write(self):
+        class DriveClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return self.rows
+
+            async def save_category(self, *args, **kwargs):
+                raise AssertionError("ambiguous or failed identity lookup must not write")
+
+        client = DriveClient(get_config(self.Session()))
+        title = "Example [LanLens disk: Disk 0]"
+        client.rows = [{"id": "10", "title": title, "serial": "OLD"}]
+        self.assertIsNone(await client.find_reusable_category_entry("42", "C__CATG__DRIVE",
+                                                                    {"title": title, "serial": "NEW"}))
+        client.rows = [{"id": "10", "title": title}, {"id": "11", "title": title}]
+        result = await client.save_category_best_effort("42", "C__CATG__DRIVE", {"title": title})
+        self.assertEqual(result["status"], "failed")
+
+    async def test_drive_rejected_write_is_not_retried_as_partial_rows(self):
+        class DriveClient(IdoitClient):
+            calls = 0
+
+            async def read_category(self, object_id, category):
+                return []
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                self.calls += 1
+                raise IdoitConnectionError("Drive write rejected", stage="jsonrpc_error")
+
+        client = DriveClient(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__DRIVE",
+            {"title": "Example [LanLens disk: Disk 0]", "capacity": 100, "unit": 3})
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(client.calls, 1)
 
     async def test_application_save_checks_readback(self):
         class ReadbackClient(IdoitClient):

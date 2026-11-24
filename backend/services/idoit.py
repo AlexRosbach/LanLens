@@ -17,6 +17,7 @@ import logging
 import re
 import ssl
 import unicodedata
+from collections import Counter
 from urllib.parse import urlsplit
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -971,41 +972,112 @@ def _memory_entries(raw: Any) -> list[dict[str, Any]]:
     return [{"quantity": 1, "title": "System memory", "capacity": capacity, "unit": unit}] if capacity else []
 
 
+def _drive_serial(value: Any) -> str:
+    serial = str(_plain_category_value(value) or "").strip()
+    if (not serial or serial.casefold() in {"unknown", "none", "n/a", "na", "not specified",
+                                          "to be filled by o.e.m.", "default string", "-", "null"}
+            or re.fullmatch(r"[0\s-]+", serial)):
+        return ""
+    return serial[:255]
+
+
 def _drive_entries(raw: Any) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for item in _to_list(raw):
-        if isinstance(item, dict):
-            size, unit = _size_to_value_unit(item.get("Size") or item.get("size"))
-            title = item.get("Model") or item.get("model") or item.get("Name") or item.get("name") or item.get("DeviceID") or "Disk"
-            entry = {
-                "title": str(title)[:255],
-                "capacity": size,
-                "unit": unit,
-                "serial": item.get("SerialNumber") or item.get("serial"),
-                "firmware": item.get("FirmwareRevision") or item.get("firmware"),
-            }
-            entries.append({k: v for k, v in entry.items() if v not in (None, "")})
-    if entries:
-        return entries[:64]
-    for line in str(raw or "").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.lower().startswith("name "):
-            continue
-        parts = stripped.split(None, 3)
-        if len(parts) < 2:
-            continue
-        name = parts[0]
-        size = parts[1]
-        model = parts[3] if len(parts) > 3 else None
-        capacity, unit = _size_to_value_unit(size)
-        entry = {
-            "title": (model or name)[:255],
-            "mount_point": name[:255],
-            "capacity": capacity,
-            "unit": unit,
-        }
+    """Give each observed disk a distinct identity, including identical VM disks."""
+    items = _to_list(raw)
+    if len(items) == 1 and isinstance(items[0], str):
+        # Old lsblk output: retain the kernel device name as the locator.
+        items = []
+        for line in str(raw or "").splitlines():
+            parts = line.strip().split(None, 3)
+            if len(parts) < 3 or parts[0].lower() == "name" or parts[2] != "disk":
+                continue
+            items.append({"Name": parts[0], "Size": parts[1], "Model": parts[3] if len(parts) > 3 else parts[0],
+                          "DeviceID": "/dev/" + parts[0]})
+    items = [item for item in items if isinstance(item, dict)][:64]
+    serials = Counter(_drive_serial(item.get("SerialNumber") or item.get("serial")).casefold() for item in items)
+    occurrences: Counter = Counter()
+    entries = []
+    for item in items:
+        capacity, unit = _size_to_value_unit(item.get("Size") or item.get("size"))
+        model = str(item.get("Model") or item.get("model") or item.get("Name") or item.get("name") or "Disk").strip() or "Disk"
+        serial = _drive_serial(item.get("SerialNumber") or item.get("serial"))
+        if serials[serial.casefold()] > 1:
+            # Some virtual disks expose the same placeholder serial.
+            serial = ""
+        locator = item.get("DeviceID") or item.get("device_id")
+        index = item.get("Index", item.get("index"))
+        if isinstance(locator, str) and locator.strip():
+            locator = locator.strip()
+            physical = re.search(r"PHYSICALDRIVE(\d+)$", locator, re.IGNORECASE)
+            locator = f"Disk {physical.group(1)}" if physical else locator
+        elif index is not None and str(index).isdigit():
+            locator = f"Disk {index}"
+        else:
+            locator = ""
+        if locator:
+            identity = str(locator)[:100]
+        elif serial:
+            identity = "Serial " + serial[:100]
+        else:
+            # Old scans may contain only model and size. Preserve multiplicity
+            # without treating model names as unique physical identities.
+            key = (model.casefold(), capacity, unit)
+            occurrences[key] += 1
+            size_label = f"{capacity:g} GB" if capacity is not None and unit == 3 else "size unknown"
+            identity = f"Observed {size_label} #{occurrences[key]}"
+        suffix = f" [LanLens disk: {identity}]"
+        entry = {"title": model[:255-len(suffix)] + suffix,
+                 "capacity": capacity, "unit": unit, "serial": serial,
+                 "firmware": item.get("FirmwareRevision") or item.get("firmware")}
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
-    return entries[:64]
+    # A repeated locator in one snapshot is unsafe to match. Give distinct
+    # observations deterministic labels rather than overwriting either one.
+    totals = Counter(entry["title"].casefold() for entry in entries)
+    seen: Counter = Counter()
+    for entry in entries:
+        title = entry["title"]
+        if totals[title.casefold()] > 1:
+            seen[title.casefold()] += 1
+            suffix = f" [observation {seen[title.casefold()]}]"
+            entry["title"] = title[:255-len(suffix)] + suffix
+    return entries
+
+
+def _drive_match_id(entries: list[dict[str, Any]], data: dict[str, Any]) -> Optional[str]:
+    """Never reuse a disk entry merely because its model/title matches."""
+    serial = _drive_serial(data.get("serial")).casefold()
+    title = _normalized_match_text(data.get("title"))
+    mount = _normalized_match_text(data.get("mount_point"))
+    explicit_title = " [lanlens disk: " in title
+    serial_matches, location_matches = set(), set()
+    for entry in entries:
+        status = str(_plain_category_value(entry.get("status")) or "")
+        if status and status not in ("2", "C__RECORD_STATUS__NORMAL"):
+            continue
+        entry_serial = _drive_serial(entry.get("serial")).casefold()
+        if serial and entry_serial and serial != entry_serial:
+            continue
+        oid = _category_entry_id(entry)
+        current_title = _normalized_match_text(entry.get("title"))
+        current_mount = _normalized_match_text(entry.get("mount_point"))
+        same_serial = bool(serial and entry_serial == serial)
+        same_location = bool((explicit_title and title == current_title)
+                             or (mount and mount == current_mount))
+        if (same_serial or same_location) and not oid:
+            raise IdoitConnectionError("Matching drive entry has no usable category ID", stage="category_match")
+        if same_serial:
+            serial_matches.add(oid)
+        if same_location:
+            location_matches.add(oid)
+    if len(location_matches) > 1 or (len(serial_matches) > 1 and not location_matches):
+        raise IdoitConnectionError("Multiple matching drive entries; refusing ambiguous update", stage="category_match")
+    if location_matches and serial_matches and not (location_matches & serial_matches):
+        raise IdoitConnectionError("Drive serial and locator point to different entries", stage="category_match")
+    if location_matches:
+        return next(iter(location_matches))
+    if len(serial_matches) == 1:
+        return next(iter(serial_matches))
+    return None
 
 
 def _os_assigned_version(raw: Any) -> Optional[str]:
@@ -1518,7 +1590,12 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     os_info = device.os_info or _first_documented_os_value(findings)
     cpu_raw = hw.get("cpu") or hw.get("processor") or _first_finding_text(findings, [("hardware", "cpu"), ("hardware", "processor")], 1500)
     memory = hw.get("memory") or hw.get("physical_memory") or _first_finding_text(findings, [("hardware", "memory"), ("hardware", "physical_memory")], 1500)
-    disks = hw.get("disks") or _first_finding_text(findings, [("hardware", "disks"), ("hardware", "disk_drives")], 2500)
+    # Preserve the complete raw list; compact display text can truncate JSON.
+    disk_findings = findings.get("hardware", {})
+    disk_candidates = [disk_findings[key] for key in ("disks", "disk_drives")
+                       if isinstance(disk_findings.get(key), dict)]
+    latest_disks = max(disk_candidates, key=lambda item: item.get("observed_at") or "", default={})
+    disks = latest_disks.get("value") if disk_candidates else (hw.get("disk_drives") or hw.get("disks"))
     containers = "\n".join(
         text for text in [
             _finding_text(findings, "container", "docker_containers", 2500),
@@ -1719,8 +1796,9 @@ def _safe_log_details(details: dict[str, Any]) -> str:
             summary["application_lookup"] = details["application_lookup"]
         if "application_resolution_counts" in details:
             summary["application_resolution_counts"] = details["application_resolution_counts"]
-        if "application_save_counts" in details:
-            summary["application_save_counts"] = details["application_save_counts"]
+        for key in ("application_save_counts", "drive_save_counts"):
+            if key in details:
+                summary[key] = details[key]
         if "applications" in details:
             counts: dict[str, int] = {}
             for item in details["applications"]:
@@ -1740,7 +1818,7 @@ def _safe_log_details(details: dict[str, Any]) -> str:
     # Keep the log valid JSON even when diagnostics exceed the size budget.
     reduced = {key: summary[key] for key in (
         "truncated", "original_size", "sha256", "upstream_write_performed",
-        "application_resolution_counts", "application_lookup", "application_save_counts",
+        "application_resolution_counts", "application_lookup", "application_save_counts", "drive_save_counts",
         "cpu_save_status", "cpu_rejected_fields",
     ) if key in summary}
     for key in ("warnings", "errors"):
@@ -2825,6 +2903,8 @@ class IdoitClient:
         fields so valid information still lands in the CMDB and the operator can
         see exactly which field was rejected.
         """
+        if category == "C__CATG__DRIVE":
+            return await self.save_drive_category(object_id, data)
         entry_id = await self.find_reusable_category_entry(object_id, category, data)
         try:
             result = await self.save_category(object_id, category, data, entry_id)
@@ -2890,6 +2970,27 @@ class IdoitClient:
                 response["entry_id"] = entry_id
             return response
 
+    async def save_drive_category(self, object_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        # One full write per disk. Never retry individual fields without a
+        # proven entry ID; a partial create could otherwise add/overwrite rows.
+        category = "C__CATG__DRIVE"
+        try:
+            if not (_drive_serial(data.get("serial")) or _normalized_match_text(data.get("mount_point"))
+                    or " [lanlens disk: " in _normalized_match_text(data.get("title"))):
+                raise IdoitConnectionError("Drive has no usable identity", stage="category_match")
+            entry_id = await self.find_reusable_category_entry(object_id, category, data)
+            result = await self.save_category(object_id, category, data, entry_id)
+        except IdoitConnectionError as exc:
+            return {"status": "failed", "error": exc.to_detail()}
+        try:
+            verified = await self.find_reusable_category_entry(object_id, category, data)
+        except IdoitConnectionError:
+            verified = None
+        if not verified or (entry_id and entry_id != verified):
+            return {"status": "verification_failed", "result": result}
+        return {"status": "saved", "result": result, "entry_id": verified,
+                "action": "updated" if entry_id else "created"}
+
     async def find_reusable_category_entry(self, object_id: str, category: str, data: dict[str, Any]) -> Optional[str]:
         if category not in MULTIVALUE_CATEGORY_MATCH_FIELDS and category not in COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS:
             return None
@@ -2898,12 +2999,14 @@ class IdoitClient:
         except IdoitConnectionError:
             # A failed read cannot establish that an existing software assignment
             # is absent. Propagate it rather than appending duplicate links.
-            if category in {"C__CATG__OPERATING_SYSTEM", "C__CATG__APPLICATION", "C__CATG__CPU"}:
+            if category in {"C__CATG__OPERATING_SYSTEM", "C__CATG__APPLICATION", "C__CATG__CPU", "C__CATG__DRIVE"}:
                 raise
             return None
         entries = _category_entries(result)
         if not entries:
             return None
+        if category == "C__CATG__DRIVE":
+            return _drive_match_id(entries, data)
         composite_fields = COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS.get(category)
         if composite_fields:
             expected_values = {
@@ -3248,18 +3351,20 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     if failed:
                         sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
                 elif result.get("status") == "verification_failed":
-                    sync_warnings.append(f"{category}: save reported success but assignment could not be verified by reading the host category")
+                    sync_warnings.append(f"{category}: save reported success but category entry could not be verified by reading the host category")
                 elif result.get("status") == "failed":
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
                     rejected = ", ".join(sorted(failed.keys())) if failed else "category payload"
-                    sync_warnings.append(f"{category}: save rejected by i-doit; rejected fields: {rejected}")
+                    error = result.get("error") or {}
+                    reason = error.get("message") if isinstance(error, dict) else None
+                    sync_warnings.append(f"{category}: save rejected by i-doit; rejected fields: {rejected}" + (f"; {reason}" if category == "C__CATG__DRIVE" and reason else ""))
             details["category_results"][category] = category_results if isinstance(data, list) else (category_results[0] if category_results else {"status": "skipped_empty"})
-            if category == "C__CATG__APPLICATION":
+            if category in {"C__CATG__APPLICATION", "C__CATG__DRIVE"}:
                 counts = {}
                 for result in category_results:
                     status = str(result.get("status", "unknown"))
                     counts[status] = counts.get(status, 0) + 1
-                details["application_save_counts"] = counts
+                details["drive_save_counts" if category == "C__CATG__DRIVE" else "application_save_counts"] = counts
 
         sysid = await client.object_sysid(object_id)
         if sysid:

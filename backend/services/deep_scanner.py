@@ -131,7 +131,7 @@ _WIN_HARDWARE = [
     ("hardware", "physical_memory",
      "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object Capacity,Speed | ConvertTo-Json -Compress"),
     ("hardware", "disk_drives",
-     "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Model,Size,MediaType | ConvertTo-Json -Compress"),
+     "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Model,Size,MediaType,DeviceID,Index,SerialNumber,FirmwareRevision | ConvertTo-Json -Compress"),
 ]
 
 _WIN_OS = [
