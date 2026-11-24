@@ -5,8 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import AgentEnrollmentToken, Device, WindowsAgent
-from backend.routers.agents import _active_token, _authenticated_agent, _find_or_create_device, _normalise_mac, _sha256
+from backend.models import AgentEnrollmentToken, DeepScanFinding, Device, WindowsAgent
+from backend.routers.agents import _active_token, _authenticated_agent, _find_or_create_device, _normalise_mac, _sha256, report_agent_inventory
 from backend.routers.agents import AgentEnrollRequest, AgentReportRequest
 from fastapi import HTTPException
 
@@ -59,5 +59,30 @@ class WindowsAgentTests(unittest.TestCase):
             self.assertEqual(_authenticated_agent("Bearer " + credential, db).agent_id, "agent-id")
             with self.assertRaises(HTTPException):
                 _authenticated_agent("Bearer agent-id.bad", db)
+        finally:
+            db.close()
+
+    def test_linux_agent_stores_structured_findings(self):
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:55", hostname="linux-host")
+            db.add(device)
+            db.flush()
+            credential = "linux-agent.linux-secret"
+            db.add(WindowsAgent(agent_id="linux-agent", device_id=device.id, secret_hash=_sha256(credential)))
+            db.commit()
+            payload = AgentReportRequest(
+                sequence=1, hostname="linux-host", primary_mac="00:11:22:33:44:55",
+                os_info="Example Linux", kernel_version="6.12", platform="linux",
+                software=[{"name": "example", "version": "1.0"}],
+                findings=[{"finding_type": "hardware", "key": "cpu", "value": "CPU details"}],
+            )
+            result = report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
+            self.assertEqual(result["status"], "accepted")
+            stored = db.query(DeepScanFinding).filter(DeepScanFinding.run_id == result["run_id"]).all()
+            self.assertEqual({(finding.finding_type, finding.key) for finding in stored}, {
+                ("os", "operating_system"), ("software", "installed_software"), ("hardware", "cpu"),
+            })
+            self.assertTrue(all(finding.source == "lanlens_linux_agent" for finding in stored))
         finally:
             db.close()

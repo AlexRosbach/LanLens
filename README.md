@@ -32,8 +32,13 @@ LanLens turns a Docker host into a local network scanner that discovers MAC/IP d
 ### Get the context that matters
 
 - Deep Scan reveals hardware, operating system, running services and installed software with versions.
-- The optional Windows Agent reports inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM required.
+- Optional Windows and Linux Agents report the same structured inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM or SSH required.
 - Visualize topology, scan changes and relevant network-security signals when expert modules are enabled.
+
+### Integrate without exposing inventory
+
+- The included MCP companion gives Claude Desktop, Claude Code, Codex, ChatGPT and compatible clients safe, read-only access to LanLens inventory.
+- Choose local stdio or authenticated Streamable HTTP; write access is disabled by default and limited to explicit metadata updates.
 
 ### Keep inventory useful beyond LanLens
 
@@ -160,6 +165,18 @@ Core runtime settings:
 | `TZ` | `UTC` | Container timezone |
 
 For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki).
+
+### MCP Companion
+
+LanLens includes an official MCP companion for querying the safe device inventory, services, ports, topology, segments, notifications and network changes from compatible AI clients. It defaults to read-only access, removes credentials and private operator data from responses, and requires an explicit configuration gate for its limited metadata-write tool.
+
+Use the companion image alongside LanLens:
+
+```bash
+docker compose --profile mcp up -d
+```
+
+For Claude Desktop, Claude Code, Codex, ChatGPT and authenticated HTTP setup, see the [MCP companion guide](docs/mcp.md).
 
 ### ARM64
 

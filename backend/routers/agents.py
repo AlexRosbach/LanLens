@@ -11,7 +11,7 @@ import re
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -100,6 +100,14 @@ class AgentEnrollRequest(BaseModel):
     os_info: Optional[str] = Field(default=None, max_length=255)
     kernel_version: Optional[str] = Field(default=None, max_length=255)
     ip_addresses: list[str] = Field(default_factory=list, max_length=64)
+    platform: Literal["windows", "linux"] = "windows"
+
+
+class AgentFinding(BaseModel):
+    finding_type: Literal["hardware", "os", "software", "service", "container", "audit", "hypervisor"]
+    key: str = Field(min_length=1, max_length=256)
+    value: Any = None
+    source: Optional[str] = Field(default=None, max_length=64)
 
 
 class AgentReportRequest(BaseModel):
@@ -110,6 +118,8 @@ class AgentReportRequest(BaseModel):
     kernel_version: Optional[str] = Field(default=None, max_length=255)
     ip_addresses: list[str] = Field(default_factory=list, max_length=64)
     software: list[dict[str, Any]] = Field(default_factory=list, max_length=_MAX_SOFTWARE_ITEMS)
+    findings: list[AgentFinding] = Field(default_factory=list, max_length=128)
+    platform: Literal["windows", "linux"] = "windows"
 
 
 def _active_token(raw_token: str, db: Session) -> AgentEnrollmentToken:
@@ -129,7 +139,8 @@ def _find_or_create_device(payload: AgentEnrollRequest | AgentReportRequest, db:
         device = Device(
             mac_address=mac_address, hostname=payload.hostname.strip(), ip_address=primary_ip,
             os_info=payload.os_info, kernel_version=payload.kernel_version,
-            device_class="Windows Server", is_registered=True, is_online=True,
+            device_class="Windows Server" if payload.platform == "windows" else "Linux Server",
+            is_registered=True, is_online=True,
         )
         db.add(device)
         db.flush()
@@ -193,17 +204,31 @@ def report_agent_inventory(
     if device.id != agent.device_id:
         raise HTTPException(status_code=409, detail="Agent identity does not match the reported device")
     run = DeepScanRun(
-        device_id=device.id, profile="windows_agent", status="done", triggered_by="agent",
-        finished_at=datetime.utcnow(), summary_json=json.dumps({"software_count": len(payload.software), "transport": "outbound_agent"}),
+        device_id=device.id, profile=f"{payload.platform}_agent", status="done", triggered_by="agent",
+        finished_at=datetime.utcnow(), summary_json=json.dumps({
+            "software_count": len(payload.software), "finding_count": len(payload.findings),
+            "transport": "outbound_agent", "platform": payload.platform,
+        }),
     )
     db.add(run)
     db.flush()
+    source = f"lanlens_{payload.platform}_agent"
     findings = [
         DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="os", key="operating_system",
-                        value_json=json.dumps({"name": payload.os_info, "kernel": payload.kernel_version}), source="lanlens_agent"),
+                        value_json=json.dumps({"name": payload.os_info, "kernel": payload.kernel_version}), source=source),
         DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="software", key="installed_software",
-                        value_json=json.dumps(payload.software), source="lanlens_agent"),
+                        value_json=json.dumps(payload.software), source=source),
     ]
+    seen = {("os", "operating_system"), ("software", "installed_software")}
+    for finding in payload.findings:
+        identity = (finding.finding_type, finding.key)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        findings.append(DeepScanFinding(
+            device_id=device.id, run_id=run.id, finding_type=finding.finding_type,
+            key=finding.key, value_json=json.dumps(finding.value), source=finding.source or source,
+        ))
     db.add_all(findings)
     agent.last_sequence = payload.sequence
     agent.last_seen_at = datetime.utcnow()
@@ -219,3 +244,15 @@ def windows_install_script() -> PlainTextResponse:
 @router.get("/windows/LanLensAgent.cs", response_class=PlainTextResponse)
 def windows_agent_source() -> PlainTextResponse:
     return FileResponse(_ASSET_DIR / "LanLensAgent.cs", media_type="text/plain; charset=utf-8")
+
+
+@router.get("/linux/install.sh", response_class=PlainTextResponse)
+def linux_install_script() -> PlainTextResponse:
+    asset_dir = Path(__file__).resolve().parents[1] / "assets" / "linux_agent"
+    return FileResponse(asset_dir / "install.sh", media_type="text/plain; charset=utf-8")
+
+
+@router.get("/linux/lanlens-agent.py", response_class=PlainTextResponse)
+def linux_agent_source() -> PlainTextResponse:
+    asset_dir = Path(__file__).resolve().parents[1] / "assets" / "linux_agent"
+    return FileResponse(asset_dir / "lanlens-agent.py", media_type="text/plain; charset=utf-8")

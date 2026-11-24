@@ -1,11 +1,14 @@
 # Changelog
 
-## 1.6.2 — Build 20261123.0005
+## 1.6.2 — Build 20261124.0001
 
 - Corrected i-doit Operating System matching for Windows Server inventory titles
   that contain a trailing WMI NT build, such as `10.0.26100`.
 - Added a dedicated Applications tab to device Deep Scan and condensed unmatched
   i-doit Application messages into one count-based, actionable warning.
+- Extended the outbound Windows agent to report the same structured hardware,
+  service and audit inventory as WinRM Deep Scan, and added an outbound Linux
+  systemd agent with a separate setup tab.
 
 ## 1.6.1 — Build 20261123.0004
 

@@ -10,19 +10,21 @@ const durations = [
   { label: 'Never expires', value: null },
 ]
 
-export default function WindowsAgentPanel() {
+interface Props { platform?: 'windows' | 'linux' }
+
+export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
   const [tokens, setTokens] = useState<EnrollmentToken[]>([])
-  const [name, setName] = useState('Windows inventory agent')
+  const [name, setName] = useState(platform === 'windows' ? 'Windows inventory agent' : 'Linux inventory agent')
   const [duration, setDuration] = useState<number | null>(10080)
   const [interval, setInterval] = useState(60)
   const [serverUrl, setServerUrl] = useState(() => window.location.origin)
   const [created, setCreated] = useState<CreatedEnrollmentToken | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const command = useMemo(() => !created ? '' : [
+  const command = useMemo(() => !created ? '' : platform === 'windows' ? [
     'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command',
     `"& ([ScriptBlock]::Create((iwr -UseBasicParsing '${serverUrl.replace(/\/$/, '')}/api/agents/windows/install.ps1').Content)) -ServerUrl '${serverUrl.replace(/\/$/, '')}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval}"`,
-  ].join(' '), [created, interval, serverUrl])
+  ].join(' ') : `curl -fsSL '${serverUrl.replace(/\/$/, '')}/api/agents/linux/install.sh' | sudo bash -s -- --server-url '${serverUrl.replace(/\/$/, '')}' --enrollment-token '${created.token}' --interval-minutes ${interval}`, [created, interval, platform, serverUrl])
 
   async function refresh() {
     try { setTokens((await agentsApi.listTokens()).data) } catch { toast.error('Could not load installation tokens') }
@@ -49,8 +51,8 @@ export default function WindowsAgentPanel() {
 
   return <div className="space-y-5">
     <div className="rounded-xl border border-primary/25 bg-primary-dim/30 p-4">
-      <h3 className="font-semibold text-text-base">Outbound Windows Agent</h3>
-      <p className="mt-1 text-sm text-text-muted">Installs a Windows service that sends inventory over HTTPS to LanLens. No inbound WinRM connection is required.</p>
+      <h3 className="font-semibold text-text-base">Outbound {platform === 'windows' ? 'Windows' : 'Linux'} Agent</h3>
+      <p className="mt-1 text-sm text-text-muted">Installs a {platform === 'windows' ? 'Windows service' : 'systemd service'} that sends inventory over HTTPS to LanLens. No inbound {platform === 'windows' ? 'WinRM' : 'SSH'} connection is required.</p>
     </div>
     <div className="grid gap-4 md:grid-cols-2">
       <Input label="Installation token name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -60,9 +62,9 @@ export default function WindowsAgentPanel() {
     </div>
     <Button onClick={create} loading={loading}>Create installation command</Button>
     {created && <div className="rounded-xl border border-success/40 bg-surface2 p-4 space-y-3">
-      <p className="text-sm text-text-base">Run this once in an elevated PowerShell session. The token is shown only now.</p>
+      <p className="text-sm text-text-base">Run this once with {platform === 'windows' ? 'elevated PowerShell' : 'root or sudo'}. The token is shown only now.</p>
       <textarea readOnly value={command} className="input-field min-h-32 font-mono text-xs" />
-      <Button variant="outline" size="sm" onClick={copy}>Copy PowerShell command</Button>
+      <Button variant="outline" size="sm" onClick={copy}>Copy installation command</Button>
     </div>}
     <div className="space-y-2"><h3 className="font-semibold text-text-base">Installation tokens</h3>
       {tokens.length === 0 ? <p className="text-sm text-text-subtle">No installation tokens yet.</p> : tokens.map((token) => <div key={token.id} className="rounded-lg border border-border bg-surface2 p-3 flex items-center justify-between gap-3"><div><p className="text-sm font-medium text-text-base">{token.name}</p><p className="text-xs text-text-subtle">{token.revoked_at ? 'Revoked' : token.expires_at ? `Expires ${new Date(token.expires_at).toLocaleString()}` : 'Never expires'}</p></div>{!token.revoked_at && <Button size="sm" variant="ghost" onClick={() => revoke(token.id)}><span className="text-danger">Revoke</span></Button>}</div>)}</div>

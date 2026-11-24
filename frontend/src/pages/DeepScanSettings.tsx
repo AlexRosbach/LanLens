@@ -8,6 +8,7 @@ import Card from '../components/ui/Card'
 import Input from '../components/ui/Input'
 import { useI18n } from '../i18n'
 import WindowsAgentPanel from '../components/deep-scan/WindowsAgentPanel'
+import LinuxAgentPanel from '../components/deep-scan/LinuxAgentPanel'
 
 // ── Scan profile descriptions ──────────────────────────────────────────────────
 
@@ -205,7 +206,7 @@ export default function DeepScanSettings() {
   const [rules, setRules] = useState<AutoScanRule[]>([])
   const [showRuleModal, setShowRuleModal] = useState(false)
   const [editingRule, setEditingRule] = useState<AutoScanRule | null>(null)
-  const [activeTab, setActiveTab] = useState<'configuration' | 'agent'>('configuration')
+  const [activeTab, setActiveTab] = useState<'configuration' | 'windows_agent' | 'linux_agent'>('configuration')
 
   useEffect(() => {
     credentialsApi.list().then((r) => setCredentials(r.data)).catch(() => {})
@@ -250,9 +251,10 @@ export default function DeepScanSettings() {
     <div className="space-y-6">
       <div className="flex gap-2 border-b border-border">
         <button className={`px-3 py-2 text-sm font-medium ${activeTab === 'configuration' ? 'border-b-2 border-primary text-primary' : 'text-text-muted'}`} onClick={() => setActiveTab('configuration')}>Deep Scan</button>
-        <button className={`px-3 py-2 text-sm font-medium ${activeTab === 'agent' ? 'border-b-2 border-primary text-primary' : 'text-text-muted'}`} onClick={() => setActiveTab('agent')}>Windows Agent</button>
+        <button className={`px-3 py-2 text-sm font-medium ${activeTab === 'windows_agent' ? 'border-b-2 border-primary text-primary' : 'text-text-muted'}`} onClick={() => setActiveTab('windows_agent')}>Windows Agent</button>
+        <button className={`px-3 py-2 text-sm font-medium ${activeTab === 'linux_agent' ? 'border-b-2 border-primary text-primary' : 'text-text-muted'}`} onClick={() => setActiveTab('linux_agent')}>Linux Agent</button>
       </div>
-      {activeTab === 'agent' ? <Card><WindowsAgentPanel /></Card> : <>
+      {activeTab === 'windows_agent' ? <Card><WindowsAgentPanel /></Card> : activeTab === 'linux_agent' ? <Card><LinuxAgentPanel /></Card> : <>
       {/* ── Credentials ─────────────────────────────────────────────────────── */}
       <Card>
         <h2 className="text-lg font-semibold text-text-base mb-1">{t('deep_scan_credentials')}</h2>

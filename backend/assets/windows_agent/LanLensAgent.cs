@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Net.Http;
+using System.Diagnostics;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading;
@@ -36,7 +37,8 @@ public class LanLensAgent : ServiceBase
             var payload = new Dictionary<string, object> {
                 { "sequence", cfg["sequence"] }, { "hostname", Environment.MachineName }, { "primary_mac", adapter["MACAddress"].ToString() },
                 { "os_info", os == null ? "Windows" : String.Format("{0} {1}", os["Caption"], os["Version"]) },
-                { "kernel_version", os == null ? "" : Convert.ToString(os["BuildNumber"]) }, { "ip_addresses", ips }, { "software", InstalledSoftware() }
+                { "kernel_version", os == null ? "" : Convert.ToString(os["BuildNumber"]) }, { "ip_addresses", ips }, { "software", InstalledSoftware() },
+                { "findings", AgentFindings() }, { "platform", "windows" }
             };
             using (var client = new HttpClient())
             {
@@ -64,5 +66,50 @@ public class LanLensAgent : ServiceBase
             }
         }
         return result;
+    }
+
+    // Use the same read-only local PowerShell collectors as WinRM Deep Scan.
+    // Failures (for example an absent IIS or Hyper-V module) are omitted rather
+    // than making the agent report fail.
+    private List<Dictionary<string, object>> AgentFindings()
+    {
+        var commands = new[] {
+            new [] { "hardware", "computer_system", "Get-CimInstance Win32_ComputerSystem | ConvertTo-Json -Compress" },
+            new [] { "hardware", "bios", "Get-CimInstance Win32_BIOS | ConvertTo-Json -Compress" },
+            new [] { "hardware", "processor", "Get-CimInstance Win32_Processor | Select Name,NumberOfCores,MaxClockSpeed | ConvertTo-Json -Compress" },
+            new [] { "hardware", "physical_memory", "Get-CimInstance Win32_PhysicalMemory | Select Capacity,Speed | ConvertTo-Json -Compress" },
+            new [] { "hardware", "disk_drives", "Get-CimInstance Win32_DiskDrive | Select Model,Size,MediaType | ConvertTo-Json -Compress" },
+            new [] { "service", "running_services", "Get-Service | ? {$_.Status -eq 'Running'} | Select Name,DisplayName,Status | ConvertTo-Json -Compress" },
+            new [] { "audit", "windows_features", "if(Get-Command Get-WindowsFeature -EA SilentlyContinue){Get-WindowsFeature|?{$_.InstallState -eq 'Installed'}|Select Name,DisplayName|ConvertTo-Json -Compress}" },
+            new [] { "audit", "licensing", "Get-CimInstance SoftwareLicensingProduct|?{$_.PartialProductKey -and $_.Name -like 'Windows*'}|Select Name,LicenseStatus|ConvertTo-Json -Compress" },
+            new [] { "audit", "iis_sites", "if(Get-Module -ListAvailable WebAdministration){Import-Module WebAdministration;Get-Website|Select Name,State,PhysicalPath|ConvertTo-Json -Compress}" },
+            new [] { "audit", "hyper_v_vms", "if(Get-Command Get-VM -EA SilentlyContinue){Get-VM|Select Name,State,Generation|ConvertTo-Json -Compress}" },
+            new [] { "audit", "sql_instances", "Get-Service|?{$_.Name -like 'MSSQL*'}|Select Name,DisplayName,Status|ConvertTo-Json -Compress" },
+            new [] { "audit", "ad_domain", "if(Get-Command Get-ADDomain -EA SilentlyContinue){(Get-ADDomain).DNSRoot|ConvertTo-Json -Compress}" },
+            new [] { "audit", "dhcp_scopes", "if(Get-Command Get-DhcpServerv4Scope -EA SilentlyContinue){Get-DhcpServerv4Scope|Select ScopeId,Name,State|ConvertTo-Json -Compress}" },
+        };
+        var result = new List<Dictionary<string, object>>();
+        foreach (var command in commands)
+        {
+            var value = PowerShellJson(command[2]);
+            if (value != null) result.Add(new Dictionary<string, object> {
+                { "finding_type", command[0] }, { "key", command[1] }, { "value", value }, { "source", "lanlens_windows_agent" }
+            });
+        }
+        return result;
+    }
+
+    private object PowerShellJson(string command)
+    {
+        try {
+            var psi = new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + command.Replace("\"", "\\\"") + "\"") {
+                CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true
+            };
+            using (var process = Process.Start(psi)) {
+                var output = process.StandardOutput.ReadToEnd().Trim();
+                process.WaitForExit(30000);
+                return String.IsNullOrWhiteSpace(output) ? null : _json.DeserializeObject(output);
+            }
+        } catch { return null; }
     }
 }
