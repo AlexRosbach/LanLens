@@ -20,6 +20,20 @@ from .scanner import _matching_ignore_rules
 
 MAX_HOSTS = 100
 MAX_VMS = 500
+VISIBLE_FIELDS = ("host_id", "cluster_id", "datacenter_id", "power_state", "macs", "ips",
+                  "guest_os", "instance_uuid", "bios_uuid", "cpu_count", "memory_size_mib", "disks")
+
+
+def visible_fields(row):
+    if row and row.visible_fields_json:
+        try:
+            values = json.loads(row.visible_fields_json)
+            if isinstance(values, list):
+                return [key for key in VISIBLE_FIELDS if key in values]
+        except (ValueError, TypeError):
+            pass
+    return list(VISIBLE_FIELDS)
+
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
@@ -78,10 +92,11 @@ def _uuid(value):
 
 
 class VsphereClient:
-    def __init__(self, endpoint, username, password):
+    def __init__(self, endpoint, username, password, verify_tls=True):
         self.endpoint = validate_endpoint(endpoint)
         self.username = username
         self.password = password
+        self.verify_tls = verify_tls
         self.session = None
 
     async def _request(self, method, path, login=False, optional=False):
@@ -95,7 +110,7 @@ class VsphereClient:
         try:
             response = await asyncio.wait_for(
                 request_json_via_validated_url(self.endpoint + path, method=method,
-                    headers=headers, timeout_seconds=12, label="vCenter HTTPS API"),
+                    headers=headers, timeout_seconds=12, label="vCenter HTTPS API", verify_tls=self.verify_tls),
                 timeout=18,
             )
         except Exception:

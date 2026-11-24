@@ -1,7 +1,10 @@
 import os
 import unittest
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
+from fastapi import HTTPException
+from backend.services.notification import PinnedHttpResponse
+from backend.routers.vsphere import _client
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-vsphere-inventory-123456")
 from sqlalchemy import create_engine
@@ -91,3 +94,18 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["ambiguous"],2)
         self.assertEqual(result["no_mac"],1)
         self.assertEqual(self.db.query(Device).count(),0)
+
+    async def test_tls_opt_out_is_per_client(self):
+        with patch("backend.services.vsphere.request_json_via_validated_url", new_callable=AsyncMock) as request:
+            request.return_value = PinnedHttpResponse(200, '"session-token"')
+            await VsphereClient("https://vc.example.test", "user", "pass").login()
+            self.assertTrue(request.call_args.kwargs["verify_tls"])
+            await VsphereClient("https://vc.example.test", "user", "pass", verify_tls=False).login()
+            self.assertFalse(request.call_args.kwargs["verify_tls"])
+
+    def test_disabled_integration_blocks_discovery(self):
+        row = self.db.get(VsphereConnection, 1)
+        self.assertFalse(row.enabled)
+        self.assertTrue(row.verify_tls)
+        with self.assertRaises(HTTPException):
+            _client(row)

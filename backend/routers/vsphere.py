@@ -12,7 +12,7 @@ from ..database import get_db
 from ..models import User, VsphereConnection, VsphereInventoryObject
 from ..services.crypto import encrypt_secret, decrypt_secret
 from ..services.settings_helpers import is_advanced_view_enabled
-from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, reconcile_inventory
+from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, reconcile_inventory, VISIBLE_FIELDS, visible_fields
 
 router = APIRouter(prefix="/api/vsphere", tags=["vsphere"])
 _discovery_lock = asyncio.Lock()
@@ -23,6 +23,12 @@ class ConfigUpdate(BaseModel):
     endpoint: str = Field("", max_length=512)
     username: str = Field("", max_length=255)
     password: str | None = Field(None, max_length=4096)
+    verify_tls: bool = True
+    visible_fields: list[str] | None = Field(None, max_length=len(VISIBLE_FIELDS))
+
+
+class EnabledUpdate(BaseModel):
+    enabled: bool
 
 
 def _require_advanced(db):
@@ -37,6 +43,7 @@ def _config(db):
 def _response(row):
     return {"enabled": bool(row and row.enabled), "endpoint": row.endpoint if row else "",
             "username": row.username if row else "", "has_password": bool(row and row.encrypted_secret),
+            "verify_tls": row.verify_tls if row else True, "visible_fields": visible_fields(row),
             "last_discovery_at": row.last_discovery_at.isoformat() + "Z" if row and row.last_discovery_at else None}
 
 
@@ -73,7 +80,31 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
                 row.last_discovery_at = None
         if data.password:
             row.encrypted_secret = encrypt_secret(data.password)
+        if data.visible_fields is not None:
+            if set(data.visible_fields) - set(VISIBLE_FIELDS):
+                raise HTTPException(400, "Unsupported VMware inventory field")
+            row.visible_fields_json = json.dumps([k for k in VISIBLE_FIELDS if k in data.visible_fields])
+        row.verify_tls = data.verify_tls
         row.endpoint, row.username, row.enabled = endpoint, username, data.enabled
+        row.revision = (row.revision or 0) + 1
+        db.commit()
+        return _response(row)
+
+
+@router.put("/enabled")
+async def set_enabled(data: EnabledUpdate, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_advanced(db)
+    if _discovery_lock.locked():
+        raise HTTPException(409, "A vSphere operation is already running")
+    async with _discovery_lock:
+        row = _config(db)
+        if not row:
+            if data.enabled:
+                raise HTTPException(400, "Configure vSphere in Inventory tools first")
+            return _response(None)
+        if data.enabled and not (row.endpoint and row.username and row.encrypted_secret):
+            raise HTTPException(400, "Configure vSphere in Inventory tools first")
+        row.enabled = data.enabled
         row.revision = (row.revision or 0) + 1
         db.commit()
         return _response(row)
@@ -83,7 +114,8 @@ def _client(row):
     if not row or not row.enabled or not row.endpoint or not row.username or not row.encrypted_secret:
         raise HTTPException(400, "Enable and configure vSphere first")
     try:
-        return VsphereClient(row.endpoint, row.username, decrypt_secret(row.encrypted_secret))
+        return VsphereClient(row.endpoint, row.username, decrypt_secret(row.encrypted_secret),
+                             verify_tls=row.verify_tls)
     except (ValueError, VsphereError):
         raise HTTPException(400, "Invalid vSphere settings or stored credential; re-enter the password") from None
 

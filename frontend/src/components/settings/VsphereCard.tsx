@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import apiClient from '../../api/client'
 import { useI18n } from '../../i18n'
 
-type Config = { enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
+type Config = { verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
 type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: { host_id?: string; power_state?: string; macs?: string[]; ips?: string[]; guest_os?: string } }
 type Inventory = { total: number; items: Item[] }
 type Result = { hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
@@ -13,7 +13,7 @@ const statuses = {
   ambiguous: 'vsphere_ambiguous', ignored: 'vsphere_ignored', no_mac: 'vsphere_no_mac', stale: 'vsphere_stale',
 } as const
 
-export default function VsphereCard() {
+export default function VsphereCard({featureOnly = false}: {featureOnly?: boolean}) {
   const { t } = useI18n()
   const [config, setConfig] = useState<Config | null>(null)
   const [password, setPassword] = useState('')
@@ -39,7 +39,7 @@ export default function VsphereCard() {
   }, [])
   const enabled = !!config?.enabled && !dirty
   useEffect(() => {
-    if (!enabled) {setInventory(null); return}
+    if (!enabled || featureOnly) {setInventory(null); return}
     let active = true
     apiClient.get<Inventory>('/vsphere/inventory', {params: {kind, offset: page*25, limit:25}})
       .then(r => {if (active) setInventory(r.data)}).catch(e => {if (active) failure(e)})
@@ -47,7 +47,7 @@ export default function VsphereCard() {
       .then(r => {if (active) setHostNames(Object.fromEntries(r.data.items.map(i => [i.external_id,i.name])))})
       .catch(() => {})
     return () => {active=false}
-  }, [enabled, kind, page, refresh])
+  }, [enabled, featureOnly, kind, page, refresh])
   function edit(patch: Partial<Config>) {
     if (config) setConfig({...config,...patch})
     setDirty(true); setResult(null); setMessage('')
@@ -57,7 +57,7 @@ export default function VsphereCard() {
     setBusy(true);setError('');setMessage('')
     try {
       const r = await apiClient.put<Config>('/vsphere/config', {
-        enabled:config.enabled, endpoint:config.endpoint, username:config.username, ...(password ? {password} : {}),
+        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, visible_fields:config.visible_fields, ...(password ? {password} : {}),
       })
       setConfig(r.data);setPassword('');setDirty(false);setMessage(t('vsphere_saved'));setPage(0);setRefresh(v=>v+1)
     } catch (e) {failure(e)} finally {setBusy(false)}
@@ -73,16 +73,29 @@ export default function VsphereCard() {
       }
     } catch(e){failure(e)} finally {setBusy(false)}
   }
+  async function toggleFeature(value: boolean) {
+    setBusy(true);setError('')
+    try {setConfig((await apiClient.put<Config>('/vsphere/enabled',{enabled:value})).data)}
+    catch(e){failure(e)} finally {setBusy(false)}
+  }
+  if (featureOnly) return <section className="rounded-xl border border-border bg-surface p-4 space-y-2">
+    <h3 className="font-semibold text-text-base">{t('vsphere_title')}</h3>
+    <p className="text-sm text-text-muted">{t('vsphere_hint')}</p>
+    {config && <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.enabled} disabled={busy} onChange={e=>toggleFeature(e.target.checked)}/>{t('vsphere_enable')}</label>}
+    {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+  </section>
   return <section className="rounded-xl border border-border bg-surface p-4 space-y-4">
     <h2 className="font-semibold text-text-base">{t('vsphere_title')}</h2><p className="text-sm text-text-muted">{t('vsphere_hint')}</p>
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     {config && <>
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.enabled} disabled={busy} onChange={e=>edit({enabled:e.target.checked})}/>{t('vsphere_enable')}</label>
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_endpoint')}<input className={control} type="url" value={config.endpoint} maxLength={512} placeholder="https://vcenter.example.test" disabled={busy} onChange={e=>edit({endpoint:e.target.value})}/></label>
+        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_endpoint')}<input className={control} type="url" value={config.endpoint} maxLength={512} placeholder="https://vcenter.example.test" disabled={busy} onChange={e=>edit({endpoint:e.target.value,verify_tls:true})}/></label>
         <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_user')}<input className={control} value={config.username} maxLength={255} autoComplete="off" disabled={busy} onChange={e=>edit({username:e.target.value})}/></label>
         <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_password')}<input className={control} type="password" autoComplete="new-password" value={password} maxLength={4096} disabled={busy} onChange={e=>{setPassword(e.target.value);setDirty(true)}} placeholder={config.has_password?t('vsphere_password_saved'):''}/></label>
       </div>
+      <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={!config.verify_tls} disabled={busy} onChange={e=>edit({verify_tls:!e.target.checked})}/>{t('idoit_skip_tls')}</label>
+      {!config.verify_tls && <p role="alert" className="text-sm text-warning">{t('idoit_skip_tls_warning')}</p>}
       <div className="flex flex-wrap gap-2">
         <button className={control} disabled={busy} onClick={save}>{t('save_changes')}</button>
         <button className={control} disabled={busy||!enabled} onClick={()=>run('test')}>{t('vsphere_test')}</button>

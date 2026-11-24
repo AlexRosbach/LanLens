@@ -75,6 +75,13 @@ def _has_unique_device_views_constraint(conn) -> bool:
 
 def migrate():
     with engine.connect() as conn:
+        if _table_exists(conn, "vsphere_connections"):
+            if not _column_exists(conn, "vsphere_connections", "verify_tls"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN verify_tls BOOLEAN NOT NULL DEFAULT TRUE"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "visible_fields_json"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN visible_fields_json TEXT"))
+                conn.commit()
         # ── v1.1.0 ── Add segment_id to devices ──────────────────────────────
         if not _column_exists(conn, "devices", "segment_id"):
             conn.execute(

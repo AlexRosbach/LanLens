@@ -2004,6 +2004,7 @@ export default function Settings() {
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('feature_visibility_title')}</h2>
             <p className="text-sm text-text-subtle">{t('feature_visibility_description')}</p>
           </div>
+          {current.advanced_view_enabled && <VsphereCard featureOnly />}
           {featureGroups.map((group) => (
             <Card key={group.id}>
               <div className="mb-4">
