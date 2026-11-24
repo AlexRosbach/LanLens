@@ -51,7 +51,7 @@ def parse_software(raw):
 
 def list_software_inventory(db: Session, search="", offset=0, limit=25, application_id=None,
                             device="", application="", publisher="", version="", architecture="",
-                            device_class="", source=""):
+                            device_class="", source="", group_by="application", selected_device_id=None):
     def contains(term, *values):
         return not term or any(term in str(value or "").casefold() for value in values)
 
@@ -76,7 +76,10 @@ def list_software_inventory(db: Session, search="", offset=0, limit=25, applicat
             .yield_per(50))
     groups = {}
     devices = set()
+    device_groups = {}
     for finding, device_id, label, hostname, ip_address, classification in rows:
+        if selected_device_id is not None and device_id != selected_device_id:
+            continue
         device_name = label or hostname or ip_address or f"Device #{device_id}"
         if not (contains(device_term, device_name, hostname, ip_address, device_id)
                 and contains(class_term, classification)
@@ -95,6 +98,12 @@ def list_software_inventory(db: Session, search="", offset=0, limit=25, applicat
             if application_id and key != application_id:
                 continue
             devices.add(device_id)
+            device_group = device_groups.setdefault(device_id, {
+                "id": device_id, "name": device_name, "ip_address": ip_address,
+                "device_class": classification, "products": set(), "installations": set(),
+            })
+            device_group["products"].add(key)
+            device_group["installations"].add((key, version.casefold(), architecture.casefold()))
             group = groups.setdefault(key, {"id": key, "name": name, "publisher": publisher,
                                             "versions": set(), "devices": set(), "installations": {}})
             group["versions"].add(version)
@@ -108,16 +117,27 @@ def list_software_inventory(db: Session, search="", offset=0, limit=25, applicat
                     "source": finding.source,
                 }
     product_count = len(groups)
+    installation_count = sum(len(g["installations"]) for g in groups.values())
+    common = {"device_count": len(devices), "product_count": product_count,
+              "installation_count": installation_count}
+    if group_by == "device" and not application_id and selected_device_id is None:
+        device_rows = [
+            {"id": g["id"], "name": g["name"], "ip_address": g["ip_address"],
+             "device_class": g["device_class"], "product_count": len(g["products"]),
+             "installation_count": len(g["installations"])}
+            for g in device_groups.values()
+        ]
+        device_rows.sort(key=lambda g: (g["name"].casefold(), g["id"]))
+        return {**common, "products": [], "installations": [],
+                "devices": device_rows[offset:offset+limit], "total": len(device_rows)}
     if application_id:
         installs = list(groups.get(application_id, {}).get("installations", {}).values())
         installs.sort(key=lambda i: (i["device_name"].casefold(), i["device_id"], i["version"], i["architecture"]))
-        return {"products": [], "installations": installs[offset:offset+limit], "total": len(installs),
-                "device_count": len(devices), "product_count": product_count}
+        return {**common, "products": [], "devices": [], "installations": installs[offset:offset+limit], "total": len(installs)}
     products = []
     for g in groups.values():
         products.append({"id": g["id"], "name": g["name"], "publisher": g["publisher"],
                          "versions": sorted(v for v in g["versions"] if v), "device_count": len(g["devices"]),
                          "installation_count": len(g["installations"])})
     products.sort(key=lambda g: (g["name"].casefold(), g["publisher"].casefold(), g["id"]))
-    return {"products": products[offset:offset+limit], "installations": [], "total": len(products),
-            "device_count": len(devices), "product_count": product_count}
+    return {**common, "products": products[offset:offset+limit], "devices": [], "installations": [], "total": len(products)}

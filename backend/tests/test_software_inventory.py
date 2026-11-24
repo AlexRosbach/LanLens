@@ -83,6 +83,21 @@ class SoftwareInventoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _decode_software_transport(base64.b64encode(b'["invalid"]\xff'))
 
+    def test_device_grouping_and_exact_device_drilldown(self):
+        a, b = self.device(1), self.device(2)
+        self.finding(a, [{"Name": "Example", "Version": "1"}, {"Name": "Other", "Version": "1"}])
+        self.finding(b, [{"Name": "Example", "Version": "2"}])
+        result = list_software_inventory(self.db, group_by="device")
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(result["installation_count"], 3)
+        self.assertEqual(result["devices"][0]["product_count"], 2)
+        detail = list_software_inventory(self.db, selected_device_id=a.id)
+        self.assertEqual(detail["total"], 2)
+        self.assertEqual(detail["products"][0]["versions"], ["1"])
+        filtered = list_software_inventory(self.db, group_by="device", version="2")
+        self.assertEqual(filtered["total"], 1)
+        self.assertEqual(filtered["devices"][0]["id"], b.id)
+
     def test_parser_structured_and_linux(self):
         self.assertEqual(list(parse_software(json.dumps(json.dumps({"Name": "Grüße", "Version": "2"}))))[0][0], "Grüße")
         self.assertEqual(list(parse_software("example-package-1.2-r0"))[0][:3], ("example-package", "", "1.2-r0"))

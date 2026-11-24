@@ -29,6 +29,8 @@ function getInitialLang(): Lang {
 
 const translations = {
   en: {
+    applications_group_by: "Group by",
+    applications_group_devices: "Server / device",
     applications_filters: "Filters",
     applications_reset_filters: "Reset filters",
     applications_filter_device: "Server / device / IP",
@@ -1315,6 +1317,8 @@ const translations = {
     finding_dhcp_scopes: 'DHCP scopes',
   },
   de: {
+    applications_group_by: "Gruppieren nach",
+    applications_group_devices: "Server / Gerät",
     applications_filters: "Filter",
     applications_reset_filters: "Filter zurücksetzen",
     applications_filter_device: "Server / Gerät / IP",
@@ -2601,6 +2605,8 @@ const translations = {
     finding_dhcp_scopes: 'DHCP-Bereiche',
   },
   it: {
+    applications_group_by: "Raggruppa per",
+    applications_group_devices: "Server / dispositivo",
     applications_filters: "Filtri",
     applications_reset_filters: "Azzera filtri",
     applications_filter_device: "Server / dispositivo / IP",
@@ -3887,6 +3893,8 @@ const translations = {
     finding_dhcp_scopes: 'Ambiti DHCP',
   },
   zh: {
+    applications_group_by: "分组方式",
+    applications_group_devices: "服务器 / 设备",
     applications_filters: "筛选",
     applications_reset_filters: "重置筛选",
     applications_filter_device: "服务器 / 设备 / IP",

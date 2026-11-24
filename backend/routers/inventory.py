@@ -186,6 +186,8 @@ def get_applications(
     architecture: str = Query("", max_length=200),
     device_class: str = Query("", max_length=200),
     source: str = Query("", max_length=200),
+    group_by: str = Query("application", pattern="^(application|device)$"),
+    selected_device_id: Optional[int] = Query(None, ge=1),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -194,7 +196,8 @@ def get_applications(
     return list_software_inventory(db, search=search, offset=offset, limit=limit,
                                    application_id=application_id, device=device, application=application,
                                    publisher=publisher, version=version, architecture=architecture,
-                                   device_class=device_class, source=source)
+                                   device_class=device_class, source=source, group_by=group_by,
+                                   selected_device_id=selected_device_id)
 
 
 @router.get("/topology", response_model=TopologyResponse)

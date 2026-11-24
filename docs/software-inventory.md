@@ -5,3 +5,7 @@ Enable Advanced View and Applications in Settings → Features → Inventory and
 ## Filters
 
 Use the independent server/device/IP, application, publisher, version, architecture, device class and source filters together with global search. All filters are evaluated against the same installation before aggregation and pagination. Installation details and counters reflect the applied filters. Reset filters to restore the full inventory.
+
+## Grouping
+
+Switch between Application and Server / device grouping. Select a group to see installations or products on the exact device. Filters and pagination apply before grouping; all three counters reflect the filtered inventory.
