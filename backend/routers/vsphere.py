@@ -115,7 +115,7 @@ def _client(row):
         raise HTTPException(400, "Enable and configure vSphere first")
     try:
         return VsphereClient(row.endpoint, row.username, decrypt_secret(row.encrypted_secret),
-                             verify_tls=row.verify_tls)
+                             verify_tls=row.verify_tls, fields=visible_fields(row))
     except (ValueError, VsphereError):
         raise HTTPException(400, "Invalid vSphere settings or stored credential; re-enter the password") from None
 
@@ -158,11 +158,13 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
         current.last_discovery_at = now
         db.commit()
         return {"hosts": sum(x["kind"] == "host" for x in objects),
-                "vms": sum(x["kind"] == "vm" for x in objects), "counts": counts, "warnings": warnings}
+                "vms": sum(x["kind"] == "vm" for x in objects),
+                "clusters": sum(x["kind"] == "cluster" for x in objects),
+                "datacenters": sum(x["kind"] == "datacenter" for x in objects), "counts": counts, "warnings": warnings}
 
 
 @router.get("/inventory")
-def inventory(kind: str = Query("vm", pattern="^(host|vm)$"), offset: int = Query(0, ge=0),
+def inventory(kind: str = Query("vm", pattern="^(host|vm|cluster|datacenter)$"), offset: int = Query(0, ge=0),
               limit: int = Query(25, ge=1, le=100), db: Session = Depends(get_db),
               _: User = Depends(get_current_user)):
     _require_advanced(db)

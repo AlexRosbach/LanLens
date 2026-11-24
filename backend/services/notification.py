@@ -12,7 +12,7 @@ import json
 import logging
 import ssl
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import quote, urlparse
 
@@ -35,6 +35,8 @@ MAX_PINNED_RESPONSE_BYTES = 8 * 1024 * 1024
 class PinnedHttpResponse:
     status_code: int
     text: str
+    # Only the VI/JSON session header is needed; never include it in repr/logs.
+    vmware_session_id: Optional[str] = field(default=None, repr=False)
 
 
 def _blocked_webhook_address(address: str, label: str) -> tuple[bool, str]:
@@ -330,7 +332,7 @@ def _pinned_tls_context(scheme: str, verify_tls: bool = True) -> Optional[ssl.SS
         return None
     context = ssl.create_default_context()
     if not verify_tls:
-        # Explicit per-request operator opt-in for legacy i-doit endpoints.
+        # Explicit per-request operator opt-in for configured integration endpoints.
         # Do not change the process trust store or other integrations.
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
@@ -396,7 +398,11 @@ async def _request_to_pinned_address(
     status_code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
     if b"transfer-encoding: chunked" in head.lower():
         response_body = _decode_chunked_body(response_body)
-    return PinnedHttpResponse(status_code, response_body.decode("utf-8", errors="replace"))
+    tokens = [line.split(b":", 1)[1].strip().decode("iso-8859-1")
+              for line in head.splitlines()[1:]
+              if line.lower().startswith(b"vmware-api-session-id:")]
+    return PinnedHttpResponse(status_code, response_body.decode("utf-8", errors="replace"),
+                              tokens[0] if len(tokens) == 1 else None)
 
 
 async def request_json_via_validated_url(
