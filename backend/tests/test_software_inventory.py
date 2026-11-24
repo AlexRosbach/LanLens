@@ -55,6 +55,34 @@ class SoftwareInventoryTests(unittest.TestCase):
         self.assertEqual(len(detail["installations"]), 1)
         self.assertEqual(list_software_inventory(self.db, search="host-2")["total"], 1)
 
+    def test_combined_filters_match_same_installation_and_details(self):
+        a, b = self.device(1), self.device(2)
+        a.device_class = "Server"
+        b.device_class = "Client"
+        self.finding(a, [{"Name": "Example App", "Publisher": "Example Corp", "Version": "1", "Architecture": "x64"}])
+        self.finding(b, [{"Name": "Example App", "Publisher": "Example Corp", "Version": "2", "Architecture": "x86"}])
+        result = list_software_inventory(self.db, device="host-1", application="EXAMPLE", publisher="corp",
+                                         version="1", architecture="x64", device_class="server")
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["device_count"], 1)
+        product = result["products"][0]
+        self.assertEqual(product["versions"], ["1"])
+        self.assertEqual(product["installation_count"], 1)
+        self.assertEqual(list_software_inventory(self.db, device="host-1", version="2")["total"], 0)
+        detail = list_software_inventory(self.db, application_id=product["id"], device="host-1", version="1")
+        self.assertEqual(detail["total"], 1)
+        self.assertEqual(detail["installations"][0]["device_id"], a.id)
+        self.assertEqual(list_software_inventory(self.db, application_id=product["id"], search="example")["total"], 2)
+
+    def test_winrm_software_unicode_transport(self):
+        import base64
+        from backend.services.deep_scanner import _decode_software_transport
+        original = json.dumps([{"Name": "Update f\u00fcr Beispiel"}], ensure_ascii=False)
+        result = _decode_software_transport(base64.b64encode(original.encode("utf-8")))
+        self.assertEqual(json.loads(result)[0]["Name"], "Update f\u00fcr Beispiel")
+        with self.assertRaises(ValueError):
+            _decode_software_transport(base64.b64encode(b'["invalid"]\xff'))
+
     def test_parser_structured_and_linux(self):
         self.assertEqual(list(parse_software(json.dumps(json.dumps({"Name": "Grüße", "Version": "2"}))))[0][0], "Grüße")
         self.assertEqual(list(parse_software("example-package-1.2-r0"))[0][:3], ("example-package", "", "1.2-r0"))

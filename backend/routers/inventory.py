@@ -179,13 +179,22 @@ def get_applications(
     offset: int = Query(0, ge=0),
     limit: int = Query(25, ge=1, le=100),
     application_id: Optional[str] = Query(None, pattern=r"^[a-f0-9]{64}$"),
+    device: str = Query("", max_length=200),
+    application: str = Query("", max_length=200),
+    publisher: str = Query("", max_length=200),
+    version: str = Query("", max_length=200),
+    architecture: str = Query("", max_length=200),
+    device_class: str = Query("", max_length=200),
+    source: str = Query("", max_length=200),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     if not is_advanced_feature_enabled(db, "show_applications_nav"):
         raise HTTPException(status_code=403, detail="Software inventory is disabled")
     return list_software_inventory(db, search=search, offset=offset, limit=limit,
-                                   application_id=application_id)
+                                   application_id=application_id, device=device, application=application,
+                                   publisher=publisher, version=version, architecture=architecture,
+                                   device_class=device_class, source=source)
 
 
 @router.get("/topology", response_model=TopologyResponse)

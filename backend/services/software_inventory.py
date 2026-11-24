@@ -49,7 +49,16 @@ def parse_software(raw):
             yield (name, field("Publisher", "publisher"), field("Version", "version", "DisplayVersion"),
                    field("Architecture", "architecture", "arch"))
 
-def list_software_inventory(db: Session, search="", offset=0, limit=25, application_id=None):
+def list_software_inventory(db: Session, search="", offset=0, limit=25, application_id=None,
+                            device="", application="", publisher="", version="", architecture="",
+                            device_class="", source=""):
+    def contains(term, *values):
+        return not term or any(term in str(value or "").casefold() for value in values)
+
+    terms = [value.strip().casefold() for value in
+             (search, device, application, publisher, version, architecture, device_class, source)]
+    search_term, device_term, application_term, publisher_term, version_term, arch_term, class_term, source_term = terms
+
     latest = (
         db.query(DeepScanFinding.id.label("finding_id"),
                  func.row_number().over(
@@ -60,19 +69,32 @@ def list_software_inventory(db: Session, search="", offset=0, limit=25, applicat
         .filter(DeepScanRun.status == "done", DeepScanFinding.key == "installed_software")
         .subquery()
     )
-    rows = (db.query(DeepScanFinding, Device.id, Device.label, Device.hostname, Device.ip_address)
+    rows = (db.query(DeepScanFinding, Device.id, Device.label, Device.hostname, Device.ip_address, Device.device_class)
             .join(latest, latest.c.finding_id == DeepScanFinding.id)
             .join(Device, Device.id == DeepScanFinding.device_id)
             .filter(latest.c.position == 1, Device.is_archived.is_(False), Device.ignored.is_(False))
             .yield_per(50))
     groups = {}
     devices = set()
-    term = search.strip().casefold()
-    for finding, device_id, label, hostname, ip_address in rows:
+    for finding, device_id, label, hostname, ip_address, classification in rows:
         device_name = label or hostname or ip_address or f"Device #{device_id}"
-        devices.add(device_id)
+        if not (contains(device_term, device_name, hostname, ip_address, device_id)
+                and contains(class_term, classification)
+                and contains(source_term, finding.source)):
+            continue
         for name, publisher, version, architecture in parse_software(finding.value_json):
+            # All filters must match the same installation.
+            if not (contains(application_term, name)
+                    and contains(publisher_term, publisher)
+                    and contains(version_term, version)
+                    and contains(arch_term, architecture)
+                    and contains(search_term, name, publisher, version, architecture,
+                                 device_name, hostname, ip_address, classification, finding.source)):
+                continue
             key = hashlib.sha256(json.dumps([name.casefold(), publisher.casefold()], ensure_ascii=False).encode()).hexdigest()
+            if application_id and key != application_id:
+                continue
+            devices.add(device_id)
             group = groups.setdefault(key, {"id": key, "name": name, "publisher": publisher,
                                             "versions": set(), "devices": set(), "installations": {}})
             group["versions"].add(version)
@@ -88,17 +110,11 @@ def list_software_inventory(db: Session, search="", offset=0, limit=25, applicat
     product_count = len(groups)
     if application_id:
         installs = list(groups.get(application_id, {}).get("installations", {}).values())
-        if term:
-            installs = [i for i in installs if any(term in str(i.get(k) or "").casefold() for k in ("device_name", "ip_address", "version", "architecture"))]
         installs.sort(key=lambda i: (i["device_name"].casefold(), i["device_id"], i["version"], i["architecture"]))
         return {"products": [], "installations": installs[offset:offset+limit], "total": len(installs),
                 "device_count": len(devices), "product_count": product_count}
     products = []
     for g in groups.values():
-        if term and not any(term in str(v).casefold() for v in (g["name"], g["publisher"], *g["versions"],
-                    *(i["device_name"] for i in g["installations"].values()),
-                    *(i["ip_address"] or "" for i in g["installations"].values()))):
-            continue
         products.append({"id": g["id"], "name": g["name"], "publisher": g["publisher"],
                          "versions": sorted(v for v in g["versions"] if v), "device_count": len(g["devices"]),
                          "installation_count": len(g["installations"])})

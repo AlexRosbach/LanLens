@@ -541,10 +541,22 @@ def _run_windows_scan(
                 # Windows PowerShell can otherwise emit text using a legacy
                 # console code page, losing non-ASCII inventory characters.
                 utf8_prefix = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
-                result = session.run_ps(utf8_prefix + ps_cmd)
-                output = result.std_out.decode("utf-8-sig", errors="replace").strip()
-                if not output and result.std_err:
-                    output = result.std_err.decode("utf-8-sig", errors="replace").strip()
+                if key == "installed_software":
+                    # Transfer the Unicode JSON as ASCII Base64, avoiding the
+                    # WinRM/PowerShell console code page entirely.
+                    result = session.run_ps(
+                        utf8_prefix + "$inventory = (& { " + ps_cmd
+                        + " } | Out-String); "
+                        + "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($inventory))"
+                    )
+                    if result.status_code != 0 or not result.std_out.strip():
+                        continue
+                    output = _decode_software_transport(result.std_out)
+                else:
+                    result = session.run_ps(utf8_prefix + ps_cmd)
+                    output = result.std_out.decode("utf-8-sig", errors="replace").strip()
+                    if not output and result.std_err:
+                        output = result.std_err.decode("utf-8-sig", errors="replace").strip()
                 output = _sanitize_winrm_output(output)
                 if output and output not in ("IIS_NOT_INSTALLED", "HYPERV_NOT_INSTALLED",
                                              "AD_NOT_INSTALLED", "DHCP_NOT_INSTALLED"):
@@ -608,6 +620,21 @@ def _load_ssh_private_key(key_text: str):
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
+
+def _decode_software_transport(raw: bytes) -> str:
+    import base64
+
+    decoded = base64.b64decode(b"".join(raw.split()), validate=True).decode("utf-8-sig")
+    # Never silently persist a lossy replacement or malformed software JSON.
+    if "\ufffd" in decoded:
+        raise ValueError("Software inventory contains invalid Unicode")
+    if not decoded.strip():
+        return "[]"
+    value = json.loads(decoded)
+    if not isinstance(value, (dict, list)):
+        raise ValueError("Invalid software inventory payload")
+    return decoded.strip()
+
 
 def _sanitize_winrm_output(output: str) -> str:
     if not output:

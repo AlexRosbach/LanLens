@@ -87,6 +87,16 @@ export interface ApplicationProduct {
   device_count: number
   installation_count: number
 }
+export interface ApplicationFilters {
+  search: string
+  device: string
+  application: string
+  publisher: string
+  version: string
+  architecture: string
+  device_class: string
+  source: string
+}
 export interface ApplicationInventory {
   products: ApplicationProduct[]
   installations: ApplicationInstallation[]
@@ -95,7 +105,7 @@ export interface ApplicationInventory {
   product_count: number
 }
 export const inventoryApi = {
-  applications: (params: { search?: string; offset?: number; limit?: number; application_id?: string }) =>
+  applications: (params: Partial<ApplicationFilters> & { offset?: number; limit?: number; application_id?: string }) =>
     apiClient.get<ApplicationInventory>('/inventory/applications', { params }).then((r) => r.data),
   topology: () => apiClient.get<TopologyResponse>('/inventory/topology').then((r) => r.data),
   changes: (params?: {

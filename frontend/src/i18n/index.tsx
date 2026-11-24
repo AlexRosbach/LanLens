@@ -29,6 +29,11 @@ function getInitialLang(): Lang {
 
 const translations = {
   en: {
+    applications_filters: "Filters",
+    applications_reset_filters: "Reset filters",
+    applications_filter_device: "Server / device / IP",
+    applications_filter_class: "Device class",
+    applications_filter_source: "Inventory source",
     nav_applications: "Applications",
     show_applications_nav: "Show Applications in sidebar",
     show_applications_nav_hint: "Shows detected installed software and the devices where it was last observed.",
@@ -1310,6 +1315,11 @@ const translations = {
     finding_dhcp_scopes: 'DHCP scopes',
   },
   de: {
+    applications_filters: "Filter",
+    applications_reset_filters: "Filter zurücksetzen",
+    applications_filter_device: "Server / Gerät / IP",
+    applications_filter_class: "Geräteklasse",
+    applications_filter_source: "Inventarquelle",
     nav_applications: "Anwendungen",
     show_applications_nav: "Anwendungen in der Seitenleiste anzeigen",
     show_applications_nav_hint: "Zeigt erkannte installierte Software und die Geräte, auf denen sie zuletzt erfasst wurde.",
@@ -2591,6 +2601,11 @@ const translations = {
     finding_dhcp_scopes: 'DHCP-Bereiche',
   },
   it: {
+    applications_filters: "Filtri",
+    applications_reset_filters: "Azzera filtri",
+    applications_filter_device: "Server / dispositivo / IP",
+    applications_filter_class: "Classe dispositivo",
+    applications_filter_source: "Fonte inventario",
     nav_applications: "Applicazioni",
     show_applications_nav: "Mostra applicazioni nella barra laterale",
     show_applications_nav_hint: "Mostra il software rilevato e i dispositivi su cui è stato osservato.",
@@ -3872,6 +3887,11 @@ const translations = {
     finding_dhcp_scopes: 'Ambiti DHCP',
   },
   zh: {
+    applications_filters: "筛选",
+    applications_reset_filters: "重置筛选",
+    applications_filter_device: "服务器 / 设备 / IP",
+    applications_filter_class: "设备类别",
+    applications_filter_source: "清单来源",
     nav_applications: "应用程序",
     show_applications_nav: "在侧边栏显示应用程序",
     show_applications_nav_hint: "显示已检测的软件及其所在设备。",
