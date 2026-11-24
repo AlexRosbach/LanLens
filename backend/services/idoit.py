@@ -782,6 +782,9 @@ def _cpu_title(cpu_raw: Optional[str]) -> Optional[str]:
             value = decoded.get(key)
             if value:
                 return str(value).strip()[:255] or None
+        return None
+    if isinstance(decoded, (dict, list)):
+        return None
     for line in str(cpu_raw).splitlines():
         if "model name" in line.lower():
             value = line.split(":", 1)[-1].strip()
@@ -834,7 +837,28 @@ def _cpu_details(cpu_raw: Optional[str]) -> dict[str, Any]:
                     details.setdefault("frequency_unit", 4)  # GHz in i-doit dialog defaults
             except ValueError:
                 pass
-    details.setdefault("description", raw[:1000])
+    description = []
+    if title:
+        display_title = re.sub(r"\s*\((?:r|tm)\)", "", title, flags=re.IGNORECASE).strip()
+        description.append(f"Processor: {display_title}")
+    if "cores" in details:
+        description.append(f"Cores: {details['cores']}")
+    if "frequency" in details:
+        description.append(f"Clock speed: {details['frequency']:g} GHz")
+    # Keep useful supplementary inventory without serializing JSON into i-doit.
+    if isinstance(decoded, dict):
+        for keys, label in (
+            (("NumberOfLogicalProcessors", "logical_processors"), "Logical processors"),
+            (("SocketDesignation", "socket"), "Socket"),
+            (("Architecture", "architecture"), "Architecture"),
+        ):
+            for key in keys:
+                value = decoded.get(key)
+                if isinstance(value, (str, int, float)) and str(value).strip():
+                    description.append(f"{label}: {str(value).strip()[:150]}")
+                    break
+    if description:
+        details["description"] = "\n".join(description)[:1000]
     return details
 
 
@@ -1868,6 +1892,42 @@ def _windows_server_edition(value: Any) -> str | None:
     return edition.group(1) if edition else None
 
 
+def _application_title_candidates(value: str) -> list[str]:
+    """Try exact titles after removing only trailing version/architecture noise.
+
+    Keep product years, editions and standalone numbers. Never match a
+    different versioned catalog title merely because its base name is similar.
+    """
+    title = re.sub(r"\s+", " ", (value or "").strip())[:255]
+    if not title:
+        return []
+    candidates = [title]
+    arch = r"(?:x64|x86|amd64|arm64|aarch64|i[3-6]86|32[- ]?bit|64[- ]?bit)"
+    architecture_suffix = re.compile(
+        r"(?:\s*\(" + arch + r"\)|\s*\[" + arch + r"\]|\s+" + arch + r")$", re.IGNORECASE,
+    )
+    version = r"\d{1,8}(?:\.\d{1,8}){1,5}"
+    version_suffix = re.compile(
+        r"(?:\s+(?:[-–]\s+)?(?:v(?:ersion)?\s*)?" + version
+        + r"|\s+(?:[-–]\s+)?(?:v(?:ersion)?\s*)\d{1,8}"
+        + r"|\s*\((?:v(?:ersion)?\s*)?" + version + r"\))$", re.IGNORECASE,
+    )
+    used = set()
+    for _ in range(2):
+        for label, pattern in (("architecture", architecture_suffix), ("version", version_suffix)):
+            if label in used:
+                continue
+            candidate = pattern.sub("", title).strip()
+            if candidate != title and any(char.isalpha() for char in candidate):
+                candidates.append(candidate)
+                title = candidate
+                used.add(label)
+                break
+        else:
+            break
+    return candidates
+
+
 def _normalized_match_mac(value: Any) -> str:
     text = str(_plain_category_value(value) or "").strip()
     normalized = normalize_mac(text)
@@ -2172,7 +2232,24 @@ class IdoitClient:
                                                     normalize_os=True)
 
     async def resolve_application(self, title: str, create_missing: bool = False) -> dict[str, Any]:
-        return await self._resolve_inventory_object(title, "C__OBJTYPE__APPLICATION", create_missing)
+        candidates = _application_title_candidates(title)
+        if not candidates:
+            return {"object_id": None, "action": "skipped_empty"}
+        wanted = candidates[0]
+        object_type = "C__OBJTYPE__APPLICATION"
+        for candidate in candidates:
+            result = await self._resolve_inventory_object(candidate, object_type, False)
+            if result["action"] == "ambiguous_match":
+                return {**result, "title": wanted}
+            if result.get("object_id"):
+                if candidate != wanted:
+                    return {**result, "action": "matched_normalized", "title": wanted,
+                            "matched_title": candidate}
+                return result
+        if not create_missing:
+            return {"object_id": None, "action": "match_required", "title": wanted}
+        object_id = await self.create_object(wanted, object_type)
+        return {"object_id": object_id, "action": "created", "title": wanted}
 
     async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
         """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
@@ -2888,7 +2965,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 preview = f"{preview}, and {remainder} more"
             sync_warnings.append(
                 "C__CATG__APPLICATION: "
-                f"{len(unmatched_application_titles)} installed application(s) have no exact i-doit Application object match "
+                f"{len(unmatched_application_titles)} installed application(s) have no unique i-doit Application object match "
                 f"({preview}); enable create-missing or create the Application objects in i-doit"
             )
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}

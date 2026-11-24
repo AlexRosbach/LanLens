@@ -76,6 +76,26 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertNotIn("SNMP-VLAN", rows[0])
         self.assertIn("Identity Confidence", rows[0])
 
+    def test_cpu_description_is_readable_and_retains_structured_fields(self):
+        from backend.services.idoit import _cpu_details
+        details = _cpu_details(json.dumps({
+            "Name": "Intel(R) Example CPU", "NumberOfCores": 4,
+            "MaxClockSpeed": 3200, "NumberOfLogicalProcessors": 8,
+        }))
+        self.assertEqual(details["title"], "Intel(R) Example CPU")
+        self.assertEqual(details["cores"], 4)
+        self.assertEqual(details["frequency"], 3.2)
+        self.assertEqual(details["frequency_unit"], 4)
+        self.assertEqual(details["description"],
+                         "Processor: Intel Example CPU\nCores: 4\nClock speed: 3.2 GHz\nLogical processors: 8")
+
+    def test_cpu_linux_description_does_not_dump_lscpu_output(self):
+        from backend.services.idoit import _cpu_details
+        details = _cpu_details("Model name: AMD Example CPU\nCPU(s): 8\nCore(s) per socket: 4\nCPU max MHz: 3200\nFlags: avx")
+        self.assertEqual(details["cores"], 4)
+        self.assertEqual(details["frequency"], 3.2)
+        self.assertEqual(details["description"], "Processor: AMD Example CPU\nCores: 4\nClock speed: 3.2 GHz")
+
     def test_drive_capacity_is_normalized_to_idoit_gigabytes(self):
         entries = _drive_entries([
             {"Model": "NVMe", "Size": "476.94 GB"},
@@ -733,6 +753,82 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.assert_query["filter"]["type"], "C__OBJTYPE__APPLICATION")
         self.assertEqual(client.assert_query["filter"]["title"], "Example Application")
         self.assertEqual(result["action"], "ambiguous_match")
+
+    async def test_application_resolution_normalizes_display_suffixes(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                self.last_query = params["filter"]
+                catalog = {"Example Archive": "101", "Example Archive 2.0": "102",
+                           "Example Suite 2024": "103", "Example Suite": "104"}
+                return [{"id": oid, "title": name, "type_const": "C__OBJTYPE__APPLICATION"}
+                        for name, oid in catalog.items()]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("existing product must be reused")
+
+        client = SearchClient(get_config(self.Session()))
+        for title in ("Example Archive 21.07 (x64)", "Example Archive (64-bit)", "Example Archive x64 21.07"):
+            with self.subTest(title=title):
+                self.assertEqual(await client.resolve_application(title, create_missing=True), {
+                    "object_id": "101", "action": "matched_normalized", "title": title,
+                    "matched_title": "Example Archive",
+                })
+                self.assertEqual(client.last_query["type"], "C__OBJTYPE__APPLICATION")
+        exact = await client.resolve_application("Example Archive 2.0")
+        self.assertEqual(exact["object_id"], "102")
+        self.assertEqual(exact["action"], "matched")
+        release = await client.resolve_application("Example Suite 2024 (x64)")
+        self.assertEqual(release["object_id"], "103")
+        for title in ("Example Suite 2025", "Example Suite Enterprise 2.0"):
+            self.assertEqual((await client.resolve_application(title))["action"], "match_required")
+
+    async def test_application_resolution_rejects_ambiguous_fallback(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                if params["filter"]["title"] != "Example Editor":
+                    return []
+                return [
+                    {"id": "101", "title": "Example Editor", "type": "7", "status": "2"},
+                    {"id": "102", "title": "Example Editor", "type": "7", "status": "2"},
+                    {"id": "103", "title": "Example Editor", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("ambiguous matches must not create new objects")
+
+        client = SearchClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Editor 4.1 (x86)", create_missing=True)
+        self.assertEqual(result["action"], "ambiguous_match")
+        self.assertIsNone(result["object_id"])
+        self.assertEqual(result["title"], "Example Editor 4.1 (x86)")
+
+    async def test_application_resolution_rejects_wrong_type_and_archived_fallback(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [
+                    {"id": "103", "title": "Example Editor", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "104", "title": "Example Editor", "type_const": "C__OBJTYPE__APPLICATION", "status": "3"},
+                    {"id": "105", "title": "Example Editor 5.0", "type_const": "C__OBJTYPE__APPLICATION"},
+                ]
+
+        client = SearchClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Editor 4.1 (x86)")
+        self.assertEqual(result["action"], "match_required")
+        self.assertIsNone(result["object_id"])
+
+    async def test_application_resolution_does_not_create_after_failed_lookup(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                if params["filter"]["title"] == "Example Editor":
+                    raise IdoitConnectionError("temporary outage", stage="read_objects")
+                return []
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("failed lookup must not create another object")
+
+        client = SearchClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.resolve_application("Example Editor 4.1 (x86)", create_missing=True)
 
     async def test_operating_system_resolution_rejects_mismatched_windows_server_edition(self):
         class EditionSearchClient(IdoitClient):
