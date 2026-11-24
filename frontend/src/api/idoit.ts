@@ -4,6 +4,7 @@ export interface IdoitConfig {
   idoit_enabled: boolean
   idoit_base_url: string
   idoit_allow_insecure_http: boolean
+  idoit_skip_tls_verification: boolean
   idoit_jsonrpc_path: string
   idoit_portal_url: string
   idoit_api_key_configured: boolean
@@ -32,6 +33,7 @@ export interface IdoitConfigUpdate {
   idoit_enabled: boolean
   idoit_base_url: string
   idoit_allow_insecure_http: boolean
+  idoit_skip_tls_verification: boolean
   idoit_jsonrpc_path: string
   idoit_portal_url: string
   idoit_api_key?: string

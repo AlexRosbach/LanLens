@@ -51,6 +51,7 @@ class IdoitConfigPayload(BaseModel):
     idoit_enabled: Optional[bool] = None
     idoit_base_url: Optional[str] = None
     idoit_allow_insecure_http: Optional[bool] = None
+    idoit_skip_tls_verification: Optional[bool] = None
     idoit_jsonrpc_path: Optional[str] = None
     idoit_portal_url: Optional[str] = None
     idoit_api_key: Optional[str] = None
@@ -105,6 +106,7 @@ def _config_response(db: Session) -> dict[str, Any]:
         "idoit_enabled": cfg.enabled,
         "idoit_base_url": cfg.base_url,
         "idoit_allow_insecure_http": cfg.allow_insecure_http,
+        "idoit_skip_tls_verification": cfg.skip_tls_verification,
         "idoit_jsonrpc_path": cfg.jsonrpc_path,
         "idoit_portal_url": cfg.portal_url,
         "idoit_api_key_configured": bool(cfg.api_key),
@@ -152,6 +154,7 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
     return IdoitConfig(
         enabled=bool(data.get("idoit_enabled", cfg.enabled)),
         allow_insecure_http=bool(data.get("idoit_allow_insecure_http", cfg.allow_insecure_http)),
+        skip_tls_verification=bool(data.get("idoit_skip_tls_verification", cfg.skip_tls_verification)),
         base_url=(data.get("idoit_base_url", cfg.base_url) or "").strip().rstrip("/"),
         jsonrpc_path=(data.get("idoit_jsonrpc_path", cfg.jsonrpc_path) or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
         portal_url=(data.get("idoit_portal_url", cfg.portal_url) or "").strip().rstrip("/"),

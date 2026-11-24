@@ -1471,6 +1471,37 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_idoit_tls_verification_is_explicit_and_scoped(self):
+        import ssl
+        from dataclasses import replace
+        from unittest.mock import AsyncMock
+        from backend.services.notification import PinnedHttpResponse, _pinned_tls_context
+
+        db = self.Session()
+        try:
+            cfg = replace(get_config(db), base_url="https://example.test", api_key="test")
+            self.assertFalse(cfg.skip_tls_verification)
+            with patch("backend.services.idoit.request_json_via_validated_url", new_callable=AsyncMock) as request:
+                request.return_value = PinnedHttpResponse(200, '{"result": {"ok": true}}')
+                await IdoitClient(cfg).call("idoit.login")
+                self.assertTrue(request.call_args.kwargs["verify_tls"])
+                await IdoitClient(replace(cfg, skip_tls_verification=True)).call("idoit.login")
+                self.assertFalse(request.call_args.kwargs["verify_tls"])
+            update_config(db, {"idoit_skip_tls_verification": True})
+            self.assertTrue(get_config(db).skip_tls_verification)
+            update_config(db, {"idoit_skip_tls_verification": False})
+            self.assertFalse(get_config(db).skip_tls_verification)
+            default = _pinned_tls_context("https")
+            insecure = _pinned_tls_context("https", verify_tls=False)
+            self.assertTrue(default.check_hostname)
+            self.assertEqual(default.verify_mode, ssl.CERT_REQUIRED)
+            self.assertFalse(insecure.check_hostname)
+            self.assertEqual(insecure.verify_mode, ssl.CERT_NONE)
+            self.assertEqual(_pinned_tls_context("https").verify_mode, ssl.CERT_REQUIRED)
+            self.assertIsNone(_pinned_tls_context("http"))
+        finally:
+            db.close()
+
     async def test_application_save_checks_readback(self):
         class ReadbackClient(IdoitClient):
             async def save_category(self, object_id, category, data, entry_id=None):

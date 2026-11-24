@@ -117,6 +117,7 @@ SETTING_DEFAULTS = {
     "idoit_enabled": "false",
     "idoit_base_url": "",
     "idoit_allow_insecure_http": "false",
+    "idoit_skip_tls_verification": "false",
     "idoit_portal_url": "",
     "idoit_jsonrpc_path": "/src/jsonrpc.php",
     "idoit_api_key": "",
@@ -185,6 +186,7 @@ class IdoitConfig:
     mapping_error: Optional[str] = None
     mapping_raw: str = ""
     allow_insecure_http: bool = False
+    skip_tls_verification: bool = False
 
 
 def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php") -> str:
@@ -266,6 +268,7 @@ def get_config(db: Session) -> IdoitConfig:
     return IdoitConfig(
         enabled=_get_setting(db, "idoit_enabled") == "true",
         allow_insecure_http=_get_setting(db, "idoit_allow_insecure_http") == "true",
+        skip_tls_verification=_get_setting(db, "idoit_skip_tls_verification") == "true",
         base_url=(_get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
         jsonrpc_path=(_get_setting(db, "idoit_jsonrpc_path") or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
         portal_url=(_get_setting(db, "idoit_portal_url") or _get_setting(db, "idoit_base_url") or "").strip().rstrip("/"),
@@ -2094,6 +2097,7 @@ class IdoitClient:
                 headers=headers,
                 timeout_seconds=self.config.timeout_seconds,
                 label="i-doit JSON-RPC URL",
+                verify_tls=not self.config.skip_tls_verification,
             )
         except ValueError as exc:
             raise IdoitConnectionError(str(exc), stage="url_validation", endpoint=self.endpoint) from exc

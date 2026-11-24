@@ -325,6 +325,18 @@ def _decode_chunked_body(body: bytes) -> bytes:
     return bytes(decoded)
 
 
+def _pinned_tls_context(scheme: str, verify_tls: bool = True) -> Optional[ssl.SSLContext]:
+    if scheme != "https":
+        return None
+    context = ssl.create_default_context()
+    if not verify_tls:
+        # Explicit per-request operator opt-in for legacy i-doit endpoints.
+        # Do not change the process trust store or other integrations.
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
 async def _request_to_pinned_address(
     parsed,
     address: str,
@@ -332,6 +344,8 @@ async def _request_to_pinned_address(
     payload: Optional[dict] = None,
     headers: Optional[dict[str, str]] = None,
     timeout_seconds: float = 10.0,
+    *,
+    verify_tls: bool = True,
 ) -> PinnedHttpResponse:
     """Send an HTTP request to a pre-validated IP while preserving Host/SNI.
 
@@ -342,7 +356,7 @@ async def _request_to_pinned_address(
     hostname = parsed.hostname or ""
     ascii_hostname = _idna_hostname(hostname)
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    ssl_context = ssl.create_default_context() if parsed.scheme == "https" else None
+    ssl_context = _pinned_tls_context(parsed.scheme, verify_tls)
     reader, writer = await asyncio.wait_for(
         asyncio.open_connection(
             host=address,
@@ -392,6 +406,8 @@ async def request_json_via_validated_url(
     headers: Optional[dict[str, str]] = None,
     timeout_seconds: float = 10.0,
     label: str = "URL",
+    *,
+    verify_tls: bool = True,
 ) -> PinnedHttpResponse:
     """Validate a URL with the SSRF guard, then request via a pinned IP."""
     parsed, addresses, error = await _resolve_webhook_addresses(url, label)
@@ -402,7 +418,8 @@ async def request_json_via_validated_url(
     last_exception: Optional[Exception] = None
     for address in sorted(addresses, key=lambda item: (":" in item, item)):
         try:
-            return await _request_to_pinned_address(parsed, address, method, payload, headers, timeout_seconds)
+            return await _request_to_pinned_address(parsed, address, method, payload, headers, timeout_seconds,
+                                                    verify_tls=verify_tls)
         except Exception as exc:
             last_error = str(exc)
             last_exception = exc

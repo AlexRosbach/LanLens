@@ -1412,6 +1412,7 @@ export default function Settings() {
         idoit_enabled: idoitConfig.idoit_enabled,
         idoit_base_url: idoitConfig.idoit_base_url,
         idoit_allow_insecure_http: idoitConfig.idoit_allow_insecure_http,
+        idoit_skip_tls_verification: idoitConfig.idoit_skip_tls_verification,
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
@@ -1452,6 +1453,7 @@ export default function Settings() {
         idoit_enabled: idoitConfig.idoit_enabled,
         idoit_base_url: idoitConfig.idoit_base_url,
         idoit_allow_insecure_http: idoitConfig.idoit_allow_insecure_http,
+        idoit_skip_tls_verification: idoitConfig.idoit_skip_tls_verification,
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
@@ -3430,6 +3432,12 @@ export default function Settings() {
                       {t('idoit_allow_http')}
                     </label>
                     {idoitConfig.idoit_allow_insecure_http && <p className="mt-1 text-xs text-warning">{t('idoit_http_warning')}</p>}
+                    <label className="mt-2 flex items-center gap-2 text-sm text-text-muted">
+                      <input type="checkbox" checked={idoitConfig.idoit_skip_tls_verification}
+                        onChange={e => setIdoitConfig({ ...idoitConfig, idoit_skip_tls_verification: e.target.checked })} />
+                      {t('idoit_skip_tls')}
+                    </label>
+                    {idoitConfig.idoit_skip_tls_verification && <p className="mt-1 text-xs text-warning">{t('idoit_skip_tls_warning')}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-text-subtle mb-1">{t('idoit_jsonrpc_path')}</label>
