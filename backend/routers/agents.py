@@ -1,4 +1,4 @@
-"""Outbound Windows inventory-agent enrolment and reporting API.
+"""Outbound Windows and Linux inventory-agent enrolment and reporting API.
 
 The agent opens HTTPS connections to LanLens.  LanLens never opens a WinRM
 connection to an enrolled endpoint, which also makes remote/off-LAN inventory
@@ -6,6 +6,7 @@ possible when the endpoint can reach the configured public LanLens URL.
 """
 
 import hashlib
+import ipaddress
 import json
 import re
 import secrets
@@ -15,7 +16,9 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -26,6 +29,9 @@ from ..schemas import AgentEnrollmentTokenCreate, AgentEnrollmentTokenCreated, A
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 _ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "windows_agent"
 _MAX_SOFTWARE_ITEMS = 2000
+_MAX_FINDING_BYTES = 160_000
+_MAX_REPORT_BYTES = 900_000
+_MIN_REPORT_INTERVAL = timedelta(seconds=30)
 
 
 def _sha256(value: str) -> str:
@@ -88,6 +94,10 @@ def revoke_enrollment_token(
         raise HTTPException(status_code=404, detail="Enrollment token not found")
     if token.revoked_at is None:
         token.revoked_at = datetime.utcnow()
+        # Revocation disables any agent enrolled by this token as well.
+        db.query(WindowsAgent).filter(WindowsAgent.enrollment_token_id == token.id,
+                                     WindowsAgent.revoked_at.is_(None)).update(
+            {WindowsAgent.revoked_at: token.revoked_at}, synchronize_session=False)
         db.commit()
         db.refresh(token)
     return _token_response(token)
@@ -102,12 +112,24 @@ class AgentEnrollRequest(BaseModel):
     ip_addresses: list[str] = Field(default_factory=list, max_length=64)
     platform: Literal["windows", "linux"] = "windows"
 
+    @field_validator("ip_addresses")
+    @classmethod
+    def validate_ips(cls, values):
+        return [str(ipaddress.ip_address(value)) for value in values]
+
 
 class AgentFinding(BaseModel):
     finding_type: Literal["hardware", "os", "software", "service", "container", "audit", "hypervisor"]
     key: str = Field(min_length=1, max_length=256)
     value: Any = None
     source: Optional[str] = Field(default=None, max_length=64)
+
+    @field_validator("value")
+    @classmethod
+    def validate_size(cls, value):
+        if len(json.dumps(value, ensure_ascii=False).encode("utf-8")) > _MAX_FINDING_BYTES:
+            raise ValueError("Finding exceeds maximum size")
+        return value
 
 
 class AgentReportRequest(BaseModel):
@@ -121,11 +143,22 @@ class AgentReportRequest(BaseModel):
     findings: list[AgentFinding] = Field(default_factory=list, max_length=128)
     platform: Literal["windows", "linux"] = "windows"
 
+    @field_validator("ip_addresses")
+    @classmethod
+    def validate_ips(cls, values):
+        return [str(ipaddress.ip_address(value)) for value in values]
+
+    @model_validator(mode="after")
+    def validate_inventory(self):
+        if len(self.model_dump_json().encode("utf-8")) > _MAX_REPORT_BYTES:
+            raise ValueError("Inventory report exceeds maximum size")
+        return self
+
 
 def _active_token(raw_token: str, db: Session) -> AgentEnrollmentToken:
     token = db.query(AgentEnrollmentToken).filter(AgentEnrollmentToken.token_hash == _sha256(raw_token)).first()
-    if not token or token.revoked_at is not None or (token.expires_at and token.expires_at <= datetime.utcnow()):
-        raise HTTPException(status_code=401, detail="Invalid, expired, or revoked enrollment token")
+    if not token or token.revoked_at is not None or token.last_used_at is not None or (token.expires_at and token.expires_at <= datetime.utcnow()):
+        raise HTTPException(status_code=401, detail="Invalid, used, expired, or revoked enrollment token")
     return token
 
 
@@ -157,24 +190,43 @@ def _find_or_create_device(payload: AgentEnrollRequest | AgentReportRequest, db:
 @router.post("/enroll")
 def enroll_agent(payload: AgentEnrollRequest, db: Session = Depends(get_db)) -> dict[str, str | int]:
     token = _active_token(payload.token, db)
+    now = datetime.utcnow()
+    # Consume the token atomically; the transaction rolls back on enrollment failure.
+    consumed = db.query(AgentEnrollmentToken).filter(
+        AgentEnrollmentToken.id == token.id, AgentEnrollmentToken.last_used_at.is_(None),
+        AgentEnrollmentToken.revoked_at.is_(None),
+        or_(AgentEnrollmentToken.expires_at.is_(None), AgentEnrollmentToken.expires_at > now),
+    ).update({AgentEnrollmentToken.last_used_at: now}, synchronize_session=False)
+    if consumed != 1:
+        db.rollback()
+        raise HTTPException(status_code=401, detail="Enrollment token is no longer valid")
     device = _find_or_create_device(payload, db)
     agent = db.query(WindowsAgent).filter(WindowsAgent.device_id == device.id).first()
+    if agent is not None and agent.revoked_at is None:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Revoke the existing agent's enrollment token before re-enrolling")
     agent_id = secrets.token_urlsafe(18)
     agent_secret = secrets.token_urlsafe(32)
     if agent is None:
         agent = WindowsAgent(
             agent_id=agent_id, device_id=device.id, enrollment_token_id=token.id,
-            secret_hash=_sha256(f"{agent_id}.{agent_secret}"),
+            platform=payload.platform, secret_hash=_sha256(f"{agent_id}.{agent_secret}"),
         )
         db.add(agent)
     else:
-        agent.agent_id = agent_id
-        agent.enrollment_token_id = token.id
-        agent.secret_hash = _sha256(f"{agent_id}.{agent_secret}")
-        agent.last_sequence = 0
-        agent.revoked_at = None
-    token.last_used_at = datetime.utcnow()
-    db.commit()
+        replaced = db.query(WindowsAgent).filter(WindowsAgent.id == agent.id, WindowsAgent.revoked_at.is_not(None)).update({
+            WindowsAgent.agent_id: agent_id, WindowsAgent.enrollment_token_id: token.id,
+            WindowsAgent.secret_hash: _sha256(f"{agent_id}.{agent_secret}"), WindowsAgent.platform: payload.platform,
+            WindowsAgent.last_sequence: 0, WindowsAgent.last_seen_at: None, WindowsAgent.revoked_at: None,
+        }, synchronize_session=False)
+        if replaced != 1:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Agent identity already replaced")
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Agent identity already exists")
     return {"agent_id": agent_id, "agent_secret": agent_secret, "device_id": device.id, "report_path": "/api/agents/report"}
 
 
@@ -200,9 +252,24 @@ def report_agent_inventory(
     agent = _authenticated_agent(authorization, db)
     if payload.sequence <= agent.last_sequence:
         raise HTTPException(status_code=409, detail="Stale or replayed agent report")
-    device = _find_or_create_device(payload, db)
-    if device.id != agent.device_id:
+    device = db.get(Device, agent.device_id)
+    if device is None or device.mac_address != _normalise_mac(payload.primary_mac):
         raise HTTPException(status_code=409, detail="Agent identity does not match the reported device")
+    if agent.platform is not None and agent.platform != payload.platform:
+        raise HTTPException(status_code=409, detail="Agent platform does not match enrollment")
+    now = datetime.utcnow()
+    if agent.last_seen_at and now - agent.last_seen_at < _MIN_REPORT_INTERVAL:
+        raise HTTPException(status_code=429, detail="Agent reporting too frequently")
+    # Compare-and-set guards against concurrent reports and concurrent revocation.
+    updated = db.query(WindowsAgent).filter(
+        WindowsAgent.id == agent.id, WindowsAgent.agent_id == agent.agent_id,
+        WindowsAgent.revoked_at.is_(None), WindowsAgent.last_sequence == agent.last_sequence,
+    ).update({WindowsAgent.last_sequence: payload.sequence, WindowsAgent.last_seen_at: now,
+              WindowsAgent.platform: payload.platform}, synchronize_session=False)
+    if updated != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Agent identity or sequence changed")
+    device = _find_or_create_device(payload, db)
     run = DeepScanRun(
         device_id=device.id, profile=f"{payload.platform}_agent", status="done", triggered_by="agent",
         finished_at=datetime.utcnow(), summary_json=json.dumps({
@@ -227,11 +294,9 @@ def report_agent_inventory(
         seen.add(identity)
         findings.append(DeepScanFinding(
             device_id=device.id, run_id=run.id, finding_type=finding.finding_type,
-            key=finding.key, value_json=json.dumps(finding.value), source=finding.source or source,
+            key=finding.key, value_json=json.dumps(finding.value), source=source,
         ))
     db.add_all(findings)
-    agent.last_sequence = payload.sequence
-    agent.last_seen_at = datetime.utcnow()
     db.commit()
     return {"status": "accepted", "device_id": device.id, "run_id": run.id}
 

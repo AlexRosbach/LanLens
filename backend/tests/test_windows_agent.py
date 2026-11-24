@@ -7,7 +7,8 @@ from sqlalchemy.orm import sessionmaker
 from backend.database import Base
 from backend.models import AgentEnrollmentToken, DeepScanFinding, Device, WindowsAgent
 from backend.routers.agents import _active_token, _authenticated_agent, _find_or_create_device, _normalise_mac, _sha256, report_agent_inventory
-from backend.routers.agents import AgentEnrollRequest, AgentReportRequest
+from backend.routers.agents import AgentEnrollRequest, AgentReportRequest, enroll_agent, revoke_enrollment_token
+from pydantic import ValidationError
 from fastapi import HTTPException
 
 
@@ -86,3 +87,32 @@ class WindowsAgentTests(unittest.TestCase):
             self.assertTrue(all(finding.source == "lanlens_linux_agent" for finding in stored))
         finally:
             db.close()
+
+    def test_enrollment_is_single_use_and_cannot_replace_active_agent(self):
+        db = self.Session()
+        try:
+            first, second = 'a' * 32, 'b' * 32
+            for raw in (first, second):
+                db.add(AgentEnrollmentToken(name='test', token_hash=_sha256(raw)))
+            db.commit()
+            def enroll(raw):
+                return enroll_agent(AgentEnrollRequest(token=raw, hostname='host', primary_mac='00:11:22:33:44:55'), db)
+            initial = enroll(first)
+            with self.assertRaises(HTTPException) as reused:
+                enroll(first)
+            self.assertEqual(reused.exception.status_code, 401)
+            with self.assertRaises(HTTPException) as replacement:
+                enroll(second)
+            self.assertEqual(replacement.exception.status_code, 409)
+            token_id = db.query(AgentEnrollmentToken).filter_by(token_hash=_sha256(first)).one().id
+            revoke_enrollment_token(token_id, db, None)
+            with self.assertRaises(HTTPException):
+                _authenticated_agent('Bearer ' + initial['agent_id'] + '.' + initial['agent_secret'], db)
+            self.assertNotEqual(enroll(second)['agent_id'], initial['agent_id'])
+        finally:
+            db.close()
+
+    def test_report_rejects_oversized_findings(self):
+        with self.assertRaises(ValidationError):
+            AgentReportRequest(sequence=1, hostname='host', primary_mac='00:11:22:33:44:55',
+                               findings=[{'finding_type': 'hardware', 'key': 'cpu', 'value': 'x' * 160001}])

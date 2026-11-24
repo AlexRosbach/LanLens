@@ -1002,6 +1002,10 @@ def migrate():
         else:
             print("Migration: windows_agents already exists — skipped")
 
+        if _table_exists(conn, "windows_agents") and not _column_exists(conn, "windows_agents", "platform"):
+            conn.execute(text("ALTER TABLE windows_agents ADD COLUMN platform VARCHAR(16)"))
+            print("Migration: added windows_agents.platform")
+
         conn.commit()
 
 

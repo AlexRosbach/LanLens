@@ -48,7 +48,7 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
     try { await agentsApi.revokeToken(id); await refresh(); toast.success('Installation token revoked') }
     catch { toast.error('Could not revoke token') }
   }
-  async function copy() { await navigator.clipboard.writeText(command); toast.success('PowerShell command copied') }
+  async function copy() { await navigator.clipboard.writeText(command); toast.success('Installation command copied') }
 
   return <div className="space-y-5">
     <div className="rounded-xl border border-primary/25 bg-primary-dim/30 p-4">
@@ -58,16 +58,16 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
     <div className="grid gap-4 md:grid-cols-2">
       <Input label="Installation token name" value={name} onChange={(e) => setName(e.target.value)} />
       <div className="flex flex-col gap-1"><label className="text-sm font-medium text-text-muted">Token validity</label><select className="input-field" value={duration ?? 'never'} onChange={(e) => setDuration(e.target.value === 'never' ? null : Number(e.target.value))}>{durations.map((item) => <option key={String(item.value)} value={item.value ?? 'never'}>{item.label}</option>)}</select></div>
-      <Input label="Public LanLens HTTPS URL" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} hint="This URL must be reachable from the Windows endpoint." />
-      <Input label="Reporting interval (minutes)" type="number" min={5} max={1440} value={interval} onChange={(e) => setInterval(Math.max(5, Number(e.target.value) || 60))} />
+      <Input label="Public LanLens HTTPS URL" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} hint="This URL must be reachable from the target endpoint." />
+      <Input label="Reporting interval (minutes)" type="number" min={5} max={1440} value={interval} onChange={(e) => setInterval(Math.min(1440, Math.max(5, Number(e.target.value) || 60)))} />
     </div>
     <Button onClick={create} loading={loading}>Create installation command</Button>
     {created && <div className="rounded-xl border border-success/40 bg-surface2 p-4 space-y-3">
-      <p className="text-sm text-text-base">Run this once with {platform === 'windows' ? 'elevated PowerShell' : 'root or sudo'}. The token is shown only now.</p>
+      <p className="text-sm text-text-base">Run this once with {platform === 'windows' ? 'elevated PowerShell' : 'root or sudo'}. The token is single-use and shown only now. Revoking it also disables the enrolled agent.</p>
       <textarea readOnly value={command} className="input-field min-h-32 font-mono text-xs" />
       <Button variant="outline" size="sm" onClick={copy}>Copy installation command</Button>
     </div>}
     <div className="space-y-2"><h3 className="font-semibold text-text-base">Installation tokens</h3>
-      {tokens.length === 0 ? <p className="text-sm text-text-subtle">No installation tokens yet.</p> : tokens.map((token) => <div key={token.id} className="rounded-lg border border-border bg-surface2 p-3 flex items-center justify-between gap-3"><div><p className="text-sm font-medium text-text-base">{token.name}</p><p className="text-xs text-text-subtle">{token.revoked_at ? 'Revoked' : token.expires_at ? `Expires ${new Date(token.expires_at).toLocaleString()}` : 'Never expires'}</p></div>{!token.revoked_at && <Button size="sm" variant="ghost" onClick={() => revoke(token.id)}><span className="text-danger">Revoke</span></Button>}</div>)}</div>
+      {tokens.length === 0 ? <p className="text-sm text-text-subtle">No installation tokens yet.</p> : tokens.map((token) => <div key={token.id} className="rounded-lg border border-border bg-surface2 p-3 flex items-center justify-between gap-3"><div><p className="text-sm font-medium text-text-base">{token.name}</p><p className="text-xs text-text-subtle">{token.revoked_at ? 'Revoked' : token.last_used_at ? 'Used (agent enrolled)' : token.expires_at ? `Expires ${new Date(token.expires_at).toLocaleString()}` : 'Never expires'}</p></div>{!token.revoked_at && <Button size="sm" variant="ghost" onClick={() => revoke(token.id)}><span className="text-danger">Revoke</span></Button>}</div>)}</div>
   </div>
 }

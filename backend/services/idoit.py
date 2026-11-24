@@ -1847,6 +1847,14 @@ def _operating_system_match_key(value: Any) -> str:
     return " ".join(parts)
 
 
+def _windows_server_edition(value: Any) -> str | None:
+    text = _normalized_match_text(value)
+    if not re.search(r"\bwindows\s+server\b", text):
+        return None
+    edition = re.search(r"\b(standard|datacenter|essentials|enterprise|foundation|web)\b", text)
+    return edition.group(1) if edition else None
+
+
 def _normalized_match_mac(value: Any) -> str:
     text = str(_plain_category_value(value) or "").strip()
     normalized = normalize_mac(text)
@@ -2069,6 +2077,7 @@ class IdoitClient:
             return {"object_id": None, "action": "skipped_empty"}
         object_type = "C__OBJTYPE__OPERATING_SYSTEM"
         wanted_key = _operating_system_match_key(wanted)
+        wanted_edition = _windows_server_edition(wanted)
         lookup_title = " ".join(wanted_key.split())
         queries = [
             {"filter": {"title": wanted, "type": object_type}},
@@ -2108,6 +2117,8 @@ class IdoitClient:
                     continue
                 candidate_title = _object_entry_title(entry)
                 if _operating_system_match_key(candidate_title) != wanted_key:
+                    continue
+                if wanted_edition and _windows_server_edition(candidate_title) != wanted_edition:
                     continue
                 object_id = _object_entry_id(entry)
                 if object_id:

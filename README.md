@@ -32,7 +32,7 @@ LanLens turns a Docker host into a local network scanner that discovers MAC/IP d
 ### Get the context that matters
 
 - Deep Scan reveals hardware, operating system, running services and installed software with versions.
-- Optional Windows and Linux Agents report the same structured inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM or SSH required.
+- Optional Windows and Linux Agents report inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM or SSH required. Use one enrollment token per endpoint. Revoking a token disables its enrolled agent; revoke the old token before re-enrolling. Install only from a trusted LanLens server, since the installer runs with administrator/root privileges.
 - Visualize topology, scan changes and relevant network-security signals when expert modules are enabled.
 
 ### Integrate without exposing inventory

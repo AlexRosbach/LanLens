@@ -700,6 +700,16 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             "matched_title": "Microsoft Windows Server 2025 Standard",
         })
 
+    async def test_operating_system_resolution_rejects_mismatched_windows_server_edition(self):
+        class EditionSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [{"id": "100", "title": "Windows Server 2025 Datacenter", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"}]
+
+        client = EditionSearchClient(get_config(self.Session()))
+        result = await client.resolve_operating_system("Windows Server 2025 Standard 10.0.26100")
+        self.assertEqual(result["action"], "match_required")
+        self.assertIsNone(result["object_id"])
+
     async def test_operating_system_resolution_does_not_guess_between_normalized_titles(self):
         class AmbiguousSearchClient(IdoitClient):
             async def read_objects(self, params):
