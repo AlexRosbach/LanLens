@@ -92,10 +92,9 @@ A failed build or source check prevents the publication job from running. Failur
 
 | Workflow | Responsibility | Trigger |
 |---|---|---|
-| `pr-validation.yml` | Orchestrates source checks, builds and eligible publication | Pull request; push to main |
+| `pr-validation.yml` | Orchestrates source checks, builds and runs a separate environment-protected publication job | Pull request; push to main |
 | `security.yml` | Gitleaks, Semgrep; additional scheduled source-image scans | Reusable workflow; weekly schedule |
 | `docker-build.yml` | Validate version, build and inspect four platform images, smoke-test, scan and export artifacts | Called by PR validation |
-| `docker-publish.yml` | Gate publication, verify artifacts, authenticate, push, sign and promote digests | Called after the Docker build succeeds |
 | `.github/dependabot.yml` | Propose dependency updates for Python, npm, Docker and Actions | Weekly dependency checks |
 
 No `pull_request_target` workflow is used to build external PR code. No manually dispatched workflow is currently configured; rerun a workflow or submit a new commit when needed.
@@ -168,7 +167,7 @@ The workflow additionally requires the canonical repository and one of:
 
 Fork PRs can run CI, subject to GitHub approval settings, but are excluded from publication. The development environment is `dockerhub-dev`; the stable environment is `dockerhub-release`. GitHub deployment protection rules apply before environment secrets become available.
 
-The publishing job runs separately and does not check out the source tree or execute the application. It validates the revision against the current PR head/base or main head, verifies artifact checksums and logs in to Docker Hub using an environment secret via standard input.
+The publishing job is declared directly in the orchestration workflow, rather than calling a reusable publishing workflow, so its environment secrets are resolved without an additional secret-passing boundary. It runs separately and does not check out the source tree or execute the application. It validates the revision against the current PR head/base or main head, verifies artifact checksums and logs in to Docker Hub using an environment secret via standard input.
 
 **Secret handling:** Environment secrets cannot be read back as plaintext through the GitHub UI or API. They can be used by authorized jobs, however. GitHub log masking is not a complete security boundary. Trusted repository writers can modify workflow code, so automatic same-repository PR publication assumes those writers are trusted. A Docker Hub token with write access is not restricted to development tags by the workflow itself; its actual capabilities are determined by Docker Hub permissions.
 
