@@ -808,6 +808,46 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.catalog_calls, 1)
         self.assertEqual(client.assert_type, "C__OBJTYPE__APPLICATION")
 
+    async def test_application_catalog_retries_verified_numeric_type(self):
+        class NumericTypeClient(IdoitClient):
+            async def call(self, method, params=None):
+                self.assert_method = method
+                return [{"id": "73", "const": "C__OBJTYPE__APPLICATION", "objectcount": "1"}]
+
+            async def read_objects(self, params):
+                if params["filter"]["type"] == 73:
+                    return [
+                        {"id": "101", "title": "Example Archive", "type": "73", "status": "2"},
+                        {"id": "102", "title": "Example Archive", "type": "74", "status": "2"},
+                    ]
+                return []
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("existing application must be reused")
+
+        client = NumericTypeClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Archive 21.07 (x64)", create_missing=True)
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(client.assert_method, "cmdb.object_types")
+        self.assertEqual(client.application_lookup_debug["object_type_id"], "73")
+        self.assertEqual(client.application_lookup_debug["catalog_size"], 1)
+
+    async def test_application_catalog_refuses_creation_when_type_count_disagrees(self):
+        class EmptyCatalogClient(IdoitClient):
+            async def call(self, method, params=None):
+                return [{"id": "73", "const": "C__OBJTYPE__APPLICATION", "objectcount": "10"}]
+
+            async def read_objects(self, params):
+                return []
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("inconsistent catalog cannot create")
+
+        client = EmptyCatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Missing", create_missing=True)
+        self.assertEqual(result["action"], "lookup_incomplete")
+        self.assertFalse(client.application_lookup_debug["complete"])
+
     async def test_application_catalog_refuses_incomplete_pagination(self):
         class CatalogClient(IdoitClient):
             async def read_objects(self, params):

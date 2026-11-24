@@ -1693,6 +1693,12 @@ def _safe_log_details(details: dict[str, Any]) -> str:
         for key in ("identity_match", "match_debug", "match_required", "create_policy"):
             if key in details:
                 summary[key] = details[key]
+        if "application_lookup" in details:
+            summary["application_lookup"] = details["application_lookup"]
+        if "application_resolution_counts" in details:
+            summary["application_resolution_counts"] = details["application_resolution_counts"]
+        if "application_save_counts" in details:
+            summary["application_save_counts"] = details["application_save_counts"]
         if "applications" in details:
             counts: dict[str, int] = {}
             for item in details["applications"]:
@@ -1712,7 +1718,8 @@ def _safe_log_details(details: dict[str, Any]) -> str:
     # Keep the log valid JSON even when diagnostics exceed the size budget.
     reduced = {key: summary[key] for key in (
         "truncated", "original_size", "sha256", "upstream_write_performed",
-        "application_resolution_counts", "cpu_save_status", "cpu_rejected_fields",
+        "application_resolution_counts", "application_lookup", "application_save_counts",
+        "cpu_save_status", "cpu_rejected_fields",
     ) if key in summary}
     for key in ("warnings", "errors"):
         if key in summary:
@@ -2038,6 +2045,7 @@ class IdoitClient:
         self.last_identity_match_debug: dict[str, Any] = {}
         self._application_catalog: dict[str, dict[str, str]] | None = None
         self._application_catalog_complete = False
+        self.application_lookup_debug: dict[str, Any] = {}
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         headers = {"Content-Type": "application/json"}
@@ -2283,6 +2291,8 @@ class IdoitClient:
             await self._load_application_catalog()
         if not self._application_catalog_complete:
             return {"object_id": None, "action": "lookup_incomplete", "title": wanted}
+        if not self._application_catalog and not create_missing:
+            return {"object_id": None, "action": "catalog_empty", "title": wanted}
         for candidate in candidates:
             matches = self._application_catalog.get(_normalized_match_text(candidate), {})
             if len(matches) > 1:
@@ -2302,35 +2312,87 @@ class IdoitClient:
         return {"object_id": object_id, "action": "created", "title": wanted}
 
     async def _load_application_catalog(self) -> None:
-        catalog: dict[str, dict[str, str]] = {}
-        seen: set[str] = set()
-        page_size, maximum = 500, 10000
-        complete = False
-        for offset in range(0, maximum, page_size):
-            entries = _category_entries(await self.read_objects({
-                "filter": {"type": "C__OBJTYPE__APPLICATION", "status": "C__RECORD_STATUS__NORMAL"},
-                "limit": f"{offset},{page_size}", "order_by": "id", "sort": "ASC",
-            }))
-            ids = {oid for entry in entries if (oid := _object_entry_id(entry))}
-            if entries and (not ids or ids & seen):
-                break  # Pagination may have been ignored; do not guess or create.
-            for entry in entries:
-                candidate_type = _object_entry_type_constant(entry)
-                if candidate_type and candidate_type != "C__OBJTYPE__APPLICATION":
-                    continue
-                status = str(_plain_category_value(entry.get("status")) or "")
-                if status and status not in ("2", "C__RECORD_STATUS__NORMAL"):
-                    continue
-                title = _object_entry_title(entry)
-                oid = _object_entry_id(entry)
-                if title and oid:
-                    catalog.setdefault(_normalized_match_text(title), {})[oid] = title
-            seen.update(ids)
-            if len(entries) < page_size:
-                complete = True
-                break
+        object_type = "C__OBJTYPE__APPLICATION"
+
+        async def scan(type_filter: str | int, expected_type_id: str = ""):
+            catalog: dict[str, dict[str, str]] = {}
+            seen: set[str] = set()
+            page_size, maximum = 500, 10000
+            complete = False
+            rejected = 0
+            for offset in range(0, maximum, page_size):
+                entries = _category_entries(await self.read_objects({
+                    "filter": {"type": type_filter, "status": "C__RECORD_STATUS__NORMAL"},
+                    "limit": f"{offset},{page_size}", "order_by": "id", "sort": "ASC",
+                }))
+                ids = {oid for entry in entries if (oid := _object_entry_id(entry))}
+                if entries and (not ids or ids & seen):
+                    break
+                for entry in entries:
+                    candidate_type = _object_entry_type_constant(entry)
+                    numeric_type = str(_plain_category_value(entry.get("type")) or "")
+                    status = str(_plain_category_value(entry.get("status")) or "")
+                    if ((candidate_type and candidate_type != object_type)
+                            or (expected_type_id and numeric_type.isdigit() and numeric_type != expected_type_id)
+                            or (status and status not in ("2", "C__RECORD_STATUS__NORMAL"))):
+                        rejected += 1
+                        continue
+                    title, oid = _object_entry_title(entry), _object_entry_id(entry)
+                    if title and oid:
+                        catalog.setdefault(_normalized_match_text(title), {})[oid] = title
+                    else:
+                        rejected += 1
+                seen.update(ids)
+                if len(entries) < page_size:
+                    complete = True
+                    break
+            return catalog, complete, {
+                "filter_type": type_filter, "rows": len(seen),
+                "accepted": sum(len(matches) for matches in catalog.values()),
+                "rejected": rejected, "complete": complete,
+            }
+
+        catalog, complete, attempt = await scan(object_type)
+        attempts = [attempt]
+        # Resolve the actual numeric type from the tenant rather than hard-code
+        # an installation-specific ID. Some servers return no objects for the
+        # constant filter. Only retry with an explicitly verified type ID.
+        if complete and not catalog:
+            try:
+                types = _category_entries(await self.call("cmdb.object_types", {
+                    "filter": {"id": object_type}, "countobjects": True,
+                }))
+            except IdoitConnectionError:
+                types = []
+                self.application_lookup_debug["type_lookup_failed"] = True
+            verified = {}
+            for entry in types:
+                const = entry.get("const") or entry.get("isys_obj_type__const")
+                oid = entry.get("id") or entry.get("isys_obj_type__id")
+                if const == object_type and str(oid).isdigit() and int(oid) > 0:
+                    verified[str(oid)] = entry
+            if len(verified) == 1:
+                type_id, metadata = next(iter(verified.items()))
+                self.application_lookup_debug["object_type_id"] = type_id
+                count = metadata.get("objectcount")
+                if str(count).isdigit():
+                    self.application_lookup_debug["reported_object_count"] = int(count)
+                catalog, complete, attempt = await scan(int(type_id), type_id)
+                attempts.append(attempt)
+                # An empty list despite a positive reported object count may
+                # indicate an API filter/permission issue. Do not create blindly.
+                if not catalog and str(count).isdigit() and int(count) > 0:
+                    complete = False
+            else:
+                # Cannot distinguish an empty catalog from an invalid filter.
+                complete = False
+                self.application_lookup_debug["type_lookup_unverified"] = True
         self._application_catalog = catalog
         self._application_catalog_complete = complete
+        self.application_lookup_debug.update({
+            "attempts": attempts, "complete": complete,
+            "catalog_size": sum(len(matches) for matches in catalog.values()),
+        })
 
     async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
         """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
@@ -3073,6 +3135,15 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             categories["C__CATG__APPLICATION"] = [*existing_entries, *application_entries]
         if application_details:
             details["applications"] = application_details
+            counts: dict[str, int] = {}
+            for resolution in application_details:
+                reason = str(resolution.get("action", "unknown"))
+                counts[reason] = counts.get(reason, 0) + 1
+            details["application_resolution_counts"] = counts
+            details["application_lookup"] = {
+                "create_policy": config.create_policy,
+                **getattr(client, "application_lookup_debug", {}),
+            }
         if unmatched_application_titles:
             preview = ", ".join(repr(title) for title in unmatched_application_titles[:5])
             remainder = max(0, len(unmatched_application_titles) - 5)
@@ -3081,7 +3152,8 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             sync_warnings.append(
                 "C__CATG__APPLICATION: "
                 f"{len(unmatched_application_titles)} installed application(s) have no unique i-doit Application object match "
-                f"({preview}); enable create-missing or create the Application objects in i-doit"
+                f"({preview}); resolution: {details['application_resolution_counts']}; "
+                f"policy: {config.create_policy}. Inspect application_lookup in the sync log before creating objects."
             )
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
         if global_category.get("description") is None:
@@ -3108,6 +3180,12 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     rejected = ", ".join(sorted(failed.keys())) if failed else "category payload"
                     sync_warnings.append(f"{category}: save rejected by i-doit; rejected fields: {rejected}")
             details["category_results"][category] = category_results if isinstance(data, list) else (category_results[0] if category_results else {"status": "skipped_empty"})
+            if category == "C__CATG__APPLICATION":
+                counts = {}
+                for result in category_results:
+                    status = str(result.get("status", "unknown"))
+                    counts[status] = counts.get(status, 0) + 1
+                details["application_save_counts"] = counts
 
         sysid = await client.object_sysid(object_id)
         if sysid:
