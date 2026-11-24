@@ -93,11 +93,14 @@ def revoke_enrollment_token(
     if not token:
         raise HTTPException(status_code=404, detail="Enrollment token not found")
     if token.revoked_at is None:
-        token.revoked_at = datetime.utcnow()
-        # Revocation disables any agent enrolled by this token as well.
+        now = datetime.utcnow()
+        # Lock the token row before touching agents, serializing against enrollment.
+        db.query(AgentEnrollmentToken).filter(AgentEnrollmentToken.id == token.id,
+                                              AgentEnrollmentToken.revoked_at.is_(None)).update(
+            {AgentEnrollmentToken.revoked_at: now}, synchronize_session=False)
         db.query(WindowsAgent).filter(WindowsAgent.enrollment_token_id == token.id,
                                      WindowsAgent.revoked_at.is_(None)).update(
-            {WindowsAgent.revoked_at: token.revoked_at}, synchronize_session=False)
+            {WindowsAgent.revoked_at: now}, synchronize_session=False)
         db.commit()
         db.refresh(token)
     return _token_response(token)

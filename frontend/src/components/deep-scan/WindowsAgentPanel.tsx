@@ -24,8 +24,8 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
   const validServerUrl = /^https:\/\/[a-zA-Z0-9.\-\[\]:]+(?:\/[a-zA-Z0-9._~\/-]*)?$/.test(serverUrl)
   const command = useMemo(() => !created || !validServerUrl ? '' : platform === 'windows' ? [
     'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command',
-    `"& ([ScriptBlock]::Create((iwr -UseBasicParsing '${serverUrl.replace(/\/$/, '')}/api/agents/windows/install.ps1').Content)) -ServerUrl '${serverUrl.replace(/\/$/, '')}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval}"`,
-  ].join(' ') : `curl --proto '=https' --proto-redir '=https' -fsSL '${serverUrl.replace(/\/$/, '')}/api/agents/linux/install.sh' | sudo bash -s -- --server-url '${serverUrl.replace(/\/$/, '')}' --enrollment-token '${created.token}' --interval-minutes ${interval}`, [created, interval, platform, serverUrl, validServerUrl])
+    `"& ([ScriptBlock]::Create((iwr -UseBasicParsing -MaximumRedirection 0 '${serverUrl.replace(/\/$/, '')}/api/agents/windows/install.ps1').Content)) -ServerUrl '${serverUrl.replace(/\/$/, '')}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval}"`,
+  ].join(' ') : `curl --proto '=https' --proto-redir '=https' -fsS '${serverUrl.replace(/\/$/, '')}/api/agents/linux/install.sh' | sudo bash -s -- --server-url '${serverUrl.replace(/\/$/, '')}' --enrollment-token '${created.token}' --interval-minutes ${interval}`, [created, interval, platform, serverUrl, validServerUrl])
 
   async function refresh() {
     try { setTokens((await agentsApi.listTokens()).data) } catch { toast.error('Could not load installation tokens') }

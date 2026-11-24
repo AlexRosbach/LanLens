@@ -29,7 +29,7 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 & icacls $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not secure the agent directory.' }
 if (Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue) { Stop-Service LanLensAgent -Force -ErrorAction Stop }
-Invoke-WebRequest -UseBasicParsing -Uri "$ServerUrl/api/agents/windows/LanLensAgent.cs" -OutFile $sourceFile
+Invoke-WebRequest -UseBasicParsing -MaximumRedirection 0 -Uri "$ServerUrl/api/agents/windows/LanLensAgent.cs" -OutFile $sourceFile
 & $compiler /nologo /target:exe /out:$exeFile /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exeFile)) { throw 'LanLens Agent compilation failed.' }
 
@@ -39,7 +39,7 @@ $adapter = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_
 if (-not $adapter) { throw 'No active network adapter with a MAC address was found.' }
 $os = Get-CimInstance Win32_OperatingSystem
 $enrollment = @{ token = $EnrollmentToken; hostname = $env:COMPUTERNAME; primary_mac = $adapter.MACAddress; os_info = "$($os.Caption) $($os.Version)"; kernel_version = $os.BuildNumber; ip_addresses = @($adapter.IPAddress | Where-Object { $_ -notmatch ':' }); platform = 'windows' } | ConvertTo-Json -Compress
-$response = Invoke-RestMethod -Method Post -ContentType 'application/json' -Uri "$ServerUrl/api/agents/enroll" -Body $enrollment
+$response = Invoke-RestMethod -MaximumRedirection 0 -Method Post -ContentType 'application/json' -Uri "$ServerUrl/api/agents/enroll" -Body $enrollment
 
 @{ server_url = $ServerUrl; agent_id = $response.agent_id; agent_secret = $response.agent_secret; interval_minutes = $IntervalMinutes; sequence = 0 } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $configFile
 

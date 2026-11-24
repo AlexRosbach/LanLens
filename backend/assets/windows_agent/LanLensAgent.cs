@@ -23,7 +23,8 @@ public class LanLensAgent : ServiceBase
     public static void Main() { ServiceBase.Run(new LanLensAgent()); }
     protected override void OnStart(string[] args) {
         _stopping = false;
-        _timer = new Timer(Report, null, TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+        _timer = new Timer(Report, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _timer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
     }
     protected override void OnStop() { _stopping = true; if (_timer != null) _timer.Dispose(); }
 
@@ -50,7 +51,7 @@ public class LanLensAgent : ServiceBase
                 { "kernel_version", os == null ? "" : Convert.ToString(os["BuildNumber"]) }, { "ip_addresses", ips }, { "software", InstalledSoftware() },
                 { "findings", AgentFindings() }, { "platform", "windows" }
             };
-            using (var client = new HttpClient())
+            using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }))
             {
                 client.Timeout = TimeSpan.FromSeconds(30);
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]));
