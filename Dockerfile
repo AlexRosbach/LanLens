@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
   && rm -f /etc/nginx/sites-enabled/default \
-  && pip install --no-cache-dir --upgrade pip \
+  && pip install --no-cache-dir --upgrade pip 'setuptools>=78.1.1' \
   && pip install --no-cache-dir -r /tmp/requirements.txt \
   && apt-get purge -y --auto-remove gcc python3-dev \
   && rm -rf /var/lib/apt/lists/* /tmp/requirements.txt
