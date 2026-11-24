@@ -35,7 +35,7 @@ export async function startMockLanLens(): Promise<MockLanLens> {
       return;
     }
     if (path === '/api/health') {
-      send(response, 200, {status: 'ok', version: '1.6.1', build_code: 'test'});
+      send(response, 200, {status: 'ok', version: '1.6.2', build_code: 'test'});
       return;
     }
     if (path.startsWith('/api/devices?') || path === '/api/devices') {

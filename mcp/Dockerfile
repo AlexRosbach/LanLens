@@ -9,7 +9,7 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
 
-ARG LANLENS_APP_VERSION=1.6.1
+ARG LANLENS_APP_VERSION=1.6.2
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown

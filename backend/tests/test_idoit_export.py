@@ -603,7 +603,9 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             async def object_type_title(self, object_id): return "Client"
             async def update_object_title(self, object_id, title): return {"id": object_id}
             async def resolve_application(self, title, create_missing=False):
-                return {"object_id": "101" if title == "Mozilla Firefox" else "102", "action": "matched", "title": title}
+                if title == "Mozilla Firefox":
+                    return {"object_id": "101", "action": "matched", "title": title}
+                return {"object_id": None, "action": "match_required", "title": title}
             async def save_category_best_effort(self, object_id, category, data):
                 saved_categories.append((category, data)); return {"status": "saved", "result": True}
             async def cleanup_lanlens_global_description(self, object_id): return None
@@ -622,12 +624,15 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             db.commit()
             with patch("backend.services.idoit.IdoitClient", FakeClient):
                 result = await sync_device_to_idoit(db, device, mode="manual")
-            self.assertEqual(result["status"], "synced")
+            self.assertEqual(result["status"], "synced_with_warnings")
             applications = [data for category, data in saved_categories if category == "C__CATG__APPLICATION"]
             self.assertEqual(applications, [
                 {"application": 101, "assigned_version": "132.0", "description": "Publisher: Mozilla"},
-                {"application": 102, "assigned_version": "24.09"},
             ])
+            self.assertEqual(len(result["warnings"]), 1)
+            self.assertIn("1 installed application(s)", result["warnings"][0])
+            self.assertIn("'7-Zip'", result["warnings"][0])
+            self.assertNotIn("more", result["warnings"][0])
         finally:
             db.close()
 
@@ -672,6 +677,27 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             "action": "matched_normalized",
             "title": "Ubuntu 24.04.3 LTS",
             "matched_title": "Ubuntu Linux 24.04 LTS",
+        })
+
+    async def test_operating_system_resolution_ignores_windows_wmi_build_suffix(self):
+        class WindowsServerSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [{
+                    "id": "141514",
+                    "title": "Microsoft Windows Server 2025 Standard",
+                    "type_const": "C__OBJTYPE__OPERATING_SYSTEM",
+                }]
+
+        client = WindowsServerSearchClient(get_config(self.Session()))
+        resolution = await client.resolve_operating_system(
+            "Microsoft Windows Server 2025 Standard 10.0.26100"
+        )
+
+        self.assertEqual(resolution, {
+            "object_id": "141514",
+            "action": "matched_normalized",
+            "title": "Microsoft Windows Server 2025 Standard 10.0.26100",
+            "matched_title": "Microsoft Windows Server 2025 Standard",
         })
 
     async def test_operating_system_resolution_does_not_guess_between_normalized_titles(self):

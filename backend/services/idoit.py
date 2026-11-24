@@ -1830,7 +1830,21 @@ def _operating_system_match_key(value: Any) -> str:
         "edition", "standard", "datacenter", "enterprise", "professional",
         "pro", "home",
     }
-    return " ".join(part for part in text.split() if part not in ignored)
+    parts = [part for part in text.split() if part not in ignored]
+    # WMI reports the technical Windows NT build after the marketing name, for
+    # example "Windows Server 2025 Standard 10.0.26100".  i-doit OS objects
+    # normally use the product name alone.  Once a Windows Server release year
+    # identifies the product, the NT major/minor value adds no identity and
+    # would prevent that otherwise exact normalized match.  Deliberately keep
+    # version tokens for other products to avoid broadening the fallback.
+    is_named_windows_server = (
+        "windows" in parts
+        and "server" in parts
+        and any(re.fullmatch(r"20\d{2}", part) for part in parts)
+    )
+    if is_named_windows_server:
+        parts = [part for part in parts if not re.fullmatch(r"\d+\.\d+", part)]
+    return " ".join(parts)
 
 
 def _normalized_match_mac(value: Any) -> str:
@@ -2836,12 +2850,13 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
             else:
                 sync_warnings.append(
-                    "C__CATG__OPERATING_SYSTEM: no exact Operating System object match; "
+                    "C__CATG__OPERATING_SYSTEM: no unique Operating System object match; "
                     "enable create-missing or create the OS object in i-doit"
                 )
         applications = payload.get("applications") if isinstance(payload.get("applications"), list) else []
         application_entries: list[dict[str, Any]] = []
         application_details: list[dict[str, Any]] = []
+        unmatched_application_titles: list[str] = []
         for application in applications:
             if not isinstance(application, dict) or not application.get("title"):
                 continue
@@ -2857,16 +2872,23 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                         assignment[field] = application[field]
                 application_entries.append(assignment)
             else:
-                sync_warnings.append(
-                    f"C__CATG__APPLICATION: no exact Application object match for {application['title']!r}; "
-                    "enable create-missing or create the Application object in i-doit"
-                )
+                unmatched_application_titles.append(str(application["title"]))
         if application_entries:
             existing_applications = categories.get("C__CATG__APPLICATION")
             existing_entries = existing_applications if isinstance(existing_applications, list) else ([existing_applications] if isinstance(existing_applications, dict) else [])
             categories["C__CATG__APPLICATION"] = [*existing_entries, *application_entries]
         if application_details:
             details["applications"] = application_details
+        if unmatched_application_titles:
+            preview = ", ".join(repr(title) for title in unmatched_application_titles[:5])
+            remainder = max(0, len(unmatched_application_titles) - 5)
+            if remainder:
+                preview = f"{preview}, and {remainder} more"
+            sync_warnings.append(
+                "C__CATG__APPLICATION: "
+                f"{len(unmatched_application_titles)} installed application(s) have no exact i-doit Application object match "
+                f"({preview}); enable create-missing or create the Application objects in i-doit"
+            )
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
         if global_category.get("description") is None:
             cleaned_description = await client.cleanup_lanlens_global_description(object_id)

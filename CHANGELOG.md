@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.2 — Build 20261123.0005
+
+- Corrected i-doit Operating System matching for Windows Server inventory titles
+  that contain a trailing WMI NT build, such as `10.0.26100`.
+- Added a dedicated Applications tab to device Deep Scan and condensed unmatched
+  i-doit Application messages into one count-based, actionable warning.
+
 ## 1.6.1 — Build 20261123.0004
 
 - Added outbound Windows inventory-agent enrolment with revocable, expiry-controlled installation tokens and an admin PowerShell installer generated in Deep Scan settings.

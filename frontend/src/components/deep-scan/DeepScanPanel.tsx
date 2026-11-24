@@ -16,12 +16,12 @@ import DeepScanConfigForm from './DeepScanConfigForm'
 import FindingsGrid from './FindingsGrid'
 import HostGuestPanel from './HostGuestPanel'
 
-type Tab = 'hardware' | 'os' | 'software' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest'
+type Tab = 'hardware' | 'os' | 'applications' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest'
 
 const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'hardware',    labelKey: 'tab_hardware' },
   { key: 'os',         labelKey: 'tab_os' },
-  { key: 'software',   labelKey: 'tab_software' },
+  { key: 'applications', labelKey: 'tab_applications' },
   { key: 'service',    labelKey: 'tab_services' },
   { key: 'container',  labelKey: 'tab_containers' },
   { key: 'audit',      labelKey: 'tab_audit' },
@@ -137,14 +137,20 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
     }
   }
 
-  const findingsByTab = (tab: Tab) =>
-    tab === 'host_guest' ? [] : findings.filter((f) => f.finding_type === tab)
+  const findingsByTab = (tab: Tab) => {
+    if (tab === 'host_guest') return []
+    // Inventory collectors store installed applications under the stable
+    // `software` finding type. Present it as a dedicated Applications tab so
+    // it is easy to find next to Operating System in the device Deep Scan.
+    const findingType = tab === 'applications' ? 'software' : tab
+    return findings.filter((f) => f.finding_type === findingType)
+  }
 
   // Only show tabs that have data (or are always shown)
   const visibleTabs = TABS.filter((tab) => {
     if (tab.key === 'host_guest') return true
     if (tab.key === 'hypervisor') return findings.some((f) => f.finding_type === 'hypervisor')
-    return findings.some((f) => f.finding_type === tab.key)
+    return findings.some((f) => f.finding_type === (tab.key === 'applications' ? 'software' : tab.key))
   })
 
   // Keep activeTab in sync: if the current tab is not visible, switch to the first visible one
