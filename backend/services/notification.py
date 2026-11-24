@@ -399,13 +399,15 @@ async def request_json_via_validated_url(
         raise ValueError(error or f"{label} is invalid")
 
     last_error = ""
+    last_exception: Optional[Exception] = None
     for address in sorted(addresses, key=lambda item: (":" in item, item)):
         try:
             return await _request_to_pinned_address(parsed, address, method, payload, headers, timeout_seconds)
         except Exception as exc:
             last_error = str(exc)
+            last_exception = exc
             logger.warning("Pinned request to %s via %s failed: %s", label, address, exc)
-    raise RuntimeError(last_error or f"{label} request failed")
+    raise RuntimeError(last_error or f"{label} request failed") from last_exception
 
 
 async def _send_webhook(webhook_url: str, payload: dict) -> bool:

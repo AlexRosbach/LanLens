@@ -29,6 +29,9 @@ function getInitialLang(): Lang {
 
 const translations = {
   en: {
+    idoit_application_test: "Test application matching",
+    idoit_application_test_hint: "Read-only lookup using saved i-doit settings. Shows candidates, object IDs and catalog diagnostics; never creates or changes objects.",
+    idoit_https_required: "HTTPS is required. Trust the issuing CA in the LanLens container.",
     applications_group_by: "Group by",
     applications_group_devices: "Server / device",
     applications_filters: "Filters",
@@ -1317,6 +1320,9 @@ const translations = {
     finding_dhcp_scopes: 'DHCP scopes',
   },
   de: {
+    idoit_application_test: "Anwendungszuordnung testen",
+    idoit_application_test_hint: "Schreibgeschützter Test mit gespeicherten i-doit-Einstellungen. Zeigt Kandidaten, Objekt-IDs und Katalogdiagnose; erstellt oder ändert keine Objekte.",
+    idoit_https_required: "HTTPS ist erforderlich. Die ausstellende CA muss im LanLens-Container vertrauenswürdig sein.",
     applications_group_by: "Gruppieren nach",
     applications_group_devices: "Server / Gerät",
     applications_filters: "Filter",
@@ -2605,6 +2611,9 @@ const translations = {
     finding_dhcp_scopes: 'DHCP-Bereiche',
   },
   it: {
+    idoit_application_test: "Verifica associazione applicazione",
+    idoit_application_test_hint: "Ricerca in sola lettura con impostazioni i-doit salvate. Mostra candidati, ID e diagnostica senza modificare oggetti.",
+    idoit_https_required: "HTTPS obbligatorio. Configurare la CA attendibile nel container LanLens.",
     applications_group_by: "Raggruppa per",
     applications_group_devices: "Server / dispositivo",
     applications_filters: "Filtri",
@@ -3893,6 +3902,9 @@ const translations = {
     finding_dhcp_scopes: 'Ambiti DHCP',
   },
   zh: {
+    idoit_application_test: "测试应用匹配",
+    idoit_application_test_hint: "使用已保存的 i-doit 设置进行只读查询，显示候选项、对象 ID 和目录诊断，不创建或修改对象。",
+    idoit_https_required: "必须使用 HTTPS，并在 LanLens 容器中信任签发 CA。",
     applications_group_by: "分组方式",
     applications_group_devices: "服务器 / 设备",
     applications_filters: "筛选",

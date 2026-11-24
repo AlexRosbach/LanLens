@@ -131,6 +131,8 @@ export const idoitApi = {
 
   testConnection: (data?: Partial<IdoitConfigUpdate>) => apiClient.post<IdoitTestResult>('/idoit/test-connection', data ?? {}).then((r) => r.data),
 
+  testApplication: (title: string) => apiClient.get<Record<string, unknown>>('/idoit/test-application', { params: { title } }).then((r) => r.data),
+
   testMapping: () => apiClient.post<IdoitTestResult>('/idoit/test-mapping').then((r) => r.data),
 
   syncDevice: (id: number) => apiClient.post<IdoitTestResult>(`/idoit/devices/${id}/sync`).then((r) => r.data),

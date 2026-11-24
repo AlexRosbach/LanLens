@@ -832,6 +832,26 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.application_lookup_debug["object_type_id"], "73")
         self.assertEqual(client.application_lookup_debug["catalog_size"], 1)
 
+    async def test_application_catalog_locally_filters_normal_status(self):
+        class StatusFilterClient(IdoitClient):
+            async def call(self, method, params=None):
+                return [{"id": "73", "const": "C__OBJTYPE__APPLICATION", "objectcount": "2"}]
+
+            async def read_objects(self, params):
+                filters = params["filter"]
+                if filters.get("type") == 73 and "status" not in filters:
+                    return [
+                        {"id": "101", "title": "Example Archive", "type": "73", "status": "2"},
+                        {"id": "102", "title": "Example Archive", "type": "73", "status": "3"},
+                    ]
+                return []
+
+        client = StatusFilterClient(get_config(self.Session()))
+        result = await client.diagnose_application("Example Archive 2.0 (x64)")
+        self.assertEqual(result["resolution"]["object_id"], "101")
+        self.assertFalse(result["upstream_write_performed"])
+        self.assertEqual(result["catalog"]["catalog_size"], 1)
+
     async def test_application_catalog_refuses_creation_when_type_count_disagrees(self):
         class EmptyCatalogClient(IdoitClient):
             async def call(self, method, params=None):
@@ -1427,6 +1447,31 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             {"title": "Example CPU", "description": "Processor: Example CPU"})
         self.assertEqual(result["status"], "partial")
         self.assertIn("description", result["failed_fields"])
+
+    async def test_idoit_rejects_http_before_sending_credentials(self):
+        from dataclasses import replace
+        from backend.services.idoit import validate_idoit_https_url
+        validate_idoit_https_url("https://example.test/idoit/src/jsonrpc.php")
+        for url in ("http://example.test", "https://user:password@example.test", "https://example.test/?key=x"):
+            with self.assertRaises(ValueError):
+                validate_idoit_https_url(url)
+        cfg = replace(get_config(self.Session()), base_url="http://example.test", api_key="test")
+        client = IdoitClient(cfg)
+        with self.assertRaises(IdoitConnectionError) as error:
+            await client.call("idoit.login")
+        self.assertEqual(error.exception.stage, "url_validation")
+
+    async def test_application_save_checks_readback(self):
+        class ReadbackClient(IdoitClient):
+            async def save_category(self, object_id, category, data, entry_id=None):
+                return {"success": True, "entry": 17}
+
+            async def read_category(self, object_id, category):
+                return []
+
+        client = ReadbackClient(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__APPLICATION", {"application": 101})
+        self.assertEqual(result["status"], "verification_failed")
 
     async def test_category_save_rejects_explicit_unsuccessful_result(self):
         class RejectingClient(IdoitClient):

@@ -23,6 +23,7 @@ from ..services.idoit import (
     sync_device_to_idoit,
     update_config,
     validate_mapping,
+    validate_idoit_https_url,
     _normalized_default_object_type,
 )
 from ..services.notification import validate_webhook_url
@@ -195,6 +196,10 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
     if "idoit_create_policy" in data:
         data["idoit_create_policy"] = "create_missing" if data.get("idoit_create_policy") == "create_missing" else "match_only"
     if base_url := data.get("idoit_base_url"):
+        try:
+            validate_idoit_https_url(base_url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         valid, reason = await validate_webhook_url(base_url, "i-doit base URL")
         if not valid:
             raise HTTPException(status_code=400, detail=reason)
@@ -231,6 +236,26 @@ async def test_connection(payload: Optional[IdoitConfigPayload] = None, db: Sess
         raise HTTPException(status_code=502, detail=exc.to_detail())
     except Exception as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "unexpected", "endpoint": ""})
+
+
+@router.get("/test-application")
+async def test_application(
+    title: str = Query(..., min_length=1, max_length=255),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _require_idoit_enabled(db)
+    cfg = get_config(db)
+    if not cfg.base_url or not cfg.api_key:
+        raise HTTPException(status_code=400, detail="Configure and save i-doit URL and API key first")
+    client = IdoitClient(cfg)
+    try:
+        await client.login()
+        return await client.diagnose_application(title)
+    except IdoitConnectionError as exc:
+        raise HTTPException(status_code=502, detail=exc.to_detail())
+    finally:
+        await client.logout_best_effort()
 
 
 @router.post("/test-mapping")

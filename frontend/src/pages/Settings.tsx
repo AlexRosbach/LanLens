@@ -412,6 +412,9 @@ export default function Settings() {
   const [idoitApiKey, setIdoitApiKey] = useState('')
   const [idoitBasicPassword, setIdoitBasicPassword] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
+  const [applicationTestTitle, setApplicationTestTitle] = useState('')
+  const [applicationTestBusy, setApplicationTestBusy] = useState(false)
+  const [applicationTestResult, setApplicationTestResult] = useState<Record<string, unknown> | null>(null)
   const [idoitSyncingAll, setIdoitSyncingAll] = useState(false)
   const [idoitEnablingAll, setIdoitEnablingAll] = useState(false)
   const [idoitSyncProgress, setIdoitSyncProgress] = useState<{ current: number; total: number; success: number; failure: number; skipped: number; label?: string } | null>(null)
@@ -3416,6 +3419,7 @@ export default function Settings() {
                       onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_base_url: e.target.value })}
                       placeholder="https://idoit.example.com"
                     />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_https_required')}</p>
                   </div>
                   <div>
                     <label className="block text-sm text-text-subtle mb-1">{t('idoit_jsonrpc_path')}</label>
@@ -3740,6 +3744,22 @@ export default function Settings() {
                   </div>
                 )}
 
+                <section className="mt-4 rounded-xl border border-border bg-surface2/30 p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-text-base">{t('idoit_application_test')}</h3>
+                  <p className="text-xs text-text-subtle">{t('idoit_application_test_hint')}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <input className="flex-1 min-w-48 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                      aria-label={t('idoit_application_test')} maxLength={255} value={applicationTestTitle}
+                      onChange={e => {setApplicationTestTitle(e.target.value); setApplicationTestResult(null)}} />
+                    <Button variant="outline" loading={applicationTestBusy} disabled={!applicationTestTitle.trim()} onClick={async () => {
+                      setApplicationTestBusy(true); setApplicationTestResult(null)
+                      try {setApplicationTestResult(await idoitApi.testApplication(applicationTestTitle.trim()))}
+                      catch (error) {setApplicationTestResult({error: extractIdoitErrorDetails(error).message})}
+                      finally {setApplicationTestBusy(false)}
+                    }}>{t('idoit_application_test')}</Button>
+                  </div>
+                  {applicationTestResult && <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-3 text-xs text-text-muted">{JSON.stringify(applicationTestResult, null, 2)}</pre>}
+                </section>
                 <IdoitExportReviewPanel />
 
                 <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">

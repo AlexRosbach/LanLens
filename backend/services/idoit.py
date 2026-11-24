@@ -15,7 +15,9 @@ import io
 import json
 import logging
 import re
+import ssl
 import unicodedata
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -199,6 +201,19 @@ def build_jsonrpc_endpoint(base_url: str, jsonrpc_path: str = "/src/jsonrpc.php"
     if not path.startswith("/"):
         path = "/" + path
     return base + path
+
+
+def validate_idoit_https_url(url: str) -> None:
+    """Require authenticated JSON-RPC traffic to use verified TLS."""
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            raise ValueError("i-doit JSON-RPC requires an https:// URL")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("i-doit URL must not include credentials, query parameters or fragments")
+        _ = parsed.port
+    except ValueError:
+        raise ValueError("i-doit JSON-RPC requires a valid https:// URL without embedded credentials, query or fragment") from None
 
 
 def _get_setting(db: Session, key: str) -> str:
@@ -2048,6 +2063,10 @@ class IdoitClient:
         self.application_lookup_debug: dict[str, Any] = {}
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
+        try:
+            validate_idoit_https_url(self.endpoint)
+        except ValueError as exc:
+            raise IdoitConnectionError(str(exc), stage="url_validation") from exc
         headers = {"Content-Type": "application/json"}
         if self.config.basic_username or self.config.basic_password:
             credentials = f"{self.config.basic_username}:{self.config.basic_password}".encode("utf-8")
@@ -2077,6 +2096,11 @@ class IdoitClient:
         except TimeoutError as exc:
             raise IdoitConnectionError("Connection timed out while calling i-doit", stage="network", endpoint=self.endpoint) from exc
         except Exception as exc:
+            if isinstance(exc, ssl.SSLCertVerificationError) or isinstance(exc.__cause__, ssl.SSLCertVerificationError):
+                raise IdoitConnectionError(
+                    "i-doit TLS certificate verification failed. Check hostname, certificate chain and trusted CA.",
+                    stage="tls_verification", endpoint=self.endpoint,
+                ) from exc
             raise IdoitConnectionError(str(exc) or "Network request to i-doit failed", stage="network", endpoint=self.endpoint) from exc
         if not 200 <= res.status_code < 300:
             body_snippet = (res.text or "")[:500]
@@ -2314,15 +2338,18 @@ class IdoitClient:
     async def _load_application_catalog(self) -> None:
         object_type = "C__OBJTYPE__APPLICATION"
 
-        async def scan(type_filter: str | int, expected_type_id: str = ""):
+        async def scan(type_filter: str | int, expected_type_id: str = "", include_status: bool = True):
             catalog: dict[str, dict[str, str]] = {}
             seen: set[str] = set()
             page_size, maximum = 500, 10000
             complete = False
             rejected = 0
             for offset in range(0, maximum, page_size):
+                filters: dict[str, Any] = {"type": type_filter}
+                if include_status:
+                    filters["status"] = "C__RECORD_STATUS__NORMAL"
                 entries = _category_entries(await self.read_objects({
-                    "filter": {"type": type_filter, "status": "C__RECORD_STATUS__NORMAL"},
+                    "filter": filters,
                     "limit": f"{offset},{page_size}", "order_by": "id", "sort": "ASC",
                 }))
                 ids = {oid for entry in entries if (oid := _object_entry_id(entry))}
@@ -2334,7 +2361,8 @@ class IdoitClient:
                     status = str(_plain_category_value(entry.get("status")) or "")
                     if ((candidate_type and candidate_type != object_type)
                             or (expected_type_id and numeric_type.isdigit() and numeric_type != expected_type_id)
-                            or (status and status not in ("2", "C__RECORD_STATUS__NORMAL"))):
+                            or (status and status not in ("2", "C__RECORD_STATUS__NORMAL"))
+                            or (not include_status and status not in ("2", "C__RECORD_STATUS__NORMAL"))):
                         rejected += 1
                         continue
                     title, oid = _object_entry_title(entry), _object_entry_id(entry)
@@ -2347,7 +2375,7 @@ class IdoitClient:
                     complete = True
                     break
             return catalog, complete, {
-                "filter_type": type_filter, "rows": len(seen),
+                "filter_type": type_filter, "status_filter": include_status, "rows": len(seen),
                 "accepted": sum(len(matches) for matches in catalog.values()),
                 "rejected": rejected, "complete": complete,
             }
@@ -2379,6 +2407,11 @@ class IdoitClient:
                     self.application_lookup_debug["reported_object_count"] = int(count)
                 catalog, complete, attempt = await scan(int(type_id), type_id)
                 attempts.append(attempt)
+                # Retry without the server-side status filter only when the
+                # object type is verified; enforce NORMAL explicitly locally.
+                if complete and not catalog:
+                    catalog, complete, attempt = await scan(int(type_id), type_id, include_status=False)
+                    attempts.append(attempt)
                 # An empty list despite a positive reported object count may
                 # indicate an API filter/permission issue. Do not create blindly.
                 if not catalog and str(count).isdigit() and int(count) > 0:
@@ -2393,6 +2426,25 @@ class IdoitClient:
             "attempts": attempts, "complete": complete,
             "catalog_size": sum(len(matches) for matches in catalog.values()),
         })
+
+    async def diagnose_application(self, title: str) -> dict[str, Any]:
+        """Read-only diagnosis: catalog and candidate matches, no object creation."""
+        candidates = _application_title_candidates(title)
+        resolution = await self.resolve_application(title, create_missing=False)
+        # Load the catalog even if an exact title query already matched.
+        if self._application_catalog is None:
+            await self._load_application_catalog()
+        catalog = self._application_catalog or {}
+        candidate_matches = [
+            {"title": candidate, "matches": [
+                {"object_id": oid, "title": name}
+                for oid, name in list(catalog.get(_normalized_match_text(candidate), {}).items())[:20]
+            ], "match_count": len(catalog.get(_normalized_match_text(candidate), {}))}
+            for candidate in candidates
+        ]
+        return {"resolution": resolution, "candidates": candidate_matches,
+                "catalog": self.application_lookup_debug, "create_policy": self.config.create_policy,
+                "upstream_write_performed": False}
 
     async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
         """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
@@ -2771,6 +2823,18 @@ class IdoitClient:
             response: dict[str, Any] = {"status": "saved", "result": result}
             if entry_id:
                 response["entry_id"] = entry_id
+            if category == "C__CATG__APPLICATION" and data.get("application"):
+                # A successful JSON-RPC result does not establish that the
+                # relationship is visible on the target host. Never retry a
+                # write merely because verification failed.
+                try:
+                    linked = await self.find_reusable_category_entry(object_id, category, data)
+                except IdoitConnectionError:
+                    linked = None
+                if linked:
+                    response["verified_entry_id"] = linked
+                else:
+                    response["status"] = "verification_failed"
             return response
         except IdoitConnectionError as full_error:
             saved: dict[str, Any] = {}
@@ -3175,6 +3239,8 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
                     if failed:
                         sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
+                elif result.get("status") == "verification_failed":
+                    sync_warnings.append(f"{category}: save reported success but assignment could not be verified by reading the host category")
                 elif result.get("status") == "failed":
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
                     rejected = ", ".join(sorted(failed.keys())) if failed else "category payload"
