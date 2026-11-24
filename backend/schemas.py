@@ -820,6 +820,7 @@ class ServerUrlSettings(BaseModel):
 
 
 class UiSettings(BaseModel):
+    show_applications_nav: Optional[bool] = None
     advanced_view_enabled: bool = False
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
@@ -857,6 +858,7 @@ class PortRangeScanRequest(BaseModel):
 
 
 class AllSettings(BaseModel):
+    show_applications_nav: bool = False
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"
     dhcp_ranges: List[DhcpRange] = Field(default_factory=list)

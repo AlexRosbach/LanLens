@@ -27,6 +27,7 @@ export default function Sidebar({ onClose }: Props) {
   const navigate = useNavigate()
   const advancedViewEnabled = useUiSettingsStore((state) => state.advancedViewEnabled)
   const showServicesNav = useUiSettingsStore((state) => state.showServicesNav)
+  const showApplicationsNav = useUiSettingsStore((state) => state.showApplicationsNav)
   const showDhcpMonitorNav = useUiSettingsStore((state) => state.showDhcpMonitorNav)
   const showNetworkTopologyNav = useUiSettingsStore((state) => state.showNetworkTopologyNav)
   const showBuildInfo = useUiSettingsStore((state) => state.showBuildInfo)
@@ -82,6 +83,11 @@ export default function Sidebar({ onClose }: Props) {
         </svg>
       ),
     }] : []
+  const applicationItems: NavItem[] = advancedViewEnabled && showApplicationsNav ? [{
+    to: '/applications',
+    label: t('nav_applications'),
+    icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" /></svg>,
+  }] : []
   const dhcpItems: NavItem[] = advancedViewEnabled && showDhcpMonitorNav ? [{
       to: '/dhcp-monitor',
       label: t('nav_dhcp_monitor'),
@@ -137,7 +143,7 @@ export default function Sidebar({ onClose }: Props) {
   const navSections: Array<{ title: string; items: NavItem[] }> = [
     { title: t('nav_group_monitor'), items: [dashboardItem, notificationsItem] },
     { title: t('nav_group_analyze'), items: [changesItem, ...dhcpItems, ...topologyItems] },
-    { title: t('nav_group_manage'), items: [...serviceItems, segmentsItem, deepScanItem] },
+    { title: t('nav_group_manage'), items: [...serviceItems, ...applicationItems, segmentsItem, deepScanItem] },
     { title: t('nav_group_admin'), items: [settingsItem] },
   ]
 

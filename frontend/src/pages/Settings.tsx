@@ -467,6 +467,7 @@ export default function Settings() {
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
+  const setShowApplicationsNav = useUiSettingsStore((state) => state.setShowApplicationsNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
   const setShowNetworkTopologyNav = useUiSettingsStore((state) => state.setShowNetworkTopologyNav)
   const setShowPluginApi = useUiSettingsStore((state) => state.setShowPluginApi)
@@ -490,6 +491,7 @@ export default function Settings() {
       setAdvancedViewEnabled(data.advanced_view_enabled)
       setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+      setShowApplicationsNav(data.advanced_view_enabled && data.show_applications_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
       setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
       setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
@@ -1369,6 +1371,7 @@ export default function Settings() {
         setAdvancedViewEnabled(data.advanced_view_enabled)
         setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+        setShowApplicationsNav(data.advanced_view_enabled && data.show_applications_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
         setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
         setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
@@ -1603,10 +1606,12 @@ export default function Settings() {
         current.show_build_info,
         current.show_debug_tools,
         current.debug_log_level,
+        current.show_applications_nav,
       )
       setAdvancedViewEnabled(current.advanced_view_enabled)
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
+      setShowApplicationsNav(current.advanced_view_enabled && current.show_applications_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
       setShowNetworkTopologyNav(current.advanced_view_enabled && current.show_network_topology_nav)
       setShowPluginApi(current.advanced_view_enabled && current.show_plugin_api)
@@ -1674,6 +1679,7 @@ export default function Settings() {
             advanced_view_enabled: checked,
             show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
             show_services_nav: checked ? current.show_services_nav : false,
+            show_applications_nav: checked ? current.show_applications_nav : false,
             show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
             show_network_topology_nav: checked ? current.show_network_topology_nav : false,
             show_plugin_api: checked ? current.show_plugin_api : false,
@@ -1803,6 +1809,14 @@ export default function Settings() {
       title: t('feature_category_inventory'),
       description: t('feature_category_inventory_hint'),
       items: [
+        {
+          key: 'applications',
+          checked: current.show_applications_nav,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_applications_nav'),
+          description: t('show_applications_nav_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_applications_nav: checked }),
+        },
         {
           key: 'services',
           checked: current.show_services_nav,

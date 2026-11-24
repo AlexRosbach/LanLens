@@ -21,6 +21,8 @@ from ..schemas import (
     TopologyNode,
     TopologyResponse,
 )
+from ..services.software_inventory import list_software_inventory
+from ..services.settings_helpers import is_advanced_feature_enabled
 from ..services.snmp import bulk_identities_for_devices
 from ..services.mac_vendor import normalize_mac
 from ..services.passive_discovery import linked_devices_for_observations
@@ -169,6 +171,21 @@ def _required_text(item: dict[str, Any], key: str, path: str, errors: list[str])
         errors.append(f"{path}.{key} is required")
         return ""
     return value.strip()
+
+
+@router.get("/applications")
+def get_applications(
+    search: str = Query("", max_length=200),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+    application_id: Optional[str] = Query(None, pattern=r"^[a-f0-9]{64}$"),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    if not is_advanced_feature_enabled(db, "show_applications_nav"):
+        raise HTTPException(status_code=403, detail="Software inventory is disabled")
+    return list_software_inventory(db, search=search, offset=offset, limit=limit,
+                                   application_id=application_id)
 
 
 @router.get("/topology", response_model=TopologyResponse)
