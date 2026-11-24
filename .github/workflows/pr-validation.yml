@@ -73,17 +73,48 @@ jobs:
     needs: [backend, frontend-and-mcp, windows-agent, security]
     uses: ./.github/workflows/docker-build.yml
 
+  publication-policy:
+    name: Docker publication policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      enabled: ${{ steps.policy.outputs.enabled }}
+    steps:
+      - name: Explain publishing eligibility
+        id: policy
+        env:
+          REPOSITORY_OK: ${{ github.repository == 'AlexRosbach/LanLens' }}
+          EVENT_OK: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+          PUBLISH_ENABLED: ${{ vars.DOCKERHUB_PUBLISH_ENABLED }}
+        run: |
+          set -euo pipefail
+          echo 'enabled=false' >> "$GITHUB_OUTPUT"
+          printf 'Repository eligible: %s\nEvent eligible: %s\n' "$REPOSITORY_OK" "$EVENT_OK"
+          if [[ "$REPOSITORY_OK" != true || "$EVENT_OK" != true ]]; then
+            echo 'Publication not allowed for this repository/event.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "$PUBLISH_ENABLED" in
+            true)
+              echo 'enabled=true' >> "$GITHUB_OUTPUT"
+              echo 'Publication enabled for eligible event.' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            false)
+              echo 'Publication explicitly disabled by repository variable.' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo '::error::Set DOCKERHUB_PUBLISH_ENABLED to true or false under repository Settings > Secrets and variables > Actions > Variables (not Environment or Secret).'
+              echo 'Missing or invalid repository publishing variable. No Docker Hub credentials accessed.' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+          esac
+
   publish:
     name: Publish verified Docker images
-    needs: docker
-    if: >-
-      vars.DOCKERHUB_PUBLISH_ENABLED == 'true' &&
-      github.repository == 'AlexRosbach/LanLens' &&
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' ||
-       github.event_name == 'pull_request' &&
-       github.event.pull_request.base.ref == 'main' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.actor != 'dependabot[bot]')
+    needs: [docker, publication-policy]
+    if: needs.publication-policy.outputs.enabled == 'true'
     permissions:
       contents: read
       pull-requests: read

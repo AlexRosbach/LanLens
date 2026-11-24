@@ -159,7 +159,7 @@ Artifacts are scoped to the workflow run, named per product and architecture, an
 
 ## 7. Publication authorization and trust boundary
 
-Publication runs only when all required builds succeed and the repository Actions variable `DOCKERHUB_PUBLISH_ENABLED` equals `true`.
+The read-only Docker publication policy job reports repository/event eligibility before publishing. An explicitly disabled variable skips publishing; a missing or invalid variable fails the policy job for eligible events with a configuration message. External PRs remain checks-only. Publication runs only when all required builds succeed and the repository Actions variable `DOCKERHUB_PUBLISH_ENABLED` equals `true`.
 
 The workflow additionally requires the canonical repository and one of:
 
@@ -239,7 +239,7 @@ Dependabot proposes weekly updates to Python and npm dependencies, Docker base i
 | Image build failed | Architecture-specific build log and dependency installation |
 | Runtime check failed | Application import or local HTTP health check log |
 | Trivy failed | Affected package, CVE, severity, installed and fixed versions; fix and rebuild |
-| Publish job skipped | Repository-level enable variable; canonical repository; PR origin; target branch; triggering actor; upstream job status |
+| Publish job skipped | Read the Docker publication policy job summary; repository-level enable variable; canonical repository; PR origin; target branch; triggering actor; upstream job status |
 | Awaiting approval / deployment rejected | GitHub environment protection and allowed refs |
 | Registry authentication failed | Environment variable, environment secret and Docker Hub token scope or expiry; never print the token |
 | Artifact missing | Rerun all jobs if the three-day retention expired |
