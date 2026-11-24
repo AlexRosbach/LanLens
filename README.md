@@ -186,7 +186,7 @@ name as on AMD64; Docker selects the matching image platform automatically.
 Direct ARP discovery still requires Linux host networking plus `NET_ADMIN` and
 `NET_RAW`. A 32-bit ARM userspace is not supported.
 
-Maintainers can validate both supported platforms with `docker buildx bake`.
+Maintainers can validate both supported platforms with `docker buildx bake`. See the [automated Docker build and publication guide](docs/docker-publication.md) for CI/CD, security gates, version tags and maintainer setup.
 
 ---
 

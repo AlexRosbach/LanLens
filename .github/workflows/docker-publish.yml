@@ -1,0 +1,165 @@
+name: Publish verified Docker images
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write
+  attestations: write
+jobs:
+  publish:
+    if: >-
+      github.repository == 'AlexRosbach/LanLens' &&
+      vars.DOCKERHUB_PUBLISH_ENABLED == 'true' &&
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+       github.event_name == 'pull_request' &&
+       github.event.pull_request.base.ref == 'main' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ github.event_name == 'pull_request' && 'dockerhub-dev' || 'dockerhub-release' }}
+    concurrency:
+      group: dockerhub-${{ github.event_name == 'pull_request' && format('dev-{0}', inputs.version) || 'stable' }}
+      cancel-in-progress: false
+    env:
+      IMAGE: docker.io/alexrosbach/lanlens
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      PR_BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      # No checkout or execution of repository code on the publishing runner.
+      - name: Check source is still current
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -e --arg head "$PR_HEAD" --arg base "$PR_BASE" \
+                '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
+          else
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: image-*
+          path: ${{ runner.temp }}/verified-images
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Verify all artifacts before registry login
+        run: |
+          set -euo pipefail
+          for target in lanlens lanlens-mcp; do
+            for arch in amd64 arm64; do
+              (
+                cd "$RUNNER_TEMP/verified-images/image-$target-$arch"
+                sha256sum -c SHA256SUMS
+                jq -e '.bomFormat == "CycloneDX"' sbom.json >/dev/null
+                grep -Eq '^sha256:[a-f0-9]{64}$' config-digest.txt
+              )
+            done
+          done
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" && test -n "$DOCKERHUB_TOKEN" || {
+            echo "::error::Configure DOCKERHUB_USERNAME and DOCKERHUB_TOKEN in the GitHub environment."
+            exit 1
+          }
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Push scanned images under unique staging tags and sign
+        id: stage
+        run: |
+          set -euo pipefail
+          for target in lanlens lanlens-mcp; do
+            refs=()
+            for arch in amd64 arm64; do
+              dir="$RUNNER_TEMP/verified-images/image-$target-$arch"
+              local_image="lanlens-ci:$arch"
+              staging="$IMAGE:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$target-$arch"
+              docker load -i "$dir/image.tar"
+              expected=$(cat "$dir/config-digest.txt")
+              test "$(docker image inspect --format '{{.Id}}' "$local_image")" = "$expected"
+              test "$(docker image inspect --format '{{.Architecture}}' "$local_image")" = "$arch"
+              test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$local_image")" = "$GITHUB_SHA"
+              test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$local_image")" = "$VERSION"
+              docker tag "$local_image" "$staging"
+              docker push "$staging" | tee "$RUNNER_TEMP/push.log"
+              digest=$(sed -nE 's/.*digest: (sha256:[a-f0-9]{64}).*/\1/p' "$RUNNER_TEMP/push.log" | tail -n1)
+              [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+              remote="$IMAGE@$digest"
+              test "$(docker buildx imagetools inspect --raw "$remote" | jq -er '.config.digest')" = "$expected"
+              cosign attest --yes --type cyclonedx --predicate "$dir/sbom.json" "$remote"
+              refs+=("$remote")
+              docker image rm "$staging" "$local_image"
+            done
+            index="$IMAGE:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$target"
+            metadata="$RUNNER_TEMP/$target-metadata.json"
+            docker buildx imagetools create --metadata-file "$metadata" -t "$index" "${refs[@]}"
+            digest=$(jq -er '."containerimage.descriptor".digest' "$metadata")
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+            docker buildx imagetools inspect --raw "$IMAGE@$digest" | jq -e \
+              --arg amd "$(printf '%s' "${refs[0]}" | cut -d@ -f2)" \
+              --arg arm "$(printf '%s' "${refs[1]}" | cut -d@ -f2)" \
+              '(.manifests | length) == 2 and
+               any(.manifests[]; .digest == $amd and .platform.os == "linux" and .platform.architecture == "amd64") and
+               any(.manifests[]; .digest == $arm and .platform.os == "linux" and .platform.architecture == "arm64")' >/dev/null
+            cosign sign --yes "$IMAGE@$digest"
+            echo "$target=$digest" >> "$GITHUB_OUTPUT"
+          done
+      - name: Attest LanLens build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: docker.io/alexrosbach/lanlens
+          subject-digest: ${{ steps.stage.outputs.lanlens }}
+          push-to-registry: true
+      - name: Attest MCP build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: docker.io/alexrosbach/lanlens
+          subject-digest: ${{ steps.stage.outputs.lanlens-mcp }}
+          push-to-registry: true
+      - name: Promote signed digests without rebuilding
+        env:
+          LANLENS_DIGEST: ${{ steps.stage.outputs.lanlens }}
+          MCP_DIGEST: ${{ steps.stage.outputs.lanlens-mcp }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -e --arg head "$PR_HEAD" --arg base "$PR_BASE" \
+                '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
+            lanlens_tags=("$VERSION-dev" "sha-$GITHUB_SHA-dev")
+            mcp_tags=("$VERSION-mcp-dev" "sha-$GITHUB_SHA-mcp-dev")
+          else
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+            lanlens_tags=("$VERSION" "latest" "sha-$GITHUB_SHA")
+            mcp_tags=("$VERSION-mcp" "mcp-latest" "sha-$GITHUB_SHA-mcp")
+          fi
+          promote() {
+            local digest=$1; shift
+            local tag result
+            local -a args=()
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+            for tag in "$@"; do args+=(-t "$IMAGE:$tag"); done
+            docker buildx imagetools create --metadata-file "$RUNNER_TEMP/promoted.json" \
+              "${args[@]}" "$IMAGE@$digest"
+            result=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/promoted.json")
+            test "$result" = "$digest"
+            for tag in "$@"; do
+              printf '* %s:%s -> %s\n' "$IMAGE" "$tag" "$digest" >> "$GITHUB_STEP_SUMMARY"
+            done
+          }
+          promote "$LANLENS_DIGEST" "${lanlens_tags[@]}"
+          promote "$MCP_DIGEST" "${mcp_tags[@]}"
+      - name: Log out of Docker Hub
+        if: always()
+        run: docker logout docker.io || true
