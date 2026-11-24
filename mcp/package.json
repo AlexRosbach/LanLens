@@ -17,7 +17,7 @@
     "test": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/test/*.test.js",
     "test:protocol": "npm run build && tsc -p tsconfig.test.json && node --test dist-tests/test/protocol.test.js",
     "mcpb:stage": "node scripts/stage-mcpb.mjs",
-    "mcpb:pack": "npm run bundle && npm run mcpb:stage && mcpb pack build/mcpb build/lanlens-mcp-1.6.1.mcpb",
+    "mcpb:pack": "npm run bundle && npm run mcpb:stage && mcpb pack build/mcpb build/lanlens-mcp-1.6.2.mcpb",
     "mcpb:validate": "npm run bundle && npm run mcpb:stage && mcpb validate build/mcpb/manifest.json"
   },
   "dependencies": {

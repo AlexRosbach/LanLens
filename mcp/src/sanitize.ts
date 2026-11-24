@@ -17,18 +17,17 @@ function pick(source: JsonObject, keys: readonly string[]): JsonObject {
 const DEVICE_FIELDS = [
   'id', 'mac_address', 'ip_address', 'hostname', 'preferred_name', 'display_name',
   'label', 'device_class', 'vendor', 'vendor_detected', 'vendor_override',
-  'segment_id', 'segment_name', 'is_dhcp', 'purpose', 'description', 'location',
-  'responsible', 'os_info', 'kernel_version', 'inferred_os_family',
-  'os_inference_confidence', 'os_inference_reasons', 'asset_tag', 'is_registered',
-  'is_new', 'is_online', 'first_seen', 'last_seen', 'hardware_summary', 'host_label',
+  'segment_id', 'segment_name', 'is_dhcp', 'os_info', 'kernel_version', 'inferred_os_family',
+  'os_inference_confidence', 'asset_tag', 'is_registered',
+  'is_new', 'is_online', 'first_seen', 'last_seen', 'host_label',
   'cmdb_id', 'ignored', 'notifications_muted', 'maintenance_until',
   'is_archived', 'archived_at', 'snmp_switch',
-  'snmp_interface', 'snmp_interface_alias', 'snmp_vlan', 'snmp_last_seen_at',
+  'snmp_interface', 'snmp_vlan', 'snmp_last_seen_at',
 ] as const;
 
 const SERVICE_FIELDS = [
   'id', 'device_id', 'name', 'service_type', 'service_group_name', 'url', 'port',
-  'protocol', 'description', 'version', 'device_label', 'device_ip', 'device_class',
+  'protocol', 'version', 'device_label', 'device_ip', 'device_class',
 ] as const;
 
 export function sanitizeDevice(value: unknown): JsonObject {
@@ -46,6 +45,7 @@ export function sanitizeService(value: unknown): JsonObject {
   if (typeof rawUrl === 'string') {
     try {
       const url = new URL(rawUrl);
+      if (!['http:', 'https:', 'ssh:', 'rdp:', 'vnc:'].includes(url.protocol)) return result;
       url.username = '';
       url.password = '';
       url.search = '';
@@ -98,22 +98,23 @@ export function sanitizeDeviceList(value: unknown, offset: number, limit: number
 
 export function sanitizeNotification(value: unknown): JsonObject {
   return pick(object(value), [
-    'id', 'device_id', 'device_path', 'device_url', 'event_type', 'event_subtype',
-    'message', 'is_read', 'created_at',
+    'id', 'device_id', 'event_type', 'event_subtype', 'is_read', 'created_at',
   ]);
 }
 
 export function sanitizeNetworkChange(value: unknown): JsonObject {
   const source = object(value);
   const field = String(source.field_name ?? source.field ?? '');
-  const privateFields = new Set(['notes', 'maintenance_note']);
+  // Only known structural changes can expose values; arbitrary text and
+  // unknown/new field types are excluded by default.
+  const safeFields = new Set(['ip_address', 'mac_address', 'device_class', 'segment_id', 'is_online', 'is_registered', 'is_archived', 'ignored', 'notifications_muted']);
   const result = pick(source, [
     'id', 'event_id', 'device_id', 'device_label', 'device', 'ip_address',
     'mac_address', 'device_class', 'event_type',
-    'source', 'message', 'created_at', 'timestamp',
+    'source', 'created_at', 'timestamp',
   ]);
   if (field) result.field = field;
-  if (!privateFields.has(field)) {
+  if (safeFields.has(field)) {
     if (source.old_value !== undefined) result.old_value = source.old_value;
     if (source.new_value !== undefined) result.new_value = source.new_value;
   }
@@ -121,5 +122,5 @@ export function sanitizeNetworkChange(value: unknown): JsonObject {
 }
 
 export function sanitizeSegment(value: unknown): JsonObject {
-  return pick(object(value), ['id', 'name', 'color', 'ip_start', 'ip_end', 'description', 'created_at']);
+  return pick(object(value), ['id', 'name', 'color', 'ip_start', 'ip_end', 'created_at']);
 }

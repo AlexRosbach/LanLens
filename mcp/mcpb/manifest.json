@@ -4,7 +4,7 @@
   "display_name": "LanLens",
   "version": "1.6.2",
   "description": "Query a self-hosted LanLens inventory from Claude through the official read-only-by-default MCP companion.",
-  "long_description": "The official LanLens MCP companion exposes safe inventory, device, service, port, topology, segment, notification, and network-change tools. Credentials, secrets, password locations, private notes, and raw authentication material are never returned. An allow-listed device metadata write tool can be enabled explicitly.",
+  "long_description": "The official LanLens MCP companion exposes safe inventory, device, service, port, topology, segment, notification, and network-change tools. Dedicated credential fields, password locations, private notes and raw authentication fields are excluded; inventory may still contain sensitive user-entered data. An allow-listed device metadata write tool can be enabled explicitly.",
   "author": {
     "name": "LanLens",
     "url": "https://github.com/AlexRosbach/LanLens"

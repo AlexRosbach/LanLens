@@ -67,7 +67,7 @@ def findings():
         ("os", "uptime", "uptime"),
         ("service", "systemd_units", "systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null"),
         ("container", "docker_containers", "docker ps --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}' 2>/dev/null"),
-        ("container", "podman_containers", "podman ps --format '{{json .}}' 2>/dev/null"),
+        ("container", "podman_containers", "podman ps --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}' 2>/dev/null"),
         ("hypervisor", "kvm_vms", "virsh list --all 2>/dev/null"),
         ("hypervisor", "proxmox_qemu", "qm list 2>/dev/null"),
     ]

@@ -94,7 +94,7 @@ export function createLanLensMcpServer(config: LanLensMcpConfig): McpServer {
 
   server.registerTool('list_devices', {
     title: 'List LanLens devices',
-    description: 'Search and filter the safe LanLens inventory. Secret fields and password locations are never returned.',
+    description: 'Search and filter the safe LanLens inventory. Dedicated secret fields and password locations are excluded; treat inventory as sensitive.',
     inputSchema: z.object({
       search: z.string().trim().max(120).optional(),
       online_only: z.boolean().optional(),
@@ -120,7 +120,7 @@ export function createLanLensMcpServer(config: LanLensMcpConfig): McpServer {
 
   server.registerTool('get_device', {
     title: 'Get LanLens device',
-    description: 'Return one safe device inventory record without credentials, secrets, password locations, or private notes.',
+    description: 'Return an allow-listed device inventory record, excluding dedicated secret fields and private notes.',
     inputSchema: z.object({device_id: z.number().int().positive()}),
     annotations: {readOnlyHint: true, destructiveHint: false, idempotentHint: true},
   }, async ({device_id}) => {

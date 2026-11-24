@@ -168,7 +168,7 @@ For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, S
 
 ### MCP Companion
 
-LanLens includes an official MCP companion for querying the safe device inventory, services, ports, topology, segments, notifications and network changes from compatible AI clients. It defaults to read-only access, removes credentials and private operator data from responses, and requires an explicit configuration gate for its limited metadata-write tool.
+LanLens includes an official MCP companion for querying the safe device inventory, services, ports, topology, segments, notifications and network changes from compatible AI clients. It defaults to read-only access, excludes dedicated credential fields and private notes from responses (inventory may still contain sensitive user-entered data), and requires an explicit configuration gate for its limited metadata-write tool.
 
 Use the companion image alongside LanLens:
 
