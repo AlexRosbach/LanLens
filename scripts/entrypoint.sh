@@ -129,7 +129,7 @@ fi
 echo ""
 echo " Default credentials:"
 echo "   Username: admin"
-echo "   Password: ${DEFAULT_ADMIN_PASSWORD:-admin}"
+echo "   Password: use the configured initial password (not printed)"
 echo "   (you will be prompted to change the password on first login)"
 echo "──────────────────────────────────────────────────────"
 

@@ -16,24 +16,34 @@ public class LanLensAgent : ServiceBase
 {
     private const string ConfigPath = @"C:\ProgramData\LanLensAgent\agent.json";
     private Timer _timer;
+    private int _reporting;
+    private volatile bool _stopping;
     private readonly JavaScriptSerializer _json = new JavaScriptSerializer { MaxJsonLength = 16 * 1024 * 1024 };
     public LanLensAgent() { ServiceName = "LanLensAgent"; CanStop = true; AutoLog = true; }
     public static void Main() { ServiceBase.Run(new LanLensAgent()); }
-    protected override void OnStart(string[] args) { Report(null); }
-    protected override void OnStop() { if (_timer != null) _timer.Dispose(); }
+    protected override void OnStart(string[] args) {
+        _stopping = false;
+        _timer = new Timer(Report, null, TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+    }
+    protected override void OnStop() { _stopping = true; if (_timer != null) _timer.Dispose(); }
 
     private void Report(object state)
     {
+        if (_stopping || Interlocked.Exchange(ref _reporting, 1) != 0) return;
+        var interval = 60;
         try
         {
             var cfg = _json.Deserialize<Dictionary<string, object>>(File.ReadAllText(ConfigPath));
-            var interval = Convert.ToInt32(cfg["interval_minutes"]);
-            if (_timer == null) _timer = new Timer(Report, null, TimeSpan.FromMinutes(interval), TimeSpan.FromMinutes(interval));
+            interval = Math.Max(5, Math.Min(1440, Convert.ToInt32(cfg["interval_minutes"])));
             var adapter = new ManagementObjectSearcher("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = True").Get().Cast<ManagementObject>().FirstOrDefault(x => x["MACAddress"] != null);
             if (adapter == null) return;
             var os = new ManagementObjectSearcher("SELECT * FROM Win32_OperatingSystem").Get().Cast<ManagementObject>().FirstOrDefault();
             var ips = ((string[])adapter["IPAddress"] ?? new string[0]).Where(ip => !ip.Contains(":")).ToArray();
-            cfg["sequence"] = Convert.ToInt32(cfg["sequence"]) + 1;
+            cfg["sequence"] = Convert.ToInt64(cfg["sequence"]) + 1;
+            // Persist before sending: a lost acknowledgement must not cause replay after restart.
+            var temp = ConfigPath + ".tmp";
+            File.WriteAllText(temp, _json.Serialize(cfg));
+            File.Replace(temp, ConfigPath, null);
             var payload = new Dictionary<string, object> {
                 { "sequence", cfg["sequence"] }, { "hostname", Environment.MachineName }, { "primary_mac", adapter["MACAddress"].ToString() },
                 { "os_info", os == null ? "Windows" : String.Format("{0} {1}", os["Caption"], os["Version"]) },
@@ -45,10 +55,17 @@ public class LanLensAgent : ServiceBase
                 client.Timeout = TimeSpan.FromSeconds(30);
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]));
                 var response = client.PostAsync(Convert.ToString(cfg["server_url"]).TrimEnd('/') + "/api/agents/report", new StringContent(_json.Serialize(payload), Encoding.UTF8, "application/json")).Result;
-                if (response.IsSuccessStatusCode) File.WriteAllText(ConfigPath, _json.Serialize(cfg));
+                if (!response.IsSuccessStatusCode) EventLog.WriteEntry("LanLensAgent", "Inventory report rejected: " + (int)response.StatusCode, EventLogEntryType.Warning);
             }
         }
-        catch (Exception ex) { EventLog.WriteEntry("LanLensAgent", ex.Message, EventLogEntryType.Warning); }
+        catch (Exception) { EventLog.WriteEntry("LanLensAgent", "Inventory collection or reporting failed.", EventLogEntryType.Warning); }
+        finally {
+            Interlocked.Exchange(ref _reporting, 0);
+            if (!_stopping) {
+                try { _timer.Change(TimeSpan.FromMinutes(interval), Timeout.InfiniteTimeSpan); }
+                catch (ObjectDisposedException) { }
+            }
+        }
     }
 
     private static List<Dictionary<string, string>> InstalledSoftware()
@@ -106,9 +123,18 @@ public class LanLensAgent : ServiceBase
                 CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true
             };
             using (var process = Process.Start(psi)) {
-                var output = process.StandardOutput.ReadToEnd().Trim();
-                process.WaitForExit(30000);
-                return String.IsNullOrWhiteSpace(output) ? null : _json.DeserializeObject(output);
+                var output = new StringBuilder();
+                process.OutputDataReceived += (sender, args) => {
+                    if (args.Data != null && output.Length < 128000) output.AppendLine(args.Data);
+                };
+                process.BeginOutputReadLine();
+                if (!process.WaitForExit(30000)) {
+                    try { process.Kill(); } catch (InvalidOperationException) { }
+                    return null;
+                }
+                process.WaitForExit();
+                var json = output.ToString().Trim();
+                return process.ExitCode != 0 || String.IsNullOrWhiteSpace(json) || json.Length > 128000 ? null : _json.DeserializeObject(json);
             }
         } catch { return null; }
     }

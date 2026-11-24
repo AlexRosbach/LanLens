@@ -14,3 +14,16 @@ data/
 docs/
 README.md
 .DS_Store
+
+# Local credentials, certificates and diagnostic artifacts
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+*.bak
+*.sql
+secrets/
+backups/

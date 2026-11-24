@@ -25,12 +25,14 @@ command -v systemctl >/dev/null || { echo "systemd is required." >&2; exit 1; }
 SERVER_URL="${SERVER_URL%/}"
 INSTALL_DIR=/opt/lanlens-agent
 CONFIG_DIR=/etc/lanlens-agent
-mkdir -p "$INSTALL_DIR" "$CONFIG_DIR"
+umask 077
+install -d -m 0755 "$INSTALL_DIR"
+install -d -m 0700 "$CONFIG_DIR"
 curl --fail --silent --show-error --proto '=https' "$SERVER_URL/api/agents/linux/lanlens-agent.py" -o "$INSTALL_DIR/lanlens-agent.py"
 chmod 0755 "$INSTALL_DIR/lanlens-agent.py"
 
 python3 - "$SERVER_URL" "$ENROLLMENT_TOKEN" "$INTERVAL_MINUTES" <<'PY'
-import json, os, socket, subprocess, sys, urllib.request
+import json, os, socket, subprocess, sys, urllib.request, tempfile
 server, token, interval = sys.argv[1:]
 def run(command):
     return subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL).strip()
@@ -55,9 +57,16 @@ request = urllib.request.Request(server + "/api/agents/enroll", data=json.dumps(
 with urllib.request.urlopen(request, timeout=30) as response:
     enrolled = json.load(response)
 config = {"server_url": server, "agent_id": enrolled["agent_id"], "agent_secret": enrolled["agent_secret"], "interval_minutes": int(interval), "sequence": 0, "platform": "linux"}
-with open("/etc/lanlens-agent/agent.json", "w") as target:
-    json.dump(config, target)
-os.chmod("/etc/lanlens-agent/agent.json", 0o600)
+fd, path = tempfile.mkstemp(dir="/etc/lanlens-agent")
+try:
+    with os.fdopen(fd, "w") as target:
+        json.dump(config, target)
+        target.flush()
+        os.fsync(target.fileno())
+    os.replace(path, "/etc/lanlens-agent/agent.json")
+finally:
+    if os.path.exists(path):
+        os.unlink(path)
 PY
 
 cat >/etc/systemd/system/lanlens-agent.service <<'UNIT'
@@ -72,9 +81,14 @@ Restart=always
 RestartSec=15
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/lanlens-agent
+UMask=0077
 [Install]
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now lanlens-agent.service
+systemctl enable lanlens-agent.service
+systemctl restart lanlens-agent.service
 echo "LanLens Linux Agent was installed, enrolled and started."

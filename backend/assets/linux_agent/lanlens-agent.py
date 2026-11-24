@@ -5,6 +5,8 @@ import os
 import socket
 import subprocess
 import time
+import tempfile
+import shlex
 import urllib.request
 
 CONFIG = "/etc/lanlens-agent/agent.json"
@@ -28,7 +30,7 @@ def primary_network():
             mac = open(f"/sys/class/net/{name}/address").read().strip()
             state = open(f"/sys/class/net/{name}/operstate").read().strip()
             if mac != "00:00:00:00:00:00" and state in ("up", "unknown"):
-                ips = run(f"ip -o -4 addr show dev {name} | awk '{{print $4}}' | cut -d/ -f1").splitlines()
+                ips = run(f"ip -o -4 addr show dev {shlex.quote(name)} | awk '{{print $4}}' | cut -d/ -f1").splitlines()
                 return mac, ips
         except OSError:
             continue
@@ -64,7 +66,7 @@ def findings():
         ("os", "hostname", "hostname -f 2>/dev/null || hostname"),
         ("os", "uptime", "uptime"),
         ("service", "systemd_units", "systemctl list-units --type=service --state=running --no-pager --no-legend 2>/dev/null"),
-        ("container", "docker_containers", "docker ps --format '{{json .}}' 2>/dev/null"),
+        ("container", "docker_containers", "docker ps --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}' 2>/dev/null"),
         ("container", "podman_containers", "podman ps --format '{{json .}}' 2>/dev/null"),
         ("hypervisor", "kvm_vms", "virsh list --all 2>/dev/null"),
         ("hypervisor", "proxmox_qemu", "qm list 2>/dev/null"),
@@ -82,6 +84,17 @@ def report(config):
     if not mac:
         return
     config["sequence"] = int(config.get("sequence", 0)) + 1
+    # Persist before sending so a lost acknowledgement cannot replay on restart.
+    fd, path = tempfile.mkstemp(dir=os.path.dirname(CONFIG))
+    try:
+        with os.fdopen(fd, "w") as target:
+            json.dump(config, target)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(path, CONFIG)
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
     os_info = run(". /etc/os-release 2>/dev/null; echo \"${PRETTY_NAME:-Linux}\"") or "Linux"
     payload = {"sequence": config["sequence"], "hostname": socket.gethostname(), "primary_mac": mac,
                "os_info": os_info, "kernel_version": run("uname -r"), "ip_addresses": ips,
@@ -92,9 +105,6 @@ def report(config):
         with urllib.request.urlopen(request, timeout=30) as response:
             if not 200 <= response.status < 300:
                 return
-        with open(CONFIG, "w") as target:
-            json.dump(config, target)
-        os.chmod(CONFIG, 0o600)
     except OSError:
         return
 
