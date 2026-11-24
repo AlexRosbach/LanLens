@@ -386,6 +386,18 @@ class IdoitExportCsvTest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_payload_accepts_single_software_object_and_linux_package_rows(self):
+        from backend.services.idoit import _software_assignments
+        def extract(value):
+            return _software_assignments({"software": {"installed_software": {"value": value}}})
+        self.assertEqual(extract({"Name": "Example App", "Version": "1.2"}), [
+            {"title": "Example App", "assigned_version": "1.2"},
+        ])
+        self.assertEqual(extract("example-package\t1.2\tamd64\nother-package\t2.0\tamd64"), [
+            {"title": "example-package", "assigned_version": "1.2"},
+            {"title": "other-package", "assigned_version": "2.0"},
+        ])
+
     def test_default_idoit_payload_maps_new_inventory_to_standard_categories(self):
         db = self.Session()
         try:
@@ -682,23 +694,45 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
     async def test_operating_system_resolution_ignores_windows_wmi_build_suffix(self):
         class WindowsServerSearchClient(IdoitClient):
             async def read_objects(self, params):
+                # Simulate the documented exact title filter and numeric type response.
+                if params.get("filter", {}).get("title") != "Microsoft Windows Server 2022 Standard":
+                    return []
                 return [{
-                    "id": "141514",
-                    "title": "Microsoft Windows Server 2025 Standard",
-                    "type_const": "C__OBJTYPE__OPERATING_SYSTEM",
+                    "id": "321",
+                    "title": "Microsoft Windows Server 2022 Standard",
+                    "type": "42",
+                    "status": "2",
                 }]
 
         client = WindowsServerSearchClient(get_config(self.Session()))
         resolution = await client.resolve_operating_system(
-            "Microsoft Windows Server 2025 Standard 10.0.26100"
+            "Microsoft Windows Server 2022 Standard 10.0.20348"
         )
 
         self.assertEqual(resolution, {
-            "object_id": "141514",
+            "object_id": "321",
             "action": "matched_normalized",
-            "title": "Microsoft Windows Server 2025 Standard 10.0.26100",
-            "matched_title": "Microsoft Windows Server 2025 Standard",
+            "title": "Microsoft Windows Server 2022 Standard 10.0.20348",
+            "matched_title": "Microsoft Windows Server 2022 Standard",
         })
+
+    async def test_application_lookup_uses_typed_title_and_rejects_ambiguity(self):
+        class ApplicationSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                self.assert_query = params
+                return [
+                    {"id": "101", "title": "Example Application", "type": "7", "status": "2"},
+                    {"id": "102", "title": "Example Application", "type": "7", "status": "2"},
+                    {"id": "103", "title": "Example Application", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+            async def create_object(self, title, object_type):
+                raise AssertionError("ambiguous titles must not create another object")
+
+        client = ApplicationSearchClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Application", create_missing=True)
+        self.assertEqual(client.assert_query["filter"]["type"], "C__OBJTYPE__APPLICATION")
+        self.assertEqual(client.assert_query["filter"]["title"], "Example Application")
+        self.assertEqual(result["action"], "ambiguous_match")
 
     async def test_operating_system_resolution_rejects_mismatched_windows_server_edition(self):
         class EditionSearchClient(IdoitClient):

@@ -1014,6 +1014,12 @@ def _software_assignments(findings: dict[str, dict[str, Any]]) -> list[dict[str,
     entry = findings.get("software", {}).get("installed_software")
     raw = entry.get("value") if isinstance(entry, dict) else None
     values = _decode_finding_value(raw)
+    if isinstance(values, dict):
+        values = [values]  # PowerShell ConvertTo-Json emits an object for a single result.
+    elif isinstance(values, str):
+        # SSH package collectors emit tab-separated package, version and architecture.
+        rows = [line.split("\t") for line in values.splitlines() if "\t" in line]
+        values = [{"name": row[0], "version": row[1]} for row in rows if len(row) >= 2]
     if not isinstance(values, list):
         return []
     result: list[dict[str, str]] = []
@@ -1847,6 +1853,13 @@ def _operating_system_match_key(value: Any) -> str:
     return " ".join(parts)
 
 
+def _windows_server_product_title(value: str) -> str:
+    """Strip only a trailing Windows NT build from a named server release."""
+    if not re.search(r"\bwindows\s+server\s+20\d{2}\b", value, re.IGNORECASE):
+        return value
+    return re.sub(r"\s+\d+\.\d+\.\d+(?:\.\d+)?$", "", value).strip()
+
+
 def _windows_server_edition(value: Any) -> str | None:
     text = _normalized_match_text(value)
     if not re.search(r"\bwindows\s+server\b", text):
@@ -2065,123 +2078,101 @@ class IdoitClient:
                         return object_id
         return None
 
-    async def resolve_operating_system(self, title: str, create_missing: bool = False) -> dict[str, Any]:
-        """Resolve an exact i-doit Operating System object without using app objects.
-
-        Operating-system assignments are object-browser relationships. Restrict
-        lookup and creation to C__OBJTYPE__OPERATING_SYSTEM so an Application
-        object with the same display name can never be linked accidentally.
-        """
+    async def _resolve_inventory_object(self, title: str, object_type: str, create_missing: bool,
+                                        normalize_os: bool = False) -> dict[str, Any]:
+        """Resolve inventory links using documented, type-scoped i-doit filters."""
         wanted = re.sub(r"\s+", " ", (title or "").strip())[:255]
         if not wanted:
             return {"object_id": None, "action": "skipped_empty"}
-        object_type = "C__OBJTYPE__OPERATING_SYSTEM"
-        wanted_key = _operating_system_match_key(wanted)
-        wanted_edition = _windows_server_edition(wanted)
-        lookup_title = " ".join(wanted_key.split())
-        queries = [
-            {"filter": {"title": wanted, "type": object_type}},
-            {"filter": {"type": object_type}, "q": wanted},
-            {"type": object_type, "q": wanted},
-        ]
-        if lookup_title and _normalized_match_text(lookup_title) != _normalized_match_text(wanted):
-            queries.extend((
-                {"filter": {"type": object_type}, "q": lookup_title},
-                {"type": object_type, "q": lookup_title},
-            ))
-        successful_lookup = False
-        last_error: IdoitConnectionError | None = None
-        normalized_candidates: dict[str, dict[str, str]] = {}
-        for params in queries:
-            try:
-                result = await self.read_objects(params)
-                successful_lookup = True
-            except IdoitConnectionError as exc:
-                last_error = exc
-                continue
-            for entry in _category_entries(result):
-                if _normalized_match_text(_object_entry_title(entry)) != _normalized_match_text(wanted):
-                    continue
+        product_title = _windows_server_product_title(wanted) if normalize_os else wanted
+        wanted_key = _operating_system_match_key(wanted) if normalize_os else ""
+        wanted_edition = _windows_server_edition(wanted) if normalize_os else None
+        exact_candidates: dict[str, str] = {}
+        normalized_candidates: dict[str, str] = {}
+
+        def collect(entries: list[dict[str, Any]]) -> None:
+            for entry in entries:
                 candidate_type = _object_entry_type_constant(entry)
                 if candidate_type and candidate_type != object_type:
+                    continue
+                # The documented typed filter may return a numeric type ID.
+                # Do not use unscoped queries or accept archived/deleted objects.
+                status = str(_plain_category_value(entry.get("status")) or "")
+                if status and status not in ("2", "C__RECORD_STATUS__NORMAL"):
                     continue
                 object_id = _object_entry_id(entry)
-                if object_id:
-                    return {"object_id": object_id, "action": "matched", "title": wanted}
-                continue
-            if not wanted_key:
-                continue
-            for entry in _category_entries(result):
-                candidate_type = _object_entry_type_constant(entry)
-                if candidate_type and candidate_type != object_type:
-                    continue
                 candidate_title = _object_entry_title(entry)
-                if _operating_system_match_key(candidate_title) != wanted_key:
+                if not object_id or not candidate_title:
                     continue
-                if wanted_edition and _windows_server_edition(candidate_title) != wanted_edition:
-                    continue
-                object_id = _object_entry_id(entry)
-                if object_id:
-                    normalized_candidates[object_id] = {
-                        "object_id": object_id,
-                        "title": candidate_title,
-                    }
-        if len(normalized_candidates) == 1:
-            matched = next(iter(normalized_candidates.values()))
-            return {
-                "object_id": matched["object_id"],
-                "action": "matched_normalized",
-                "title": wanted,
-                "matched_title": matched["title"],
-            }
-        if len(normalized_candidates) > 1:
-            return {
-                "object_id": None,
-                "action": "ambiguous_match",
-                "title": wanted,
-                "candidates": [candidate["title"] for candidate in normalized_candidates.values()],
-            }
-        if not successful_lookup and last_error is not None:
-            raise last_error
+                if _normalized_match_text(candidate_title) == _normalized_match_text(wanted):
+                    exact_candidates[object_id] = candidate_title
+                elif normalize_os and wanted_key and _operating_system_match_key(candidate_title) == wanted_key:
+                    if not wanted_edition or _windows_server_edition(candidate_title) == wanted_edition:
+                        normalized_candidates[object_id] = candidate_title
+
+        def resolution(candidates: dict[str, str], normalized: bool) -> dict[str, Any] | None:
+            if len(candidates) > 1:
+                return {"object_id": None, "action": "ambiguous_match", "title": wanted,
+                        "candidates": list(candidates.values())}
+            if len(candidates) == 1:
+                object_id, matched_title = next(iter(candidates.items()))
+                result = {"object_id": object_id, "action": "matched_normalized" if normalized else "matched",
+                          "title": wanted}
+                if normalized:
+                    result["matched_title"] = matched_title
+                return result
+            return None
+
+        # Use exact title filters first, including the human-readable OS title.
+        # The API documents filter.title, not a top-level q search for this method.
+        for query_title in dict.fromkeys((wanted, product_title)):
+            entries = _category_entries(await self.read_objects({
+                "filter": {"type": object_type, "title": query_title, "status": "C__RECORD_STATUS__NORMAL"},
+            }))
+            collect(entries)
+            if exact := resolution(exact_candidates, False):
+                return exact
+
+        # An exact product-title result is enough if it is unique and has a
+        # specific edition. Otherwise inspect the scoped catalog to establish
+        # uniqueness rather than guessing or creating a duplicate.
+        product_matches = {key: value for key, value in normalized_candidates.items()
+                           if _normalized_match_text(value) == _normalized_match_text(product_title)}
+        if wanted_edition and product_title != wanted and product_matches:
+            return resolution(product_matches, True)
+
+        if normalize_os:
+            page_size, maximum = 500, 5000
+            seen: set[str] = set()
+            complete = False
+            for offset in range(0, maximum, page_size):
+                entries = _category_entries(await self.read_objects({
+                    "filter": {"type": object_type, "status": "C__RECORD_STATUS__NORMAL"},
+                    "limit": f"{offset},{page_size}", "order_by": "id", "sort": "ASC",
+                }))
+                ids = {object_id for entry in entries if (object_id := _object_entry_id(entry))}
+                collect(entries)
+                if len(entries) < page_size:
+                    complete = True
+                    break
+                if not ids - seen:
+                    break
+                seen.update(ids)
+            if not complete:
+                return {"object_id": None, "action": "lookup_incomplete", "title": wanted}
+            if result := resolution(exact_candidates, False) or resolution(normalized_candidates, True):
+                return result
         if not create_missing:
             return {"object_id": None, "action": "match_required", "title": wanted}
-        object_id = await self.create_object(wanted, object_type)
+        object_id = await self.create_object(product_title, object_type)
         return {"object_id": object_id, "action": "created", "title": wanted}
+
+    async def resolve_operating_system(self, title: str, create_missing: bool = False) -> dict[str, Any]:
+        return await self._resolve_inventory_object(title, "C__OBJTYPE__OPERATING_SYSTEM", create_missing,
+                                                    normalize_os=True)
 
     async def resolve_application(self, title: str, create_missing: bool = False) -> dict[str, Any]:
-        """Resolve one i-doit Application object for a detected software title."""
-        wanted = re.sub(r"\s+", " ", (title or "").strip())[:255]
-        if not wanted:
-            return {"object_id": None, "action": "skipped_empty"}
-        object_type = "C__OBJTYPE__APPLICATION"
-        queries = (
-            {"filter": {"title": wanted, "type": object_type}},
-            {"filter": {"type": object_type}, "q": wanted},
-            {"type": object_type, "q": wanted},
-        )
-        successful_lookup = False
-        last_error: IdoitConnectionError | None = None
-        for params in queries:
-            try:
-                result = await self.read_objects(params)
-                successful_lookup = True
-            except IdoitConnectionError as exc:
-                last_error = exc
-                continue
-            for entry in _category_entries(result):
-                if _normalized_match_text(_object_entry_title(entry)) != _normalized_match_text(wanted):
-                    continue
-                candidate_type = _object_entry_type_constant(entry)
-                if candidate_type and candidate_type != object_type:
-                    continue
-                if object_id := _object_entry_id(entry):
-                    return {"object_id": object_id, "action": "matched", "title": wanted}
-        if not successful_lookup and last_error is not None:
-            raise last_error
-        if not create_missing:
-            return {"object_id": None, "action": "match_required", "title": wanted}
-        object_id = await self.create_object(wanted, object_type)
-        return {"object_id": object_id, "action": "created", "title": wanted}
+        return await self._resolve_inventory_object(title, "C__OBJTYPE__APPLICATION", create_missing)
 
     async def find_object_by_sysid(self, sysid: str, object_type: Optional[str] = None) -> Optional[str]:
         """Find an existing i-doit object by exact SYSID before fuzzy identity matching."""
@@ -2603,9 +2594,9 @@ class IdoitClient:
         try:
             result = await self.read_category(object_id, category)
         except IdoitConnectionError:
-            # A failed read cannot establish that an existing OS assignment is
-            # absent. Propagate it so a retry never appends a duplicate link.
-            if category == "C__CATG__OPERATING_SYSTEM":
+            # A failed read cannot establish that an existing software assignment
+            # is absent. Propagate it rather than appending duplicate links.
+            if category in {"C__CATG__OPERATING_SYSTEM", "C__CATG__APPLICATION"}:
                 raise
             return None
         entries = _category_entries(result)
