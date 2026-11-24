@@ -41,6 +41,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f "${{ matrix.dockerfile }}" -t "${{ matrix.image }}" .
+      - name: Verify LanLens runtime without build-time package managers
+        if: matrix.dockerfile == 'Dockerfile'
+        run: |
+          docker run --rm --network none \
+            -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
+            -e DB_PATH=/tmp/lanlens-smoke.db --entrypoint python "${{ matrix.image }}" \
+            -c 'import importlib.util; from backend.main import app; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None; assert app.title == "LanLens"'
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ matrix.image }}
