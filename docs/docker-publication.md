@@ -25,3 +25,7 @@ The workflow checks the current PR head/base or main head before promotion. Do n
     gh attestation verify oci://docker.io/alexrosbach/lanlens:latest --repo AlexRosbach/LanLens
 
 Pin images by manifest digest for exact reproducibility.
+
+## Secret trust boundary
+
+Environment secrets cannot be read back through the GitHub UI or API. They are available to authorized jobs after deployment protection rules pass. Log masking is not a security boundary. Same-repository writers can change workflow code, so automatic PR publication assumes all writers are trusted. For a stricter owner-only deployment gate, set the owner as a required reviewer on dockerhub-dev and dockerhub-release, disable administrator bypass where available, and review workflow changes before approving. This adds manual approval to each deployment. Keep fork PRs unprivileged and do not enable sending secrets or write tokens to them. Restrict Docker Hub credentials to the least privilege and rotate them periodically. Require the CI checks in the main ruleset rather than relying only on PR review.
