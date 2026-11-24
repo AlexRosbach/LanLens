@@ -1,0 +1,2 @@
+# Verified false positive: empty shell variable initialization, not a credential.
+9fe85dd2f1a309038c79d7b54290f726fac1ce84:backend/assets/linux_agent/install.sh:generic-api-key:6

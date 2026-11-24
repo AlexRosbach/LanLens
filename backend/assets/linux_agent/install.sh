@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SERVER_URL=""
-ENROLLMENT_TOKEN=""
+unset ENROLLMENT_TOKEN
 INTERVAL_MINUTES=60
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,7 +16,7 @@ done
 
 [[ $EUID -eq 0 ]] || { echo "Run this installer as root." >&2; exit 1; }
 [[ "$SERVER_URL" =~ ^https:// ]] || { echo "--server-url must use HTTPS." >&2; exit 1; }
-[[ ${#ENROLLMENT_TOKEN} -ge 20 ]] || { echo "A valid --enrollment-token is required." >&2; exit 1; }
+[[ -n "${ENROLLMENT_TOKEN:-}" && ${#ENROLLMENT_TOKEN} -ge 20 ]] || { echo "A valid --enrollment-token is required." >&2; exit 1; }
 [[ "$INTERVAL_MINUTES" =~ ^[0-9]+$ && "$INTERVAL_MINUTES" -ge 5 && "$INTERVAL_MINUTES" -le 1440 ]] || { echo "--interval-minutes must be 5-1440." >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required." >&2; exit 1; }
 command -v python3 >/dev/null || { echo "python3 is required." >&2; exit 1; }

@@ -51,7 +51,8 @@ jobs:
         shell: powershell
         run: |
           $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-          & $compiler /nologo /target:exe /out:"$env:RUNNER_TEMP\LanLensAgent.exe" /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll backend/assets/windows_agent/LanLensAgent.cs
+          $sourceFile = (Resolve-Path 'backend/assets/windows_agent/LanLensAgent.cs').Path
+          & $compiler /nologo /target:exe /out:"$env:RUNNER_TEMP\LanLensAgent.exe" /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $errors = $null
           $tokens = $null
