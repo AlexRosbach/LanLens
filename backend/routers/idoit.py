@@ -396,6 +396,17 @@ def enable_sync_for_all_registered_devices(db: Session = Depends(get_db), _: Use
     return {"total": total, "updated": updated}
 
 
+def _read_log_details(raw: Optional[str]) -> dict[str, Any]:
+    try:
+        value = json.loads(raw or "{}")
+        if isinstance(value, dict):
+            return value
+    except (ValueError, TypeError, RecursionError):
+        pass
+    return {"truncated": True, "invalid_legacy_details": True,
+            "message": "Stored log details are invalid or truncated; run a new sync for current diagnostics."}
+
+
 @router.get("/logs")
 def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_idoit_enabled(db)
@@ -415,7 +426,7 @@ def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(
             "result": row.result,
             "idoit_object_id": row.idoit_object_id,
             "message": row.message,
-            "details": json.loads(row.details_json or "{}"),
+            "details": _read_log_details(row.details_json),
             "created_at": row.created_at,
         }
         for row, device in rows

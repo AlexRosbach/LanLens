@@ -1466,6 +1466,16 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                 {"application": 99},
             )
 
+    def test_oversized_sync_log_is_valid_json(self):
+        raw = _safe_log_details({"warnings": ["x" * 10000], "identity_match": {"debug": "y" * 20000}})
+        self.assertLessEqual(len(raw), 8000)
+        self.assertTrue(json.loads(raw)["truncated"])
+
+    def test_legacy_invalid_sync_log_does_not_break_reader(self):
+        from backend.routers.idoit import _read_log_details
+        self.assertTrue(_read_log_details('{"warnings": ["unfinished')["invalid_legacy_details"])
+        self.assertEqual(_read_log_details('{"warnings": ["test"]}'), {"warnings": ["test"]})
+
     def test_truncated_sync_log_keeps_identity_match_debug(self):
         details = {
             "payload": {"title": "client-01", "fields": {f"field_{index}": "x" * 100 for index in range(120)}},

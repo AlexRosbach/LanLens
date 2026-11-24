@@ -120,6 +120,7 @@ events {
 }
 
 http {
+    charset utf-8;
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
     sendfile      on;

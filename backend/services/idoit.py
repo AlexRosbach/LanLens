@@ -1706,7 +1706,22 @@ def _safe_log_details(details: dict[str, Any]) -> str:
                 summary["cpu_rejected_fields"] = sorted(cpu_result.get("failed_fields", {}))
         if "payload" in details:
             summary["payload"] = _payload_log_summary(details["payload"])
-    return json.dumps(summary, default=str, sort_keys=True)[:MAX_SYNC_LOG_DETAILS_CHARS]
+    compact = json.dumps(summary, default=str, sort_keys=True)
+    if len(compact) <= MAX_SYNC_LOG_DETAILS_CHARS:
+        return compact
+    # Keep the log valid JSON even when diagnostics exceed the size budget.
+    reduced = {key: summary[key] for key in (
+        "truncated", "original_size", "sha256", "upstream_write_performed",
+        "application_resolution_counts", "cpu_save_status", "cpu_rejected_fields",
+    ) if key in summary}
+    for key in ("warnings", "errors"):
+        if key in summary:
+            values = summary[key] if isinstance(summary[key], list) else [summary[key]]
+            reduced[key] = [str(value)[:300] for value in values[:3]]
+    compact = json.dumps(reduced, default=str, sort_keys=True, ensure_ascii=False)
+    if len(compact) <= MAX_SYNC_LOG_DETAILS_CHARS:
+        return compact
+    return json.dumps({key: summary[key] for key in ("truncated", "original_size", "sha256")})
 
 
 def log_sync(db: Session, device_id: Optional[int], mode: str, result: str, message: str, details: Optional[dict[str, Any]] = None, object_id: Optional[str] = None) -> IdoitSyncLog:

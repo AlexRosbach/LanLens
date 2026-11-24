@@ -538,10 +538,13 @@ def _run_windows_scan(
 
         for finding_type, key, ps_cmd in commands:
             try:
-                result = session.run_ps(ps_cmd)
-                output = result.std_out.decode(errors="replace").strip()
+                # Windows PowerShell can otherwise emit text using a legacy
+                # console code page, losing non-ASCII inventory characters.
+                utf8_prefix = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+                result = session.run_ps(utf8_prefix + ps_cmd)
+                output = result.std_out.decode("utf-8-sig", errors="replace").strip()
                 if not output and result.std_err:
-                    output = result.std_err.decode(errors="replace").strip()
+                    output = result.std_err.decode("utf-8-sig", errors="replace").strip()
                 output = _sanitize_winrm_output(output)
                 if output and output not in ("IIS_NOT_INSTALLED", "HYPERV_NOT_INSTALLED",
                                              "AD_NOT_INSTALLED", "DHCP_NOT_INSTALLED"):
