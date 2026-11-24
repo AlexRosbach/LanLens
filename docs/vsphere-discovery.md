@@ -7,3 +7,5 @@ This first implementation targets vCenter 7+ REST (/api/session, /api/vcenter/ho
 Existing devices are matched by real MAC, never solely by guest IP; unmatched VMs with non-conflicting real MACs are created as unregistered devices. Duplicate MACs, conflicting IPs, changed NICs and ambiguous matches are not guessed. Hosts are listed even if not yet present in LanLens; exact existing hostname/IP matches allow host/VM relationships. No synthetic MACs are generated, and no upstream VM changes or device deletions are performed. Previously observed objects not seen during a later discovery are marked stale. Device data and manual relationships are preserved. Select a linked inventory name to open the device detail.
 
 API reference: https://developer.broadcom.com/xapis/vsphere-automation-api/latest/
+
+A manual discovery uses a 90-second collection timeout (plus session cleanup), below the default reverse-proxy API timeout. Large or slow inventories can require a later batched/background discovery implementation.

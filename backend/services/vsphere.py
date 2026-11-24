@@ -87,6 +87,7 @@ class VsphereClient:
     async def _request(self, method, path, login=False, optional=False):
         headers = {}
         if login:
+            headers["Content-Length"] = "0"
             credentials = f"{self.username}:{self.password}".encode("utf-8")
             headers["Authorization"] = "Basic " + base64.b64encode(credentials).decode("ascii")
         elif self.session:
@@ -97,7 +98,7 @@ class VsphereClient:
                     headers=headers, timeout_seconds=12, label="vCenter HTTPS API"),
                 timeout=18,
             )
-        except (Exception, asyncio.TimeoutError):
+        except Exception:
             # Never pass exception text or HTTP response bodies containing credentials.
             raise VsphereError("vCenter connection failed. Check DNS, HTTPS certificate trust and connectivity.") from None
         if optional and response.status_code in (403, 404, 503):
@@ -140,6 +141,17 @@ class VsphereClient:
             await self.logout()
 
     async def collect(self):
+        # Ensure siblings stop before logging out when one request fails.
+        async def gather_all(*coroutines):
+            tasks = [asyncio.create_task(c) for c in coroutines]
+            try:
+                return await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
         await self.login()
         try:
             hosts = {}
@@ -168,7 +180,7 @@ class VsphereClient:
                 return hid, [_resource_id(v.get("vm")) for v in data if isinstance(v, dict)]
 
             placements = defaultdict(set)
-            for hid, ids in await asyncio.gather(*(placement(hid) for hid in hosts)):
+            for hid, ids in await gather_all(*(placement(hid) for hid in hosts)):
                 for vid in ids:
                     placements[vid].add(hid)
             warnings = []
@@ -208,7 +220,7 @@ class VsphereClient:
                         "cpu_count": vm.get("cpu_count") if isinstance(vm.get("cpu_count"), int) else None,
                         "memory_size_mib": vm.get("memory_size_mib") if isinstance(vm.get("memory_size_mib"), int) else None}
 
-            vms = await asyncio.gather(*(details(vm) for vm in summary))
+            vms = await gather_all(*(details(vm) for vm in summary))
             if len({v["external_id"] for v in vms}) != len(vms):
                 raise VsphereError("vCenter returned duplicate VM identifiers")
             return list(hosts.values()) + vms, warnings[:30]
@@ -233,6 +245,7 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
         row.match_status = "stale"
     vm_mac_counts = Counter(m for item in objects if item["kind"] == "vm" for m in set(item.get("macs", [])))
     vm_uuid_counts = Counter(item.get("instance_uuid") for item in objects if item["kind"] == "vm" and item.get("instance_uuid"))
+    vm_ip_counts = Counter(ip for item in objects if item["kind"] == "vm" for ip in set(item.get("ips", [])))
     rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled.is_(True)).all()
     segments = db.query(Segment).all()
     host_matches = {}
@@ -246,8 +259,11 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
             row = VsphereInventoryObject(connection_id=connection_id, kind=key[0], external_id=key[1])
             db.add(row)
         row.name = item["name"]
+        if device:
+            row.device_id = device.id
+        elif not (item.get("instance_uuid") and row.instance_uuid == item.get("instance_uuid")):
+            row.device_id = None
         row.instance_uuid = item.get("instance_uuid")
-        row.device_id = device.id if device else None
         row.metadata_json = json.dumps(item, ensure_ascii=False)
         row.match_status = status
         row.observed_at = now
@@ -298,7 +314,7 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
             # A stable VM with a changed NIC must not create a second device.
             status = "ambiguous"
         elif macs:
-            if any(ip_index.get(ip) for ip in ips):
+            if any(ip_index.get(ip) or vm_ip_counts[ip] > 1 for ip in ips):
                 status = "ambiguous"
             elif any(_matching_ignore_rules(db, ip=ip, mac=mac, hostname=item["name"], device_class="VM",
                                            rules=rules, segments=segments)

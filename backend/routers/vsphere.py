@@ -113,7 +113,7 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
         revision = row.revision
         db.rollback()
         try:
-            objects, warnings = await asyncio.wait_for(client.collect(), timeout=180)
+            objects, warnings = await asyncio.wait_for(client.collect(), timeout=90)
         except (VsphereError, TimeoutError) as exc:
             raise HTTPException(502, str(exc) or "vCenter discovery timed out") from None
         db.expire_all()
@@ -139,7 +139,7 @@ def inventory(kind: str = Query("vm", pattern="^(host|vm)$"), offset: int = Quer
         return {"items": [], "total": 0}
     q = db.query(VsphereInventoryObject).filter_by(connection_id=row.id, kind=kind)
     return {"total": q.count(), "items": [
-        {"id": item.id, "external_id": item.external_id, "name": item.name, "device_id": item.device_id,
+        {"id": item.id, "external_id": item.external_id, "name": item.name, "device_id": item.device_id if item.match_status in ("existing", "created", "stale") else None,
          "match_status": item.match_status, "metadata": json.loads(item.metadata_json)}
         for item in q.order_by(VsphereInventoryObject.name, VsphereInventoryObject.id).offset(offset).limit(limit)
     ]}

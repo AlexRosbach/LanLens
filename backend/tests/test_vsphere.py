@@ -72,6 +72,17 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.query(DeviceHostRelationship).count(),1)
         self.assertEqual(self.db.query(VsphereInventoryObject).count(),2)
 
+    def test_changed_nic_does_not_create_duplicate_on_repeated_scan(self):
+        item = {"kind":"vm","external_id":"vm-1","name":"Example",
+                "instance_uuid":"11111111-2222-3333-4444-555555555555",
+                "macs":["00:50:56:12:34:56"],"ips":[]}
+        reconcile_inventory(self.db,1,[item],datetime.utcnow())
+        item["macs"] = ["00:50:56:12:34:57"]
+        for _ in range(2):
+            result = reconcile_inventory(self.db,1,[item],datetime.utcnow())
+            self.assertEqual(result["ambiguous"],1)
+        self.assertEqual(self.db.query(Device).count(),1)
+
     def test_ambiguous_and_macless_remain_inventory_only(self):
         items = [{"kind":"vm","external_id":"vm-"+str(i),"name":"Example","macs":["00:50:56:12:34:56"],"ips":[]}
                  for i in range(2)]
