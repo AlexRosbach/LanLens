@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import apiClient from '../../api/client'
 import { useI18n } from '../../i18n'
 
-type Config = { verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
+type Config = { writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
 type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: Record<string, unknown> }
 type Inventory = { total: number; items: Item[] }
 type Result = { clusters?: number; datacenters?: number; hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
@@ -67,7 +67,7 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
     setBusy(true);setError('');setMessage('')
     try {
       const r = await apiClient.put<Config>('/vsphere/config', {
-        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, visible_fields:config.visible_fields, ...(password ? {password} : {}),
+        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, writeback_sysid:config.writeback_sysid, visible_fields:config.visible_fields, ...(password ? {password} : {}),
       })
       setConfig(r.data);setPassword('');setDirty(false);setMessage(t('vsphere_saved'));setPage(0);setRefresh(v=>v+1)
     } catch (e) {failure(e)} finally {setBusy(false)}
@@ -114,6 +114,8 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       </div>
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={!config.verify_tls} disabled={busy} onChange={e=>edit({verify_tls:!e.target.checked})}/>{t('idoit_skip_tls')}</label>
       {!config.verify_tls && <p role="alert" className="text-sm text-warning">{t('idoit_skip_tls_warning')}</p>}
+      <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.writeback_sysid} disabled={busy} onChange={e=>edit({writeback_sysid:e.target.checked})}/>{t('vsphere_writeback_sysid')}</label>
+      <p className="text-xs text-text-muted">{t('vsphere_writeback_hint')}</p>
       <div className="space-y-2">
         <h3 className="font-medium text-sm">{t('vsphere_fields')}</h3>
         <p className="text-xs text-text-muted">{t('vsphere_fields_hint')}</p>
