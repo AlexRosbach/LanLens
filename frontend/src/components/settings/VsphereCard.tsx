@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import apiClient from '../../api/client'
 import { useI18n } from '../../i18n'
+import ToggleSwitch from '../ui/ToggleSwitch'
 
-type Config = { writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
+type Config = { sysid_field_key: number | null; writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
 type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: Record<string, unknown> }
 type Inventory = { total: number; items: Item[] }
 type Result = { clusters?: number; datacenters?: number; hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
@@ -24,6 +25,7 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
   const { t } = useI18n()
   const [config, setConfig] = useState<Config | null>(null)
   const [password, setPassword] = useState('')
+  const [customFields, setCustomFields] = useState<{key: number; name: string}[]>([])
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState('')
@@ -58,6 +60,14 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       .then(rs=>{if(active) setTopologyNames(Object.fromEntries(rs.flatMap(r=>r.data.items.map(i=>[i.external_id,i.name]))))}).catch(()=>{})
     return () => {active=false}
   }, [enabled, featureOnly, kind, page, refresh])
+  useEffect(() => {
+    if (featureOnly || !enabled) return
+    let active = true
+    apiClient.get<{key: number; name: string}[]>('/vsphere/custom-fields')
+      .then(r => { if (active) setCustomFields(r.data) })
+      .catch(() => { if (active) setCustomFields([]) })
+    return () => { active = false }
+  }, [featureOnly, enabled, refresh])
   function edit(patch: Partial<Config>) {
     if (config) setConfig({...config,...patch})
     setDirty(true); setResult(null); setMessage('')
@@ -67,7 +77,7 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
     setBusy(true);setError('');setMessage('')
     try {
       const r = await apiClient.put<Config>('/vsphere/config', {
-        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, writeback_sysid:config.writeback_sysid, visible_fields:config.visible_fields, ...(password ? {password} : {}),
+        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, writeback_sysid:config.writeback_sysid, sysid_field_key:config.sysid_field_key, visible_fields:config.visible_fields, ...(password ? {password} : {}),
       })
       setConfig(r.data);setPassword('');setDirty(false);setMessage(t('vsphere_saved'));setPage(0);setRefresh(v=>v+1)
     } catch (e) {failure(e)} finally {setBusy(false)}
@@ -96,26 +106,31 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       [v.label || v.disk_id, v.uuid || '—', typeof v.capacity_bytes === 'number' ? v.capacity_bytes + ' B' : '', v.backing_file].filter(Boolean).join(' · ') : String(v)).join('\n') || '—'
     return String(value)
   }
-  if (featureOnly) return <section className="rounded-xl border border-border bg-surface p-4 space-y-2">
-    <h3 className="font-semibold text-text-base">{t('vsphere_title')}</h3>
-    <p className="text-sm text-text-muted">{t('vsphere_hint')}</p>
-    {config && <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.enabled} disabled={busy} onChange={e=>toggleFeature(e.target.checked)}/>{t('vsphere_enable')}</label>}
+  if (featureOnly) return <div className="space-y-2">
+    <ToggleSwitch checked={!!config?.enabled} disabled={busy || !config} label={t('vsphere_enable')} description={t('vsphere_hint')} onChange={toggleFeature} />
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-  </section>
+  </div>
   return <section className="rounded-xl border border-border bg-surface p-4 space-y-4">
     <h2 className="font-semibold text-text-base">{t('vsphere_title')}</h2><p className="text-sm text-text-muted">{t('vsphere_hint')}</p>
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     {config && <>
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.enabled} disabled={busy} onChange={e=>edit({enabled:e.target.checked})}/>{t('vsphere_enable')}</label>
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_endpoint')}<input className={control} type="url" value={config.endpoint} maxLength={512} placeholder="https://vcenter.example.test" disabled={busy} onChange={e=>edit({endpoint:e.target.value,verify_tls:true})}/></label>
-        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_user')}<input className={control} value={config.username} maxLength={255} autoComplete="off" disabled={busy} onChange={e=>edit({username:e.target.value})}/></label>
+        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_endpoint')}<input className={control} type="url" value={config.endpoint} maxLength={512} placeholder="https://vcenter.example.test" disabled={busy} onChange={e=>edit({endpoint:e.target.value,verify_tls:true,sysid_field_key:null,writeback_sysid:false})}/></label>
+        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_user')}<input className={control} value={config.username} maxLength={255} autoComplete="off" disabled={busy} onChange={e=>edit({username:e.target.value,sysid_field_key:null,writeback_sysid:false})}/></label>
         <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_password')}<input className={control} type="password" autoComplete="new-password" value={password} maxLength={4096} disabled={busy} onChange={e=>{setPassword(e.target.value);setDirty(true)}} placeholder={config.has_password?t('vsphere_password_saved'):''}/></label>
       </div>
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={!config.verify_tls} disabled={busy} onChange={e=>edit({verify_tls:!e.target.checked})}/>{t('idoit_skip_tls')}</label>
       {!config.verify_tls && <p role="alert" className="text-sm text-warning">{t('idoit_skip_tls_warning')}</p>}
-      <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.writeback_sysid} disabled={busy} onChange={e=>edit({writeback_sysid:e.target.checked})}/>{t('vsphere_writeback_sysid')}</label>
+      <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.writeback_sysid} disabled={busy||config.sysid_field_key===null} onChange={e=>edit({writeback_sysid:e.target.checked})}/>{t('vsphere_writeback_sysid')}</label>
       <p className="text-xs text-text-muted">{t('vsphere_writeback_hint')}</p>
+      <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_sysid_field')}
+        <select className={control} value={config.sysid_field_key ?? ''} disabled={busy} onChange={e=>edit({sysid_field_key:e.target.value===''?null:Number(e.target.value), ...(e.target.value===''?{writeback_sysid:false}:{})})}>
+          <option value="">{t('vsphere_select_field')}</option>
+          {config.sysid_field_key!==null && !customFields.some(f=>f.key===config.sysid_field_key) && <option value={config.sysid_field_key}>#{config.sysid_field_key}</option>}
+          {customFields.map(f=><option key={f.key} value={f.key}>{f.name}</option>)}
+        </select>
+      </label>
       <div className="space-y-2">
         <h3 className="font-medium text-sm">{t('vsphere_fields')}</h3>
         <p className="text-xs text-text-muted">{t('vsphere_fields_hint')}</p>

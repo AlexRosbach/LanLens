@@ -16,6 +16,7 @@ import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
 import VsphereCard from '../components/settings/VsphereCard'
+import ToggleSwitch from '../components/ui/ToggleSwitch'
 import DnsNamesSettingsCard from '../components/settings/DnsNamesSettingsCard'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
@@ -206,39 +207,6 @@ function extractApiErrorMessage(error: unknown, fallback: string): string {
     if (typeof data.message === 'string' && data.message.trim()) return data.message
   }
   return (error as Error)?.message || fallback
-}
-
-function ToggleSwitch({
-  checked,
-  disabled = false,
-  onChange,
-  label,
-  description,
-}: {
-  checked: boolean
-  disabled?: boolean
-  onChange: (checked: boolean) => void
-  label: string
-  description: string
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`flex w-full items-center justify-between gap-4 rounded-lg border px-4 py-3 text-left transition-colors ${
-        checked ? 'border-primary/40 bg-primary-dim/20' : 'border-border bg-surface2/40'
-      } ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary/50'}`}
-    >
-      <span>
-        <span className="block text-sm font-medium text-text-base">{label}</span>
-        <span className="mt-1 block text-xs text-text-subtle">{description}</span>
-      </span>
-      <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
-        <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
-      </span>
-    </button>
-  )
 }
 
 function CompactToggle({
@@ -2013,7 +1981,6 @@ export default function Settings() {
             <h2 className="text-lg font-semibold text-text-base mb-1">{t('feature_visibility_title')}</h2>
             <p className="text-sm text-text-subtle">{t('feature_visibility_description')}</p>
           </div>
-          {current.advanced_view_enabled && <VsphereCard featureOnly />}
           {featureGroups.map((group) => (
             <Card key={group.id}>
               <div className="mb-4">
@@ -2021,6 +1988,7 @@ export default function Settings() {
                 <p className="mt-1 text-xs text-text-subtle">{group.description}</p>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
+                {group.id === 'extensions' && current.advanced_view_enabled && <VsphereCard featureOnly />}
                 {group.items.map((item) => (
                   <ToggleSwitch
                     key={item.key}

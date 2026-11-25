@@ -827,6 +827,7 @@ class VsphereConnection(Base):
     revision = Column(Integer, nullable=False, default=0)
     verify_tls = Column(Boolean, nullable=False, default=True, server_default="1")
     writeback_sysid = Column(Boolean, nullable=False, default=False, server_default="0")
+    sysid_field_key = Column(Integer, nullable=True)
     visible_fields_json = Column(Text, nullable=True)
     last_discovery_at = Column(DateTime, nullable=True)
 

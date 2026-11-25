@@ -22,3 +22,8 @@ In Settings → CMDB, the optional i-doit mapping sources include VM instance/BI
 ## Optional i-doit SYS-ID annotation writeback
 
 Enable **Write i-doit SYS-ID to VM notes** in the VMware settings (off by default). On a successful i-doit synchronization that returns a SYS-ID, LanLens writes a managed line such as `LanLens i-doit SYS-ID: SYSID_123` to the uniquely matched VM's annotation. Existing notes are retained; repeated syncs update only that line if necessary. The current VM instance UUID and configuration changeVersion are checked before writing, and task success is verified. Stale or ambiguous inventory is excluded. Failures are reported as sync warnings without undoing the i-doit link. This uses the VI/JSON API available in vCenter 8.0 Update 1 or later and requires `VirtualMachine.Config.Annotation` on the relevant VMs in addition to read access. Discovery itself remains read-only.
+
+
+### SYS-ID custom attribute writeback
+
+Enable VMware in Settings → Features → Extensions. Save and enable the connection, then select a VM-compatible custom attribute by its field key in Inventory tools. Writeback is opt-in; upgrades from annotation writeback disable it until a field is selected. Existing VM notes are never modified by the sync. Different existing custom attribute values are protected. vCenter 8.0 Update 1+ and permission to set the selected custom attribute are required.

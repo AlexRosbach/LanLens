@@ -145,6 +145,22 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
             await client.write_sysid_annotation("vm-1", uid, "SYSID_123")
         self.assertEqual(client._vi_request.await_count, 1)
 
+    async def test_custom_attribute_writeback_verifies_vm_and_value(self):
+        uid = "11111111-2222-3333-4444-555555555555"
+        client = VsphereClient("https://vc.example.test", "user", "pass")
+        client.vi_login = AsyncMock(return_value=True)
+        client.vi_logout = AsyncMock()
+        client.custom_fields_manager = "CustomFieldsManager"
+        client._vi_request = AsyncMock(side_effect=[
+            ({"instanceUuid": uid}, None),
+            ([{"key": 7, "name": "CMDB", "managedObjectType": "VirtualMachine"}], None),
+            ([], None), (None, None),
+            ([{"key": 7, "value": "SYSID_123"}], None),
+        ])
+        self.assertEqual(await client.write_sysid_custom_field("vm-1", uid, "SYSID_123", 7), "updated")
+        self.assertEqual(client._vi_request.call_args_list[3].args[2],
+                         {"entity": {"type": "VirtualMachine", "value": "vm-1"}, "key": 7, "value": "SYSID_123"})
+
     async def test_writeback_is_disabled_by_default(self):
         row = self.db.get(VsphereConnection, 1)
         row.enabled = True

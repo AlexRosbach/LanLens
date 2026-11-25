@@ -2908,6 +2908,8 @@ class IdoitClient:
         """
         if category == "C__CATG__DRIVE":
             return await self.save_drive_category(object_id, data)
+        if category == "C__CATG__APPLICATION" and data.get("application"):
+            return await self.save_application_assignment(object_id, data)
         entry_id = await self.find_reusable_category_entry(object_id, category, data)
         try:
             result = await self.save_category(object_id, category, data, entry_id)
@@ -2972,6 +2974,39 @@ class IdoitClient:
             if entry_id:
                 response["entry_id"] = entry_id
             return response
+
+    async def save_application_assignment(self, object_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Create the relationship independently of optional version/description."""
+        category = "C__CATG__APPLICATION"
+        link = {"application": data["application"]}
+        metadata = {k: v for k, v in data.items() if k != "application"}
+        try:
+            entry_id = await self.find_reusable_category_entry(object_id, category, link)
+            if not entry_id:
+                result = await self.save_category(object_id, category, link)
+                entry_id = await self.find_reusable_category_entry(object_id, category, link)
+                if not entry_id:
+                    return {"status": "verification_failed", "result": result}
+            else:
+                result = {"already_linked": True}
+        except IdoitConnectionError as exc:
+            return {"status": "failed", "error": exc.to_detail()}
+        failed = {}
+        for field, value in metadata.items():
+            try:
+                await self.save_category(object_id, category, {**link, field: value}, entry_id)
+            except IdoitConnectionError as exc:
+                failed[field] = exc.to_detail()
+        try:
+            verified = await self.find_reusable_category_entry(object_id, category, link)
+        except IdoitConnectionError:
+            verified = None
+        if verified != entry_id:
+            return {"status": "verification_failed", "result": result}
+        if failed:
+            return {"status": "partial", "entry_id": entry_id, "failed_fields": failed,
+                    "saved_fields": ["application", *[f for f in metadata if f not in failed]]}
+        return {"status": "saved", "entry_id": entry_id, "verified_entry_id": verified, "result": result}
 
     async def save_drive_category(self, object_id: str, data: dict[str, Any]) -> dict[str, Any]:
         # One full write per disk. Never retry individual fields without a
@@ -3383,7 +3418,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     details["vsphere_sysid_writeback"] = writeback
             except Exception:
                 db.rollback()
-                sync_warnings.append("VMware SYSID annotation writeback failed; check VM identity, vCenter API version and annotation permission")
+                sync_warnings.append("VMware SYSID custom attribute writeback failed; check VM identity, selected attribute, existing value and permissions")
                 details["vsphere_sysid_writeback"] = "failed"
 
         now = datetime.utcnow()

@@ -1586,6 +1586,22 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(client.calls, 1)
 
+    async def test_application_link_survives_invalid_version(self):
+        class Client(IdoitClient):
+            linked = False
+            async def read_category(self, object_id, category):
+                return [{"id": 17, "application": {"id": 101}}] if self.linked else []
+            async def save_category(self, object_id, category, data, entry_id=None):
+                if "assigned_version" in data:
+                    raise IdoitConnectionError("invalid version", stage="jsonrpc_error")
+                self.linked = True
+                return {"success": True, "entry": 17}
+        client = Client(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__APPLICATION", {"application": 101, "assigned_version": "1.2"})
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["entry_id"], "17")
+        self.assertIn("assigned_version", result["failed_fields"])
+
     async def test_application_save_checks_readback(self):
         class ReadbackClient(IdoitClient):
             async def save_category(self, object_id, category, data, entry_id=None):

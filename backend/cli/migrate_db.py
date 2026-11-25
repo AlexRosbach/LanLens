@@ -82,6 +82,10 @@ def migrate():
             if not _column_exists(conn, "vsphere_connections", "writeback_sysid"):
                 conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN writeback_sysid BOOLEAN NOT NULL DEFAULT FALSE"))
                 conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "sysid_field_key"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN sysid_field_key INTEGER"))
+                conn.execute(text("UPDATE vsphere_connections SET writeback_sysid = FALSE"))
+                conn.commit()
             if not _column_exists(conn, "vsphere_connections", "visible_fields_json"):
                 conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN visible_fields_json TEXT"))
                 conn.commit()

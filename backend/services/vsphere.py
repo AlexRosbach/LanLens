@@ -153,6 +153,7 @@ class VsphereClient:
         self.fields = set(VISIBLE_FIELDS if fields is None else fields)
         self.vi_session = None
         self.vi_manager = None
+        self.custom_fields_manager = None
         self.vcenter_uuid = None
 
     async def _request(self, method, path, login=False, optional=False):
@@ -217,6 +218,9 @@ class VsphereClient:
         if not isinstance(content, dict):
             return False
         manager = content.get("sessionManager") or {}
+        custom_manager = content.get("customFieldsManager") or {}
+        if isinstance(custom_manager, dict) and isinstance(custom_manager.get("value"), str) and ID_PATTERN.fullmatch(custom_manager["value"]):
+            self.custom_fields_manager = custom_manager["value"]
         about = content.get("about") or {}
         if isinstance(about, dict):
             self.vcenter_uuid = _uuid(about.get("instanceUuid"))
@@ -237,6 +241,59 @@ class VsphereClient:
                 await self._vi_request("POST", "/SessionManager/" + quote(self.vi_manager, safe="") + "/Logout", {})
             finally:
                 self.vi_session = None
+
+    async def _custom_fields(self):
+        if not self.custom_fields_manager:
+            raise VsphereError("CustomFieldsManager unavailable")
+        path = "/CustomFieldsManager/" + quote(_resource_id(self.custom_fields_manager), safe="")
+        fields, _ = await self._vi_request("GET", path + "/field")
+        if not isinstance(fields, list):
+            raise VsphereError("Could not read vCenter custom attributes; check permissions")
+        return [{"key": f["key"], "name": f["name"]} for f in fields
+                if isinstance(f, dict) and type(f.get("key")) is int
+                and isinstance(f.get("name"), str) and f["name"]
+                and f.get("managedObjectType") in (None, "", "VirtualMachine")]
+
+    async def list_custom_fields(self):
+        try:
+            if not await self.vi_login():
+                raise VsphereError("Custom attributes require vCenter 8.0 Update 1 or newer")
+            return await self._custom_fields()
+        finally:
+            await self.vi_logout()
+
+    async def write_sysid_custom_field(self, vm_id, instance_uuid, sysid, key, vcenter_uuid=None):
+        if not _uuid(instance_uuid) or type(key) is not int or not isinstance(sysid, str) or not ID_PATTERN.fullmatch(sysid):
+            raise VsphereError("Invalid VM identity, field key or SYSID")
+        vm_id = _resource_id(vm_id)
+        path = "/VirtualMachine/" + quote(vm_id, safe="")
+        try:
+            if not await self.vi_login():
+                raise VsphereError("Custom attribute writeback requires vCenter 8.0 Update 1 or newer")
+            if vcenter_uuid and _uuid(vcenter_uuid) != self.vcenter_uuid:
+                raise VsphereError("vCenter identity changed; writeback refused")
+            config, _ = await self._vi_request("GET", path + "/config")
+            if not isinstance(config, dict) or _uuid(config.get("instanceUuid")) != _uuid(instance_uuid):
+                raise VsphereError("VM identity changed or could not be verified")
+            if key not in {f["key"] for f in await self._custom_fields()}:
+                raise VsphereError("Configured custom attribute is not available for VMs")
+            values, _ = await self._vi_request("GET", path + "/customValue")
+            if not isinstance(values, list):
+                raise VsphereError("Could not read existing custom attributes")
+            current = [v.get("value") for v in values if isinstance(v, dict) and v.get("key") == key]
+            if current == [sysid]:
+                return "unchanged"
+            if any(v not in (None, "") for v in current):
+                raise VsphereError("Target custom attribute already contains a different value; refusing overwrite")
+            manager = "/CustomFieldsManager/" + quote(_resource_id(self.custom_fields_manager), safe="")
+            await self._vi_request("POST", manager + "/SetField",
+                                   {"entity": {"type": "VirtualMachine", "value": vm_id}, "key": key, "value": sysid})
+            values, _ = await self._vi_request("GET", path + "/customValue")
+            if not isinstance(values, list) or not any(isinstance(v, dict) and v.get("key") == key and v.get("value") == sysid for v in values):
+                raise VsphereError("Custom attribute write could not be verified")
+            return "updated"
+        finally:
+            await self.vi_logout()
 
     async def write_sysid_annotation(self, vm_id, instance_uuid, sysid):
         """Guard against reused VM references and concurrent annotation edits."""
@@ -643,7 +700,7 @@ async def writeback_idoit_sysid(db, device_id, sysid):
     from ..routers.vsphere import _discovery_lock
     async with _discovery_lock:
         connection = db.get(VsphereConnection, 1)
-        if not connection or not connection.enabled or not connection.writeback_sysid:
+        if not connection or not connection.enabled or not connection.writeback_sysid or connection.sysid_field_key is None:
             return None
         rows = db.query(VsphereInventoryObject).filter_by(
             connection_id=connection.id, kind="vm", device_id=device_id
@@ -656,5 +713,7 @@ async def writeback_idoit_sysid(db, device_id, sysid):
         vm_id, uid = row.external_id, row.instance_uuid
         client = VsphereClient(connection.endpoint, connection.username,
                                decrypt_secret(connection.encrypted_secret), verify_tls=connection.verify_tls)
+        field_key = connection.sysid_field_key
+        vcenter_uuid = json.loads(row.metadata_json).get("vcenter_uuid")
         db.commit()
-        return await asyncio.wait_for(client.write_sysid_annotation(vm_id, uid, sysid), timeout=85)
+        return await asyncio.wait_for(client.write_sysid_custom_field(vm_id, uid, sysid, field_key, vcenter_uuid), timeout=120)

@@ -25,6 +25,7 @@ class ConfigUpdate(BaseModel):
     password: str | None = Field(None, max_length=4096)
     verify_tls: bool = True
     writeback_sysid: bool = False
+    sysid_field_key: int | None = Field(None, ge=-2147483648, le=2147483647)
     visible_fields: list[str] | None = Field(None, max_length=len(VISIBLE_FIELDS))
 
 
@@ -45,6 +46,7 @@ def _response(row):
     return {"enabled": bool(row and row.enabled), "endpoint": row.endpoint if row else "",
             "username": row.username if row else "", "has_password": bool(row and row.encrypted_secret),
             "verify_tls": row.verify_tls if row else True, "writeback_sysid": bool(row and row.writeback_sysid), "visible_fields": visible_fields(row),
+            "sysid_field_key": row.sysid_field_key if row else None,
             "last_discovery_at": row.last_discovery_at.isoformat() + "Z" if row and row.last_discovery_at else None}
 
 
@@ -86,6 +88,9 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
                 raise HTTPException(400, "Unsupported VMware inventory field")
             row.visible_fields_json = json.dumps([k for k in VISIBLE_FIELDS if k in data.visible_fields])
         row.verify_tls = data.verify_tls
+        if data.writeback_sysid and (data.sysid_field_key is None or changed_target):
+            raise HTTPException(400, "Save the vCenter connection and select a VM custom attribute first")
+        row.sysid_field_key = None if changed_target else data.sysid_field_key
         row.writeback_sysid = data.writeback_sysid
         row.endpoint, row.username, row.enabled = endpoint, username, data.enabled
         row.revision = (row.revision or 0) + 1
@@ -120,6 +125,20 @@ def _client(row):
                              verify_tls=row.verify_tls, fields=visible_fields(row))
     except (ValueError, VsphereError):
         raise HTTPException(400, "Invalid vSphere settings or stored credential; re-enter the password") from None
+
+
+@router.get("/custom-fields")
+async def custom_fields(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_advanced(db)
+    if _discovery_lock.locked():
+        raise HTTPException(409, "A vSphere operation is already running")
+    async with _discovery_lock:
+        client = _client(_config(db))
+        db.rollback()
+        try:
+            return await asyncio.wait_for(client.list_custom_fields(), timeout=60)
+        except (VsphereError, TimeoutError) as exc:
+            raise HTTPException(502, str(exc) or "Custom attribute lookup timed out") from None
 
 
 @router.post("/test")
