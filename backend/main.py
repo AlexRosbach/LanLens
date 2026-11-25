@@ -77,6 +77,8 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    from .services.diagnostic_notifications import system_error_handler
+    logging.getLogger().addHandler(system_error_handler)
     scheduler.start_scheduler(interval)
     deep_scan_scheduler.start_deep_scan_scheduler()
     idoit_scheduler.start_idoit_scheduler(idoit_interval)
@@ -87,7 +89,10 @@ async def lifespan(app: FastAPI):
 
         asyncio.create_task(run_scan(scan_type="initial"))
     logger.info(f"LanLens started — scan interval: {interval} min")
-    yield
+    try:
+        yield
+    finally:
+        logging.getLogger().removeHandler(system_error_handler)
     scheduler.stop_scheduler()
     deep_scan_scheduler.stop_deep_scan_scheduler()
     idoit_scheduler.stop_idoit_scheduler()

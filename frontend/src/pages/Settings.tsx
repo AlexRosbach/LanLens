@@ -83,6 +83,14 @@ type NotificationRuleKey =
   | 'smtp_notify_device_archive_change'
   | 'smtp_notify_mac_drift'
   | 'smtp_notify_unknown_dhcp_server'
+  | 'notify_on_system_error'
+  | 'telegram_notify_system_error'
+  | 'webhook_notify_system_error'
+  | 'smtp_notify_system_error'
+  | 'notify_on_idoit_incomplete'
+  | 'telegram_notify_idoit_incomplete'
+  | 'webhook_notify_idoit_incomplete'
+  | 'smtp_notify_idoit_incomplete'
 
 const IDOIT_MAPPING_FIELDS = [
   { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
@@ -544,6 +552,8 @@ export default function Settings() {
     },
   ]
   const notificationRuleRows = [
+    { label: t('notify_on_system_error'), keys: ["notify_on_system_error","telegram_notify_system_error","webhook_notify_system_error","smtp_notify_system_error"] as NotificationRuleKey[] },
+    { label: t('notify_on_idoit_incomplete'), keys: ["notify_on_idoit_incomplete","telegram_notify_idoit_incomplete","webhook_notify_idoit_incomplete","smtp_notify_idoit_incomplete"] as NotificationRuleKey[] },
     { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
     { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
     {
@@ -1053,6 +1063,14 @@ export default function Settings() {
         smtp_notify_device_archive_change: current.smtp_notify_device_archive_change,
         smtp_notify_mac_drift: current.smtp_notify_mac_drift,
         smtp_notify_unknown_dhcp_server: current.smtp_notify_unknown_dhcp_server,
+        notify_on_system_error: current.notify_on_system_error,
+        telegram_notify_system_error: current.telegram_notify_system_error,
+        webhook_notify_system_error: current.webhook_notify_system_error,
+        smtp_notify_system_error: current.smtp_notify_system_error,
+        notify_on_idoit_incomplete: current.notify_on_idoit_incomplete,
+        telegram_notify_idoit_incomplete: current.telegram_notify_idoit_incomplete,
+        webhook_notify_idoit_incomplete: current.webhook_notify_idoit_incomplete,
+        smtp_notify_idoit_incomplete: current.smtp_notify_idoit_incomplete,
       })
       toast.success(t('notification_rules_saved'))
     } catch {

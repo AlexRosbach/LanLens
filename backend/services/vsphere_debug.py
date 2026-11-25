@@ -22,6 +22,9 @@ def log_vsphere(db, mode, level, message, details=None, device_id=None):
         if cutoff is not None:
             db.query(VsphereDebugLog).filter(VsphereDebugLog.id < cutoff).delete(synchronize_session=False)
         db.commit()
+        if level == "error" and message not in {"vCenter API request rejected", "vCenter HTTPS request failed"}:
+            from .diagnostic_notifications import queue_diagnostic
+            queue_diagnostic(db, "system_error", "vsphere_" + mode, f"VMware / vSphere: {message}\nOperation: {mode}\n" + json.dumps(details or {}, sort_keys=True), device_id)
     except Exception:
         db.rollback()
         logger.warning("VMware diagnostic persistence failed")

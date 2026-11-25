@@ -75,6 +75,14 @@ SETTING_KEYS = [
     "smtp_notify_ip_address_change", "smtp_notify_hostname_change", "smtp_notify_device_online",
     "smtp_notify_device_offline", "smtp_notify_device_archive_change", "smtp_notify_mac_drift",
     "smtp_notify_unknown_dhcp_server",
+    "notify_on_system_error",
+    "telegram_notify_system_error",
+    "webhook_notify_system_error",
+    "smtp_notify_system_error",
+    "notify_on_idoit_incomplete",
+    "telegram_notify_idoit_incomplete",
+    "webhook_notify_idoit_incomplete",
+    "smtp_notify_idoit_incomplete",
     "webhook_url", "webhook_enabled",
     "smtp_host", "smtp_port", "smtp_username", "smtp_password", "smtp_from_email", "smtp_to_email", "smtp_enabled", "smtp_use_tls",
     "server_url",
@@ -246,6 +254,14 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         smtp_notify_device_archive_change=_channel_rule_value(db, "smtp", "notify_device_archive_change", "notify_on_device_archive_change"),
         smtp_notify_mac_drift=_channel_rule_value(db, "smtp", "notify_mac_drift", "notify_on_mac_drift"),
         smtp_notify_unknown_dhcp_server=_channel_rule_value(db, "smtp", "notify_unknown_dhcp_server", "notify_on_unknown_dhcp_server"),
+        notify_on_system_error=_get(db, "notify_on_system_error", "false") == "true",
+        telegram_notify_system_error=_get(db, "telegram_notify_system_error", "false") == "true",
+        webhook_notify_system_error=_get(db, "webhook_notify_system_error", "false") == "true",
+        smtp_notify_system_error=_get(db, "smtp_notify_system_error", "false") == "true",
+        notify_on_idoit_incomplete=_get(db, "notify_on_idoit_incomplete", "false") == "true",
+        telegram_notify_idoit_incomplete=_get(db, "telegram_notify_idoit_incomplete", "false") == "true",
+        webhook_notify_idoit_incomplete=_get(db, "webhook_notify_idoit_incomplete", "false") == "true",
+        smtp_notify_idoit_incomplete=_get(db, "smtp_notify_idoit_incomplete", "false") == "true",
         server_url=_get(db, "server_url", ""),
         smtp_host=_get(db, "smtp_host", ""),
         smtp_port=int(_get(db, "smtp_port", "587") or "587"),
@@ -546,6 +562,9 @@ def update_notification_rules(
     _set(db, "smtp_notify_network_changes", "true" if data.smtp_notify_network_changes else "false")
     for _, suffix in NETWORK_CHANGE_TYPE_RULES:
         _set(db, f"smtp_{suffix}", "true" if getattr(data, f"smtp_{suffix}") else "false")
+    for key in ["notify_on_system_error","telegram_notify_system_error","webhook_notify_system_error","smtp_notify_system_error","notify_on_idoit_incomplete","telegram_notify_idoit_incomplete","webhook_notify_idoit_incomplete","smtp_notify_idoit_incomplete"]:
+        if key in data.model_fields_set:
+            _set(db, key, "true" if getattr(data, key) else "false")
     db.commit()
     return MessageResponse(message="Notification rules updated")
 

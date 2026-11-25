@@ -37,6 +37,7 @@ from .dns_names import device_display_name
 from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values, writeback_idoit_sysid
 from .software_inventory import parse_software
 from ..version import BUILD_COMMIT
+from .diagnostic_notifications import queue_diagnostic, application_failure_message
 
 logger = logging.getLogger(__name__)
 idoit_sync_lock = asyncio.Lock()
@@ -3433,6 +3434,8 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         application_entries: list[dict[str, Any]] = []
         application_details: list[dict[str, Any]] = []
         unmatched_application_titles: list[str] = []
+        application_failures: list[dict] = []
+        application_names: dict[tuple, str] = {}
         for application in applications:
             if not isinstance(application, dict) or not application.get("title"):
                 continue
@@ -3450,8 +3453,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     if application.get(field) not in (None, ""):
                         assignment[field] = application[field]
                 application_entries.append(assignment)
+                application_names[(str(assignment["application"]), str(assignment.get("assigned_version", "")))] = title
             else:
                 unmatched_application_titles.append(str(application["title"]))
+                application_failures.append({"title": title, "version": str(application.get("assigned_version", "")), "reason": str(resolution.get("action", "match_required"))})
         if application_entries:
             existing_applications = categories.get("C__CATG__APPLICATION")
             existing_entries = existing_applications if isinstance(existing_applications, list) else ([existing_applications] if isinstance(existing_applications, dict) else [])
@@ -3505,7 +3510,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     clean_global=category == "C__CATG__GLOBAL" and global_category.get("description") is None)
             else:
                 category_results = [await client.save_category_best_effort(object_id, category, entry) for entry in valid_entries]
-            for result in category_results:
+            for index, result in enumerate(category_results):
+                if category == "C__CATG__APPLICATION" and index < len(valid_entries) and result.get("status") in {"failed", "ambiguous", "partial", "verification_failed"}:
+                    entry = valid_entries[index]
+                    oid, version = str(entry.get("application", "")), str(entry.get("assigned_version", ""))
+                    application_failures.append({"title": application_names.get((oid, version), f"Application object {oid}"), "version": version, "reason": str(result.get("reason") or result.get("status"))})
                 if result.get("status") == "ambiguous":
                     sync_warnings.append(f"{category}: ambiguous identity; no write performed")
                 elif result.get("status") == "partial":
@@ -3556,6 +3565,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             state.last_error = "; ".join(sync_warnings)
         log_sync(db, device.id, mode, "success", f"i-doit {action} completed", details, object_id)
         db.commit()
+        if application_failures:
+            queue_diagnostic(db, "idoit_incomplete", "application_sync", application_failure_message(device.id, device_display_name(device), mode, object_id, application_failures, len(applications)), device.id)
+        if sync_warnings:
+            queue_diagnostic(db, "system_error", "idoit_category_sync", f"i-doit category sync warnings\nDevice ID: {device.id}\nMode: {mode}\nObject: {object_id}\nBuild: {BUILD_COMMIT}\n" + "\n".join(sorted(set(w.split(";")[0] for w in sync_warnings))), device.id)
         return {"device_id": device.id, "status": state.status, "action": action, "idoit_object_id": object_id, "idoit_sysid": state.idoit_sysid, "payload_hash": digest, "upstream_write_performed": True, "warnings": sync_warnings}
     except IdoitConnectionError as exc:
         if _is_missing_object_error(exc) and not _stale_retry:
@@ -3582,12 +3595,14 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         state.last_error = exc.message
         log_sync(db, device.id, mode, "failure", exc.message, {**details, "error": exc.to_detail()}, state.idoit_object_id)
         db.commit()
+        queue_diagnostic(db, "system_error", "idoit_sync", f"i-doit sync failed\nDevice ID: {device.id}\nMode: {mode}\nStage: {exc.stage}\nHTTP status: {exc.status_code}\nBuild: {BUILD_COMMIT}", device.id)
         raise
     except Exception as exc:
         state.status = "error"
         state.last_error = str(exc)
         log_sync(db, device.id, mode, "failure", str(exc), details, state.idoit_object_id)
         db.commit()
+        queue_diagnostic(db, "system_error", "idoit_sync", f"i-doit sync failed\nDevice ID: {device.id}\nMode: {mode}\nException: {type(exc).__name__}\nBuild: {BUILD_COMMIT}", device.id)
         raise
     finally:
         logout = getattr(client, "logout_best_effort", None)

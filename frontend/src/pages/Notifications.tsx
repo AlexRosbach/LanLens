@@ -18,6 +18,8 @@ export default function Notifications() {
 
   const eventLabels: Record<string, { label: string; variant: 'warning' | 'success' | 'danger' | 'primary' | 'muted' }> = {
     new_device: { label: t('event_new_device'), variant: 'warning' },
+    system_error: {label: t('notify_on_system_error'), variant: 'danger'},
+    idoit_incomplete: {label: t('notify_on_idoit_incomplete'), variant: 'warning'},
     network_change: { label: t('event_network_change'), variant: 'primary' },
     device_online: { label: t('event_online'), variant: 'success' },
     device_offline: { label: t('event_offline'), variant: 'danger' },
@@ -121,7 +123,7 @@ export default function Notifications() {
                       <span className="text-xs text-text-subtle">Email ✓</span>
                     )}
                   </div>
-                  <p className="text-sm text-text-muted leading-relaxed">{item.message}</p>
+                  <p className="text-sm text-text-muted leading-relaxed whitespace-pre-wrap break-words">{item.message}</p>
                   <p className="text-xs text-text-subtle mt-1">{formatRelativeTime(item.created_at, lang)}</p>
                 </div>
                 <button onClick={(event) => {

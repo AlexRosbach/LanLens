@@ -142,6 +142,9 @@ def notification_device_url(db: Session, notification: Notification) -> Optional
 
 def _notification_title_and_message(notification: Notification) -> tuple[str, str]:
     device = notification.device
+    if notification.event_type in {"system_error", "idoit_incomplete"}:
+        title = "LanLens — System Error" if notification.event_type == "system_error" else "LanLens — Incomplete i-doit Sync"
+        return title, notification.message
     if notification.event_type == "network_change":
         title = "LanLens — Network Change"
         if device:
@@ -183,6 +186,18 @@ async def send_telegram_for_notification(db: Session, notification: Notification
         return False
 
     device = notification.device
+    if notification.event_type in {"system_error", "idoit_incomplete"}:
+        title, message = _notification_title_and_message(notification)
+        # Telegram accepts at most 4096 characters. Split plain text before escaping.
+        url = notification_device_url(db, notification)
+        if url:
+            message += "\n\nOpen in LanLens: " + url
+        chunks = [message[i:i+3000] for i in range(0, len(message), 3000)] or [""]
+        for index, chunk in enumerate(chunks, 1):
+            text = f"<b>{escape(title)} ({index}/{len(chunks)})</b>\n\n{escape(chunk)}"
+            if not await _send_message(config["bot_token"], config["chat_id"], text):
+                return False
+        return True
     if notification.event_type == "network_change":
         title, message = _notification_title_and_message(notification)
         device_url = notification_device_url(db, notification)
@@ -243,7 +258,7 @@ async def send_webhook_for_notification(db: Session, notification: Notification)
     payload = {
         "title": title,
         "message": message,
-        "priority": 5,
+        "priority": 8 if notification.event_type == "system_error" else 5,
         "event_type": notification.event_type,
         "device_id": notification.device_id,
         "device_path": device_path,

@@ -810,6 +810,14 @@ class NotificationRulesSettings(BaseModel):
     smtp_notify_device_archive_change: bool = True
     smtp_notify_mac_drift: bool = True
     smtp_notify_unknown_dhcp_server: bool = True
+    notify_on_system_error: bool = False
+    telegram_notify_system_error: bool = False
+    webhook_notify_system_error: bool = False
+    smtp_notify_system_error: bool = False
+    notify_on_idoit_incomplete: bool = False
+    telegram_notify_idoit_incomplete: bool = False
+    webhook_notify_idoit_incomplete: bool = False
+    smtp_notify_idoit_incomplete: bool = False
 
 
 class WebhookSettings(BaseModel):
@@ -923,6 +931,14 @@ class AllSettings(BaseModel):
     smtp_notify_device_archive_change: bool = True
     smtp_notify_mac_drift: bool = True
     smtp_notify_unknown_dhcp_server: bool = True
+    notify_on_system_error: bool = False
+    telegram_notify_system_error: bool = False
+    webhook_notify_system_error: bool = False
+    smtp_notify_system_error: bool = False
+    notify_on_idoit_incomplete: bool = False
+    telegram_notify_idoit_incomplete: bool = False
+    webhook_notify_idoit_incomplete: bool = False
+    smtp_notify_idoit_incomplete: bool = False
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587

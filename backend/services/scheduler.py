@@ -26,6 +26,14 @@ DEFAULT_SNMP_POLL_INTERVAL_MINUTES = 60
 PORT_SCAN_DEVICE_LIMIT = 100
 
 
+async def _diagnostic_notification_job():
+    from .diagnostic_notifications import flush_system_errors
+    from .scanner import _send_notification_deliveries
+    with SessionLocal() as db:
+        flush_system_errors(db)
+        await _send_notification_deliveries(db)
+
+
 async def _scan_job():
     from .scanner import run_scan
     await run_scan(scan_type="scheduled")
@@ -184,6 +192,8 @@ def start_scheduler(interval_minutes: int = DEFAULT_INTERVAL_MINUTES):
     update_port_scan_schedule()
     update_snmp_poll_schedule()
     _add_retention_job()
+    _scheduler.add_job(_diagnostic_notification_job, trigger=IntervalTrigger(seconds=60),
+                       id="diagnostic_notification_delivery", replace_existing=True, max_instances=1)
 
 
 def _add_or_reschedule_job(interval_minutes: int):

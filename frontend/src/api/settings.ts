@@ -66,6 +66,14 @@ export interface AllSettings {
   smtp_notify_device_archive_change: boolean
   smtp_notify_mac_drift: boolean
   smtp_notify_unknown_dhcp_server: boolean
+  notify_on_system_error: boolean
+  telegram_notify_system_error: boolean
+  webhook_notify_system_error: boolean
+  smtp_notify_system_error: boolean
+  notify_on_idoit_incomplete: boolean
+  telegram_notify_idoit_incomplete: boolean
+  webhook_notify_idoit_incomplete: boolean
+  smtp_notify_idoit_incomplete: boolean
   server_url: string
   smtp_host: string
   smtp_port: number
@@ -198,6 +206,14 @@ export const settingsApi = {
     smtp_notify_device_archive_change: boolean
     smtp_notify_mac_drift: boolean
     smtp_notify_unknown_dhcp_server: boolean
+    notify_on_system_error: boolean
+    telegram_notify_system_error: boolean
+    webhook_notify_system_error: boolean
+    smtp_notify_system_error: boolean
+    notify_on_idoit_incomplete: boolean
+    telegram_notify_idoit_incomplete: boolean
+    webhook_notify_idoit_incomplete: boolean
+    smtp_notify_idoit_incomplete: boolean
   }) => apiClient.put('/settings/notification-rules', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),
