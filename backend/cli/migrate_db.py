@@ -92,6 +92,9 @@ def migrate():
             if not _column_exists(conn, "vsphere_connections", "attribute_mappings_json"):
                 conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN attribute_mappings_json TEXT"))
                 conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "device_field_mappings_json"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN device_field_mappings_json TEXT"))
+                conn.commit()
             if not _column_exists(conn, "vsphere_connections", "visible_fields_json"):
                 conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN visible_fields_json TEXT"))
                 conn.commit()

@@ -13,12 +13,17 @@ from ..models import User, VsphereConnection, VsphereInventoryObject
 from ..services.vsphere_debug import log_vsphere
 from ..services.crypto import encrypt_secret, decrypt_secret
 from ..services.settings_helpers import is_advanced_view_enabled
-from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, reconcile_inventory, VISIBLE_FIELDS, visible_fields, attribute_mappings
+from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, reconcile_inventory, VISIBLE_FIELDS, visible_fields, attribute_mappings, device_field_mappings, DEVICE_ATTRIBUTE_TARGETS
 
 router = APIRouter(prefix="/api/vsphere", tags=["vsphere"])
 _discovery_lock = asyncio.Lock()
 _discovery_job = {"status": "idle", "result": None, "error": None}
 _discovery_task = None
+
+
+class DeviceFieldMapping(BaseModel):
+    target: str
+    overwrite: bool = False
 
 
 class ConfigUpdate(BaseModel):
@@ -31,6 +36,7 @@ class ConfigUpdate(BaseModel):
     sysid_field_key: int | None = Field(None, ge=-2147483648, le=2147483647)
     read_sysid: bool = False
     attribute_mappings: dict[str, str] = Field(default_factory=dict, max_length=64)
+    device_field_mappings: dict[str, DeviceFieldMapping] | None = Field(None, max_length=64)
     visible_fields: list[str] | None = Field(None, max_length=len(VISIBLE_FIELDS))
 
 
@@ -53,6 +59,7 @@ def _response(row):
             "verify_tls": row.verify_tls if row else True, "writeback_sysid": bool(row and row.writeback_sysid), "visible_fields": visible_fields(row),
             "sysid_field_key": row.sysid_field_key if row else None,
             "read_sysid": bool(row and row.read_sysid), "attribute_mappings": attribute_mappings(row),
+            "device_field_mappings": device_field_mappings(row),
             "last_discovery_at": row.last_discovery_at.isoformat() + "Z" if row and row.last_discovery_at else None}
 
 
@@ -105,6 +112,16 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
         if len({v.strip().casefold() for v in data.attribute_mappings.values()}) != len(data.attribute_mappings):
             raise HTTPException(400, "Custom field labels must be unique")
         row.attribute_mappings_json = json.dumps({} if changed_target else {k: v.strip() for k, v in data.attribute_mappings.items()})
+        if changed_target:
+            row.device_field_mappings_json = "{}"
+        elif data.device_field_mappings is not None:
+            mappings = {k: rule.model_dump() for k, rule in data.device_field_mappings.items()}
+            if any(not re.fullmatch(r"-?\d{1,10}", k) or rule["target"] not in DEVICE_ATTRIBUTE_TARGETS
+                   for k, rule in mappings.items()):
+                raise HTTPException(400, "Invalid LanLens device field mapping")
+            if len({rule["target"] for rule in mappings.values()}) != len(mappings):
+                raise HTTPException(400, "Each LanLens target field may be mapped only once")
+            row.device_field_mappings_json = json.dumps(mappings)
         row.endpoint, row.username, row.enabled = endpoint, username, data.enabled
         row.revision = (row.revision or 0) + 1
         db.commit()
@@ -142,7 +159,7 @@ def _client(row):
     try:
         return VsphereClient(row.endpoint, row.username, decrypt_secret(row.encrypted_secret),
                              verify_tls=row.verify_tls, fields=visible_fields(row),
-                             attribute_keys=set(attribute_mappings(row)) | ({str(row.sysid_field_key)} if row.read_sysid and row.sysid_field_key is not None else set()))
+                             attribute_keys=set(attribute_mappings(row)) | set(device_field_mappings(row)) | ({str(row.sysid_field_key)} if row.read_sysid and row.sysid_field_key is not None else set()))
     except (ValueError, VsphereError):
         raise HTTPException(400, "Invalid vSphere settings or stored credential; re-enter the password") from None
 

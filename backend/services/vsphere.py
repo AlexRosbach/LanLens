@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, VsphereConnection, VsphereInventoryObject, IdoitDeviceSync
+from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, VsphereConnection, VsphereInventoryObject, IdoitDeviceSync, DeviceChangeEvent
 from .mac_vendor import normalize_mac
 from .notification import request_json_via_validated_url
 from .scanner import _matching_ignore_rules
@@ -38,6 +38,76 @@ def attribute_mappings(row):
         return {str(k): v for k, v in raw.items() if re.fullmatch(r"-?\d{1,10}", str(k)) and isinstance(v, str) and v.strip()} if isinstance(raw, dict) else {}
     except (ValueError, TypeError):
         return {}
+
+
+DEVICE_ATTRIBUTE_TARGETS = {
+    "label": 255, "purpose": 512, "description": 2048, "location": 255,
+    "responsible": 255, "asset_tag": 128, "notes": 2048, "os_info": 255,
+}
+
+
+def device_field_mappings(row):
+    try:
+        raw = json.loads(row.device_field_mappings_json or "{}") if row else {}
+        if not isinstance(raw, dict):
+            return {}
+        valid = {key: rule for key, rule in raw.items()
+                 if re.fullmatch(r"-?\d{1,10}", key) and isinstance(rule, dict)
+                 and isinstance(rule.get("target"), str) and rule["target"] in DEVICE_ATTRIBUTE_TARGETS
+                 and type(rule.get("overwrite", False)) is bool}
+        counts = Counter(rule["target"] for rule in valid.values())
+        return {key: rule for key, rule in valid.items() if counts[rule["target"]] == 1}
+    except (ValueError, TypeError):
+        return {}
+
+
+def _vmware_change(db, device_id, field, old, new, now, message=None):
+    if old == new:
+        return
+    def stringify(value):
+        return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, sort_keys=True) if value is not None else None
+    db.add(DeviceChangeEvent(device_id=device_id, event_type="device_updated",
+        field_name=field, old_value=stringify(old), new_value=stringify(new),
+        source="vsphere", message=message, created_at=now))
+
+
+def apply_device_attribute_mappings(db, connection, objects, counts, now):
+    mappings = device_field_mappings(connection)
+    if not mappings:
+        return
+    uuid_counts = Counter(item.get("instance_uuid") for item in objects if item["kind"] == "vm")
+    for row in db.query(VsphereInventoryObject).filter_by(connection_id=connection.id, kind="vm").filter(
+        VsphereInventoryObject.match_status.in_(("existing", "created")),
+        VsphereInventoryObject.device_id.is_not(None),
+    ):
+        metadata = json.loads(row.metadata_json)
+        attrs = metadata.get("attributes", {})
+        device = db.get(Device, row.device_id)
+        if not device or device.ignored or device.is_archived:
+            continue
+        for key, rule in mappings.items():
+            target = rule["target"]
+            value = attrs.get(key)
+            if not isinstance(value, str) or not value.strip():
+                counts["attribute_missing"] += 1
+                continue
+            value = value.strip()
+            if (not row.instance_uuid or uuid_counts[row.instance_uuid] != 1
+                    or _mac(device.mac_address) not in metadata.get("macs", [])
+                    or len(value) > DEVICE_ATTRIBUTE_TARGETS[target]
+                    or any(ord(c) < 32 and c not in "\n\r\t" for c in value)):
+                counts["attribute_conflict"] += 1
+                continue
+            current = getattr(device, target)
+            if current == value:
+                counts["attribute_unchanged"] += 1
+                continue
+            if current and str(current).strip() and not rule.get("overwrite", False):
+                counts["attribute_conflict"] += 1
+                continue
+            setattr(device, target, value)
+            _vmware_change(db, device.id, target, current, value, now, "Imported from mapped VMware custom attribute")
+            counts["attribute_updated" if current else "attribute_imported"] += 1
 
 
 def visible_fields(row):
@@ -611,6 +681,19 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
         if row is None:
             row = VsphereInventoryObject(connection_id=connection_id, kind=key[0], external_id=key[1])
             db.add(row)
+        previous_metadata = json.loads(row.metadata_json or "{}")
+        same_identity = device and row.device_id == device.id and (key[0] != "vm" or (item.get("instance_uuid") and row.instance_uuid == item.get("instance_uuid")))
+        if device and status in ("existing", "created"):
+            if not same_identity:
+                _vmware_change(db, device.id, "vsphere_inventory", None, item["name"], now, "VMware inventory linked")
+            else:
+                for field in ("name", "power_state", "host_id", "cluster_id", "datacenter_id", "cpu_count", "memory_size_mib", "guest_os", "macs", "ips", "disks"):
+                    if field in item and item[field] not in (None, "", [], {}) and previous_metadata.get(field) != item[field]:
+                        _vmware_change(db, device.id, "vsphere_" + field, previous_metadata.get(field), item[field], now)
+                for attribute, value in item.get("attributes", {}).items():
+                    if value and previous_metadata.get("attributes", {}).get(attribute) != value:
+                        # Attribute values may contain sensitive text. Record the change without copying it into history.
+                        _vmware_change(db, device.id, "vsphere_attribute_" + attribute, "[previous value]" if attribute in previous_metadata.get("attributes", {}) else None, "[value changed]", now)
         row.name = item["name"]
         if device:
             row.device_id = device.id
@@ -757,8 +840,12 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
                 state = IdoitDeviceSync(device_id=row.device_id, status="never_synced")
                 db.add(state)
             state.idoit_sysid = value
+            _vmware_change(db, device.id, "idoit_sysid", None, value, now, "Imported from VMware")
             db.flush()
             counts["sysid_imported"] += 1
+    if connection:
+        apply_device_attribute_mappings(db, connection, objects, counts, now)
+    db.flush()
     return dict(counts)
 
 

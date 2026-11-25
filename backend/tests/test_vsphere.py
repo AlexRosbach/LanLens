@@ -75,6 +75,36 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
                          {"7": "Example SYSID", "8": "Example department"})
         self.assertEqual(client._vi_request.call_args_list[1].args[:2], ("GET", "/VirtualMachine/vm-1/value"))
 
+    def test_mapped_attributes_and_timeline_are_idempotent(self):
+        import json
+        from backend.models import DeviceChangeEvent
+        connection = self.db.get(VsphereConnection, 1)
+        connection.enabled = True
+        connection.device_field_mappings_json = json.dumps({
+            "8": {"target": "location", "overwrite": False},
+            "9": {"target": "responsible", "overwrite": False}})
+        device = Device(mac_address="00:50:56:12:34:56", hostname="example", responsible="Manual owner")
+        self.db.add(device)
+        self.db.flush()
+        item = {"kind": "vm", "external_id": "vm-1", "name": "example",
+                "macs": [device.mac_address], "ips": [],
+                "instance_uuid": "11111111-2222-3333-4444-555555555555",
+                "cpu_count": 4, "attributes": {"8": "Example location", "9": "VM owner"}}
+        reconcile_inventory(self.db, 1, [item], datetime.utcnow())
+        self.assertEqual(device.location, "Example location")
+        self.assertEqual(device.responsible, "Manual owner")
+        count = self.db.query(DeviceChangeEvent).count()
+        self.assertGreaterEqual(count, 2)
+        reconcile_inventory(self.db, 1, [item], datetime.utcnow())
+        self.assertEqual(self.db.query(DeviceChangeEvent).count(), count)
+        item["cpu_count"] = 8
+        item["attributes"]["8"] = "New location"
+        connection.device_field_mappings_json = json.dumps({"8": {"target": "location", "overwrite": True}})
+        reconcile_inventory(self.db, 1, [item], datetime.utcnow())
+        self.assertEqual(device.location, "New location")
+        self.assertTrue(self.db.query(DeviceChangeEvent).filter_by(source="vsphere", field_name="vsphere_cpu_count", new_value="8").first())
+        self.assertTrue(self.db.query(DeviceChangeEvent).filter_by(source="vsphere", field_name="location", old_value="Example location", new_value="New location").first())
+
     def test_endpoint(self):
         self.assertEqual(validate_endpoint("https://vc.example.test/"), "https://vc.example.test")
         for url in ("http://vc.example.test", "https://u:p@vc.example.test", "https://vc.example.test/path"):

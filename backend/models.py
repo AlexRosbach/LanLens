@@ -830,6 +830,7 @@ class VsphereConnection(Base):
     sysid_field_key = Column(Integer, nullable=True)
     read_sysid = Column(Boolean, nullable=False, default=False, server_default="0")
     attribute_mappings_json = Column(Text, nullable=True)
+    device_field_mappings_json = Column(Text, nullable=True)
     visible_fields_json = Column(Text, nullable=True)
     last_discovery_at = Column(DateTime, nullable=True)
 
