@@ -25,7 +25,8 @@ export default function VsphereCard() {
   const [config, setConfig] = useState<Config | null>(null)
   const [password, setPassword] = useState('')
   const [customFields, setCustomFields] = useState<{key: number; name: string}[]>([])
-  const [customFieldsError, setCustomFieldsError] = useState(false)
+  const [customFieldsError, setCustomFieldsError] = useState('')
+  const [customFieldsLoading, setCustomFieldsLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState('')
@@ -36,6 +37,7 @@ export default function VsphereCard() {
   const [page, setPage] = useState(0)
   const [inventory, setInventory] = useState<Inventory | null>(null)
   const [refresh, setRefresh] = useState(0)
+  const [attributeRefresh, setAttributeRefresh] = useState(0)
   const [hostNames, setHostNames] = useState<Record<string, string>>({})
   const [topologyNames, setTopologyNames] = useState<Record<string, string>>({})
   const failure = (e: unknown) => {
@@ -64,14 +66,19 @@ export default function VsphereCard() {
   useEffect(() => {
     if (!enabled || discovering) return
     let active = true
-    setCustomFields([]); setCustomFieldsError(false)
+    setCustomFieldsError(''); setCustomFieldsLoading(true)
     apiClient.get<{key: number; name: string}[]>('/vsphere/custom-fields')
       .then(r => { if (active) setCustomFields(r.data) })
-      .catch(() => { if (active) setCustomFieldsError(true) })
+      .catch((e: unknown) => { if (active) {
+        const detail = (e as {response?: {data?: {detail?: unknown}}})?.response?.data?.detail
+        setCustomFieldsError(typeof detail === 'string' ? detail : t('vsphere_failed'))
+      }})
+      .finally(() => { if (active) setCustomFieldsLoading(false) })
     return () => { active = false }
-  }, [enabled, refresh, discovering])
+  }, [enabled, refresh, discovering, attributeRefresh])
   function edit(patch: Partial<Config>) {
     if (config) setConfig({...config,...patch})
+    if ('endpoint' in patch || 'username' in patch) {setCustomFields([]);setCustomFieldsError('')}
     setDirty(true); setResult(null); setMessage('')
   }
   async function save() {
@@ -128,7 +135,7 @@ export default function VsphereCard() {
       [v.label || v.disk_id, v.uuid || '—', typeof v.capacity_bytes === 'number' ? v.capacity_bytes + ' B' : '', v.backing_file].filter(Boolean).join(' · ') : String(v)).join('\n') || '—'
     return String(value)
   }
-  if (config && !config.enabled) return null
+  if (config && !config.enabled) return <p className="text-sm text-text-muted">{t('vsphere_enable_in_features')}</p>
   return <section className="rounded-xl border border-border bg-surface p-4 space-y-4">
     <h2 className="font-semibold text-text-base">{t('vsphere_title')}</h2><p className="text-sm text-text-muted">{t('vsphere_hint')}</p>
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
@@ -151,9 +158,14 @@ export default function VsphereCard() {
       </label>
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.read_sysid} disabled={busy||config.sysid_field_key===null} onChange={e=>edit({read_sysid:e.target.checked})}/>{t('vsphere_read_sysid')}</label>
       <p className="text-xs text-text-muted">{t('vsphere_read_sysid_hint')}</p>
-      {customFields.length > 0 && <div className="space-y-2">
+      <div className="space-y-2 border-t border-border pt-3">
         <h3 className="font-medium text-sm">{t('vsphere_attribute_mapping')}</h3>
         <p className="text-xs text-text-muted">{t('vsphere_attribute_mapping_hint')}</p>
+        <p className="text-xs text-text-muted">{t('vsphere_attribute_refresh_hint')}</p>
+        <button className={control} disabled={!enabled||busy||discovering||customFieldsLoading} onClick={()=>setAttributeRefresh(v=>v+1)}>{t('vsphere_load_attributes')}</button>
+        {customFieldsLoading && enabled && <p className="text-sm text-text-muted">{t('applications_loading')}</p>}
+        {enabled && !customFieldsLoading && !customFieldsError && customFields.length===0 && <p className="text-sm text-text-muted">{t('vsphere_no_attributes')}</p>}
+        {customFieldsError && <p role="alert" className="text-sm text-warning">{customFieldsError}</p>}
         {customFields.map(field => <div key={field.key} className="flex flex-wrap gap-2 items-center">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={String(field.key) in config.attribute_mappings} disabled={busy} onChange={e=>{
             const next = {...config.attribute_mappings}
@@ -163,8 +175,7 @@ export default function VsphereCard() {
           }}/>{field.name}</label>
           {String(field.key) in config.attribute_mappings && <input className={control} aria-label={field.name} maxLength={100} value={config.attribute_mappings[String(field.key)]} onChange={e=>edit({attribute_mappings:{...config.attribute_mappings,[String(field.key)]:e.target.value}})} />}
         </div>)}
-      </div>}
-      {customFieldsError && <p role="alert" className="text-xs text-warning">{t('vsphere_failed')} <button className={control} disabled={busy||!enabled} onClick={()=>setRefresh(v=>v+1)}>{t('vsphere_test')}</button></p>}
+      </div>
       <div className="space-y-2">
         <h3 className="font-medium text-sm">{t('vsphere_fields')}</h3>
         <p className="text-xs text-text-muted">{t('vsphere_fields_hint')}</p>
@@ -191,10 +202,11 @@ export default function VsphereCard() {
         <div className="flex gap-2">{(['host','vm','cluster','datacenter','network'] as const).map(k=><button key={k} className={control+(kind===k?' border-primary text-primary':'')} aria-pressed={kind===k} onClick={()=>{setKind(k);setPage(0);setInventory(null)}}>{t(k==='host'?'vsphere_hosts':k==='vm'?'vsphere_vms':k==='cluster'?'vsphere_cluster':k==='network'?'vsphere_networks':'vsphere_datacenter')}</button>)}</div>
         {inventory?.total===0 && <p className="text-sm text-text-muted">{config.last_discovery_at ? t('vsphere_no_results') : t('vsphere_run_discovery')}</p>}
         {!!inventory?.items.length && <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="text-text-muted"><tr>
-          <th className="p-2">{t('col_device')}</th>{fields.filter(([key])=>config.visible_fields.includes(key)).map(([key,label])=><th className="p-2" key={key}>{t(label)}</th>)}<th className="p-2">{t('vsphere_match')}</th>
+          <th className="p-2">{t('col_device')}</th>{fields.filter(([key])=>config.visible_fields.includes(key)).map(([key,label])=><th className="p-2" key={key}>{t(label)}</th>)}{kind==='vm' && Object.entries(config.attribute_mappings).map(([key,label])=><th className="p-2" key={'attr-'+key}>{label}</th>)}<th className="p-2">{t('vsphere_match')}</th>
         </tr></thead><tbody className="divide-y divide-border">{inventory.items.map(i=><tr key={i.id}>
           <td className="p-2">{i.device_id ? <Link className="text-primary hover:underline" to={'/devices/'+i.device_id}>{i.name}</Link>:i.name}</td>
           {fields.filter(([key])=>config.visible_fields.includes(key)).map(([key])=><td key={key} className="p-2 text-text-muted whitespace-pre-wrap break-words min-w-24">{renderField(key,i.metadata[key])}</td>)}
+          {kind==='vm' && Object.keys(config.attribute_mappings).map(key=><td className="p-2 text-text-muted whitespace-pre-wrap break-words" key={'attr-'+key}>{renderField(key,(i.metadata.attributes as Record<string,unknown> | undefined)?.[key])}</td>)}
           <td className="p-2">{i.match_status in statuses?t(statuses[i.match_status as keyof typeof statuses]):i.match_status}</td>
         </tr>)}</tbody></table></div>}
         {inventory && <div className="flex gap-2 items-center text-sm"><button className={control} disabled={page===0} onClick={()=>setPage(v=>v-1)}>{t('vsphere_previous')}</button><span>{page+1} / {Math.max(1,Math.ceil(inventory.total/25))}</span><button className={control} disabled={(page+1)*25>=inventory.total} onClick={()=>setPage(v=>v+1)}>{t('vsphere_next')}</button></div>}

@@ -274,6 +274,22 @@ class VsphereClient:
                 and isinstance(f.get("name"), str) and f["name"]
                 and f.get("managedObjectType") in (None, "", "VirtualMachine")]
 
+    async def _read_vm_attributes(self, vm_id, selected):
+        path = "/VirtualMachine/" + quote(_resource_id(vm_id), safe="")
+        raw, _ = await self._vi_request("GET", path + "/customValue")
+        if not isinstance(raw, list):
+            raw, _ = await self._vi_request("GET", path + "/value")
+        if not isinstance(raw, list):
+            summary, _ = await self._vi_request("GET", path + "/summary")
+            raw = summary.get("customValue") if isinstance(summary, dict) else None
+        if not isinstance(raw, list):
+            return None
+        groups = defaultdict(list)
+        for item in raw:
+            if isinstance(item, dict) and type(item.get("key")) is int and item["key"] in selected and isinstance(item.get("value"), str):
+                groups[item["key"]].append(item["value"][:2048])
+        return {str(key): values[0] for key, values in groups.items() if len(values) == 1}
+
     async def list_custom_fields(self):
         try:
             if not await self.vi_login():
@@ -531,15 +547,11 @@ class VsphereClient:
                 attributes = {}
                 if selected_attributes:
                     async with semaphore:
-                        raw_attributes, _ = await self._vi_request("GET", "/VirtualMachine/" + quote(vid, safe="") + "/customValue")
-                    if isinstance(raw_attributes, list):
-                        groups = defaultdict(list)
-                        for item in raw_attributes:
-                            if isinstance(item, dict) and item.get("key") in selected_attributes and isinstance(item.get("value"), str):
-                                groups[item["key"]].append(item["value"][:2048])
-                        attributes = {str(key): values[0] for key, values in groups.items() if len(values) == 1}
-                    else:
+                        values = await self._read_vm_attributes(vid, selected_attributes)
+                    if values is None:
                         warnings.append("VM custom attributes unavailable: " + vid)
+                    else:
+                        attributes = values
                 return {"kind": "vm", "external_id": vid, "name": _text(vm.get("name")) or vid,
                         "attributes": attributes,
                         "instance_uuid": _uuid(identity.get("instance_uuid")),
@@ -555,7 +567,8 @@ class VsphereClient:
             if len({v["external_id"] for v in vms}) != len(vms):
                 raise VsphereError("vCenter returned duplicate VM identifiers")
             self._diagnose("info", "VM detail collection completed", count=len(vms), warning_count=len(warnings),
-                           with_mac=sum(bool(v["macs"]) for v in vms), with_ip=sum(bool(v["ips"]) for v in vms))
+                           with_mac=sum(bool(v["macs"]) for v in vms), with_ip=sum(bool(v["ips"]) for v in vms),
+                           selected_attribute_count=len(selected_attributes), vms_with_attributes=sum(bool(v["attributes"]) for v in vms))
             return list(hosts.values()) + vms + list(topology.values()), warnings[:30]
         finally:
             try:

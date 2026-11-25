@@ -62,6 +62,19 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         reconcile_inventory(self.db, 1, [item], datetime.utcnow())
         self.assertEqual(state.idoit_sysid, "SYS-123")
 
+    async def test_read_vm_attributes_falls_back_to_documented_value_and_filters_keys(self):
+        client = VsphereClient("https://vc.example.test", "test", "test")
+        client._vi_request = AsyncMock(side_effect=[(None, None), ([
+            {"key": 7, "value": "Example SYSID"},
+            {"key": 8, "value": "Example department"},
+            {"key": 9, "value": "Not selected"},
+            {"key": 10, "value": "Conflicting A"},
+            {"key": 10, "value": "Conflicting B"},
+        ], None)])
+        self.assertEqual(await client._read_vm_attributes("vm-1", {7, 8, 10}),
+                         {"7": "Example SYSID", "8": "Example department"})
+        self.assertEqual(client._vi_request.call_args_list[1].args[:2], ("GET", "/VirtualMachine/vm-1/value"))
+
     def test_endpoint(self):
         self.assertEqual(validate_endpoint("https://vc.example.test/"), "https://vc.example.test")
         for url in ("http://vc.example.test", "https://u:p@vc.example.test", "https://vc.example.test/path"):

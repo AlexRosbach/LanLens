@@ -16,6 +16,7 @@ interface UiSettingsState {
   showPingHistory: boolean
   showBuildInfo: boolean
   showDebugTools: boolean
+  showVsphere: boolean
   debugLogLevel: 'info' | 'warning' | 'error' | 'debug' | 'trace'
   appVersion: string
   buildCode: string
@@ -37,6 +38,7 @@ interface UiSettingsState {
   setShowPingHistory: (showPingHistory: boolean) => void
   setShowBuildInfo: (showBuildInfo: boolean) => void
   setShowDebugTools: (showDebugTools: boolean) => void
+  setShowVsphere: (showVsphere: boolean) => void
   fetchUiSettings: () => Promise<void>
 }
 
@@ -72,6 +74,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   showPingHistory: false,
   showBuildInfo: false,
   showDebugTools: false,
+  showVsphere: false,
   debugLogLevel: 'warning',
   appVersion: '',
   buildCode: '',
@@ -90,6 +93,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
     showTlsChecks: advancedViewEnabled && state.showTlsChecks,
     showPingHistory: advancedViewEnabled && state.showPingHistory,
     showDebugTools: advancedViewEnabled && state.showDebugTools,
+    showVsphere: advancedViewEnabled && state.showVsphere,
     ...normalizeFeatureGates({
       advancedViewEnabled,
       showPluginApi: state.showPluginApi,
@@ -135,6 +139,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   setShowPingHistory: (showPingHistory) => set({ showPingHistory }),
   setShowBuildInfo: (showBuildInfo) => set({ showBuildInfo }),
   setShowDebugTools: (showDebugTools) => set({ showDebugTools }),
+  setShowVsphere: (showVsphere) => set(state => ({showVsphere: state.advancedViewEnabled && showVsphere})),
 
   fetchUiSettings: async () => {
     set({ loading: true })
@@ -162,6 +167,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
         showPingHistory: settings.advanced_view_enabled && settings.show_ping_history,
         showBuildInfo: settings.show_build_info,
         showDebugTools: settings.advanced_view_enabled && settings.show_debug_tools,
+        showVsphere: settings.advanced_view_enabled && settings.show_vsphere,
         debugLogLevel: settings.debug_log_level,
         appVersion: settings.app_version,
         buildCode: settings.build_code,

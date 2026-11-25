@@ -14,7 +14,6 @@ import { snmpApi, type SnmpCustomQuery, type SnmpCustomQueryCreate, type SnmpCus
 import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryHaGroup, type PassiveDiscoveryObservation } from '../api/plugins'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
-import VsphereCard from '../components/settings/VsphereCard'
 import ToggleSwitch from '../components/ui/ToggleSwitch'
 import DnsNamesSettingsCard from '../components/settings/DnsNamesSettingsCard'
 import { useI18n } from '../i18n'
@@ -451,7 +450,7 @@ export default function Settings() {
   const [passiveCaptureReport, setPassiveCaptureReport] = useState<PassiveDiscoveryCaptureReport | null>(null)
   const [passiveObservations, setPassiveObservations] = useState<PassiveDiscoveryObservation[]>([])
   const [passiveHaGroups, setPassiveHaGroups] = useState<PassiveDiscoveryHaGroup[]>([])
-  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'deep_scan' | 'backup' | 'database' | 'cmdb' | 'debug'>('system')
+  const [activeSection, setActiveSection] = useState<'system' | 'features' | 'network' | 'automation' | 'lifecycle' | 'notifications' | 'inventory' | 'backup' | 'database' | 'cmdb' | 'debug'>('system')
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
@@ -512,7 +511,6 @@ export default function Settings() {
     if (settings && (!settings.advanced_view_enabled || !settings.show_debug_tools) && activeSection === 'debug') {
       setActiveSection('system')
     }
-    if (settings && (!settings.advanced_view_enabled || !settings.show_vsphere) && activeSection === 'deep_scan') setActiveSection('system')
   }, [activeSection, settings])
 
   if (!settings) {
@@ -1599,6 +1597,7 @@ export default function Settings() {
       setShowPingHistory(current.advanced_view_enabled && current.show_ping_history)
       setShowBuildInfo(current.show_build_info)
       setShowDebugTools(current.advanced_view_enabled && current.show_debug_tools)
+      useUiSettingsStore.getState().setShowVsphere(current.advanced_view_enabled && current.show_vsphere)
       if (current.advanced_view_enabled) {
         if (current.show_cmdb_integrations) {
           loadIdoitConfig()
@@ -1634,7 +1633,6 @@ export default function Settings() {
     { key: 'lifecycle' as const, label: t('lifecycle_settings_tab') },
     { key: 'notifications' as const, label: t('notifications') },
     { key: 'inventory' as const, label: t('inventory_tools_title') },
-    ...(current.advanced_view_enabled && current.show_vsphere ? [{ key: 'deep_scan' as const, label: t('deep_scan') }] : []),
     { key: 'backup' as const, label: t('backup_restore') },
     { key: 'database' as const, label: t('database') },
     ...(current.advanced_view_enabled && current.show_cmdb_integrations ? [{ key: 'cmdb' as const, label: t('cmdb_tab') }] : []),
@@ -3284,8 +3282,6 @@ export default function Settings() {
         </div>
       </div>
       )}
-
-      {activeSection === 'deep_scan' && current.advanced_view_enabled && current.show_vsphere && <VsphereCard />}
 
       {/* ── BACKUP / RESTORE ──────────────────────────────────────────────── */}
       {activeSection === 'backup' && (
