@@ -820,6 +820,7 @@ class ServerUrlSettings(BaseModel):
 
 
 class UiSettings(BaseModel):
+    show_vsphere: Optional[bool] = None
     show_applications_nav: Optional[bool] = None
     advanced_view_enabled: bool = False
     show_cmdb_integrations: bool = False
@@ -858,6 +859,7 @@ class PortRangeScanRequest(BaseModel):
 
 
 class AllSettings(BaseModel):
+    show_vsphere: bool = False
     show_applications_nav: bool = False
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"

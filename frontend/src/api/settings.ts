@@ -84,6 +84,7 @@ export interface AllSettings {
   show_cmdb_integrations: boolean
   show_services_nav: boolean
   show_applications_nav: boolean
+  show_vsphere: boolean
   show_dhcp_monitor_nav: boolean
   show_network_topology_nav: boolean
   show_plugin_api: boolean
@@ -257,12 +258,14 @@ export const settingsApi = {
     show_debug_tools: boolean,
     debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace',
     show_applications_nav?: boolean,
+    show_vsphere?: boolean,
   ) =>
     apiClient.put('/settings/ui', {
       advanced_view_enabled,
       show_cmdb_integrations,
       show_services_nav,
       show_applications_nav,
+      show_vsphere,
       show_dhcp_monitor_nav,
       show_network_topology_nav,
       show_plugin_api,

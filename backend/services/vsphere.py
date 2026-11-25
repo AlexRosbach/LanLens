@@ -700,7 +700,8 @@ async def writeback_idoit_sysid(db, device_id, sysid):
     from ..routers.vsphere import _discovery_lock
     async with _discovery_lock:
         connection = db.get(VsphereConnection, 1)
-        if not connection or not connection.enabled or not connection.writeback_sysid or connection.sysid_field_key is None:
+        if (not connection or not connection.enabled or not connection.endpoint or not connection.username
+                or not connection.encrypted_secret or not connection.writeback_sysid or connection.sysid_field_key is None):
             return None
         rows = db.query(VsphereInventoryObject).filter_by(
             connection_id=connection.id, kind="vm", device_id=device_id

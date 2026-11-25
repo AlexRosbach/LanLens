@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import Setting, User
+from ..models import Setting, User, VsphereConnection
 from ..version import APP_VERSION, BUILD_BRANCH, BUILD_CODE, BUILD_COMMIT, BUILD_CREATED
 from ..schemas import (
     AllSettings,
@@ -264,6 +264,7 @@ def get_settings(db: Session = Depends(get_db), _: User = Depends(get_current_us
         show_cmdb_integrations=_get(db, "show_cmdb_integrations", "false") == "true",
         show_services_nav=_get(db, "show_services_nav", "false") == "true",
         show_applications_nav=_get(db, "show_applications_nav", "false") == "true",
+        show_vsphere=bool((vsphere := db.get(VsphereConnection, 1)) and vsphere.enabled),
         show_dhcp_monitor_nav=_get(db, "show_dhcp_monitor_nav", "false") == "true",
         show_network_topology_nav=_get(db, "show_network_topology_nav", "false") == "true",
         show_plugin_api=_get(db, "show_plugin_api", "false") == "true",
@@ -550,11 +551,17 @@ def update_notification_rules(
 
 
 @router.put("/ui", response_model=MessageResponse)
-def update_ui_settings(
+async def update_ui_settings(
     data: UiSettings,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    from .vsphere import _discovery_lock, _set_feature_enabled
+    if data.show_vsphere is not None or not data.advanced_view_enabled:
+        if _discovery_lock.locked():
+            raise HTTPException(409, "A vSphere operation is already running")
+        # No await between checking the lock and committing the feature change.
+        _set_feature_enabled(db, bool(data.advanced_view_enabled and data.show_vsphere))
     _set(db, "advanced_view_enabled", "true" if data.advanced_view_enabled else "false")
     _set(db, "show_cmdb_integrations", "true" if data.show_cmdb_integrations else "false")
     _set(db, "show_services_nav", "true" if data.show_services_nav else "false")

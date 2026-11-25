@@ -69,7 +69,7 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
             raise HTTPException(400, str(exc)) from None
         username = data.username.strip()
         changed_target = bool(row and (row.endpoint != endpoint or row.username != username))
-        if data.enabled and (not endpoint or not username or
+        if (endpoint or username or data.password) and (not endpoint or not username or
                              not (data.password or (row and row.encrypted_secret and not changed_target))):
             raise HTTPException(400, "Configure the vCenter HTTPS URL, username and password")
         if row is None:
@@ -98,21 +98,27 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
         return _response(row)
 
 
+def _set_feature_enabled(db, enabled: bool):
+    row = _config(db)
+    if row is None:
+        if not enabled:
+            return None
+        row = VsphereConnection(id=1, enabled=True, revision=1)
+        db.add(row)
+        db.flush()
+    elif row.enabled != enabled:
+        row.enabled = enabled
+        row.revision = (row.revision or 0) + 1
+    return row
+
+
 @router.put("/enabled")
 async def set_enabled(data: EnabledUpdate, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_advanced(db)
     if _discovery_lock.locked():
         raise HTTPException(409, "A vSphere operation is already running")
     async with _discovery_lock:
-        row = _config(db)
-        if not row:
-            if data.enabled:
-                raise HTTPException(400, "Configure vSphere in Inventory tools first")
-            return _response(None)
-        if data.enabled and not (row.endpoint and row.username and row.encrypted_secret):
-            raise HTTPException(400, "Configure vSphere in Inventory tools first")
-        row.enabled = data.enabled
-        row.revision = (row.revision or 0) + 1
+        row = _set_feature_enabled(db, data.enabled)
         db.commit()
         return _response(row)
 

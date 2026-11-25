@@ -434,6 +434,14 @@ class IdoitExportCsvTest(unittest.TestCase):
             {"title": "other-package", "assigned_version": "2.0"},
         ])
 
+    def test_idoit_uses_inventory_parser_for_display_name_and_apk(self):
+        from backend.services.idoit import _software_assignments
+        self.assertEqual(_software_assignments({"software": {"installed_software": {"value": [
+            {"DisplayName": "Example Tool", "DisplayVersion": "1.2", "Publisher": "Example"},
+        ]}}}), [{"title": "Example Tool", "assigned_version": "1.2", "description": "Publisher: Example"}])
+        self.assertEqual(_software_assignments({"software": {"installed_software": {"value": "example-package-1.2-r0"}}}),
+                         [{"title": "example-package", "assigned_version": "1.2-r0"}])
+
     def test_default_idoit_payload_maps_new_inventory_to_standard_categories(self):
         db = self.Session()
         try:

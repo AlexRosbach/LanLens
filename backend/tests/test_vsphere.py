@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-vsphere-inventory-123456")
 from backend.services.notification import PinnedHttpResponse
-from backend.routers.vsphere import _client
+from backend.routers.vsphere import _client, _set_feature_enabled
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.database import Base
@@ -25,6 +25,17 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         self.db.close()
         self.engine.dispose()
+
+    def test_feature_enable_without_credentials(self):
+        row = _set_feature_enabled(self.db, True)
+        self.assertTrue(row.enabled)
+        self.assertEqual(row.endpoint, "")
+        with self.assertRaises(HTTPException):
+            _client(row)
+        row.endpoint = "https://vc.example.test"
+        _set_feature_enabled(self.db, False)
+        self.assertFalse(row.enabled)
+        self.assertEqual(row.endpoint, "https://vc.example.test")
 
     def test_endpoint(self):
         self.assertEqual(validate_endpoint("https://vc.example.test/"), "https://vc.example.test")

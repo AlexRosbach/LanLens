@@ -260,7 +260,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
                 onSuggestionApplied={load}
               />
             ) : (
-              <FindingsGrid findings={findingsByTab(effectiveTab)} />
+              <FindingsGrid key={effectiveTab} findings={findingsByTab(effectiveTab)} alwaysExpanded={effectiveTab === 'applications'} />
             )}
           </div>
         </>

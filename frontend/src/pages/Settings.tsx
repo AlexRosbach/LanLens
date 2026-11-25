@@ -1592,6 +1592,7 @@ export default function Settings() {
         current.show_debug_tools,
         current.debug_log_level,
         current.show_applications_nav,
+        current.show_vsphere,
       )
       setAdvancedViewEnabled(current.advanced_view_enabled)
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
@@ -1665,6 +1666,7 @@ export default function Settings() {
             show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
             show_services_nav: checked ? current.show_services_nav : false,
             show_applications_nav: checked ? current.show_applications_nav : false,
+            show_vsphere: checked ? current.show_vsphere : false,
             show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
             show_network_topology_nav: checked ? current.show_network_topology_nav : false,
             show_plugin_api: checked ? current.show_plugin_api : false,
@@ -1744,6 +1746,14 @@ export default function Settings() {
       title: t('feature_category_extensions'),
       description: t('feature_category_extensions_hint'),
       items: [
+        {
+          key: 'vsphere',
+          checked: current.show_vsphere,
+          disabled: !current.advanced_view_enabled,
+          label: t('vsphere_enable'),
+          description: t('vsphere_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_vsphere: checked }),
+        },
         {
           key: 'plugin-api',
           checked: current.show_plugin_api,
@@ -1988,7 +1998,6 @@ export default function Settings() {
                 <p className="mt-1 text-xs text-text-subtle">{group.description}</p>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
-                {group.id === 'extensions' && current.advanced_view_enabled && <VsphereCard featureOnly />}
                 {group.items.map((item) => (
                   <ToggleSwitch
                     key={item.key}
@@ -3279,7 +3288,7 @@ export default function Settings() {
         <div className="space-y-4">
           <DocumentationExportCard />
           <DeviceMergeCard />
-          {current.advanced_view_enabled && <VsphereCard />}
+          {current.advanced_view_enabled && current.show_vsphere && <VsphereCard />}
         </div>
       </div>
       )}

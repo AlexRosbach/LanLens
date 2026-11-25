@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import apiClient from '../../api/client'
 import { useI18n } from '../../i18n'
-import ToggleSwitch from '../ui/ToggleSwitch'
 
 type Config = { sysid_field_key: number | null; writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
 type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: Record<string, unknown> }
@@ -21,7 +20,7 @@ const fields = [
   ['memory_size_mib','vsphere_memory'], ['disks','vsphere_disks'],
 ] as const
 
-export default function VsphereCard({featureOnly = false}: {featureOnly?: boolean}) {
+export default function VsphereCard() {
   const { t } = useI18n()
   const [config, setConfig] = useState<Config | null>(null)
   const [password, setPassword] = useState('')
@@ -48,9 +47,9 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       .catch(e => {if (active) failure(e)})
     return () => {active = false}
   }, [])
-  const enabled = !!config?.enabled && !dirty
+  const enabled = !!(config?.enabled && config.endpoint && config.username && config.has_password) && !dirty
   useEffect(() => {
-    if (!enabled || featureOnly) {setInventory(null); return}
+    if (!enabled) {setInventory(null); return}
     let active = true
     apiClient.get<Inventory>('/vsphere/inventory', {params: {kind, offset: page*25, limit:25}})
       .then(r => {if (active) setInventory(r.data)}).catch(e => {if (active) failure(e)})
@@ -60,16 +59,16 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
     Promise.all((['cluster','datacenter'] as const).map(k => apiClient.get<Inventory>('/vsphere/inventory', {params:{kind:k,limit:100}})))
       .then(rs=>{if(active) setTopologyNames(Object.fromEntries(rs.flatMap(r=>r.data.items.map(i=>[i.external_id,i.name]))))}).catch(()=>{})
     return () => {active=false}
-  }, [enabled, featureOnly, kind, page, refresh])
+  }, [enabled, kind, page, refresh])
   useEffect(() => {
-    if (featureOnly || !enabled) return
+    if (!enabled) return
     let active = true
     setCustomFields([]); setCustomFieldsError(false)
     apiClient.get<{key: number; name: string}[]>('/vsphere/custom-fields')
       .then(r => { if (active) setCustomFields(r.data) })
       .catch(() => { if (active) setCustomFieldsError(true) })
     return () => { active = false }
-  }, [featureOnly, enabled, refresh])
+  }, [enabled, refresh])
   function edit(patch: Partial<Config>) {
     if (config) setConfig({...config,...patch})
     setDirty(true); setResult(null); setMessage('')
@@ -95,11 +94,6 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       }
     } catch(e){failure(e)} finally {setBusy(false)}
   }
-  async function toggleFeature(value: boolean) {
-    setBusy(true);setError('')
-    try {setConfig((await apiClient.put<Config>('/vsphere/enabled',{enabled:value})).data)}
-    catch(e){failure(e)} finally {setBusy(false)}
-  }
   function renderField(key: string, value: unknown): string {
     if (value === null || value === undefined || value === '') return '—'
     if (typeof value === 'string') return key === 'host_id' ? hostNames[value] || value :
@@ -108,15 +102,11 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
       [v.label || v.disk_id, v.uuid || '—', typeof v.capacity_bytes === 'number' ? v.capacity_bytes + ' B' : '', v.backing_file].filter(Boolean).join(' · ') : String(v)).join('\n') || '—'
     return String(value)
   }
-  if (featureOnly) return <div className="space-y-2">
-    <ToggleSwitch checked={!!config?.enabled} disabled={busy || !config} label={t('vsphere_enable')} description={t('vsphere_hint')} onChange={toggleFeature} />
-    {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-  </div>
+  if (config && !config.enabled) return null
   return <section className="rounded-xl border border-border bg-surface p-4 space-y-4">
     <h2 className="font-semibold text-text-base">{t('vsphere_title')}</h2><p className="text-sm text-text-muted">{t('vsphere_hint')}</p>
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     {config && <>
-      <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.enabled} disabled={busy} onChange={e=>edit({enabled:e.target.checked})}/>{t('vsphere_enable')}</label>
       <div className="grid gap-3 md:grid-cols-2">
         <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_endpoint')}<input className={control} type="url" value={config.endpoint} maxLength={512} placeholder="https://vcenter.example.test" disabled={busy} onChange={e=>edit({endpoint:e.target.value,verify_tls:true,sysid_field_key:null,writeback_sysid:false})}/></label>
         <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_user')}<input className={control} value={config.username} maxLength={255} autoComplete="off" disabled={busy} onChange={e=>edit({username:e.target.value,sysid_field_key:null,writeback_sysid:false})}/></label>

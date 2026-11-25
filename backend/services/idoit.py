@@ -34,6 +34,7 @@ from .passive_discovery import deduplicate_observations
 from .snmp import bulk_identities_for_devices, identity_for_device
 from .dns_names import device_display_name
 from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values, writeback_idoit_sysid
+from .software_inventory import parse_software
 
 logger = logging.getLogger(__name__)
 
@@ -1130,27 +1131,12 @@ def _software_assignments(findings: dict[str, dict[str, Any]]) -> list[dict[str,
     detected version stays on the host's Application assignment.  This mirrors
     the OS relationship and prevents a separate object for every version.
     """
-    entry = findings.get("software", {}).get("installed_software")
+    candidates = [group.get("installed_software") for group in findings.values() if isinstance(group, dict)]
+    entry = max((item for item in candidates if isinstance(item, dict)), key=lambda item: item.get("observed_at") or "", default=None)
     raw = entry.get("value") if isinstance(entry, dict) else None
-    values = _decode_finding_value(raw)
-    if isinstance(values, dict):
-        values = [values]  # PowerShell ConvertTo-Json emits an object for a single result.
-    elif isinstance(values, str):
-        # SSH package collectors emit tab-separated package, version and architecture.
-        rows = [line.split("\t") for line in values.splitlines() if "\t" in line]
-        values = [{"name": row[0], "version": row[1]} for row in rows if len(row) >= 2]
-    if not isinstance(values, list):
-        return []
     result: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
-    for item in values[:2000]:
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("name") or item.get("Name") or "").strip()[:255]
-        if not title:
-            continue
-        version = str(item.get("version") or item.get("Version") or "").strip()[:255]
-        publisher = str(item.get("publisher") or item.get("Publisher") or "").strip()[:500]
+    for title, publisher, version, _architecture in parse_software(raw):
         identity = (title.casefold(), version.casefold())
         if identity in seen:
             continue
@@ -2446,7 +2432,7 @@ class IdoitClient:
                     break
                 for entry in entries:
                     candidate_type = _object_entry_type_constant(entry)
-                    numeric_type = str(_plain_category_value(entry.get("type")) or "")
+                    numeric_type = str(_plain_category_value(entry.get("type") or entry.get("objecttype") or entry.get("isys_obj__isys_obj_type__id")) or "")
                     status = str(_plain_category_value(entry.get("status")) or "")
                     if ((candidate_type and candidate_type != object_type)
                             or (expected_type_id and numeric_type.isdigit() and numeric_type != expected_type_id)
@@ -2982,7 +2968,7 @@ class IdoitClient:
         failed = {}
         for field, value in metadata.items():
             try:
-                await self.save_category(object_id, category, {**link, field: value}, entry_id)
+                await self.save_category(object_id, category, {field: value}, entry_id)
             except IdoitConnectionError as exc:
                 failed[field] = exc.to_detail()
         try:
@@ -3311,6 +3297,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     "enable create-missing or create the OS object in i-doit"
                 )
         applications = payload.get("applications") if isinstance(payload.get("applications"), list) else []
+        details["detected_application_count"] = len(applications)
         application_entries: list[dict[str, Any]] = []
         application_details: list[dict[str, Any]] = []
         unmatched_application_titles: list[str] = []

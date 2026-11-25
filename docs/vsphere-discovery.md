@@ -21,4 +21,4 @@ In Settings → CMDB, the optional i-doit mapping sources include VM instance/BI
 
 ## Optional i-doit SYS-ID custom attribute writeback
 
-Enable VMware in Settings → Features → Extensions. Save and enable the connection, then select a VM-compatible custom attribute by its field key in Inventory tools. Writeback is opt-in; upgrades from annotation writeback disable it until a field is selected. Existing VM notes are never modified by the sync. Different existing custom attribute values are protected. vCenter 8.0 Update 1+ and permission to set the selected custom attribute are required.
+Enable VMware in Settings → Features → Extensions and save changes. Its configuration appears in Inventory tools only while the feature is enabled. Configure and save the connection, then select a VM-compatible custom attribute by its field key in Inventory tools. Writeback is opt-in; upgrades from annotation writeback disable it until a field is selected. Existing VM notes are never modified by the sync. Different existing custom attribute values are protected. vCenter 8.0 Update 1+ and permission to set the selected custom attribute are required.
