@@ -1469,12 +1469,12 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         await failing.logout_best_effort()
         self.assertIsNone(failing._session_id)
 
-    async def test_category_fallback_preserves_title_and_returns_warning_on_rejection(self):
+    async def test_category_rejection_does_not_retry_speculative_writes(self):
         attempts = []
 
         class RejectingClient(IdoitClient):
-            async def find_reusable_category_entry(self, object_id, category, data):
-                return "7"
+            async def read_category(self, object_id, category):
+                return [{"id": "7", "status": "2", "title": "Old model"}]
 
             async def save_category(self, object_id, category, data, entry_id=None):
                 attempts.append(dict(data))
@@ -1492,8 +1492,7 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(attempts[0], {"title": "Demo model", "manufacturer": "Demo vendor"})
-        self.assertEqual(attempts[1], {"title": "Demo model"})
-        self.assertEqual(attempts[2], {"manufacturer": "Demo vendor", "title": "Demo model"})
+        self.assertEqual(len(attempts), 1)
 
     async def test_cpu_reuses_legacy_description_entry(self):
         class CpuClient(IdoitClient):
@@ -1509,8 +1508,8 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_cpu_description_rejection_is_not_silenced(self):
         class CpuClient(IdoitClient):
-            async def find_reusable_category_entry(self, object_id, category, data):
-                return "17"
+            async def read_category(self, object_id, category):
+                return [{"id": "17", "status": "2", "title": "Example CPU", "description": "Old"}]
 
             async def save_category(self, object_id, category, data, entry_id=None):
                 if "description" in data:
@@ -1520,8 +1519,8 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         client = CpuClient(get_config(self.Session()))
         result = await client.save_category_best_effort("42", "C__CATG__CPU",
             {"title": "Example CPU", "description": "Processor: Example CPU"})
-        self.assertEqual(result["status"], "partial")
-        self.assertIn("description", result["failed_fields"])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "save_rejected")
 
     async def test_idoit_rejects_http_before_sending_credentials(self):
         from dataclasses import replace
@@ -1692,7 +1691,7 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         client = Client(get_config(self.Session()))
         data = {"application": 101, "assigned_version": "8.0"}
         client.rows = [{"id": str(i), "objID": "42", "status": "2",
-                        "application": {"id": "101", "title": "Example"}, "assigned_version": {"title": "8.0", "id": "9"}}
+                        "application": {"id": "200", "ref_id": "101", "ref_title": "Example"}, "assigned_version": {"ref_title": "8.0", "ref_id": "9", "id": "99"}}
                        for i in (1, 2)]
         result = await client.reconcile_category("42", "C__CATG__APPLICATION", [data])
         self.assertEqual(result[0]["status"], "ambiguous")
@@ -1729,11 +1728,11 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             {"Model": "Example Virtual Disk", "Size": "100 GB", "Index": 0},
             {"Model": "Example Virtual Disk", "Size": "200 GB", "Index": 1},
         ])
-        for _ in range(2):
+        for expected in ("created", "unchanged"):
             for disk in disks:
                 result = await client.save_category_best_effort("42", "C__CATG__DRIVE", disk)
-                self.assertEqual(result["status"], "saved")
-        self.assertEqual(client.writes, [None, None, "91", "92"])
+                self.assertEqual(result["status"], expected)
+        self.assertEqual(client.writes, [None, None])
         self.assertEqual(len(client.rows), 3)
         self.assertEqual(client.rows[0], {"id": "90", "title": "Example Virtual Disk"})
         self.assertEqual([row["capacity"] for row in client.rows[1:]], [100.0, 200.0])
@@ -1753,7 +1752,7 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                                                                     {"title": title, "serial": "NEW"}))
         client.rows = [{"id": "10", "title": title}, {"id": "11", "title": title}]
         result = await client.save_category_best_effort("42", "C__CATG__DRIVE", {"title": title})
-        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["status"], "ambiguous")
 
     async def test_drive_rejected_write_is_not_retried_as_partial_rows(self):
         class DriveClient(IdoitClient):
@@ -1772,7 +1771,7 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(client.calls, 1)
 
-    async def test_application_link_survives_invalid_version(self):
+    async def test_application_invalid_version_does_not_create_partial_assignment(self):
         class Client(IdoitClient):
             linked = False
             async def read_category(self, object_id, category):
@@ -1784,21 +1783,24 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                 return {"success": True, "entry": 17}
         client = Client(get_config(self.Session()))
         result = await client.save_category_best_effort("42", "C__CATG__APPLICATION", {"application": 101, "assigned_version": "1.2"})
-        self.assertEqual(result["status"], "partial")
-        self.assertEqual(result["entry_id"], "17")
-        self.assertIn("assigned_version", result["failed_fields"])
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(client.linked)
 
-    async def test_application_save_checks_readback(self):
+    async def test_application_save_uses_acknowledged_entry_without_readback(self):
         class ReadbackClient(IdoitClient):
+            reads = 0
             async def save_category(self, object_id, category, data, entry_id=None):
                 return {"success": True, "entry": 17}
 
             async def read_category(self, object_id, category):
+                self.reads += 1
                 return []
 
         client = ReadbackClient(get_config(self.Session()))
         result = await client.save_category_best_effort("42", "C__CATG__APPLICATION", {"application": 101})
-        self.assertEqual(result["status"], "verification_failed")
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["entry_id"], "17")
+        self.assertEqual(client.reads, 1)
 
     async def test_category_save_rejects_explicit_unsuccessful_result(self):
         class RejectingClient(IdoitClient):

@@ -1893,7 +1893,7 @@ def _plain_category_value(value: Any) -> Any:
 
 def _object_reference_id(value: Any) -> Optional[str]:
     if isinstance(value, dict):
-        for key in ("id", "objID", "object_id", "object", "isys_obj__id"):
+        for key in ("ref_id", "object_id", "objID", "object", "isys_obj__id", "id"):
             candidate = value.get(key)
             if candidate not in (None, ""):
                 try:
@@ -3007,8 +3007,7 @@ class IdoitClient:
             decoded = _category_entries(raw)
             if any(not _category_entry_id(row) for row in decoded):
                 raise IdoitConnectionError("Category read contains rows without entry identifiers", stage="category_read")
-            rows = [dict(row) for row in decoded
-                    if str(_plain_category_value(row.get("status")) or "") in ("", "2", "C__RECORD_STATUS__NORMAL")]
+            rows = [dict(row) for row in decoded if _category_row_active(row)]
         except IdoitConnectionError as exc:
             return [{"status": "failed", "reason": "read_failed", "error": exc.to_detail()} for _ in (desired or [{}])]
         if clean_global and category == "C__CATG__GLOBAL" and len(rows) == 1:
@@ -3075,201 +3074,23 @@ class IdoitClient:
         return results
 
     async def save_category_best_effort(self, object_id: str, category: str, data: dict[str, Any]) -> dict[str, Any]:
-        """Save a category without letting one invalid field abort the sync.
-
-        i-doit category validation is strict and differs by object type/version.
-        Try the full category first; if i-doit rejects it, retry individual
-        fields so valid information still lands in the CMDB and the operator can
-        see exactly which field was rejected.
-        """
-        if category == "C__CATG__DRIVE":
-            return await self.save_drive_category(object_id, data)
-        if category == "C__CATG__APPLICATION" and data.get("application"):
-            return await self.save_application_assignment(object_id, data)
-        entry_id = await self.find_reusable_category_entry(object_id, category, data)
-        try:
-            result = await self.save_category(object_id, category, data, entry_id)
-            response: dict[str, Any] = {"status": "saved", "result": result}
-            if entry_id:
-                response["entry_id"] = entry_id
-            return response
-        except IdoitConnectionError as full_error:
-            saved: dict[str, Any] = {}
-            failed: dict[str, Any] = {}
-            for field, value in data.items():
-                retry_data = {field: value}
-                # Several i-doit categories validate mandatory fields even
-                # while updating one property. Preserve a supplied title on
-                # every field-level retry instead of sending incomplete rows.
-                if field != "title" and data.get("title") not in (None, ""):
-                    retry_data["title"] = data["title"]
-                if category in {"C__CATG__APPLICATION", "C__CATG__OPERATING_SYSTEM"} and field != "application" and data.get("application"):
-                    retry_data["application"] = data["application"]
-                try:
-                    saved[field] = await self.save_category(object_id, category, retry_data, entry_id)
-                    if not entry_id and category in {"C__CATG__APPLICATION", "C__CATG__OPERATING_SYSTEM", "C__CATG__CPU"}:
-                        entry_id = await self.find_reusable_category_entry(object_id, category, data)
-                        if not entry_id:
-                            break  # Do not create additional partial rows.
-                except IdoitConnectionError as field_error:
-                    failed[field] = field_error.to_detail()
-            if not saved:
-                optional_fields = OPTIONAL_IDOIT_CATEGORY_FIELDS.get(category, set())
-                if failed and all(field in optional_fields for field in failed):
-                    response = {"status": "skipped_optional", "ignored_fields": sorted(failed.keys()), "ignored_field_errors": failed}
-                    if entry_id:
-                        response["entry_id"] = entry_id
-                    return response
-                response = {
-                    "status": "failed",
-                    "failed_fields": failed,
-                    "error": full_error.to_detail(),
-                }
-                if entry_id:
-                    response["entry_id"] = entry_id
-                return response
-            optional_fields = OPTIONAL_IDOIT_CATEGORY_FIELDS.get(category, set())
-            ignored = {field: error for field, error in failed.items() if field in optional_fields}
-            warning_failed = {field: error for field, error in failed.items() if field not in optional_fields}
-            response = {"status": "partial", "saved_fields": sorted(saved.keys()), "failed_fields": warning_failed}
-            if ignored:
-                response["ignored_fields"] = sorted(ignored.keys())
-                response["ignored_field_errors"] = ignored
-            if entry_id:
-                response["entry_id"] = entry_id
-            return response
+        return (await self.reconcile_category(object_id, category, [data]))[0]
 
     async def save_application_assignment(self, object_id: str, data: dict[str, Any]) -> dict[str, Any]:
-        """Create the relationship independently of optional version/description."""
-        category = "C__CATG__APPLICATION"
-        link = {"application": data["application"]}
-        metadata = {k: v for k, v in data.items() if k != "application"}
-        try:
-            entry_id = await self.find_reusable_category_entry(object_id, category, link)
-            if not entry_id:
-                result = await self.save_category(object_id, category, link)
-                entry_id = await self.find_reusable_category_entry(object_id, category, link)
-                if not entry_id:
-                    return {"status": "verification_failed", "result": result}
-            else:
-                result = {"already_linked": True}
-        except IdoitConnectionError as exc:
-            return {"status": "failed", "error": exc.to_detail()}
-        failed = {}
-        for field, value in metadata.items():
-            try:
-                await self.save_category(object_id, category, {field: value}, entry_id)
-            except IdoitConnectionError as exc:
-                failed[field] = exc.to_detail()
-        try:
-            verified = await self.find_reusable_category_entry(object_id, category, link)
-        except IdoitConnectionError:
-            verified = None
-        if verified != entry_id:
-            return {"status": "verification_failed", "result": result}
-        if failed:
-            return {"status": "partial", "entry_id": entry_id, "failed_fields": failed,
-                    "saved_fields": ["application", *[f for f in metadata if f not in failed]]}
-        return {"status": "saved", "entry_id": entry_id, "verified_entry_id": verified, "result": result}
+        return await self.save_category_best_effort(object_id, "C__CATG__APPLICATION", data)
 
     async def save_drive_category(self, object_id: str, data: dict[str, Any]) -> dict[str, Any]:
-        # One full write per disk. Never retry individual fields without a
-        # proven entry ID; a partial create could otherwise add/overwrite rows.
-        category = "C__CATG__DRIVE"
-        try:
-            if not (_drive_serial(data.get("serial")) or _normalized_match_text(data.get("mount_point"))
-                    or " [lanlens disk: " in _normalized_match_text(data.get("title"))):
-                raise IdoitConnectionError("Drive has no usable identity", stage="category_match")
-            entry_id = await self.find_reusable_category_entry(object_id, category, data)
-            result = await self.save_category(object_id, category, data, entry_id)
-        except IdoitConnectionError as exc:
-            return {"status": "failed", "error": exc.to_detail()}
-        try:
-            verified = await self.find_reusable_category_entry(object_id, category, data)
-        except IdoitConnectionError:
-            verified = None
-        if not verified or (entry_id and entry_id != verified):
-            return {"status": "verification_failed", "result": result}
-        return {"status": "saved", "result": result, "entry_id": verified,
-                "action": "updated" if entry_id else "created"}
+        return await self.save_category_best_effort(object_id, "C__CATG__DRIVE", data)
 
     async def find_reusable_category_entry(self, object_id: str, category: str, data: dict[str, Any]) -> Optional[str]:
-        if category not in MULTIVALUE_CATEGORY_MATCH_FIELDS and category not in COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS:
+        key = _category_identity_key(category, data)
+        if key is None:
             return None
-        try:
-            result = await self.read_category(object_id, category)
-        except IdoitConnectionError:
-            # A failed read cannot establish that an existing software assignment
-            # is absent. Propagate it rather than appending duplicate links.
-            if category in {"C__CATG__OPERATING_SYSTEM", "C__CATG__APPLICATION", "C__CATG__CPU", "C__CATG__DRIVE"}:
-                raise
-            return None
-        entries = _category_entries(result)
-        if not entries:
-            return None
-        if category == "C__CATG__DRIVE":
-            return _drive_match_id(entries, data)
-        composite_fields = COMPOSITE_MULTIVALUE_CATEGORY_MATCH_FIELDS.get(category)
-        if composite_fields:
-            expected_values = {
-                field: _plain_category_value(data.get(field))
-                for field in composite_fields
-            }
-            if all(value not in (None, "") for value in expected_values.values()):
-                for entry in entries:
-                    if all(
-                        str(_plain_category_value(entry.get(field)) or "").strip().lower()
-                        == str(expected).strip().lower()
-                        for field, expected in expected_values.items()
-                    ):
-                        return _category_entry_id(entry)
-            return None
-        if category == "C__CATG__CPU":
-            # Reuse the unique existing CPU even if an older sync stored its
-            # model in a structured JSON description instead of the title.
-            expected = _normalized_match_text(data.get("title") or data.get("type"))
-            if not expected:
-                return None
-            matches = set()
-            for entry in entries:
-                status = str(_plain_category_value(entry.get("status")) or "")
-                if status and status not in ("2", "C__RECORD_STATUS__NORMAL"):
-                    continue
-                legacy = _decode_finding_value(_plain_category_value(entry.get("description")))
-                if isinstance(legacy, list) and len(legacy) == 1:
-                    legacy = legacy[0]
-                legacy_title = (legacy.get("Name") or legacy.get("name") or legacy.get("ModelName")
-                                or legacy.get("model_name")) if isinstance(legacy, dict) else None
-                identities = [entry.get("title"), entry.get("type"), legacy_title]
-                if any(_normalized_match_text(value) == expected for value in identities):
-                    if entry_id := _category_entry_id(entry):
-                        matches.add(entry_id)
-            if len(matches) > 1:
-                raise IdoitConnectionError("Multiple CPU entries match; refusing to overwrite an ambiguous entry",
-                                           stage="category_match", endpoint=self.endpoint)
-            return next(iter(matches), None)
-        match_fields = MULTIVALUE_CATEGORY_MATCH_FIELDS[category]
-        for field in match_fields:
-            expected = _plain_category_value(data.get(field))
-            if expected in (None, ""):
-                continue
-            for entry in entries:
-                if field == "application":
-                    expected_reference = _object_reference_id(data.get(field))
-                    current_reference = _object_reference_id(entry.get(field))
-                    if expected_reference and current_reference == expected_reference:
-                        return _category_entry_id(entry)
-                    continue
-                current = _plain_category_value(entry.get(field))
-                if current not in (None, "") and str(current).strip().lower() == str(expected).strip().lower():
-                    return _category_entry_id(entry)
-        # LanLens manages one discovered MAC/IP identity per object. If i-doit
-        # already has an identity entry but its value changed, update that entry
-        # instead of appending a duplicate. Inventory categories must never use
-        # this fallback because each port/certificate/hardware row is distinct.
-        if category in FIRST_ENTRY_REUSE_CATEGORIES:
-            return _category_entry_id(entries[0])
-        return None
+        rows = [row for row in _category_entries(await self.read_category(object_id, category)) if _category_row_active(row)]
+        matches = _matching_category_rows(category, rows, data, key)
+        if len(matches) > 1 or (matches and not _category_entry_id(matches[0])):
+            raise IdoitConnectionError("Ambiguous category identity; refusing update", stage="category_match")
+        return _category_entry_id(matches[0]) if matches else None
 
     async def cleanup_lanlens_global_description(self, object_id: str) -> Optional[str]:
         try:
@@ -3283,7 +3104,11 @@ class IdoitClient:
         cleaned = _clean_lanlens_global_description(description)
         if cleaned is None:
             return None
-        await self.save_category(object_id, "C__CATG__GLOBAL", {"description": cleaned})
+        if len(entries) != 1 or not _category_entry_id(entries[0]):
+            return None
+        await self.save_category(object_id, "C__CATG__GLOBAL", {"description": cleaned}, _category_entry_id(entries[0]))
+        if self.category_snapshot is not None:
+            self.category_snapshot[(str(object_id), "C__CATG__GLOBAL")] = [{**entries[0], "description": cleaned}]
         return cleaned
 
     async def object_sysid(self, object_id: str) -> Optional[str]:
@@ -3312,6 +3137,13 @@ class IdoitClient:
 _SINGLE_VALUE_CATEGORIES = {"C__CATG__GLOBAL", "C__CATG__MODEL", "C__CATG__ACCOUNTING"}
 
 
+def _category_row_active(row):
+    status = row.get("status")
+    if isinstance(status, dict):
+        status = status.get("id") or status.get("const") or status.get("value")
+    return str(status or "") in ("", "2", "C__RECORD_STATUS__NORMAL")
+
+
 def _category_identity_key(category, data):
     def text(field):
         return _normalized_match_text(data.get(field))
@@ -3319,7 +3151,7 @@ def _category_identity_key(category, data):
         oid = _object_reference_id(data.get("application"))
         version = data.get("assigned_version")
         if isinstance(version, dict):
-            version = version.get("title") or version.get("value") or version.get("name") or ""
+            version = version.get("ref_title") or version.get("title") or version.get("value") or version.get("name") or ""
         return (oid, _normalized_match_text(version)) if oid and category == "C__CATG__APPLICATION" else (oid,) if oid else None
     if category == "C__CATG__DRIVE":
         serial = _drive_serial(data.get("serial")).casefold()
@@ -3383,7 +3215,7 @@ def _category_value_equal(field, current, expected):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return str(float(value))
         return str(value).strip()
-    choices = [current] if not isinstance(current, dict) else [current.get(k) for k in ("value", "title", "name", "const", "id") if current.get(k) is not None]
+    choices = [current] if not isinstance(current, dict) else [current.get(k) for k in ("ref_title", "value", "title", "name", "const", "ref_id", "id") if current.get(k) is not None]
     want = scalar(_plain_category_value(expected))
     for value in choices:
         if scalar(value) == want:
