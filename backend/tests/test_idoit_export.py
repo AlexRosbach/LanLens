@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import DeepScanFinding, DeepScanRun, Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, Setting, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.models import DeepScanFinding, DeepScanRun, Device, IdoitDeviceSync, IdoitSyncLog, PassiveDiscoveryObservation, PortScan, Service, Setting, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
 from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, _drive_entries, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
@@ -680,15 +680,19 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             db.commit()
             with patch("backend.services.idoit.IdoitClient", FakeClient):
                 result = await sync_device_to_idoit(db, device, mode="manual")
-            self.assertEqual(result["status"], "synced_with_warnings")
+            self.assertEqual(result["status"], "synced")
+            self.assertIsNone(db.query(IdoitDeviceSync).filter_by(device_id=device.id).one().last_error)
             applications = [data for category, data in saved_categories if category == "C__CATG__APPLICATION"]
             self.assertEqual(applications, [
                 {"application": 101, "assigned_version": "132.0", "description": "Publisher: Mozilla"},
             ])
-            self.assertEqual(len(result["warnings"]), 1)
-            self.assertIn("1 installed application(s)", result["warnings"][0])
-            self.assertIn("'7-Zip'", result["warnings"][0])
-            self.assertNotIn("more", result["warnings"][0])
+            self.assertEqual(result["warnings"], [])
+            log = db.query(IdoitSyncLog).filter_by(device_id=device.id).order_by(IdoitSyncLog.id.desc()).first()
+            warnings = json.loads(log.details_json)["warnings"]
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("1 installed application(s)", warnings[0])
+            self.assertIn("'7-Zip'", warnings[0])
+            self.assertNotIn("more", warnings[0])
         finally:
             db.close()
 
@@ -805,6 +809,30 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(release["object_id"], "103")
         for title in ("Example Suite 2025", "Example Suite Enterprise 2.0"):
             self.assertEqual((await client.resolve_application(title))["action"], "match_required")
+
+    async def test_application_catalog_matches_typographic_and_architecture_aliases(self):
+        class CatalogClient(IdoitClient):
+            async def read_objects(self, params):
+                if "title" in params["filter"]:
+                    return []
+                return [
+                    {"id": "101", "title": "9–Archive (64-bit)", "type_const": "C__OBJTYPE__APPLICATION"},
+                    {"id": "102", "title": "Example Editor 5.0", "type_const": "C__OBJTYPE__APPLICATION"},
+                    {"id": "103", "title": "Example-Suite", "type_const": "C__OBJTYPE__APPLICATION"},
+                    {"id": "104", "title": "Example–Suite", "type_const": "C__OBJTYPE__APPLICATION"},
+                ]
+            async def create_object(self, title, object_type):
+                raise AssertionError("must not create duplicate or ambiguous objects")
+
+        client = CatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("9-Archive 21.07 (x64)")
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(result["action"], "matched_normalized")
+        self.assertEqual((await client.resolve_application("Example Editor 4.1"))["action"], "match_required")
+        self.assertEqual((await client.resolve_application("Example Suite 3.0", create_missing=True))["action"], "ambiguous_match")
+        diagnosis = await client.diagnose_application("9-Archive 21.07 (x64)")
+        self.assertEqual(diagnosis["resolution"]["object_id"], "101")
+        self.assertEqual(diagnosis["candidates"][-1]["normalized_match_count"], 1)
 
     async def test_application_catalog_recovers_from_empty_title_filters(self):
         class CatalogClient(IdoitClient):

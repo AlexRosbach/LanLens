@@ -2026,6 +2026,12 @@ def _application_title_candidates(value: str) -> list[str]:
     if not title:
         return []
     candidates = [title]
+    normalized = unicodedata.normalize("NFKC", title)
+    normalized = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if normalized != title:
+        candidates.append(normalized)
+        title = normalized
     arch = r"(?:x64|x86|amd64|arm64|aarch64|i[3-6]86|32[- ]?bit|64[- ]?bit)"
     architecture_suffix = re.compile(
         r"(?:\s*\(" + arch + r"\)|\s*\[" + arch + r"\]|\s+" + arch + r")$", re.IGNORECASE,
@@ -2050,6 +2056,25 @@ def _application_title_candidates(value: str) -> list[str]:
         else:
             break
     return candidates
+
+
+def _application_match_key(value: str) -> str:
+    """Normalize typographic differences, without dropping product editions/years."""
+    text = unicodedata.normalize("NFKC", value).casefold()
+    text = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", text)
+    text = re.sub(r"[-\u2010-\u2015\u2212]+", " ", text)
+    # A hyphen between a numeric brand prefix and letters is optional.
+    text = re.sub(r"(?<=\d)(?=[a-z])", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _application_catalog_aliases(title: str) -> set[str]:
+    # Architecture is not a product edition. Keep explicit catalog versions
+    # intact: never map an installed release onto a different release.
+    normalized = unicodedata.normalize("NFKC", title)
+    arch = r"(?:x64|x86|amd64|arm64|aarch64|i[3-6]86|32[- ]?bit|64[- ]?bit)"
+    without_arch = re.sub(r"(?:\s*\(" + arch + r"\)|\s*\[" + arch + r"\]|\s+" + arch + r")$", "", normalized, flags=re.IGNORECASE)
+    return {_application_match_key(title), _application_match_key(without_arch)}
 
 
 def _normalized_match_mac(value: Any) -> str:
@@ -2404,6 +2429,19 @@ class IdoitClient:
                 if candidate != wanted:
                     result["matched_title"] = matched_title
                 return result
+        # Compare both sides with the same conservative typography rules.
+        # Exact and explicit product-title candidates above have precedence.
+        for candidate in candidates:
+            key = _application_match_key(candidate)
+            matches = {oid: name for entries in self._application_catalog.values()
+                       for oid, name in entries.items() if key in _application_catalog_aliases(name)}
+            if len(matches) > 1:
+                return {"object_id": None, "action": "ambiguous_match", "title": wanted,
+                        "candidates": list(matches.values()), "lookup": "normalized_catalog"}
+            if len(matches) == 1:
+                object_id, matched_title = next(iter(matches.items()))
+                return {"object_id": object_id, "action": "matched_normalized", "title": wanted,
+                        "matched_title": matched_title, "lookup": "normalized_catalog"}
         if not create_missing:
             return {"object_id": None, "action": "match_required", "title": wanted, "lookup": "typed_catalog"}
         object_id = await self.create_object(wanted, object_type)
@@ -2510,13 +2548,20 @@ class IdoitClient:
         if self._application_catalog is None:
             await self._load_application_catalog()
         catalog = self._application_catalog or {}
-        candidate_matches = [
-            {"title": candidate, "matches": [
-                {"object_id": oid, "title": name}
-                for oid, name in list(catalog.get(_normalized_match_text(candidate), {}).items())[:20]
-            ], "match_count": len(catalog.get(_normalized_match_text(candidate), {}))}
-            for candidate in candidates
-        ]
+        candidate_matches = []
+        for candidate in candidates:
+            exact = catalog.get(_normalized_match_text(candidate), {})
+            key = _application_match_key(candidate)
+            normalized = {oid: name for entries in catalog.values() for oid, name in entries.items()
+                          if key in _application_catalog_aliases(name)}
+            candidate_matches.append({
+                "title": candidate, "matches": [{"object_id": oid, "title": name}
+                                                  for oid, name in list(exact.items())[:20]],
+                "match_count": len(exact),
+                "normalized_matches": [{"object_id": oid, "title": name}
+                                       for oid, name in list(normalized.items())[:20]],
+                "normalized_match_count": len(normalized),
+            })
         return {"resolution": resolution, "candidates": candidate_matches,
                 "catalog": self.application_lookup_debug, "create_policy": self.config.create_policy,
                 "upstream_write_performed": False}
@@ -3277,6 +3322,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         if direct_fields:
             details["direct_fields_skipped"] = direct_fields
         sync_warnings: list[str] = []
+        log_only_warnings: list[str] = []
         operating_system = payload.get("operatingSystem") if isinstance(payload.get("operatingSystem"), dict) else None
         if operating_system and operating_system.get("title"):
             os_resolution = await client.resolve_operating_system(
@@ -3337,12 +3383,14 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             remainder = max(0, len(unmatched_application_titles) - 5)
             if remainder:
                 preview = f"{preview}, and {remainder} more"
-            sync_warnings.append(
+            log_only_warnings.append(
                 "C__CATG__APPLICATION: "
                 f"{len(unmatched_application_titles)} installed application(s) have no unique i-doit Application object match "
                 f"({preview}); resolution: {details['application_resolution_counts']}; "
                 f"policy: {config.create_policy}. Inspect application_lookup in the sync log before creating objects."
             )
+        if any(item.get("action") == "lookup_incomplete" for item in application_details):
+            sync_warnings.append("C__CATG__APPLICATION: application catalog lookup incomplete; see sync log")
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
         if global_category.get("description") is None:
             cleaned_description = await client.cleanup_lanlens_global_description(object_id)
@@ -3403,8 +3451,9 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         state.last_error = None
         details["upstream_write_performed"] = True
         details["action"] = action
+        if sync_warnings or log_only_warnings:
+            details["warnings"] = [*sync_warnings, *log_only_warnings]
         if sync_warnings:
-            details["warnings"] = sync_warnings
             state.last_error = "; ".join(sync_warnings)
         log_sync(db, device.id, mode, "success", f"i-doit {action} completed", details, object_id)
         db.commit()
