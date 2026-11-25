@@ -531,7 +531,8 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
         elif candidate:
             real_mac = _mac(candidate.mac_address)
             if (candidate.id in claimed
-                    or (real_mac and macs and real_mac not in macs)):
+                    or (real_mac and macs and real_mac not in macs)
+                    or (real_mac and real_mac not in macs and vm_mac_counts[real_mac] > 0)):
                 status = "ambiguous"
             elif candidate.ignored or candidate.is_archived:
                 status = "ignored"
