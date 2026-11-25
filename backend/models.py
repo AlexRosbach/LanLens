@@ -847,3 +847,16 @@ class VsphereInventoryObject(Base):
     metadata_json = Column(Text, nullable=False, default="{}")
     match_status = Column(String(32), nullable=False)
     observed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class VsphereDebugLog(Base):
+    """Bounded, credential-free VMware operation diagnostics."""
+    __tablename__ = "vsphere_debug_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    mode = Column(String(32), nullable=False)
+    level = Column(String(16), nullable=False)
+    message = Column(String(512), nullable=False)
+    details_json = Column(Text, nullable=False, default="{}")

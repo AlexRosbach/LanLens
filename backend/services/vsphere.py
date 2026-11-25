@@ -156,6 +156,11 @@ class VsphereClient:
         self.vi_manager = None
         self.custom_fields_manager = None
         self.vcenter_uuid = None
+        self.diagnostic = None
+
+    def _diagnose(self, level, message, **details):
+        if self.diagnostic:
+            self.diagnostic(level, message, details)
 
     async def _request(self, method, path, login=False, optional=False):
         headers = {}
@@ -172,11 +177,14 @@ class VsphereClient:
                 timeout=18,
             )
         except Exception:
+            self._diagnose("error", "vCenter HTTPS request failed", method=method, operation="session" if login else "inventory")
             # Never pass exception text or HTTP response bodies containing credentials.
             raise VsphereError("vCenter connection failed. Check DNS, HTTPS certificate trust and connectivity.") from None
         if optional and response.status_code in (403, 404, 503):
             return None
         if not 200 <= response.status_code < 300:
+            self._diagnose("error", "vCenter API request rejected", method=method, status_code=response.status_code,
+                           operation="session" if login else "inventory")
             raise VsphereError(f"vCenter API returned HTTP {response.status_code}; check permissions and API version")
         if not response.text.strip():
             return None
@@ -190,6 +198,7 @@ class VsphereClient:
         if not isinstance(token, str) or not re.fullmatch(r"[!-~]{1,512}", token):
             raise VsphereError("vCenter did not return a valid session token")
         self.session = token
+        self._diagnose("info", "vCenter REST session established")
 
     async def logout(self):
         if self.session:
@@ -371,14 +380,17 @@ class VsphereClient:
                               "power_state": _text(h.get("power_state"))}
             # Global list catches unassigned VMs. Query per host to establish
             # placement; VM list summaries do not contain the host identifier.
+            self._diagnose("info", "ESXi hosts collected", count=len(hosts))
             warnings = []
             try:
                 summary = await self._request("GET", "/api/vcenter/vm")
             except VsphereError:
                 summary = None
                 warnings.append("Global VM listing unavailable; using host-scoped VM lists")
+                self._diagnose("warning", "Global VM listing unavailable; trying host-scoped lists")
             if summary is not None and (not isinstance(summary, list) or len(summary) > MAX_VMS):
                 raise VsphereError(f"Invalid or oversized VM inventory (maximum {MAX_VMS} VMs)")
+            self._diagnose("info", "Global VM listing processed", count=len(summary or []))
             semaphore = asyncio.Semaphore(10)
 
             async def get(path, optional=False):
@@ -407,6 +419,8 @@ class VsphereClient:
                     topology[(kind, key)] = {"kind": kind, "external_id": key, "name": _text(item.get("name")) or key}
                     if kind == "network":
                         topology[(kind, key)]["network_type"] = _text(item.get("type"))
+
+            self._diagnose("info", "Topology collected", **{kind: sum(k == kind for k, _ in topology) for kind in ("datacenter", "cluster", "network")})
 
             async def membership(kind, key):
                 query = "?" + urlencode({kind + "s": key})
@@ -454,6 +468,7 @@ class VsphereClient:
             if len(vm_index) > MAX_VMS:
                 raise VsphereError(f"VM inventory exceeds {MAX_VMS} VMs")
             summary = list(vm_index.values())
+            self._diagnose("info", "Host-scoped VM inventory collected; fetching VM details", count=len(summary))
             async def details(vm):
                 if not isinstance(vm, dict):
                     raise VsphereError("Invalid VM inventory")
@@ -504,6 +519,8 @@ class VsphereClient:
             vms = await gather_all(*(details(vm) for vm in summary))
             if len({v["external_id"] for v in vms}) != len(vms):
                 raise VsphereError("vCenter returned duplicate VM identifiers")
+            self._diagnose("info", "VM detail collection completed", count=len(vms), warning_count=len(warnings),
+                           with_mac=sum(bool(v["macs"]) for v in vms), with_ip=sum(bool(v["ips"]) for v in vms))
             return list(hosts.values()) + vms + list(topology.values()), warnings[:30]
         finally:
             try:
@@ -718,6 +735,7 @@ def sysid_annotation(annotation, sysid):
 async def writeback_idoit_sysid(db, device_id, sysid):
     """Write only to a uniquely linked current VM; failures are nonfatal to CMDB sync."""
     from .crypto import decrypt_secret
+    from .vsphere_debug import log_vsphere
     from ..routers.vsphere import _discovery_lock
     async with _discovery_lock:
         connection = db.get(VsphereConnection, 1)
@@ -738,4 +756,12 @@ async def writeback_idoit_sysid(db, device_id, sysid):
         field_key = connection.sysid_field_key
         vcenter_uuid = json.loads(row.metadata_json).get("vcenter_uuid")
         db.commit()
-        return await asyncio.wait_for(client.write_sysid_custom_field(vm_id, uid, sysid, field_key, vcenter_uuid), timeout=120)
+        log_vsphere(db, "sysid_writeback", "info", "SYSID custom attribute writeback started", device_id=device_id)
+        try:
+            result = await asyncio.wait_for(client.write_sysid_custom_field(vm_id, uid, sysid, field_key, vcenter_uuid), timeout=120)
+        except Exception as exc:
+            log_vsphere(db, "sysid_writeback", "error", "SYSID custom attribute writeback failed",
+                        {"error_type": type(exc).__name__}, device_id=device_id)
+            raise
+        log_vsphere(db, "sysid_writeback", "info", "SYSID custom attribute writeback completed", device_id=device_id)
+        return result

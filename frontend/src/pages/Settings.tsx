@@ -401,7 +401,7 @@ export default function Settings() {
   const [idoitLogsLoading, setIdoitLogsLoading] = useState(false)
   const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([])
   const [debugLogsLoading, setDebugLogsLoading] = useState(false)
-  const [debugTopic, setDebugTopic] = useState<'all' | 'cmdb' | 'idoit'>('cmdb')
+  const [debugTopic, setDebugTopic] = useState<'all' | 'cmdb' | 'idoit' | 'vsphere'>('cmdb')
   const [debugQuery, setDebugQuery] = useState('')
   const [idoitMappingExpanded, setIdoitMappingExpanded] = useState(false)
   const [scanNodes, setScanNodes] = useState<ScanNode[]>([])
@@ -2037,10 +2037,11 @@ export default function Settings() {
                 <select
                   className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
                   value={debugTopic}
-                  onChange={(e) => setDebugTopic(e.target.value as 'all' | 'cmdb' | 'idoit')}
+                  onChange={(e) => setDebugTopic(e.target.value as 'all' | 'cmdb' | 'idoit' | 'vsphere')}
                 >
                   <option value="cmdb">CMDB</option>
                   <option value="idoit">i-doit</option>
+                  <option value="vsphere">VMware / vSphere</option>
                   <option value="all">{t('filter_all')}</option>
                 </select>
               </div>

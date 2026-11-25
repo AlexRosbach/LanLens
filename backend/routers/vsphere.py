@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..auth.dependencies import get_current_user
 from ..database import get_db, SessionLocal
 from ..models import User, VsphereConnection, VsphereInventoryObject
+from ..services.vsphere_debug import log_vsphere
 from ..services.crypto import encrypt_secret, decrypt_secret
 from ..services.settings_helpers import is_advanced_view_enabled
 from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, reconcile_inventory, VISIBLE_FIELDS, visible_fields
@@ -144,8 +145,11 @@ async def custom_fields(db: Session = Depends(get_db), _: User = Depends(get_cur
         client = _client(_config(db))
         db.rollback()
         try:
-            return await asyncio.wait_for(client.list_custom_fields(), timeout=60)
+            fields = await asyncio.wait_for(client.list_custom_fields(), timeout=60)
+            log_vsphere(db, "custom_fields", "info", "VM custom attribute lookup completed", {"count": len(fields)})
+            return fields
         except (VsphereError, TimeoutError) as exc:
+            log_vsphere(db, "custom_fields", "error", "VM custom attribute lookup failed", {"error_type": type(exc).__name__})
             raise HTTPException(502, str(exc) or "Custom attribute lookup timed out") from None
 
 
@@ -158,8 +162,13 @@ async def test_connection(db: Session = Depends(get_db), _: User = Depends(get_c
         client = _client(_config(db))
         db.rollback()
         try:
-            return await asyncio.wait_for(client.test(), timeout=60)
+            log_vsphere(db, "test", "info", "Connection test started")
+            client.diagnostic = lambda level, message, details: log_vsphere(db, "test", level, message, details)
+            result = await asyncio.wait_for(client.test(), timeout=60)
+            log_vsphere(db, "test", "info", "Connection test succeeded", {"host_count": result.get("host_count", 0)})
+            return result
         except (VsphereError, TimeoutError) as exc:
+            log_vsphere(db, "test", "error", "Connection test failed", {"error_type": type(exc).__name__})
             raise HTTPException(502, str(exc) or "vCenter test timed out") from None
 
 
@@ -174,8 +183,11 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
         revision = row.revision
         db.rollback()
         try:
+            log_vsphere(db, "discovery", "info", "Inventory discovery started", {"timeout_seconds": 900})
+            client.diagnostic = lambda level, message, details: log_vsphere(db, "discovery", level, message, details)
             objects, warnings = await asyncio.wait_for(client.collect(), timeout=900)
         except (VsphereError, TimeoutError) as exc:
+            log_vsphere(db, "discovery", "error", "Inventory discovery failed", {"error_type": type(exc).__name__})
             raise HTTPException(502, str(exc) or "vCenter discovery timed out") from None
         db.expire_all()
         current = _config(db)
@@ -183,14 +195,23 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
             raise HTTPException(409, "Configuration changed during discovery")
         _require_advanced(db)
         now = datetime.utcnow()
-        counts = reconcile_inventory(db, current.id, objects, now)
-        current.last_discovery_at = now
-        db.commit()
-        return {"hosts": sum(x["kind"] == "host" for x in objects),
+        try:
+            counts = reconcile_inventory(db, current.id, objects, now)
+            current.last_discovery_at = now
+            db.commit()
+        except Exception:
+            db.rollback()
+            log_vsphere(db, "discovery", "error", "Inventory reconciliation or database save failed")
+            raise
+        result = {"hosts": sum(x["kind"] == "host" for x in objects),
                 "vms": sum(x["kind"] == "vm" for x in objects),
                 "clusters": sum(x["kind"] == "cluster" for x in objects),
                 "datacenters": sum(x["kind"] == "datacenter" for x in objects),
                 "networks": sum(x["kind"] == "network" for x in objects), "counts": counts, "warnings": warnings}
+        # Warnings can contain VM identifiers; log counts, not upstream strings.
+        log_vsphere(db, "discovery", "warning" if warnings else "info", "Inventory discovery and matching completed",
+                    {**{k: v for k, v in result.items() if k != "warnings"}, "warning_count": len(warnings)})
+        return result
 
 
 async def _run_discovery_job():

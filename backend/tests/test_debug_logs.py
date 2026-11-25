@@ -38,6 +38,19 @@ class DebugLogsTest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_vmware_debug_logs_in_all_and_topic_filters(self):
+        from backend.services.vsphere_debug import log_vsphere
+        with self.Session() as db:
+            self._enable_debug(db)
+            log_vsphere(db, "test", "info", "Connection test succeeded", {"host_count": 3})
+            log_vsphere(db, "discovery", "error", "Inventory discovery failed", {"error_type": "TimeoutError"})
+            logs = list_debug_logs(topic="vsphere", level="info", q="", limit=100, db=db, _=self._user())
+            self.assertEqual(len(logs["entries"]), 2)
+            self.assertTrue(all(row["topic"] == "vsphere" for row in logs["entries"]))
+            errors = list_debug_logs(topic="all", level="error", q="TimeoutError", limit=100, db=db, _=self._user())
+            self.assertEqual(len(errors["entries"]), 1)
+            self.assertEqual(errors["entries"][0]["source"], "VMware / vSphere")
+
     def test_debug_logs_filter_cmdb_and_idoit_entries(self):
         db = self.Session()
         try:
