@@ -1676,6 +1676,16 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    def test_port_scan_and_service_share_one_connection_identity(self):
+        from backend.services.idoit import _merge_network_observations
+        port = {"port_from": 443, "port_to": 443, "protocol": "TCP", "protocol_layer_5": "HTTPS", "description": "Discovered by LanLens port scan"}
+        service = {**port, "description": "Service: Example"}
+        result = _merge_network_observations([port], [service])
+        self.assertEqual(len(result), 1)
+        self.assertIn(port["description"], result[0]["description"])
+        self.assertIn(service["description"], result[0]["description"])
+        self.assertEqual(len(_merge_network_observations([port, port], [service])), 3)
+
     async def test_category_snapshot_refuses_duplicates_and_failed_reads(self):
         class Client(IdoitClient):
             writes = 0

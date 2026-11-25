@@ -258,7 +258,12 @@ async def run_deep_scan(device_id: int, triggered_by: str = "manual") -> None:
             run.finished_at = datetime.utcnow()
             db.commit()
     finally:
-        db.close()
+        try:
+            if "run" in locals() and run.status == "error":
+                from .diagnostic_notifications import queue_diagnostic
+                queue_diagnostic(db, "system_error", "deep_scan", f"Deep Scan failed\nDevice ID: {device_id}\nProfile: {run.profile}\nSee Deep Scan history for details.", device_id)
+        finally:
+            db.close()
 
 
 # ── Linux SSH scan ────────────────────────────────────────────────────────────

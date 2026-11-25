@@ -1255,8 +1255,6 @@ def _open_port_entries(db: Optional[Session], device: Device) -> list[dict[str, 
         proto = item.get("protocol") or item.get("proto") or "tcp"
         service = item.get("service") or item.get("name") or item.get("product") or ""
         description_parts = ["Discovered by LanLens port scan"]
-        if scan.scanned_at:
-            description_parts.append(f"Observed: {scan.scanned_at.isoformat()}")
         entry = {
             "protocol": str(proto).upper() if proto else None,
             "protocol_layer_5": str(service).upper()[:255] if service else None,
@@ -1320,6 +1318,34 @@ def _service_entries(device: Device) -> list[dict[str, Any]]:
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     return entries
+
+
+def _merge_network_observations(ports, services):
+    """Combine one port scan observation with one documented service.
+    Multiple entries from the same source still reach reconciliation as duplicates.
+    """
+    category = "C__CATG__NET_CONNECTIONS_FOLDER"
+    port_keys = Counter(_category_identity_key(category, row) for row in ports)
+    service_keys = Counter(_category_identity_key(category, row) for row in services)
+    service_by_key = {_category_identity_key(category, row): row for row in services}
+    merged_keys = set()
+    result = []
+    for port in ports:
+        key = _category_identity_key(category, port)
+        if key is None or port_keys[key] != 1 or service_keys[key] != 1:
+            result.append(port)
+            continue
+        service = service_by_key[key]
+        merged = {**port, **service}
+        # The explicitly documented service has precedence over a guessed L5 name.
+        descriptions = [port.get("description", ""), service.get("description", "")]
+        if port.get("protocol_layer_5") and port.get("protocol_layer_5") != service.get("protocol_layer_5"):
+            descriptions.append("Port scan protocol: " + port["protocol_layer_5"])
+        merged["description"] = "\n".join(part for part in descriptions if part)[:2000]
+        result.append(merged)
+        merged_keys.add(key)
+    result.extend(service for service in services if _category_identity_key(category, service) not in merged_keys)
+    return result
 
 
 def _tls_certificates_summary(device: Device) -> Optional[str]:
@@ -1672,6 +1698,10 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         else:
             value = _json_safe_device_value(device, lanlens_field)
         _append_field(fields, idoit_field.strip(), value)
+    connection_category = "C__CATG__NET_CONNECTIONS_FOLDER"
+    if (_mapping_fields(config).get("open_ports") == connection_category
+            and _mapping_fields(config).get("services") == connection_category):
+        fields[connection_category] = _merge_network_observations(source["open_ports"], source["services"])
     cpu_details = _cpu_details(cpu_raw)
     if fields.get("C__CATG__CPU.title") and cpu_details:
         for cpu_field in ("manufacturer", "type", "frequency", "frequency_unit", "cores", "description"):
@@ -1818,6 +1848,8 @@ def _safe_log_details(details: dict[str, Any]) -> str:
                 action = str(item.get("action", "unknown"))
                 counts[action] = counts.get(action, 0) + 1
             summary["application_resolution_counts"] = counts
+        if "category_results" in details:
+            summary["category_diagnostics"] = {category: [{k: row[k] for k in ("status", "reason", "identity", "matching_entry_ids", "incoming_count", "attempted_fields", "entry_id") if k in row} for row in (result if isinstance(result, list) else [result]) if row.get("status") in ("failed", "ambiguous")] for category, result in details["category_results"].items()}
         if "category_results" in details and "C__CATG__CPU" in details["category_results"]:
             cpu_result = details["category_results"]["C__CATG__CPU"]
             if isinstance(cpu_result, dict):
@@ -1827,12 +1859,15 @@ def _safe_log_details(details: dict[str, Any]) -> str:
             summary["payload"] = _payload_log_summary(details["payload"])
     compact = json.dumps(summary, default=str, sort_keys=True)
     if len(compact) <= MAX_SYNC_LOG_DETAILS_CHARS:
+        if details.get("application_failures"):
+            summary["application_failures"] = details["application_failures"]
+            return json.dumps(summary, default=str, ensure_ascii=False, sort_keys=True)
         return compact
     # Keep the log valid JSON even when diagnostics exceed the size budget.
     reduced = {key: summary[key] for key in (
         "truncated", "original_size", "sha256", "upstream_write_performed",
         "application_resolution_counts", "application_lookup", "application_save_counts", "drive_save_counts", "category_save_counts",
-        "cpu_save_status", "cpu_rejected_fields",
+        "cpu_save_status", "cpu_rejected_fields", "category_diagnostics",
     ) if key in summary}
     for key in ("warnings", "errors"):
         if key in summary:
@@ -1840,8 +1875,14 @@ def _safe_log_details(details: dict[str, Any]) -> str:
             reduced[key] = [str(value)[:300] for value in values[:3]]
     compact = json.dumps(reduced, default=str, sort_keys=True, ensure_ascii=False)
     if len(compact) <= MAX_SYNC_LOG_DETAILS_CHARS:
+        if details.get("application_failures"):
+            reduced["application_failures"] = details["application_failures"]
+            return json.dumps(reduced, default=str, ensure_ascii=False, sort_keys=True)
         return compact
-    return json.dumps({key: summary[key] for key in ("truncated", "original_size", "sha256")})
+    minimal = {key: summary[key] for key in ("truncated", "original_size", "sha256")}
+    if details.get("application_failures"):
+        minimal["application_failures"] = details["application_failures"]
+    return json.dumps(minimal, default=str, ensure_ascii=False)
 
 
 def log_sync(db: Session, device_id: Optional[int], mode: str, result: str, message: str, details: Optional[dict[str, Any]] = None, object_id: Optional[str] = None) -> IdoitSyncLog:
@@ -3028,7 +3069,7 @@ class IdoitClient:
                 planned.append((data, None, {"status": "failed", "reason": "missing_identity"}))
                 continue
             if duplicates[key] > 1:
-                planned.append((data, None, {"status": "ambiguous", "reason": "duplicate_payload_identity"}))
+                planned.append((data, None, {"status": "ambiguous", "reason": "duplicate_payload_identity", "identity": key, "incoming_count": duplicates[key]}))
                 continue
             try:
                 matches = _matching_category_rows(category, rows, data, key)
@@ -3036,7 +3077,7 @@ class IdoitClient:
                 planned.append((data, None, {"status": "ambiguous", "reason": "ambiguous_existing_identity"}))
                 continue
             if len(matches) > 1 or (matches and not _category_entry_id(matches[0])):
-                planned.append((data, None, {"status": "ambiguous", "reason": "ambiguous_existing_identity"}))
+                planned.append((data, None, {"status": "ambiguous", "reason": "ambiguous_existing_identity", "identity": key, "matching_entry_ids": [_category_entry_id(row) for row in matches]}))
                 continue
             planned.append((data, matches[0] if matches else None, None))
         claimed = Counter(_category_entry_id(row) for _, row, error in planned if row is not None and error is None)
@@ -3058,7 +3099,7 @@ class IdoitClient:
                 result = await self.save_category(object_id, category, changes, entry_id)
             except IdoitConnectionError as exc:
                 # Never retry a failed create without a verified returned entry ID.
-                results.append({"status": "failed", "reason": "save_rejected", "error": exc.to_detail()})
+                results.append({"status": "failed", "reason": "save_rejected", "entry_id": entry_id, "attempted_fields": sorted(changes), "error": exc.to_detail()})
                 continue
             if row is None:
                 new_id = _object_reference_id(result.get("entry")) if isinstance(result, dict) else _object_reference_id(result)
@@ -3516,7 +3557,8 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     oid, version = str(entry.get("application", "")), str(entry.get("assigned_version", ""))
                     application_failures.append({"title": application_names.get((oid, version), f"Application object {oid}"), "version": version, "reason": str(result.get("reason") or result.get("status"))})
                 if result.get("status") == "ambiguous":
-                    sync_warnings.append(f"{category}: ambiguous identity; no write performed")
+                    identity = result.get("identity")
+                    sync_warnings.append(f"{category}: {result.get('reason', 'ambiguous identity')}" + (f" ({identity})" if identity else "") + "; no write performed")
                 elif result.get("status") == "partial":
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
                     if failed:
@@ -3525,7 +3567,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     sync_warnings.append(f"{category}: save reported success but category entry could not be verified by reading the host category")
                 elif result.get("status") == "failed":
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
-                    rejected = ", ".join(sorted(failed.keys())) if failed else "category payload"
+                    rejected = ", ".join(sorted(failed.keys())) if failed else ", ".join(result.get("attempted_fields", [])) or "category payload"
                     error = result.get("error") or {}
                     reason = error.get("message") if isinstance(error, dict) else None
                     sync_warnings.append(f"{category}: {result.get('reason', 'save rejected by i-doit')}; rejected fields: {rejected}" + (f"; {reason}" if category == "C__CATG__DRIVE" and reason else ""))
@@ -3559,6 +3601,8 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         state.last_error = None
         details["upstream_write_performed"] = True
         details["action"] = action
+        if application_failures:
+            details["application_failures"] = application_failures
         if sync_warnings or log_only_warnings:
             details["warnings"] = [*sync_warnings, *log_only_warnings]
         if sync_warnings:
