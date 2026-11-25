@@ -17,9 +17,6 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
   const {lang} = useI18n()
   const german = lang === 'de'
   const [trustCertificate, setTrustCertificate] = useState(false)
-  const [certificateSha256, setCertificateSha256] = useState('')
-  const pin = certificateSha256.replace(/[:\s-]/g, '').toUpperCase()
-  const validPin = !trustCertificate || /^[A-F0-9]{64}$/.test(pin)
   const [tokens, setTokens] = useState<EnrollmentToken[]>([])
   const [name, setName] = useState(platform === 'windows' ? 'Windows inventory agent' : 'Linux inventory agent')
   const [duration, setDuration] = useState<number | null>(10080)
@@ -30,7 +27,7 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
 
   const validServerUrl = /^https:\/\/[a-zA-Z0-9.\-\[\]:]+(?:\/[a-zA-Z0-9._~\/-]*)?$/.test(serverUrl)
   const command = useMemo(() => {
-    if (!created || !validServerUrl || (platform === 'windows' && !validPin)) return ''
+    if (!created || !validServerUrl) return ''
     const url = serverUrl.replace(/\/$/, '')
     if (platform === 'linux') return `curl --proto '=https' --proto-redir '=https' -fsS '${url}/api/agents/linux/install.sh' | sudo bash -s -- --server-url '${url}' --enrollment-token '${created.token}' --interval-minutes ${interval}`
     const install = `& ([ScriptBlock]::Create((iwr -UseBasicParsing -MaximumRedirection 0 '${url}/api/agents/windows/install.ps1').Content)) -ServerUrl '${url}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval}`
@@ -39,28 +36,25 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
 Add-Type -TypeDefinition @'
 using System;
 using System.Net.Security;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 public static class LanLensBootstrapTls {
-    public static RemoteCertificateValidationCallback ForPin(string pin) {
+    public static RemoteCertificateValidationCallback ForUntrustedCertificate() {
         return delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
             if (cert == null || (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
-            using (var leaf = new X509Certificate2(cert))
-            using (var sha = SHA256.Create()) {
+            using (var leaf = new X509Certificate2(cert)) {
                 var now = DateTime.UtcNow;
-                return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime()
-                    && String.Equals(BitConverter.ToString(sha.ComputeHash(leaf.RawData)).Replace("-", ""), pin, StringComparison.OrdinalIgnoreCase);
+                return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime();
             }
         };
     }
 }
 '@
-[Net.ServicePointManager]::ServerCertificateValidationCallback = [LanLensBootstrapTls]::ForPin('${pin}')
-${install} -CertificateSha256 '${pin}'`
+[Net.ServicePointManager]::ServerCertificateValidationCallback = [LanLensBootstrapTls]::ForUntrustedCertificate()
+${install} -TrustUntrustedCertificate`
     // Windows PowerShell expects UTF-16LE for EncodedCommand; avoids shell quoting issues.
     const bytes = Array.from(bootstrap, char => String.fromCharCode(char.charCodeAt(0)&255, char.charCodeAt(0)>>8)).join('')
     return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + btoa(bytes)
-  }, [created, interval, platform, serverUrl, validServerUrl, trustCertificate, pin, validPin])
+  }, [created, interval, platform, serverUrl, validServerUrl, trustCertificate])
 
   async function refresh() {
     try { setTokens((await agentsApi.listTokens()).data) } catch { toast.error('Could not load installation tokens') }
@@ -70,7 +64,6 @@ ${install} -CertificateSha256 '${pin}'`
   async function create() {
     if (!name.trim()) { toast.error('Enter a token name'); return }
     if (!validServerUrl) { toast.error('Use a public HTTPS URL for off-LAN agents'); return }
-    if (platform === 'windows' && !validPin) { toast.error(german ? 'Gültigen SHA-256-Zertifikatsfingerabdruck eingeben' : 'Enter a valid SHA-256 certificate fingerprint'); return }
     setLoading(true)
     try {
       const result = (await agentsApi.createToken({ name: name.trim(), expires_in_minutes: duration })).data
@@ -99,12 +92,9 @@ ${install} -CertificateSha256 '${pin}'`
     </div>
     {platform === 'windows' && <div className="space-y-2">
       <label className="flex items-center gap-2 text-sm text-text-base"><input type="checkbox" checked={trustCertificate} onChange={e=>setTrustCertificate(e.target.checked)} />{german ? 'Nicht vertrauenswürdigem Zertifikat explizit vertrauen' : 'Explicitly trust an untrusted certificate'}</label>
-      {trustCertificate && <>
-        <Input label={german ? 'SHA-256-Zertifikatsfingerabdruck' : 'SHA-256 certificate fingerprint'} value={certificateSha256} onChange={e=>setCertificateSha256(e.target.value)} hint={german ? '64 Hex-Zeichen, aus einer vertrauenswürdigen Quelle beziehen.' : '64 hex characters from a trusted source.'} />
-        <p className="text-xs text-warning">{german ? 'Nur dieses Serverzertifikat wird akzeptiert. Hostname und Gültigkeit werden weiterhin geprüft. Bei Zertifikatswechsel muss der Fingerabdruck am Agent angepasst werden.' : 'Only this server certificate is accepted. Hostname and validity are still checked. Update the agent fingerprint when the certificate changes.'}</p>
-      </>}
+      {trustCertificate && <p className="text-xs text-warning">{german ? 'Die Zertifikatskette wird nicht mehr als Vertrauensnachweis geprüft. Angreifer könnten den Server imitieren, den Installer manipulieren oder Agent-Zugangsdaten abfangen. Nur in einer vertrauenswürdigen Umgebung verwenden. Hostname und Gültigkeitszeitraum werden weiterhin geprüft.' : 'The certificate chain is no longer required to be trusted. Attackers could impersonate the server, tamper with the installer, or intercept agent credentials. Only use in a trusted environment. Hostname and validity dates are still checked.'}</p>}
     </div>}
-    <Button onClick={create} loading={loading} disabled={platform === 'windows' && !validPin}>Create installation command</Button>
+    <Button onClick={create} loading={loading}>Create installation command</Button>
     {created && <div className="rounded-xl border border-success/40 bg-surface2 p-4 space-y-3">
       <p className="text-sm text-text-base">Run this once with {platform === 'windows' ? 'elevated PowerShell' : 'root or sudo'}. The token is single-use and shown only now. Revoking it also disables the enrolled agent.</p>
       <textarea readOnly value={command} className="input-field min-h-32 font-mono text-xs" />

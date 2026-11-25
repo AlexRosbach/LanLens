@@ -21,14 +21,18 @@ class WindowsAgentTests(unittest.TestCase):
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
 
-    def test_windows_installer_persists_explicit_certificate_pin(self):
+    def test_windows_installer_persists_explicit_certificate_trust(self):
         from pathlib import Path
         installer = (Path(__file__).resolve().parents[1] / "assets/windows_agent/install.ps1").read_text()
         agent = (Path(__file__).resolve().parents[1] / "assets/windows_agent/LanLensAgent.cs").read_text()
-        self.assertIn("certificate_sha256 = $CertificateSha256", installer)
+        self.assertIn("[switch]$TrustUntrustedCertificate", installer)
+        self.assertIn("trust_untrusted_certificate = [bool]$TrustUntrustedCertificate", installer)
+        self.assertNotIn("CertificateSha256", installer)
+        self.assertEqual(installer.count("Invoke-RestMethod -MaximumRedirection"), 1)
         self.assertIn("ServerCertificateValidationCallback = $previousCertificateCallback", installer)
         self.assertIn('cfg.TryGetValue("certificate_sha256"', agent)
-        self.assertIn("ValidatePinnedCertificate(cert, errors, pin)", agent)
+        self.assertIn('cfg.TryGetValue("trust_untrusted_certificate"', agent)
+        self.assertIn("ValidateUntrustedCertificate(cert, errors, trustUntrusted)", agent)
         self.assertIn("AllowAutoRedirect = false", agent)
 
     def test_mac_normalisation_and_existing_device_reuse(self):

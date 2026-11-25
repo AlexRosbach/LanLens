@@ -7,7 +7,7 @@ param(
   [Parameter(Mandatory = $true)][string]$ServerUrl,
   [Parameter(Mandatory = $true)][string]$EnrollmentToken,
   [ValidateRange(5, 1440)][int]$IntervalMinutes = 60,
-  [ValidatePattern('^[A-Fa-f0-9]{64}$')][string]$CertificateSha256
+  [switch]$TrustUntrustedCertificate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,29 +18,26 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 $ServerUrl = $ServerUrl.TrimEnd('/')
 if ($ServerUrl -notmatch '^https://') { throw 'ServerUrl must use HTTPS.' }
 $previousCertificateCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
-if ($CertificateSha256) {
+if ($TrustUntrustedCertificate) {
   if (-not ('LanLensInstallerTls' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Net.Security;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 public static class LanLensInstallerTls {
-    public static RemoteCertificateValidationCallback ForPin(string pin) {
+    public static RemoteCertificateValidationCallback ForUntrustedCertificate() {
         return delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
             if (cert == null || (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
-            using (var leaf = new X509Certificate2(cert))
-            using (var sha = SHA256.Create()) {
+            using (var leaf = new X509Certificate2(cert)) {
                 var now = DateTime.UtcNow;
-                return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime()
-                    && String.Equals(BitConverter.ToString(sha.ComputeHash(leaf.RawData)).Replace("-", ""), pin, StringComparison.OrdinalIgnoreCase);
+                return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime();
             }
         };
     }
 }
 '@
   }
-  [Net.ServicePointManager]::ServerCertificateValidationCallback = [LanLensInstallerTls]::ForPin($CertificateSha256)
+  [Net.ServicePointManager]::ServerCertificateValidationCallback = [LanLensInstallerTls]::ForUntrustedCertificate()
 }
 try {
 $installDir = Join-Path $env:ProgramData 'LanLensAgent'
@@ -68,7 +65,7 @@ $os = Get-CimInstance Win32_OperatingSystem
 $enrollment = @{ token = $EnrollmentToken; hostname = $env:COMPUTERNAME; primary_mac = $adapter.MACAddress; os_info = "$($os.Caption) $($os.Version)"; kernel_version = $os.BuildNumber; ip_addresses = @($adapter.IPAddress | Where-Object { $_ -notmatch ':' }); platform = 'windows' } | ConvertTo-Json -Compress
 $response = Invoke-RestMethod -MaximumRedirection 0 -Method Post -ContentType 'application/json' -Uri "$ServerUrl/api/agents/enroll" -Body $enrollment
 
-@{ server_url = $ServerUrl; agent_id = $response.agent_id; agent_secret = $response.agent_secret; interval_minutes = $IntervalMinutes; sequence = 0; certificate_sha256 = $CertificateSha256 } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $configFile
+@{ server_url = $ServerUrl; agent_id = $response.agent_id; agent_secret = $response.agent_secret; interval_minutes = $IntervalMinutes; sequence = 0; trust_untrusted_certificate = [bool]$TrustUntrustedCertificate } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $configFile
 
 
 if (Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue) { Stop-Service LanLensAgent -Force -ErrorAction SilentlyContinue; & sc.exe delete LanLensAgent | Out-Null; Start-Sleep -Seconds 2 }

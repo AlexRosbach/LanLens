@@ -64,7 +64,7 @@ jobs:
           $tokens = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/install.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors; exit 1 }
-      - name: Verify pinned certificate validation
+      - name: Verify explicit untrusted certificate option
         shell: powershell
         run: |
           [Reflection.Assembly]::LoadFrom("$env:RUNNER_TEMP\LanLensAgent.exe") | Out-Null
@@ -73,6 +73,10 @@ jobs:
           try {
             $pin = [BitConverter]::ToString($sha.ComputeHash($cert.RawData)).Replace('-', '')
             $chainError = [Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors
+            if (-not [LanLensAgent]::ValidateUntrustedCertificate($cert, $chainError, $true)) { throw 'Explicit exception did not accept self-signed certificate' }
+            if ([LanLensAgent]::ValidateUntrustedCertificate($cert, $chainError, $false)) { throw 'Disabled exception accepted certificate' }
+            if ([LanLensAgent]::ValidateUntrustedCertificate($cert, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch, $true)) { throw 'Hostname mismatch was accepted' }
+            if ([LanLensAgent]::ValidateUntrustedCertificate($null, [Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable, $true)) { throw 'Missing certificate was accepted' }
             if (-not [LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, $pin)) { throw 'Expected pinned self-signed certificate to be accepted' }
             if ([LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, ('0' * 64))) { throw 'Wrong fingerprint was accepted' }
             if ([LanLensAgent]::ValidatePinnedCertificate($cert, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch, $pin)) { throw 'Hostname mismatch was accepted' }

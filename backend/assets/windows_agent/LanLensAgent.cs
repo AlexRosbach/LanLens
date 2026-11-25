@@ -56,11 +56,14 @@ public class LanLensAgent : ServiceBase
                 { "kernel_version", os == null ? "" : Convert.ToString(os["BuildNumber"]) }, { "ip_addresses", ips }, { "software", InstalledSoftware() },
                 { "findings", AgentFindings() }, { "platform", "windows" }
             };
+            object trustValue;
+            bool trustUntrusted = cfg.TryGetValue("trust_untrusted_certificate", out trustValue) && trustValue is bool && (bool)trustValue;
+            // Preserve explicit pins in existing installations; new installations need no pin.
             object pinValue;
             string pin = cfg.TryGetValue("certificate_sha256", out pinValue) ? Convert.ToString(pinValue) : "";
-            if (!String.IsNullOrEmpty(pin))
+            if (trustUntrusted || !String.IsNullOrEmpty(pin))
             {
-                if (!Regex.IsMatch(pin, @"\A[0-9a-fA-F]{64}\z")) throw new InvalidDataException("Invalid certificate fingerprint");
+                if (!String.IsNullOrEmpty(pin) && !Regex.IsMatch(pin, @"\A[0-9a-fA-F]{64}\z")) throw new InvalidDataException("Invalid certificate fingerprint");
                 var endpoint = new Uri(Convert.ToString(cfg["server_url"]).TrimEnd('/') + "/api/agents/report");
                 if (endpoint.Scheme != Uri.UriSchemeHttps) throw new InvalidDataException("HTTPS required");
                 var request = (HttpWebRequest)WebRequest.Create(endpoint);
@@ -70,7 +73,7 @@ public class LanLensAgent : ServiceBase
                 request.Method = "POST";
                 request.ContentType = "application/json";
                 request.ServerCertificateValidationCallback = delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
-                    return ValidatePinnedCertificate(cert, errors, pin);
+                    return !String.IsNullOrEmpty(pin) ? ValidatePinnedCertificate(cert, errors, pin) : ValidateUntrustedCertificate(cert, errors, trustUntrusted);
                 };
                 request.Headers[HttpRequestHeader.Authorization] = "Bearer " + Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]);
                 byte[] body = Encoding.UTF8.GetBytes(_json.Serialize(payload));
@@ -103,6 +106,15 @@ public class LanLensAgent : ServiceBase
                 try { _timer.Change(TimeSpan.FromMinutes(interval), Timeout.InfiniteTimeSpan); }
                 catch (ObjectDisposedException) { }
             }
+        }
+    }
+
+    public static bool ValidateUntrustedCertificate(X509Certificate cert, SslPolicyErrors errors, bool enabled)
+    {
+        if (!enabled || cert == null || (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
+        using (var leaf = new X509Certificate2(cert)) {
+            var now = DateTime.UtcNow;
+            return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime();
         }
     }
 

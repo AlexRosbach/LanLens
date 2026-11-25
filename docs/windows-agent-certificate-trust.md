@@ -1,7 +1,9 @@
 # Windows agent: private or self-signed HTTPS certificates
 
-TLS verification is enabled by default. On the Deep Scan → Windows Agent installation page, enable **Explicitly trust an untrusted certificate** and supply the SHA-256 fingerprint of the actual HTTPS server leaf certificate from a trusted source (64 hex digits; separators allowed in the UI). For example, on a trusted machine with the exported public server certificate in DER format, run `certutil -hashfile server.cer SHA256`. Do not use the Windows SHA-1 thumbprint. Do not obtain the fingerprint through an unverified connection.
+TLS verification is enabled by default. On the Deep Scan → Windows Agent installation page, enable **Explicitly trust an untrusted certificate** if necessary. No certificate fingerprint is required.
 
-The generated installation command checks the certificate pin before downloading the installer, then applies the same check for the agent source download and enrollment. The pin is persisted in the protected agent.json configuration and used for subsequent reports. Hostname and certificate validity dates are still verified; redirects are disabled. No certificate is added to the Windows trust store. When the certificate rotates, update certificate_sha256 in the protected configuration with the verified replacement fingerprint. Existing installations without a pin retain normal certificate validation. Prefer a normally trusted CA certificate when possible.
+The generated installation command allows untrusted certificate chains for downloading the installer, compiling and enrolling the agent, and subsequent inventory reports. The setting is persisted as a boolean in the protected agent.json configuration. HTTPS, hostname verification and certificate validity dates are still required; redirects are disabled. The Windows trust store is not changed. Existing explicit fingerprint configurations retain their pin checks.
+
+**Security warning:** an untrusted certificate chain cannot authenticate the server. An attacker could impersonate the server, deliver modified executable code, or intercept enrollment and reporting credentials. Prefer a normally trusted private or public CA certificate. Only enable the exception where the network and endpoint are trusted.
 
 Linux agent behavior is unchanged.
