@@ -64,6 +64,23 @@ jobs:
           $tokens = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/install.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors; exit 1 }
+      - name: Verify pinned certificate validation
+        shell: powershell
+        run: |
+          [Reflection.Assembly]::LoadFrom("$env:RUNNER_TEMP\LanLensAgent.exe") | Out-Null
+          $cert = New-SelfSignedCertificate -DnsName "lanlens.example.test" -CertStoreLocation Cert:\CurrentUser\My
+          $sha = [Security.Cryptography.SHA256]::Create()
+          try {
+            $pin = [BitConverter]::ToString($sha.ComputeHash($cert.RawData)).Replace('-', '')
+            $chainError = [Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors
+            if (-not [LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, $pin)) { throw 'Expected pinned self-signed certificate to be accepted' }
+            if ([LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, ('0' * 64))) { throw 'Wrong fingerprint was accepted' }
+            if ([LanLensAgent]::ValidatePinnedCertificate($cert, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch, $pin)) { throw 'Hostname mismatch was accepted' }
+            if ([LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, '')) { throw 'Missing pin was accepted' }
+          } finally {
+            $sha.Dispose()
+            Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey
+          }
 
   security:
     uses: ./.github/workflows/security.yml

@@ -5,6 +5,11 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Net.Http;
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text.RegularExpressions;
 using System.Diagnostics;
 using System.ServiceProcess;
 using System.Text;
@@ -51,7 +56,39 @@ public class LanLensAgent : ServiceBase
                 { "kernel_version", os == null ? "" : Convert.ToString(os["BuildNumber"]) }, { "ip_addresses", ips }, { "software", InstalledSoftware() },
                 { "findings", AgentFindings() }, { "platform", "windows" }
             };
-            using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }))
+            object pinValue;
+            string pin = cfg.TryGetValue("certificate_sha256", out pinValue) ? Convert.ToString(pinValue) : "";
+            if (!String.IsNullOrEmpty(pin))
+            {
+                if (!Regex.IsMatch(pin, @"\A[0-9a-fA-F]{64}\z")) throw new InvalidDataException("Invalid certificate fingerprint");
+                var endpoint = new Uri(Convert.ToString(cfg["server_url"]).TrimEnd('/') + "/api/agents/report");
+                if (endpoint.Scheme != Uri.UriSchemeHttps) throw new InvalidDataException("HTTPS required");
+                var request = (HttpWebRequest)WebRequest.Create(endpoint);
+                request.AllowAutoRedirect = false;
+                request.Timeout = 30000;
+                request.ReadWriteTimeout = 30000;
+                request.Method = "POST";
+                request.ContentType = "application/json";
+                request.ServerCertificateValidationCallback = delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
+                    return ValidatePinnedCertificate(cert, errors, pin);
+                };
+                request.Headers[HttpRequestHeader.Authorization] = "Bearer " + Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]);
+                byte[] body = Encoding.UTF8.GetBytes(_json.Serialize(payload));
+                request.ContentLength = body.Length;
+                using (var stream = request.GetRequestStream()) stream.Write(body, 0, body.Length);
+                try {
+                    using (var response = (HttpWebResponse)request.GetResponse()) {
+                        if ((int)response.StatusCode < 200 || (int)response.StatusCode >= 300)
+                            EventLog.WriteEntry("LanLensAgent", "Inventory report rejected: " + (int)response.StatusCode, EventLogEntryType.Warning);
+                    }
+                } catch (WebException ex) {
+                    using (var response = ex.Response as HttpWebResponse) {
+                        if (response == null) throw;
+                        EventLog.WriteEntry("LanLensAgent", "Inventory report rejected: " + (int)response.StatusCode, EventLogEntryType.Warning);
+                    }
+                }
+            }
+            else using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }))
             {
                 client.Timeout = TimeSpan.FromSeconds(30);
                 client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]));
@@ -66,6 +103,17 @@ public class LanLensAgent : ServiceBase
                 try { _timer.Change(TimeSpan.FromMinutes(interval), Timeout.InfiniteTimeSpan); }
                 catch (ObjectDisposedException) { }
             }
+        }
+    }
+
+    public static bool ValidatePinnedCertificate(X509Certificate cert, SslPolicyErrors errors, string pin)
+    {
+        if (cert == null || String.IsNullOrEmpty(pin) || (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
+        using (var leaf = new X509Certificate2(cert))
+        using (var sha = SHA256.Create()) {
+            var now = DateTime.UtcNow;
+            return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime()
+                && String.Equals(BitConverter.ToString(sha.ComputeHash(leaf.RawData)).Replace("-", ""), pin, StringComparison.OrdinalIgnoreCase);
         }
     }
 
