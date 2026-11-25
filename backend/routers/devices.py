@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, ManualConnectEntry, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User, VsphereConnection, VsphereInventoryObject, WindowsAgent, DeepScanRun
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, ManualConnectEntry, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User, WindowsAgent, DeepScanRun
 from ..schemas import (
     BulkPortScanRequest,
     BulkPortScanStatus,
@@ -50,7 +50,7 @@ from ..services.passive_discovery import deduplicate_observations, linked_device
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
 from ..services.dns_names import device_display_name
-from ..services.vsphere import device_vsphere_inventory, vmware_hardware_summaries
+from ..services.vsphere import device_vsphere_inventory, vmware_dashboard_inventory
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 logger = logging.getLogger(__name__)
@@ -454,7 +454,7 @@ def _device_to_response(
     )
 
 
-def _device_discovery_sources(db, device_ids, snmp_identities):
+def _device_discovery_sources(db, device_ids, snmp_identities, vmware_source_ids=None):
     """Expose only sources backed by persisted observations; no guessed provenance."""
     from collections import defaultdict
     sources = defaultdict(set)
@@ -475,12 +475,10 @@ def _device_discovery_sources(db, device_ids, snmp_identities):
     for device_id, identity in snmp_identities.items():
         if identity:
             sources[device_id].add("snmp")
-    if is_advanced_view_enabled(db):
-        for (device_id,) in db.query(VsphereInventoryObject.device_id).join(VsphereConnection).filter(
-            VsphereConnection.enabled.is_(True), VsphereInventoryObject.device_id.in_(device_ids),
-            VsphereInventoryObject.match_status.in_(("created", "existing")),
-        ).distinct():
-            sources[device_id].add("vsphere")
+    if vmware_source_ids is None:
+        vmware_source_ids = vmware_dashboard_inventory(db, device_ids)[0] if is_advanced_view_enabled(db) else set()
+    for device_id in vmware_source_ids:
+        sources[device_id].add("vsphere")
     return sources
 
 
@@ -542,7 +540,8 @@ def list_devices(
     dhcp_range = _get_dhcp_ranges(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
-    snmp_identities = bulk_identities_for_devices(db, all_devices) if is_advanced_view_enabled(db) else {}
+    advanced_view_enabled = is_advanced_view_enabled(db)
+    snmp_identities = bulk_identities_for_devices(db, all_devices) if advanced_view_enabled else {}
     os_inference_enabled = is_os_inference_enabled(db)
 
     # Batch-fetch hardware findings for device list display (cpu, memory, model)
@@ -626,10 +625,11 @@ def list_devices(
             if rel.child_device_id not in host_labels:
                 host_labels[rel.child_device_id] = host_devices_map.get(rel.host_device_id, f"Host #{rel.host_device_id}")
 
-    if is_advanced_view_enabled(db):
-        for device_id, summary in vmware_hardware_summaries(db, [d.id for d in all_devices]).items():
-            hardware_summaries.setdefault(device_id, summary)
-    discovery_sources = _device_discovery_sources(db, [d.id for d in all_devices], snmp_identities)
+    device_ids = [d.id for d in all_devices]
+    vmware_source_ids, vmware_summaries = vmware_dashboard_inventory(db, device_ids) if advanced_view_enabled else (set(), {})
+    for device_id, summary in vmware_summaries.items():
+        hardware_summaries.setdefault(device_id, summary)
+    discovery_sources = _device_discovery_sources(db, device_ids, snmp_identities, vmware_source_ids)
     return DeviceListResponse(
         items=[
             _device_to_response(

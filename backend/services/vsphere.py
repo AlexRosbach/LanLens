@@ -778,17 +778,28 @@ def device_vsphere_inventory(db, device_id):
              "fields": metadata, "custom_fields": custom}]
 
 
-def vmware_hardware_summaries(db, device_ids):
-    """Batch-load lightweight hardware fallbacks for the dashboard."""
-    connection = db.get(VsphereConnection, 1)
-    if not connection or not connection.enabled or not device_ids:
-        return {}
-    fields = visible_fields(connection)
+def vmware_dashboard_inventory(db, device_ids):
+    """Read discovery sources and hardware fallbacks in one joined query."""
+    if not device_ids:
+        return set(), {}
+    source_ids = set()
     summaries = defaultdict(list)
-    for row in db.query(VsphereInventoryObject).filter_by(connection_id=1, kind="vm").filter(
+    for row, fields_json in db.query(VsphereInventoryObject, VsphereConnection.visible_fields_json).join(
+        VsphereConnection, VsphereConnection.id == VsphereInventoryObject.connection_id
+    ).filter(
+        VsphereConnection.id == 1, VsphereConnection.enabled.is_(True),
         VsphereInventoryObject.device_id.in_(device_ids),
         VsphereInventoryObject.match_status.in_(("existing", "created")),
     ):
+        source_ids.add(row.device_id)
+        if row.kind != "vm":
+            continue
+        try:
+            fields = json.loads(fields_json) if fields_json else list(VISIBLE_FIELDS)
+            if not isinstance(fields, list):
+                fields = list(VISIBLE_FIELDS)
+        except (ValueError, TypeError):
+            fields = list(VISIBLE_FIELDS)
         data = json.loads(row.metadata_json)
         cpu, ram = data.get("cpu_count"), data.get("memory_size_mib")
         parts = []
@@ -797,7 +808,7 @@ def vmware_hardware_summaries(db, device_ids):
         if "memory_size_mib" in fields and type(ram) is int and ram > 0:
             parts.append(f"{ram / 1024:g} GiB RAM")
         summaries[row.device_id].append("VMware: " + " · ".join(parts) if parts else "")
-    return {key: values[0] for key, values in summaries.items() if len(values) == 1 and values[0]}
+    return source_ids, {key: values[0] for key, values in summaries.items() if len(values) == 1 and values[0]}
 
 
 def idoit_vsphere_values(db, device):
