@@ -46,6 +46,7 @@ _LINUX_HARDWARE = [
     ("hardware", "serial",      "cat /sys/class/dmi/id/product_serial 2>/dev/null || true"),
     ("hardware", "cpu",         "lscpu 2>/dev/null || true"),
     ("hardware", "memory",      "free -h 2>/dev/null || true"),
+    ("hardware", "physical_memory", "dmidecode -t 17 2>/dev/null || true"),
     ("hardware", "disks",       "lsblk -d -o NAME,SIZE,TYPE,MODEL 2>/dev/null || true"),
 ]
 
@@ -129,7 +130,7 @@ _WIN_HARDWARE = [
     ("hardware", "processor",
      "Get-CimInstance -ClassName Win32_Processor | Select-Object Name,NumberOfCores,MaxClockSpeed | ConvertTo-Json -Compress"),
     ("hardware", "physical_memory",
-     "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object Capacity,Speed | ConvertTo-Json -Compress"),
+     "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object Capacity,Speed,DeviceLocator,BankLabel,SerialNumber,Manufacturer,PartNumber,SMBIOSMemoryType | ConvertTo-Json -Compress"),
     ("hardware", "disk_drives",
      "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Model,Size,MediaType,DeviceID,Index,SerialNumber,FirmwareRevision | ConvertTo-Json -Compress"),
 ]

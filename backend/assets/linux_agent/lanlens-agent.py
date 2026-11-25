@@ -72,6 +72,7 @@ def findings():
         ("hardware", "serial", ["cat", "/sys/class/dmi/id/product_serial"]),
         ("hardware", "cpu", ["lscpu"]),
         ("hardware", "memory", ["free", "-h"]),
+        ("hardware", "physical_memory", ["dmidecode", "-t", "17"]),
         ("hardware", "disks", ["lsblk", "-d", "-o", "NAME,SIZE,TYPE,MODEL"]),
         ("os", "release", ["cat", "/etc/os-release"]),
         ("os", "kernel", ["uname", "-r"]),

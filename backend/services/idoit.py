@@ -952,7 +952,20 @@ def _size_to_value_unit(value: Any) -> tuple[Optional[float], Optional[int]]:
 
 def _memory_entries(raw: Any) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for item in _to_list(raw):
+    items = _to_list(raw)
+    if len(items) == 1 and isinstance(items[0], str) and "Memory Device" in items[0]:
+        modules = []
+        for block in re.split(r"(?m)^Memory Device[ \t]*$", items[0])[1:]:
+            values = dict(re.findall(r"(?m)^\s+([^:\n]+):\s*([^\n]+)$", block))
+            size = values.get("Size", "")
+            if not re.match(r"^\d+\s+[KMGT]B$", size, re.IGNORECASE):
+                continue
+            modules.append({"Size": size, "DeviceLocator": values.get("Locator"), "SerialNumber": values.get("Serial Number"),
+                            "Manufacturer": values.get("Manufacturer"), "PartNumber": values.get("Part Number"), "type": values.get("Type")})
+        if not modules:
+            return []
+        items = modules
+    for item in items:
         if isinstance(item, dict):
             capacity, unit = _size_to_value_unit(item.get("Capacity") or item.get("capacity") or item.get("Size") or item.get("size"))
             entry = {
@@ -966,7 +979,7 @@ def _memory_entries(raw: Any) -> list[dict[str, Any]]:
             locator = str(item.get("DeviceLocator") or item.get("device_locator") or item.get("Locator") or item.get("locator") or "").strip()
             serial = _drive_serial(item.get("SerialNumber") or item.get("serial"))
             if locator or serial:
-                marker = f" [LanLens memory: {locator or serial}]"
+                marker = f" [LanLens memory: {(locator or serial)[:100]}]"
                 entry["title"] = entry["title"][:255-len(marker)] + marker
             entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     if entries:
@@ -1585,7 +1598,8 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     # remain intact until _os_assigned_version extracts its display fields.
     os_info = device.os_info or _first_documented_os_value(findings)
     cpu_raw = hw.get("cpu") or hw.get("processor") or _first_finding_text(findings, [("hardware", "cpu"), ("hardware", "processor")], 1500)
-    memory = hw.get("memory") or hw.get("physical_memory") or _first_finding_text(findings, [("hardware", "memory"), ("hardware", "physical_memory")], 1500)
+    memory_modules = _memory_entries(hw.get("physical_memory")) if hw.get("physical_memory") else []
+    memory = hw.get("memory") or _first_finding_text(findings, [("hardware", "memory")], 1500)
     # Preserve the complete raw list; compact display text can truncate JSON.
     disk_findings = findings.get("hardware", {})
     disk_candidates = [disk_findings[key] for key in ("disks", "disk_drives")
@@ -1629,7 +1643,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "password_location": device.password_location,
         "os_info": _os_assigned_version(os_info),
         "cpu": _cpu_title(cpu_raw),
-        "memory": _memory_entries(memory),
+        "memory": memory_modules or _memory_entries(memory),
         "model": model,
         "serial": serial,
         "disks": _drive_entries(disks),
@@ -2171,6 +2185,7 @@ class IdoitClient:
         self._application_catalog_complete = False
         self.application_lookup_debug: dict[str, Any] = {}
         self.category_snapshot = None
+        self.application_title_cache = {}
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         try:
@@ -2411,8 +2426,14 @@ class IdoitClient:
         wanted = candidates[0]
         object_type = "C__OBJTYPE__APPLICATION"
         catalog_was_loaded = self._application_catalog is not None
+
+        async def exact_lookup(candidate):
+            key = _normalized_match_text(candidate)
+            if key not in self.application_title_cache:
+                self.application_title_cache[key] = await self._resolve_inventory_object(candidate, object_type, False)
+            return self.application_title_cache[key]
         for candidate in candidates if not catalog_was_loaded else ():
-            result = await self._resolve_inventory_object(candidate, object_type, False)
+            result = await exact_lookup(candidate)
             if result["action"] == "ambiguous_match":
                 return {**result, "title": wanted}
             if result.get("object_id"):
@@ -2460,7 +2481,7 @@ class IdoitClient:
         if catalog_was_loaded:
             candidate = candidates[-1]
             self.application_lookup_debug["direct_fallback_queries"] = self.application_lookup_debug.get("direct_fallback_queries", 0) + 1
-            direct = await self._resolve_inventory_object(candidate, object_type, False)
+            direct = await exact_lookup(candidate)
             if direct.get("action") == "ambiguous_match":
                 return {**direct, "title": wanted, "lookup": "direct_fallback"}
             if direct.get("object_id"):
@@ -2474,6 +2495,7 @@ class IdoitClient:
             return {"object_id": None, "action": "match_required", "title": wanted, "lookup": "typed_catalog"}
         object_id = await self.create_object(wanted, object_type)
         self._application_catalog.setdefault(_normalized_match_text(wanted), {})[object_id] = wanted
+        self.application_title_cache[_normalized_match_text(wanted)] = {"object_id": object_id, "action": "matched", "title": wanted}
         return {"object_id": object_id, "action": "created", "title": wanted}
 
     async def _load_application_catalog(self) -> None:
@@ -3295,7 +3317,10 @@ def _category_identity_key(category, data):
         return _normalized_match_text(data.get(field))
     if category in ("C__CATG__APPLICATION", "C__CATG__OPERATING_SYSTEM"):
         oid = _object_reference_id(data.get("application"))
-        return (oid, text("assigned_version")) if oid and category == "C__CATG__APPLICATION" else (oid,) if oid else None
+        version = data.get("assigned_version")
+        if isinstance(version, dict):
+            version = version.get("title") or version.get("value") or version.get("name") or ""
+        return (oid, _normalized_match_text(version)) if oid and category == "C__CATG__APPLICATION" else (oid,) if oid else None
     if category == "C__CATG__DRIVE":
         serial = _drive_serial(data.get("serial")).casefold()
         return ("serial", serial) if serial else ("mount", text("mount_point")) if text("mount_point") else ("title", text("title")) if " [lanlens disk: " in text("title") else None
@@ -3338,6 +3363,10 @@ def _matching_category_rows(category, rows, data, key):
     if category == "C__CATG__IP":
         # Reuse an explicit hostname identity only when there is no conflicting IP.
         exact = [row for row in rows if _category_identity_key(category, row) == key]
+        hostname = _normalized_match_text(data.get("hostname"))
+        if hostname:
+            by_name = [row for row in rows if _normalized_match_text(row.get("hostname")) == hostname]
+            return [row for row in rows if row in exact or row in by_name]
         return exact
     return [row for row in rows if _category_identity_key(category, row) == key]
 
@@ -3429,13 +3458,15 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
     db.commit()
 
     client = IdoitClient(config)
-    if hasattr(client, "reconcile_category"):
-        client.category_snapshot = {}
     application_run = _application_run if _application_run is not None else {}
+    if hasattr(client, "reconcile_category"):
+        client.category_snapshot = application_run.setdefault("category_snapshot", {})
     if application_run.get("catalog") is not None and hasattr(client, "_application_catalog"):
         client._application_catalog = application_run["catalog"]
         client._application_catalog_complete = application_run["complete"]
         client.application_lookup_debug = application_run["debug"]
+    if hasattr(client, "application_title_cache"):
+        client.application_title_cache = application_run.setdefault("title_queries", {})
     application_cache = application_run.setdefault("resolutions", {})
     details: dict[str, Any] = {"payload": payload, "upstream_write_performed": False, "category_results": {}, "category_save_counts": {}}
     try:

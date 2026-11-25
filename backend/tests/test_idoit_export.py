@@ -1632,6 +1632,51 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[0]["status"], "updated")
         self.assertEqual(client.writes, [("C__CATG__DRIVE", 1, {"capacity": 200})])
 
+    async def test_unresolved_applications_are_retried_and_containers_do_not_append_raw_rows(self):
+        db = self.Session()
+        saved = []
+        resolved = set()
+        class FakeClient:
+            def __init__(self, config): pass
+            async def login(self): pass
+            async def find_existing_object(self, payload): return {"object_id": "42"}
+            async def read_object(self, object_id): return {"id": object_id, "type_title": "Client", "sysid": "SYS-42"}
+            async def object_type_title(self, object_id): return "Client"
+            async def update_object_title(self, object_id, title): pass
+            async def resolve_application(self, title, create_missing=False):
+                if title in resolved:
+                    return {"object_id": str(100 + int(title.split()[-1])), "action": "matched"}
+                return {"object_id": None, "action": "match_required"}
+            async def save_category_best_effort(self, object_id, category, data):
+                if category == "C__CATG__APPLICATION": saved.append(data)
+                return {"status": "saved"}
+            async def cleanup_lanlens_global_description(self, object_id): return None
+            async def object_sysid(self, object_id): return "SYS-42"
+        try:
+            update_config(db, {"idoit_enabled": True, "idoit_base_url": "https://idoit.example.test", "idoit_api_key": "secret"})
+            device = Device(mac_address="00:11:22:33:44:99", hostname="retry-host", is_registered=True, idoit_sync_enabled=True)
+            db.add(device); db.commit()
+            run = DeepScanRun(device_id=device.id, profile="windows_agent", status="done")
+            db.add(run); db.commit()
+            titles = [f"Example app {i}" for i in range(150)]
+            db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="software", key="installed_software",
+                                  value_json=json.dumps([{"name": title, "version": "1.0"} for title in titles])))
+            db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="container", key="docker_containers",
+                                  value_json=json.dumps("Unresolved container")))
+            db.commit()
+            with patch("backend.services.idoit.IdoitClient", FakeClient):
+                for _ in range(3):
+                    first = await sync_device_to_idoit(db, device, mode="auto", skip_unchanged=True)
+                    self.assertEqual(first["status"], "synced_with_warnings")
+                    self.assertFalse(first.get("skipped", False))
+                self.assertEqual(saved, [])
+                resolved.update(titles)
+                result = await sync_device_to_idoit(db, device, mode="auto", skip_unchanged=True)
+                self.assertEqual(len(saved), 150)
+                self.assertEqual(result["status"], "synced_with_warnings") # container still unresolved
+        finally:
+            db.close()
+
     async def test_category_snapshot_refuses_duplicates_and_failed_reads(self):
         class Client(IdoitClient):
             writes = 0

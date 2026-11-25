@@ -95,7 +95,7 @@ public class LanLensAgent : ServiceBase
             new [] { "hardware", "computer_system", "Get-CimInstance Win32_ComputerSystem | ConvertTo-Json -Compress" },
             new [] { "hardware", "bios", "Get-CimInstance Win32_BIOS | ConvertTo-Json -Compress" },
             new [] { "hardware", "processor", "Get-CimInstance Win32_Processor | Select Name,NumberOfCores,MaxClockSpeed | ConvertTo-Json -Compress" },
-            new [] { "hardware", "physical_memory", "Get-CimInstance Win32_PhysicalMemory | Select Capacity,Speed | ConvertTo-Json -Compress" },
+            new [] { "hardware", "physical_memory", "Get-CimInstance Win32_PhysicalMemory | Select Capacity,Speed,DeviceLocator,BankLabel,SerialNumber,Manufacturer,PartNumber,SMBIOSMemoryType | ConvertTo-Json -Compress" },
             new [] { "hardware", "disk_drives", "Get-CimInstance Win32_DiskDrive | Select Model,Size,MediaType,DeviceID,Index,SerialNumber,FirmwareRevision | ConvertTo-Json -Compress" },
             new [] { "service", "running_services", "Get-Service | ? {$_.Status -eq 'Running'} | Select Name,DisplayName,Status | ConvertTo-Json -Compress" },
             new [] { "audit", "windows_features", "if(Get-Command Get-WindowsFeature -EA SilentlyContinue){Get-WindowsFeature|?{$_.InstallState -eq 'Installed'}|Select Name,DisplayName|ConvertTo-Json -Compress}" },
