@@ -397,15 +397,18 @@ class VsphereClient:
 
 
 def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], now: datetime):
-    """Use real NIC MACs only; never overwrite operator data or infer network reachability."""
+    """Match by MAC, IP, exact hostname and prior UUID; preserve operator data."""
     existing = db.query(Device).all()
     mac_index = defaultdict(list)
     ip_index = defaultdict(list)
+    name_index = defaultdict(list)
     for d in existing:
         if m := _mac(d.mac_address):
             mac_index[m].append(d)
         if d.ip_address:
             ip_index[d.ip_address].append(d)
+        if d.hostname:
+            name_index[d.hostname.casefold().rstrip(".")].append(d)
     old = {(r.kind, r.external_id): r for r in db.query(VsphereInventoryObject)
            .filter_by(connection_id=connection_id).all()}
     # Mark previous observations stale without deleting inventory or devices.
@@ -414,6 +417,7 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
     vm_mac_counts = Counter(m for item in objects if item["kind"] == "vm" for m in set(item.get("macs", [])))
     vm_uuid_counts = Counter(item.get("instance_uuid") for item in objects if item["kind"] == "vm" and item.get("instance_uuid"))
     vm_ip_counts = Counter(ip for item in objects if item["kind"] == "vm" for ip in set(item.get("ips", [])))
+    vm_name_counts = Counter(item["name"].casefold().rstrip(".") for item in objects if item["kind"] == "vm")
     rules = db.query(DeviceIgnoreRule).filter(DeviceIgnoreRule.enabled.is_(True)).all()
     segments = db.query(Segment).all()
     host_matches = {}
@@ -465,28 +469,45 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
         ips = item.get("ips", [])
         uid = item.get("instance_uuid")
         matches = {d.id: d for mac in macs for d in mac_index.get(mac, [])}
+        ip_matches = {d.id: d for ip in ips for d in ip_index.get(ip, [])}
+        name = item["name"].casefold().rstrip(".")
+        name_matches = {d.id: d for d in name_index.get(name, [])} if name else {}
         previous = old.get(("vm", item["external_id"]))
         # A reused MoRef must not inherit the previous VM's device association.
         prior_id = previous.device_id if previous and uid and previous.instance_uuid == uid else None
+        candidates = set(matches) | set(ip_matches) | set(name_matches)
+        candidate = None
+        for index in (matches, ip_matches, name_matches):
+            if index:
+                candidate = next(iter(index.values()))
+                break
         d = None
         status = "no_mac"
-        if (any(vm_mac_counts[m] > 1 for m in macs) or len(matches) > 1
+        if (any(vm_mac_counts[m] > 1 for m in macs)
                 or (uid and vm_uuid_counts[uid] > 1)
-                or (prior_id and matches and prior_id not in matches)):
+                or len(candidates) > 1
+                or (prior_id and candidates and prior_id not in candidates)
+                or (not matches and ip_matches and any(vm_ip_counts[ip] > 1 for ip in ips))
+                or (not matches and not ip_matches and name_matches and vm_name_counts[name] > 1)):
             status = "ambiguous"
-        elif matches:
-            candidate = next(iter(matches.values()))
-            if candidate.id in claimed:
+        elif candidate:
+            real_mac = _mac(candidate.mac_address)
+            if (candidate.id in claimed
+                    or (real_mac and macs and real_mac not in macs)):
                 status = "ambiguous"
             elif candidate.ignored or candidate.is_archived:
                 status = "ignored"
             else:
                 d, status = candidate, "existing"
+                # Upgrade only the scanner's synthetic IP identifier, never a real MAC.
+                if macs and candidate.mac_address and candidate.mac_address.lower().startswith("ip:"):
+                    candidate.mac_address = macs[0]
+                    mac_index[macs[0]].append(candidate)
         elif prior_id:
             # A stable VM with a changed NIC must not create a second device.
             status = "ambiguous"
         elif macs:
-            if any(ip_index.get(ip) or vm_ip_counts[ip] > 1 for ip in ips):
+            if any(vm_ip_counts[ip] > 1 for ip in ips):
                 status = "ambiguous"
             elif any(_matching_ignore_rules(db, ip=ip, mac=mac, hostname=item["name"], device_class="VM",
                                            rules=rules, segments=segments)
@@ -499,6 +520,8 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
                 db.add(d)
                 db.flush()
                 mac_index[macs[0]].append(d)
+                if name:
+                    name_index[name].append(d)
                 for ip in ips:
                     ip_index[ip].append(d)
                 status = "created"
