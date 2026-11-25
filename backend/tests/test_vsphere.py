@@ -37,6 +37,31 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(row.enabled)
         self.assertEqual(row.endpoint, "https://vc.example.test")
 
+    def test_vmware_inventory_imports_custom_fields_and_sysid_without_overwriting(self):
+        from backend.services.vsphere import device_vsphere_inventory
+        from backend.models import IdoitDeviceSync
+        import json
+        connection = self.db.get(VsphereConnection, 1)
+        connection.enabled = True
+        connection.read_sysid = True
+        connection.sysid_field_key = 7
+        connection.attribute_mappings_json = json.dumps({"7": "Inventory reference", "8": "Cost center"})
+        device = Device(mac_address="00:50:56:12:34:56", hostname="example")
+        self.db.add(device)
+        self.db.flush()
+        item = {"kind": "vm", "external_id": "vm-1", "name": "example", "macs": [device.mac_address],
+                "ips": [], "instance_uuid": "11111111-2222-3333-4444-555555555555",
+                "cpu_count": 4, "memory_size_mib": 8192, "attributes": {"7": "SYS-123", "8": "Example"}}
+        reconcile_inventory(self.db, 1, [item], datetime.utcnow())
+        state = self.db.query(IdoitDeviceSync).filter_by(device_id=device.id).one()
+        self.assertEqual(state.idoit_sysid, "SYS-123")
+        inventory = device_vsphere_inventory(self.db, device.id)[0]
+        self.assertEqual(inventory["fields"]["cpu_count"], 4)
+        self.assertEqual(inventory["custom_fields"][1]["value"], "Example")
+        item["attributes"]["7"] = "SYS-456"
+        reconcile_inventory(self.db, 1, [item], datetime.utcnow())
+        self.assertEqual(state.idoit_sysid, "SYS-123")
+
     def test_endpoint(self):
         self.assertEqual(validate_endpoint("https://vc.example.test/"), "https://vc.example.test")
         for url in ("http://vc.example.test", "https://u:p@vc.example.test", "https://vc.example.test/path"):

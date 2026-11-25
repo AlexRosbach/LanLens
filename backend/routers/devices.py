@@ -50,6 +50,7 @@ from ..services.passive_discovery import deduplicate_observations, linked_device
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
 from ..services.dns_names import device_display_name
+from ..services.vsphere import device_vsphere_inventory
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 logger = logging.getLogger(__name__)
@@ -363,8 +364,12 @@ def _device_to_response(
         open_ports = [port.port for port in latest_scan.open_ports] if latest_scan else []
         os_inference = infer_os_family(device, open_ports)
 
+    vmware = device_vsphere_inventory(db, device.id) if db is not None and is_advanced_view_enabled(db) else []
+    vm_fields = vmware[0]["fields"] if vmware and vmware[0]["match_status"] != "stale" else {}
+    vm_summary = " · ".join([*([f"{vm_fields['cpu_count']} vCPU"] if vm_fields.get("cpu_count") else []), *([f"{vm_fields['memory_size_mib'] / 1024:g} GiB RAM"] if vm_fields.get("memory_size_mib") else [])])
     return DeviceResponse(
         id=device.id,
+        vsphere_inventory=vmware,
         discovery_sources=sorted((discovery_sources or {}).get(device.id, set())),
         mac_address=device.mac_address,
         ip_address=device.ip_address,
@@ -398,7 +403,7 @@ def _device_to_response(
         is_online=device.is_online,
         first_seen=device.first_seen,
         last_seen=device.last_seen,
-        hardware_summary=(hardware_summaries or {}).get(device.id),
+        hardware_summary=(hardware_summaries or {}).get(device.id) or (f"VMware: {vm_summary}" if vm_summary else None),
         host_label=(host_labels or {}).get(device.id),
         cmdb_id=device.cmdb_id,
         ignored=bool(device.ignored),

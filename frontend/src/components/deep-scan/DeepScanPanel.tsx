@@ -15,8 +15,10 @@ import Badge from '../ui/Badge'
 import DeepScanConfigForm from './DeepScanConfigForm'
 import FindingsGrid from './FindingsGrid'
 import HostGuestPanel from './HostGuestPanel'
+import VsphereDeviceInventory from './VsphereDeviceInventory'
+import type { VsphereDeviceObservation } from '../../api/devices'
 
-type Tab = 'hardware' | 'os' | 'applications' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest'
+type Tab = 'hardware' | 'os' | 'applications' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest' | 'vsphere'
 
 const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'hardware',    labelKey: 'tab_hardware' },
@@ -27,6 +29,7 @@ const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'audit',      labelKey: 'tab_audit' },
   { key: 'hypervisor', labelKey: 'tab_hypervisor' },
   { key: 'host_guest', labelKey: 'tab_host_guest' },
+  { key: 'vsphere', labelKey: 'vsphere_title' },
 ]
 
 function StatusBadge({ run }: { run: DeepScanRun | null }) {
@@ -44,10 +47,11 @@ function StatusBadge({ run }: { run: DeepScanRun | null }) {
 
 interface Props {
   deviceId: number
+  vmware?: VsphereDeviceObservation[]
   onScanCompleted?: () => void | Promise<void>
 }
 
-export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
+export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }: Props) {
   const { t, lang } = useI18n()
 
   const [config, setConfig] = useState<DeepScanConfig | null>(null)
@@ -148,6 +152,8 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
 
   // Only show tabs that have data (or are always shown)
   const visibleTabs = TABS.filter((tab) => {
+    if (tab.key === 'vsphere') return vmware.length > 0
+    if (!config?.enabled) return false
     if (tab.key === 'host_guest') return true
     if (tab.key === 'hypervisor') return findings.some((f) => f.finding_type === 'hypervisor')
     return findings.some((f) => f.finding_type === (tab.key === 'applications' ? 'software' : tab.key))
@@ -233,7 +239,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
       )}
 
       {/* Tabs + findings */}
-      {config?.enabled && (
+      {(config?.enabled || vmware.length > 0) && (
         <>
           <div className="flex gap-1 border-b border-border overflow-x-auto">
             {visibleTabs.map((tab) => (
@@ -252,7 +258,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
           </div>
 
           <div className="min-h-[100px]">
-            {effectiveTab === 'host_guest' ? (
+            {effectiveTab === 'vsphere' ? <VsphereDeviceInventory observations={vmware} /> : effectiveTab === 'host_guest' ? (
               <HostGuestPanel
                 deviceId={deviceId}
                 relationships={relationships}

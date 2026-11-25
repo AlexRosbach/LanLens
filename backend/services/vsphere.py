@@ -13,7 +13,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, VsphereConnection, VsphereInventoryObject
+from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, VsphereConnection, VsphereInventoryObject, IdoitDeviceSync
 from .mac_vendor import normalize_mac
 from .notification import request_json_via_validated_url
 from .scanner import _matching_ignore_rules
@@ -29,6 +29,14 @@ IDOIT_VSPHERE_FIELDS = {"vsphere_" + name for name in (
 
 VISIBLE_FIELDS = ("host_id", "cluster_id", "datacenter_id", "power_state", "macs", "ips",
                   "guest_os", "instance_uuid", "bios_uuid", "cpu_count", "memory_size_mib", "disks")
+
+
+def attribute_mappings(row):
+    try:
+        raw = json.loads(row.attribute_mappings_json or "{}") if row else {}
+        return {str(k): v for k, v in raw.items() if re.fullmatch(r"-?\d{1,10}", str(k)) and isinstance(v, str) and v.strip()} if isinstance(raw, dict) else {}
+    except (ValueError, TypeError):
+        return {}
 
 
 def visible_fields(row):
@@ -145,13 +153,14 @@ def disk_inventory(rest_disks, vi_config):
 
 
 class VsphereClient:
-    def __init__(self, endpoint, username, password, verify_tls=True, fields=None):
+    def __init__(self, endpoint, username, password, verify_tls=True, fields=None, attribute_keys=None):
         self.endpoint = validate_endpoint(endpoint)
         self.username = username
         self.password = password
         self.verify_tls = verify_tls
         self.session = None
         self.fields = set(VISIBLE_FIELDS if fields is None else fields)
+        self.attribute_keys = {int(key) for key in (attribute_keys or [])}
         self.vi_session = None
         self.vi_manager = None
         self.custom_fields_manager = None
@@ -445,7 +454,16 @@ class VsphereClient:
             for hid, host in hosts.items():
                 host["cluster_id"] = unique(member_index[(hid, "cluster")])
                 host["datacenter_id"] = unique(member_index[(hid, "datacenter")])
-            vi_ready = await self.vi_login() if "disks" in self.fields else False
+            vi_ready = await self.vi_login() if "disks" in self.fields or self.attribute_keys else False
+            selected_attributes = set()
+            if self.attribute_keys:
+                if vi_ready:
+                    try:
+                        selected_attributes = self.attribute_keys & {field["key"] for field in await self._custom_fields()}
+                    except VsphereError:
+                        warnings.append("VM custom attribute definitions unavailable")
+                else:
+                    warnings.append("VM custom attributes require VI/JSON access")
             if not vi_ready and "disks" in self.fields:
                 warnings.append("Disk backing UUIDs unavailable: VI/JSON requires vCenter 8.0 Update 1 or newer and read permissions")
 
@@ -506,7 +524,20 @@ class VsphereClient:
                         if not isinstance(vi_config, dict):
                             warnings.append("Disk UUID metadata unavailable: " + vid)
                     disks = disk_inventory(detail.get("disks"), vi_config)
+                attributes = {}
+                if selected_attributes:
+                    async with semaphore:
+                        raw_attributes, _ = await self._vi_request("GET", "/VirtualMachine/" + quote(vid, safe="") + "/customValue")
+                    if isinstance(raw_attributes, list):
+                        groups = defaultdict(list)
+                        for item in raw_attributes:
+                            if isinstance(item, dict) and item.get("key") in selected_attributes and isinstance(item.get("value"), str):
+                                groups[item["key"]].append(item["value"][:2048])
+                        attributes = {str(key): values[0] for key, values in groups.items() if len(values) == 1}
+                    else:
+                        warnings.append("VM custom attributes unavailable: " + vid)
                 return {"kind": "vm", "external_id": vid, "name": _text(vm.get("name")) or vid,
+                        "attributes": attributes,
                         "instance_uuid": _uuid(identity.get("instance_uuid")),
                         "bios_uuid": _uuid(identity.get("bios_uuid")),
                         "host_id": host_id, "cluster_id": host.get("cluster_id"), "datacenter_id": host.get("datacenter_id"),
@@ -680,7 +711,60 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
                     relationship.last_confirmed_at = now
         record(item, d, status)
     db.flush()
+    connection = db.get(VsphereConnection, connection_id)
+    if connection and connection.read_sysid and connection.sysid_field_key is not None:
+        key = str(connection.sysid_field_key)
+        vm_rows = [item for item in objects if item["kind"] == "vm"]
+        observed = Counter(str(item.get("attributes", {}).get(key, "")).strip().casefold() for item in vm_rows)
+        for row in db.query(VsphereInventoryObject).filter_by(connection_id=connection_id, kind="vm").filter(
+            VsphereInventoryObject.match_status.in_(("existing", "created")), VsphereInventoryObject.device_id.is_not(None)
+        ):
+            metadata = json.loads(row.metadata_json)
+            value = str(metadata.get("attributes", {}).get(key, "")).strip()
+            if not ID_PATTERN.fullmatch(value) or not row.instance_uuid or observed[value.casefold()] != 1:
+                continue
+            state = db.query(IdoitDeviceSync).filter_by(device_id=row.device_id).first()
+            if state and (state.idoit_sysid or state.idoit_object_id):
+                if state.idoit_sysid != value:
+                    counts["sysid_conflict"] += 1
+                continue
+            if db.query(IdoitDeviceSync).filter(IdoitDeviceSync.idoit_sysid == value).first():
+                counts["sysid_conflict"] += 1
+                continue
+            if state is None:
+                state = IdoitDeviceSync(device_id=row.device_id, status="never_synced")
+                db.add(state)
+            state.idoit_sysid = value
+            db.flush()
+            counts["sysid_imported"] += 1
     return dict(counts)
+
+
+def device_vsphere_inventory(db, device_id):
+    """Return current, source-labelled observations without modifying guest-scan data."""
+    connection = db.get(VsphereConnection, 1)
+    if not connection or not connection.enabled:
+        return []
+    rows = db.query(VsphereInventoryObject).filter_by(connection_id=1, device_id=device_id).filter(
+        VsphereInventoryObject.match_status.in_(("existing", "created", "stale"))
+    ).all()
+    if len(rows) != 1:
+        return []
+    row = rows[0]
+    data = json.loads(row.metadata_json)
+    fields = visible_fields(connection)
+    metadata = {k: data[k] for k in fields if k in data and data[k] not in (None, "", [], {})}
+    for kind in ("host", "cluster", "datacenter"):
+        key = kind + "_id"
+        if key in metadata:
+            topology = db.query(VsphereInventoryObject).filter_by(connection_id=1, kind=kind, external_id=metadata[key]).first()
+            if topology:
+                metadata[key] = topology.name
+    attrs = data.get("attributes", {})
+    custom = [{"key": key, "label": label, "value": attrs[key]} for key, label in attribute_mappings(connection).items() if key in attrs]
+    return [{"name": row.name, "external_id": row.external_id, "kind": row.kind,
+             "match_status": row.match_status, "observed_at": row.observed_at.isoformat() + "Z",
+             "fields": metadata, "custom_fields": custom}]
 
 
 def idoit_vsphere_values(db, device):

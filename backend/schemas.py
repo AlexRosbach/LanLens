@@ -528,6 +528,7 @@ class PortScanResponse(BaseModel):
 
 class DeviceResponse(BaseModel):
     discovery_sources: List[str] = Field(default_factory=list)
+    vsphere_inventory: List[dict] = Field(default_factory=list)
     id: int
     mac_address: str
     ip_address: Optional[str]

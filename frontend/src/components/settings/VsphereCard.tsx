@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import apiClient from '../../api/client'
 import { useI18n } from '../../i18n'
 
-type Config = { sysid_field_key: number | null; writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
+type Config = { read_sysid: boolean; attribute_mappings: Record<string,string>; sysid_field_key: number | null; writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
 type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: Record<string, unknown> }
 type Inventory = { total: number; items: Item[] }
 type Result = { networks?: number; clusters?: number; datacenters?: number; hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
@@ -79,7 +79,7 @@ export default function VsphereCard() {
     setBusy(true);setError('');setMessage('')
     try {
       const r = await apiClient.put<Config>('/vsphere/config', {
-        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, writeback_sysid:config.writeback_sysid, sysid_field_key:config.sysid_field_key, visible_fields:config.visible_fields, ...(password ? {password} : {}),
+        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, writeback_sysid:config.writeback_sysid, sysid_field_key:config.sysid_field_key, read_sysid:config.read_sysid, attribute_mappings:config.attribute_mappings, visible_fields:config.visible_fields, ...(password ? {password} : {}),
       })
       setConfig(r.data);setPassword('');setDirty(false);setMessage(t('vsphere_saved'));setPage(0);setRefresh(v=>v+1)
     } catch (e) {failure(e)} finally {setBusy(false)}
@@ -134,8 +134,8 @@ export default function VsphereCard() {
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     {config && <>
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_endpoint')}<input className={control} type="url" value={config.endpoint} maxLength={512} placeholder="https://vcenter.example.test" disabled={busy} onChange={e=>edit({endpoint:e.target.value,verify_tls:true,sysid_field_key:null,writeback_sysid:false})}/></label>
-        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_user')}<input className={control} value={config.username} maxLength={255} autoComplete="off" disabled={busy} onChange={e=>edit({username:e.target.value,sysid_field_key:null,writeback_sysid:false})}/></label>
+        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_endpoint')}<input className={control} type="url" value={config.endpoint} maxLength={512} placeholder="https://vcenter.example.test" disabled={busy} onChange={e=>edit({endpoint:e.target.value,verify_tls:true,sysid_field_key:null,writeback_sysid:false,read_sysid:false,attribute_mappings:{}})}/></label>
+        <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_user')}<input className={control} value={config.username} maxLength={255} autoComplete="off" disabled={busy} onChange={e=>edit({username:e.target.value,sysid_field_key:null,writeback_sysid:false,read_sysid:false,attribute_mappings:{}})}/></label>
         <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_password')}<input className={control} type="password" autoComplete="new-password" value={password} maxLength={4096} disabled={busy} onChange={e=>{setPassword(e.target.value);setDirty(true)}} placeholder={config.has_password?t('vsphere_password_saved'):''}/></label>
       </div>
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={!config.verify_tls} disabled={busy} onChange={e=>edit({verify_tls:!e.target.checked})}/>{t('idoit_skip_tls')}</label>
@@ -149,6 +149,21 @@ export default function VsphereCard() {
           {customFields.map(f=><option key={f.key} value={f.key}>{f.name}</option>)}
         </select>
       </label>
+      <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.read_sysid} disabled={busy||config.sysid_field_key===null} onChange={e=>edit({read_sysid:e.target.checked})}/>{t('vsphere_read_sysid')}</label>
+      <p className="text-xs text-text-muted">{t('vsphere_read_sysid_hint')}</p>
+      {customFields.length > 0 && <div className="space-y-2">
+        <h3 className="font-medium text-sm">{t('vsphere_attribute_mapping')}</h3>
+        <p className="text-xs text-text-muted">{t('vsphere_attribute_mapping_hint')}</p>
+        {customFields.map(field => <div key={field.key} className="flex flex-wrap gap-2 items-center">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={String(field.key) in config.attribute_mappings} disabled={busy} onChange={e=>{
+            const next = {...config.attribute_mappings}
+            if(e.target.checked) next[String(field.key)] = field.name
+            else delete next[String(field.key)]
+            edit({attribute_mappings:next})
+          }}/>{field.name}</label>
+          {String(field.key) in config.attribute_mappings && <input className={control} aria-label={field.name} maxLength={100} value={config.attribute_mappings[String(field.key)]} onChange={e=>edit({attribute_mappings:{...config.attribute_mappings,[String(field.key)]:e.target.value}})} />}
+        </div>)}
+      </div>}
       {customFieldsError && <p role="alert" className="text-xs text-warning">{t('vsphere_failed')} <button className={control} disabled={busy||!enabled} onClick={()=>setRefresh(v=>v+1)}>{t('vsphere_test')}</button></p>}
       <div className="space-y-2">
         <h3 className="font-medium text-sm">{t('vsphere_fields')}</h3>

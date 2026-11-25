@@ -81,7 +81,13 @@ export interface PassiveDiscoveryObservation {
   inference_reasons?: string[]
 }
 
+export interface VsphereDeviceObservation {
+  name: string; external_id: string; kind: string; match_status: string; observed_at: string
+  fields: Record<string, unknown>; custom_fields: {key: string; label: string; value: string}[]
+}
+
 export interface Device {
+  vsphere_inventory?: VsphereDeviceObservation[]
   discovery_sources?: string[]
   id: number
   mac_address: string

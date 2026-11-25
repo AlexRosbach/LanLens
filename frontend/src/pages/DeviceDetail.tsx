@@ -12,6 +12,7 @@ import ServicesList from '../components/devices/ServicesList'
 import ManualConnectEntries from '../components/devices/ManualConnectEntries'
 import DeviceDnsNamesCard from '../components/devices/DeviceDnsNamesCard'
 import DeepScanPanel from '../components/deep-scan/DeepScanPanel'
+import VsphereDeviceInventory from '../components/deep-scan/VsphereDeviceInventory'
 import VmHostSection from '../components/deep-scan/VmHostSection'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
@@ -504,7 +505,7 @@ export default function DeviceDetail() {
   const navSections = [
     { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
     { id: 'device-switch-ports', label: t('device_section_switch_ports'), visible: !!switchPorts?.has_visualization },
-    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery },
+    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery || !!device.vsphere_inventory?.length },
     { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
     { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
     { id: 'device-tls', label: t('device_section_tls'), visible: showTlsChecks },
@@ -1025,17 +1026,18 @@ export default function DeviceDetail() {
         )}
       </Card>
 
-      {showPassiveDiscovery && (
+      {(showPassiveDiscovery || !!device.vsphere_inventory?.length) && (
       <Card id="device-passive-discovery" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h2 className="text-sm font-semibold text-text-muted">{t('multicast_discovery_title')}</h2>
+          <h2 className="text-sm font-semibold text-text-muted">{t('device_section_discovery')}</h2>
           {passiveObservations.length > 0 && (
             <span className="text-xs text-text-subtle">
               {t('multicast_discovery_unique_observations', { count: passiveObservations.length })}
             </span>
           )}
         </div>
-        {passiveObservations.length === 0 ? (
+        {!!device.vsphere_inventory?.length && <VsphereDeviceInventory observations={device.vsphere_inventory} />}
+        {showPassiveDiscovery && (passiveObservations.length === 0 ? (
           <p className="text-sm text-text-subtle">
             {t('multicast_discovery_empty_device')}
           </p>
@@ -1090,7 +1092,7 @@ export default function DeviceDetail() {
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </Card>
       )}
 
@@ -1311,7 +1313,7 @@ export default function DeviceDetail() {
       {/* Deep Scan */}
       <Card id="device-deep-scan" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('deep_scan')}</h2>
-        <DeepScanPanel deviceId={device.id} onScanCompleted={handleDeepScanCompleted} />
+        <DeepScanPanel deviceId={device.id} onScanCompleted={handleDeepScanCompleted} vmware={device.vsphere_inventory ?? []} />
       </Card>
 
       {/* Open Ports */}

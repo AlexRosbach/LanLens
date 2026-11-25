@@ -13,7 +13,7 @@ from ..models import User, VsphereConnection, VsphereInventoryObject
 from ..services.vsphere_debug import log_vsphere
 from ..services.crypto import encrypt_secret, decrypt_secret
 from ..services.settings_helpers import is_advanced_view_enabled
-from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, reconcile_inventory, VISIBLE_FIELDS, visible_fields
+from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, reconcile_inventory, VISIBLE_FIELDS, visible_fields, attribute_mappings
 
 router = APIRouter(prefix="/api/vsphere", tags=["vsphere"])
 _discovery_lock = asyncio.Lock()
@@ -29,6 +29,8 @@ class ConfigUpdate(BaseModel):
     verify_tls: bool = True
     writeback_sysid: bool = False
     sysid_field_key: int | None = Field(None, ge=-2147483648, le=2147483647)
+    read_sysid: bool = False
+    attribute_mappings: dict[str, str] = Field(default_factory=dict, max_length=64)
     visible_fields: list[str] | None = Field(None, max_length=len(VISIBLE_FIELDS))
 
 
@@ -50,6 +52,7 @@ def _response(row):
             "username": row.username if row else "", "has_password": bool(row and row.encrypted_secret),
             "verify_tls": row.verify_tls if row else True, "writeback_sysid": bool(row and row.writeback_sysid), "visible_fields": visible_fields(row),
             "sysid_field_key": row.sysid_field_key if row else None,
+            "read_sysid": bool(row and row.read_sysid), "attribute_mappings": attribute_mappings(row),
             "last_discovery_at": row.last_discovery_at.isoformat() + "Z" if row and row.last_discovery_at else None}
 
 
@@ -91,10 +94,17 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
                 raise HTTPException(400, "Unsupported VMware inventory field")
             row.visible_fields_json = json.dumps([k for k in VISIBLE_FIELDS if k in data.visible_fields])
         row.verify_tls = data.verify_tls
-        if data.writeback_sysid and (data.sysid_field_key is None or changed_target):
+        if (data.writeback_sysid or data.read_sysid) and (data.sysid_field_key is None or changed_target):
             raise HTTPException(400, "Save the vCenter connection and select a VM custom attribute first")
         row.sysid_field_key = None if changed_target else data.sysid_field_key
         row.writeback_sysid = data.writeback_sysid
+        row.read_sysid = data.read_sysid
+        import re
+        if any(not re.fullmatch(r"-?\d{1,10}", k) or not v.strip() or len(v) > 100 for k, v in data.attribute_mappings.items()):
+            raise HTTPException(400, "Invalid custom attribute mapping")
+        if len({v.strip().casefold() for v in data.attribute_mappings.values()}) != len(data.attribute_mappings):
+            raise HTTPException(400, "Custom field labels must be unique")
+        row.attribute_mappings_json = json.dumps({} if changed_target else {k: v.strip() for k, v in data.attribute_mappings.items()})
         row.endpoint, row.username, row.enabled = endpoint, username, data.enabled
         row.revision = (row.revision or 0) + 1
         db.commit()
@@ -131,7 +141,8 @@ def _client(row):
         raise HTTPException(400, "Enable and configure vSphere first")
     try:
         return VsphereClient(row.endpoint, row.username, decrypt_secret(row.encrypted_secret),
-                             verify_tls=row.verify_tls, fields=visible_fields(row))
+                             verify_tls=row.verify_tls, fields=visible_fields(row),
+                             attribute_keys=set(attribute_mappings(row)) | ({str(row.sysid_field_key)} if row.read_sysid and row.sysid_field_key is not None else set()))
     except (ValueError, VsphereError):
         raise HTTPException(400, "Invalid vSphere settings or stored credential; re-enter the password") from None
 
