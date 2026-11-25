@@ -24,6 +24,7 @@ class ConfigUpdate(BaseModel):
     username: str = Field("", max_length=255)
     password: str | None = Field(None, max_length=4096)
     verify_tls: bool = True
+    writeback_sysid: bool = False
     visible_fields: list[str] | None = Field(None, max_length=len(VISIBLE_FIELDS))
 
 
@@ -43,7 +44,7 @@ def _config(db):
 def _response(row):
     return {"enabled": bool(row and row.enabled), "endpoint": row.endpoint if row else "",
             "username": row.username if row else "", "has_password": bool(row and row.encrypted_secret),
-            "verify_tls": row.verify_tls if row else True, "visible_fields": visible_fields(row),
+            "verify_tls": row.verify_tls if row else True, "writeback_sysid": bool(row and row.writeback_sysid), "visible_fields": visible_fields(row),
             "last_discovery_at": row.last_discovery_at.isoformat() + "Z" if row and row.last_discovery_at else None}
 
 
@@ -85,6 +86,7 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
                 raise HTTPException(400, "Unsupported VMware inventory field")
             row.visible_fields_json = json.dumps([k for k in VISIBLE_FIELDS if k in data.visible_fields])
         row.verify_tls = data.verify_tls
+        row.writeback_sysid = data.writeback_sysid
         row.endpoint, row.username, row.enabled = endpoint, username, data.enabled
         row.revision = (row.revision or 0) + 1
         db.commit()
