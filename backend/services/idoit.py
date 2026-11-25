@@ -33,7 +33,7 @@ from .notification import request_json_via_validated_url
 from .passive_discovery import deduplicate_observations
 from .snmp import bulk_identities_for_devices, identity_for_device
 from .dns_names import device_display_name
-from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values
+from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values, writeback_idoit_sysid
 
 logger = logging.getLogger(__name__)
 
@@ -3373,6 +3373,18 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         if sysid:
             state.idoit_sysid = sysid
             details["idoit_sysid"] = sysid
+
+        # Persist the successful CMDB link before optional VMware network I/O.
+        db.commit()
+        if sysid:
+            try:
+                writeback = await writeback_idoit_sysid(db, device.id, sysid)
+                if writeback:
+                    details["vsphere_sysid_writeback"] = writeback
+            except Exception:
+                db.rollback()
+                sync_warnings.append("VMware SYSID annotation writeback failed; check VM identity, vCenter API version and annotation permission")
+                details["vsphere_sysid_writeback"] = "failed"
 
         now = datetime.utcnow()
         state.status = "synced_with_warnings" if sync_warnings else "synced"
