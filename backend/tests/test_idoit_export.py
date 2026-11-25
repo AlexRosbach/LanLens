@@ -680,7 +680,7 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             db.commit()
             with patch("backend.services.idoit.IdoitClient", FakeClient):
                 result = await sync_device_to_idoit(db, device, mode="manual")
-            self.assertEqual(result["status"], "synced")
+            self.assertEqual(result["status"], "synced_with_warnings")
             self.assertIsNone(db.query(IdoitDeviceSync).filter_by(device_id=device.id).one().last_error)
             applications = [data for category, data in saved_categories if category == "C__CATG__APPLICATION"]
             self.assertEqual(applications, [

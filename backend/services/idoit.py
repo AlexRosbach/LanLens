@@ -7,6 +7,7 @@ returned session token. Cloud-specific differences should stay in configuration
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import copy
 import csv
@@ -38,6 +39,8 @@ from .software_inventory import parse_software
 from ..version import BUILD_COMMIT
 
 logger = logging.getLogger(__name__)
+idoit_sync_lock = asyncio.Lock()
+CATEGORY_SYNC_REVISION = 2
 
 
 def _safe_csv_cell(value: Any) -> Any:
@@ -960,6 +963,11 @@ def _memory_entries(raw: Any) -> list[dict[str, Any]]:
                 "capacity": capacity,
                 "unit": unit,
             }
+            locator = str(item.get("DeviceLocator") or item.get("device_locator") or item.get("Locator") or item.get("locator") or "").strip()
+            serial = _drive_serial(item.get("SerialNumber") or item.get("serial"))
+            if locator or serial:
+                marker = f" [LanLens memory: {locator or serial}]"
+                entry["title"] = entry["title"][:255-len(marker)] + marker
             entries.append({k: v for k, v in entry.items() if v not in (None, "")})
     if entries:
         return entries[:32]
@@ -1694,7 +1702,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
 
 
 def payload_hash(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+    return hashlib.sha256(json.dumps({"sync_revision": CATEGORY_SYNC_REVISION, "payload": payload}, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def get_or_create_state(db: Session, device: Device) -> IdoitDeviceSync:
@@ -1786,7 +1794,7 @@ def _safe_log_details(details: dict[str, Any]) -> str:
             summary["application_lookup"] = details["application_lookup"]
         if "application_resolution_counts" in details:
             summary["application_resolution_counts"] = details["application_resolution_counts"]
-        for key in ("application_save_counts", "drive_save_counts"):
+        for key in ("application_save_counts", "drive_save_counts", "category_save_counts"):
             if key in details:
                 summary[key] = details[key]
         if "applications" in details:
@@ -1808,7 +1816,7 @@ def _safe_log_details(details: dict[str, Any]) -> str:
     # Keep the log valid JSON even when diagnostics exceed the size budget.
     reduced = {key: summary[key] for key in (
         "truncated", "original_size", "sha256", "upstream_write_performed",
-        "application_resolution_counts", "application_lookup", "application_save_counts", "drive_save_counts",
+        "application_resolution_counts", "application_lookup", "application_save_counts", "drive_save_counts", "category_save_counts",
         "cpu_save_status", "cpu_rejected_fields",
     ) if key in summary}
     for key in ("warnings", "errors"):
@@ -2162,6 +2170,7 @@ class IdoitClient:
         self._application_catalog: dict[str, dict[str, str]] | None = None
         self._application_catalog_complete = False
         self.application_lookup_debug: dict[str, Any] = {}
+        self.category_snapshot = None
 
     async def call(self, method: str, params: Optional[dict[str, Any]] = None) -> Any:
         try:
@@ -2936,7 +2945,21 @@ class IdoitClient:
 
     async def read_category(self, object_id: str, category: str) -> Any:
         object_int = _object_id_as_int(object_id)
-        return await self.call("cmdb.category.read", {"object": object_int, "objID": object_int, "category": category})
+        key = (str(object_int), category)
+        if self.category_snapshot is not None and key in self.category_snapshot:
+            result = self.category_snapshot[key]
+            if isinstance(result, Exception):
+                raise result
+            return result
+        try:
+            result = await self.call("cmdb.category.read", {"object": object_int, "objID": object_int, "category": category})
+        except IdoitConnectionError as exc:
+            if self.category_snapshot is not None:
+                self.category_snapshot[key] = exc
+            raise
+        if self.category_snapshot is not None:
+            self.category_snapshot[key] = result
+        return result
 
     async def save_category(self, object_id: str, category: str, data: dict[str, Any], entry_id: Optional[str] = None) -> Any:
         object_int = _object_id_as_int(object_id)
@@ -2948,6 +2971,81 @@ class IdoitClient:
             raise IdoitConnectionError("i-doit rejected the category save", stage="jsonrpc_error",
                                        endpoint=self.endpoint, jsonrpc_error=result)
         return result
+
+    async def reconcile_category(self, object_id: str, category: str, desired: list[dict[str, Any]], clean_global=False) -> list[dict[str, Any]]:
+        """One read, preflight all identities, then write only changed rows."""
+        try:
+            raw = await self.read_category(object_id, category)
+            if not isinstance(raw, (dict, list)) or (isinstance(raw, dict) and (
+                raw.get("error") or str(raw.get("success", True)).lower() in ("false", "0")
+            )):
+                raise IdoitConnectionError("Category read returned no valid snapshot", stage="category_read")
+            rows = [dict(row) for row in _category_entries(raw)
+                    if str(_plain_category_value(row.get("status")) or "") in ("", "2", "C__RECORD_STATUS__NORMAL")]
+        except IdoitConnectionError as exc:
+            return [{"status": "failed", "reason": "read_failed", "error": exc.to_detail()} for _ in (desired or [{}])]
+        if clean_global and category == "C__CATG__GLOBAL" and len(rows) == 1:
+            cleaned = _clean_lanlens_global_description(rows[0].get("description"))
+            if cleaned is not None:
+                if desired:
+                    desired = [{**desired[0], "description": cleaned}, *desired[1:]]
+                else:
+                    desired = [{"description": cleaned}]
+        if not desired:
+            return []
+        keys = [_category_identity_key(category, data) for data in desired]
+        duplicates = Counter(key for key in keys if key is not None)
+        planned = []
+        for key, data in zip(keys, desired):
+            if key is None:
+                planned.append((data, None, {"status": "failed", "reason": "missing_identity"}))
+                continue
+            if duplicates[key] > 1:
+                planned.append((data, None, {"status": "ambiguous", "reason": "duplicate_payload_identity"}))
+                continue
+            try:
+                matches = _matching_category_rows(category, rows, data, key)
+            except IdoitConnectionError:
+                planned.append((data, None, {"status": "ambiguous", "reason": "ambiguous_existing_identity"}))
+                continue
+            if len(matches) > 1 or (matches and not _category_entry_id(matches[0])):
+                planned.append((data, None, {"status": "ambiguous", "reason": "ambiguous_existing_identity"}))
+                continue
+            planned.append((data, matches[0] if matches else None, None))
+        claimed = Counter(_category_entry_id(row) for _, row, error in planned if row is not None and error is None)
+        results = []
+        for data, row, error in planned:
+            if error:
+                results.append(error)
+                continue
+            entry_id = _category_entry_id(row) if row is not None else None
+            if entry_id and claimed[entry_id] > 1:
+                results.append({"status": "ambiguous", "reason": "multiple_payload_rows_target_same_entry"})
+                continue
+            changes = {field: value for field, value in data.items()
+                       if row is None or not _category_value_equal(field, row.get(field), value)}
+            if not changes:
+                results.append({"status": "unchanged", "entry_id": entry_id})
+                continue
+            try:
+                result = await self.save_category(object_id, category, changes, entry_id)
+            except IdoitConnectionError as exc:
+                # Never retry a failed create without a verified returned entry ID.
+                results.append({"status": "failed", "reason": "save_rejected", "error": exc.to_detail()})
+                continue
+            if row is None:
+                new_id = _category_entry_id(result) if isinstance(result, dict) else _object_reference_id(result)
+                if not new_id:
+                    results.append({"status": "failed", "reason": "missing_created_entry_id"})
+                    continue
+                rows.append({"id": new_id, "status": "2", **data})
+                results.append({"status": "created", "entry_id": new_id})
+            else:
+                row.update(changes)
+                results.append({"status": "updated", "entry_id": entry_id, "changed_fields": sorted(changes)})
+        if self.category_snapshot is not None:
+            self.category_snapshot[(str(object_id), category)] = rows
+        return results
 
     async def save_category_best_effort(self, object_id: str, category: str, data: dict[str, Any]) -> dict[str, Any]:
         """Save a category without letting one invalid field abort the sync.
@@ -3184,6 +3282,89 @@ class IdoitClient:
             await self.logout_best_effort()
 
 
+_SINGLE_VALUE_CATEGORIES = {"C__CATG__GLOBAL", "C__CATG__MODEL", "C__CATG__ACCOUNTING"}
+
+
+def _category_identity_key(category, data):
+    def text(field):
+        return _normalized_match_text(data.get(field))
+    if category in ("C__CATG__APPLICATION", "C__CATG__OPERATING_SYSTEM"):
+        oid = _object_reference_id(data.get("application"))
+        return (oid, text("assigned_version")) if oid and category == "C__CATG__APPLICATION" else (oid,) if oid else None
+    if category == "C__CATG__DRIVE":
+        serial = _drive_serial(data.get("serial")).casefold()
+        return ("serial", serial) if serial else ("mount", text("mount_point")) if text("mount_point") else ("title", text("title")) if " [lanlens disk: " in text("title") else None
+    if category == "C__CATG__MEMORY":
+        title = text("title")
+        marker = re.search(r"\[lanlens memory: (.+)\]$", title)
+        return ("module", marker.group(1)) if marker else ("aggregate", title) if title == "system memory" else None
+    if category == "C__CATG__CPU":
+        return (text("title") or text("type"),) if text("title") or text("type") else None
+    if category == "C__CATG__CERTIFICATE":
+        serial = _drive_serial(data.get("serial") or data.get("serial_number")).casefold()
+        return ("serial", serial) if serial else ("certificate", text("common_name"), text("expire_date")[:10]) if text("common_name") and text("expire_date") else None
+    if category == "C__CATG__NET_CONNECTIONS_FOLDER":
+        values = tuple(text(k) for k in ("port_from", "port_to", "protocol"))
+        return values if all(values) else None
+    if category == "C__CATG__NETWORK_PORT":
+        mac = _normalized_match_mac(data.get("mac"))
+        return ("mac", mac) if mac else ("title", text("title")) if text("title") else None
+    if category == "C__CATG__IP":
+        return ("ip", text("ipv4_address")) if text("ipv4_address") else ("hostname", text("hostname")) if text("hostname") else None
+    if category in _SINGLE_VALUE_CATEGORIES:
+        return ("singleton",)
+    return ("title", text("title")) if text("title") else None
+
+
+def _matching_category_rows(category, rows, data, key):
+    if category == "C__CATG__DRIVE":
+        entry_id = _drive_match_id(rows, data)
+        return [row for row in rows if _category_entry_id(row) == entry_id] if entry_id else []
+    if category == "C__CATG__CPU":
+        matches = []
+        for row in rows:
+            legacy = _decode_finding_value(_plain_category_value(row.get("description")))
+            if isinstance(legacy, list) and len(legacy) == 1:
+                legacy = legacy[0]
+            legacy_title = (legacy.get("Name") or legacy.get("name") or legacy.get("ModelName") or legacy.get("model_name")) if isinstance(legacy, dict) else None
+            if any(_normalized_match_text(value) == key[0] for value in (row.get("title"), row.get("type"), legacy_title)):
+                matches.append(row)
+        return matches
+    if category == "C__CATG__IP":
+        # Reuse an explicit hostname identity only when there is no conflicting IP.
+        exact = [row for row in rows if _category_identity_key(category, row) == key]
+        return exact
+    return [row for row in rows if _category_identity_key(category, row) == key]
+
+
+def _category_value_equal(field, current, expected):
+    if field == "application":
+        return _object_reference_id(current) == _object_reference_id(expected)
+    if field == "mac":
+        return _normalized_match_mac(current) == _normalized_match_mac(expected)
+    # i-doit returns IDs/status and numbers as strings, dialogs as objects.
+    def scalar(value):
+        if value is None:
+            return ""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(float(value))
+        return str(value).strip()
+    choices = [current] if not isinstance(current, dict) else [current.get(k) for k in ("value", "title", "name", "const", "id") if current.get(k) is not None]
+    want = scalar(_plain_category_value(expected))
+    for value in choices:
+        if scalar(value) == want:
+            return True
+        if field in {"capacity", "unit", "quantity", "cores", "frequency", "frequency_unit", "port_from", "port_to"}:
+            try:
+                if float(value) == float(want):
+                    return True
+            except (ValueError, TypeError):
+                pass
+        if field == "expire_date" and scalar(value)[:10] == want[:10]:
+            return True
+    return False
+
+
 def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     categories: dict[str, Any] = {}
     direct: dict[str, Any] = {}
@@ -3209,7 +3390,7 @@ def _category_payloads(fields: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     return categories, direct
 
 
-async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual", skip_unchanged: bool = False, _stale_retry: bool = False) -> dict[str, Any]:
+async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual", skip_unchanged: bool = False, _stale_retry: bool = False, _application_run: Optional[dict] = None) -> dict[str, Any]:
     config = get_config(db)
     if not config.enabled:
         raise IdoitConnectionError("i-doit integration is disabled", stage="configuration", endpoint=build_jsonrpc_endpoint(config.base_url, config.jsonrpc_path))
@@ -3243,7 +3424,15 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
     db.commit()
 
     client = IdoitClient(config)
-    details: dict[str, Any] = {"payload": payload, "upstream_write_performed": False, "category_results": {}}
+    if hasattr(client, "reconcile_category"):
+        client.category_snapshot = {}
+    application_run = _application_run if _application_run is not None else {}
+    if application_run.get("catalog") is not None and hasattr(client, "_application_catalog"):
+        client._application_catalog = application_run["catalog"]
+        client._application_catalog_complete = application_run["complete"]
+        client.application_lookup_debug = application_run["debug"]
+    application_cache = application_run.setdefault("resolutions", {})
+    details: dict[str, Any] = {"payload": payload, "upstream_write_performed": False, "category_results": {}, "category_save_counts": {}}
     try:
         await client.login()
         object_id = state.idoit_object_id
@@ -3362,7 +3551,16 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     "C__CATG__OPERATING_SYSTEM: no unique Operating System object match; "
                     "enable create-missing or create the OS object in i-doit"
                 )
-        applications = payload.get("applications") if isinstance(payload.get("applications"), list) else []
+        applications = list(payload.get("applications") or []) if isinstance(payload.get("applications"), list) else []
+        # Container summaries are not assignments. Resolve titles before including them.
+        mapped_apps = categories.pop("C__CATG__APPLICATION", [])
+        for entry in (mapped_apps if isinstance(mapped_apps, list) else [mapped_apps]):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("application"):
+                categories.setdefault("C__CATG__APPLICATION", []).append(entry)
+            elif entry.get("title"):
+                applications.append({"title": entry["title"], "description": "LanLens container discovery"})
         details["detected_application_count"] = len(applications)
         application_entries: list[dict[str, Any]] = []
         application_details: list[dict[str, Any]] = []
@@ -3370,9 +3568,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         for application in applications:
             if not isinstance(application, dict) or not application.get("title"):
                 continue
-            resolution = await client.resolve_application(
-                str(application["title"]), create_missing=config.create_policy == "create_missing",
-            )
+            title = str(application["title"])
+            cache_key = (_normalized_match_text(title), config.create_policy)
+            if cache_key not in application_cache:
+                application_cache[cache_key] = await client.resolve_application(title, create_missing=config.create_policy == "create_missing")
+            resolution = application_cache[cache_key]
             application_details.append(resolution)
             application_id = resolution.get("object_id")
             if application_id:
@@ -3387,6 +3587,8 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             existing_applications = categories.get("C__CATG__APPLICATION")
             existing_entries = existing_applications if isinstance(existing_applications, list) else ([existing_applications] if isinstance(existing_applications, dict) else [])
             categories["C__CATG__APPLICATION"] = [*existing_entries, *application_entries]
+        if getattr(client, "_application_catalog", None) is not None:
+            application_run.update(catalog=client._application_catalog, complete=client._application_catalog_complete, debug=client.application_lookup_debug)
         if application_details:
             details["applications"] = application_details
             counts: dict[str, int] = {}
@@ -3417,21 +3619,27 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             sync_warnings.append("C__CATG__APPLICATION: application catalog lookup incomplete; see sync log")
         global_category = categories.get("C__CATG__GLOBAL") if isinstance(categories.get("C__CATG__GLOBAL"), dict) else {}
         if global_category.get("description") is None:
-            cleaned_description = await client.cleanup_lanlens_global_description(object_id)
-            if cleaned_description is not None:
-                details["global_description_cleanup"] = "removed previous LanLens inventory/reference dump"
+            if hasattr(client, "reconcile_category"):
+                categories.setdefault("C__CATG__GLOBAL", {})
+            else:
+                cleaned_description = await client.cleanup_lanlens_global_description(object_id)
+                if cleaned_description is not None:
+                    details["global_description_cleanup"] = "removed previous LanLens inventory/reference dump"
         if global_category.get("cmdb_status") == "C__CMDB_STATUS__OUT_OF_OPERATION":
             global_category["cmdb_status"] = await client.out_of_operation_status_id()
             details["offline_retirement_applied"] = True
         for category, data in categories.items():
             entries = data if isinstance(data, list) else [data]
-            category_results: list[dict[str, Any]] = []
-            for entry_data in entries:
-                if not isinstance(entry_data, dict) or not entry_data:
-                    continue
-                result = await client.save_category_best_effort(object_id, category, entry_data)
-                category_results.append(result)
-                if result.get("status") == "partial":
+            valid_entries = [entry for entry in entries if isinstance(entry, dict) and entry]
+            if hasattr(client, "reconcile_category"):
+                category_results = await client.reconcile_category(object_id, category, valid_entries,
+                    clean_global=category == "C__CATG__GLOBAL" and global_category.get("description") is None)
+            else:
+                category_results = [await client.save_category_best_effort(object_id, category, entry) for entry in valid_entries]
+            for result in category_results:
+                if result.get("status") == "ambiguous":
+                    sync_warnings.append(f"{category}: ambiguous identity; no write performed")
+                elif result.get("status") == "partial":
                     failed = result.get("failed_fields") if isinstance(result.get("failed_fields"), dict) else {}
                     if failed:
                         sync_warnings.append(f"{category}: partial save; rejected fields: {', '.join(sorted(failed.keys()))}")
@@ -3442,14 +3650,12 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                     rejected = ", ".join(sorted(failed.keys())) if failed else "category payload"
                     error = result.get("error") or {}
                     reason = error.get("message") if isinstance(error, dict) else None
-                    sync_warnings.append(f"{category}: save rejected by i-doit; rejected fields: {rejected}" + (f"; {reason}" if category == "C__CATG__DRIVE" and reason else ""))
+                    sync_warnings.append(f"{category}: {result.get('reason', 'save rejected by i-doit')}; rejected fields: {rejected}" + (f"; {reason}" if category == "C__CATG__DRIVE" and reason else ""))
             details["category_results"][category] = category_results if isinstance(data, list) else (category_results[0] if category_results else {"status": "skipped_empty"})
+            counts = Counter(str(result.get("status", "failed")) for result in category_results)
+            details["category_save_counts"][category] = {key: counts[key] for key in ("created", "updated", "unchanged", "ambiguous", "failed")}
             if category in {"C__CATG__APPLICATION", "C__CATG__DRIVE"}:
-                counts = {}
-                for result in category_results:
-                    status = str(result.get("status", "unknown"))
-                    counts[status] = counts.get(status, 0) + 1
-                details["drive_save_counts" if category == "C__CATG__DRIVE" else "application_save_counts"] = counts
+                details["drive_save_counts" if category == "C__CATG__DRIVE" else "application_save_counts"] = dict(counts)
 
         sysid = await client.object_sysid(object_id)
         if sysid:
@@ -3469,7 +3675,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 details["vsphere_sysid_writeback"] = "failed"
 
         now = datetime.utcnow()
-        state.status = "synced_with_warnings" if sync_warnings else "synced"
+        state.status = "synced_with_warnings" if sync_warnings or log_only_warnings else "synced"
         state.last_sync_at = now
         state.last_success_at = now
         state.last_error = None
@@ -3502,7 +3708,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             logout = getattr(client, "logout_best_effort", None)
             if logout:
                 await logout()
-            return await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=False, _stale_retry=True)
+            return await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=False, _stale_retry=True, _application_run=application_run)
         state.status = "error"
         state.last_error = exc.message
         log_sync(db, device.id, mode, "failure", exc.message, {**details, "error": exc.to_detail()}, state.idoit_object_id)
@@ -3533,9 +3739,10 @@ async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual"
         "skipped": 0,
         "results": [],
     }
+    application_run: dict = {}
     for device in devices:
         try:
-            result = await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=skip_unchanged)
+            result = await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=skip_unchanged, _application_run=application_run)
             if result.get("skipped"):
                 summary["skipped"] += 1
             elif result.get("upstream_write_performed"):
