@@ -2916,18 +2916,6 @@ class IdoitClient:
             response: dict[str, Any] = {"status": "saved", "result": result}
             if entry_id:
                 response["entry_id"] = entry_id
-            if category == "C__CATG__APPLICATION" and data.get("application"):
-                # A successful JSON-RPC result does not establish that the
-                # relationship is visible on the target host. Never retry a
-                # write merely because verification failed.
-                try:
-                    linked = await self.find_reusable_category_entry(object_id, category, data)
-                except IdoitConnectionError:
-                    linked = None
-                if linked:
-                    response["verified_entry_id"] = linked
-                else:
-                    response["status"] = "verification_failed"
             return response
         except IdoitConnectionError as full_error:
             saved: dict[str, Any] = {}

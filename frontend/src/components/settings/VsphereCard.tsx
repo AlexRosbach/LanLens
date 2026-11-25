@@ -26,6 +26,7 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
   const [config, setConfig] = useState<Config | null>(null)
   const [password, setPassword] = useState('')
   const [customFields, setCustomFields] = useState<{key: number; name: string}[]>([])
+  const [customFieldsError, setCustomFieldsError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState('')
@@ -63,9 +64,10 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
   useEffect(() => {
     if (featureOnly || !enabled) return
     let active = true
+    setCustomFields([]); setCustomFieldsError(false)
     apiClient.get<{key: number; name: string}[]>('/vsphere/custom-fields')
       .then(r => { if (active) setCustomFields(r.data) })
-      .catch(() => { if (active) setCustomFields([]) })
+      .catch(() => { if (active) setCustomFieldsError(true) })
     return () => { active = false }
   }, [featureOnly, enabled, refresh])
   function edit(patch: Partial<Config>) {
@@ -131,6 +133,7 @@ export default function VsphereCard({featureOnly = false}: {featureOnly?: boolea
           {customFields.map(f=><option key={f.key} value={f.key}>{f.name}</option>)}
         </select>
       </label>
+      {customFieldsError && <p role="alert" className="text-xs text-warning">{t('vsphere_failed')} <button className={control} disabled={busy||!enabled} onClick={()=>setRefresh(v=>v+1)}>{t('vsphere_test')}</button></p>}
       <div className="space-y-2">
         <h3 className="font-medium text-sm">{t('vsphere_fields')}</h3>
         <p className="text-xs text-text-muted">{t('vsphere_fields_hint')}</p>
