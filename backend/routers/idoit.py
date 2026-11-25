@@ -1,4 +1,6 @@
+import asyncio
 import json
+from uuid import uuid4
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -6,10 +8,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Device, IdoitSyncLog, User
 from ..services.idoit import (
     IdoitConfig,
+    idoit_sync_lock,
     IdoitClient,
     IdoitConnectionError,
     build_object_url,
@@ -399,28 +402,81 @@ async def test_device_sysid_lookup(
             await client.logout_best_effort()
 
 
-@router.post("/devices/{device_id}/sync")
+# Manual jobs are process-local and use their own DB session. The global lock
+# serializes manual and scheduled writers so snapshots cannot race each other.
+_sync_jobs: dict[str, dict[str, Any]] = {}
+_sync_tasks: set = set()
+
+
+def _job_progress(job, summary):
+    job["progress"] = {key: summary[key] for key in ("total", "success", "failure", "skipped")}
+    job["progress"]["current"] = len(summary["results"])
+
+
+async def _run_sync_job(job_id, device_id):
+    job = _sync_jobs[job_id]
+    try:
+        async with idoit_sync_lock:
+            job["status"] = "running"
+            with SessionLocal() as db:
+                _require_idoit_enabled(db)
+                if device_id is None:
+                    result = await sync_all_registered_devices_to_idoit(
+                        db, mode="manual", skip_unchanged=False,
+                        on_progress=lambda summary: _job_progress(job, summary),
+                    )
+                else:
+                    device = db.get(Device, device_id)
+                    if not device:
+                        raise HTTPException(404, "Device not found")
+                    result = await sync_device_to_idoit(db, device, mode="manual")
+                job.update(status="completed", result=result)
+    except IdoitConnectionError as exc:
+        job.update(status="failed", error=exc.to_detail())
+    except HTTPException as exc:
+        job.update(status="failed", error={"message": str(exc.detail), "stage": "sync"})
+    except Exception:
+        job.update(status="failed", error={"message": "i-doit sync failed; see sync logs", "stage": "sync"})
+
+
+def _start_sync_job(device_id):
+    for job in _sync_jobs.values():
+        if job["status"] in ("queued", "running"):
+            if job["device_id"] == device_id:
+                return {"job_id": job["job_id"], "status": job["status"]}
+            raise HTTPException(409, "Another manual i-doit sync is already running")
+    while len(_sync_jobs) >= 32:
+        _sync_jobs.pop(next(iter(_sync_jobs)))
+    job_id = uuid4().hex
+    _sync_jobs[job_id] = {"job_id": job_id, "device_id": device_id, "status": "queued",
+                          "progress": None, "result": None, "error": None}
+    task = asyncio.create_task(_run_sync_job(job_id, device_id))
+    _sync_tasks.add(task)
+    task.add_done_callback(_sync_tasks.discard)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.post("/devices/{device_id}/sync", status_code=202)
 async def sync_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_idoit_enabled(db)
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-    try:
-        return await sync_device_to_idoit(db, device, mode="manual")
-    except IdoitConnectionError as exc:
-        raise HTTPException(status_code=502, detail=exc.to_detail())
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "sync", "endpoint": ""})
+    if not db.get(Device, device_id):
+        raise HTTPException(404, "Device not found")
+    return _start_sync_job(device_id)
 
 
-@router.post("/sync-all")
+@router.post("/sync-all", status_code=202)
 async def sync_all_devices(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_idoit_enabled(db)
-    result = await sync_all_registered_devices_to_idoit(db, mode="manual", skip_unchanged=False)
-    if result["total"] > 0 and result["success"] == 0 and result["failure"] > 0:
-        first_error = next((entry.get("error") for entry in result["results"] if isinstance(entry, dict) and entry.get("error")), None)
-        raise HTTPException(status_code=502, detail=first_error or {"message": "i-doit sync failed", "stage": "sync", "summary": result})
-    return result
+    return _start_sync_job(None)
+
+
+@router.get("/sync-jobs/{job_id}")
+def sync_job_status(job_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
+    job = _sync_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Sync job not found or backend restarted")
+    return dict(job)
 
 
 @router.post("/devices/enable-sync-all")

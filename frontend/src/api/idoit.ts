@@ -127,6 +127,19 @@ export interface IdoitExportPreview {
   include_offline: boolean
 }
 
+type SyncProgress = { current: number; total: number; success: number; failure: number; skipped: number }
+type SyncJob<T> = {job_id: string; status: 'queued' | 'running' | 'completed' | 'failed'; result: T | null; error?: {message?: string}; progress?: SyncProgress}
+
+async function waitForSync<T>(jobId: string, onProgress?: (progress: SyncProgress) => void): Promise<T> {
+  for (;;) {
+    const {data} = await apiClient.get<SyncJob<T>>('/idoit/sync-jobs/' + jobId)
+    if (data.progress) onProgress?.(data.progress)
+    if (data.status === 'completed' && data.result) return data.result
+    if (data.status === 'failed') throw {response: {data: {detail: data.error ?? {message: 'i-doit sync failed'}}}}
+    await new Promise(resolve => window.setTimeout(resolve, 2000))
+  }
+}
+
 export const idoitApi = {
   getConfig: () => apiClient.get<IdoitConfig>('/idoit/config').then((r) => r.data),
 
@@ -139,12 +152,12 @@ export const idoitApi = {
 
   testMapping: () => apiClient.post<IdoitTestResult>('/idoit/test-mapping').then((r) => r.data),
 
-  syncDevice: (id: number) => apiClient.post<IdoitTestResult>(`/idoit/devices/${id}/sync`).then((r) => r.data),
+  syncDevice: (id: number) => apiClient.post<{job_id: string}>(`/idoit/devices/${id}/sync`).then(r => waitForSync<IdoitTestResult>(r.data.job_id)),
 
   testDeviceSysid: (id: number, sysid?: string) =>
     apiClient.post<IdoitSysidLookupResult>(`/idoit/devices/${id}/test-sysid`, sysid ? { sysid } : {}).then((r) => r.data),
 
-  syncAll: () => apiClient.post<IdoitBulkSyncResult>('/idoit/sync-all').then((r) => r.data),
+  syncAll: (onProgress?: (progress: SyncProgress) => void) => apiClient.post<{job_id: string}>('/idoit/sync-all').then(r => waitForSync<IdoitBulkSyncResult>(r.data.job_id, onProgress)),
 
   enableSyncAll: () => apiClient.post<IdoitEnableSyncAllResult>('/idoit/devices/enable-sync-all').then((r) => r.data),
 

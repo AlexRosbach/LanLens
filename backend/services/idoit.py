@@ -2967,7 +2967,7 @@ class IdoitClient:
         if entry_id:
             params["entry"] = _object_id_as_int(entry_id)
         result = await self.call("cmdb.category.save", params)
-        if result is False or (isinstance(result, dict) and result.get("success") is False):
+        if result is False or (isinstance(result, dict) and str(result.get("success", True)).lower() in ("false", "0")):
             raise IdoitConnectionError("i-doit rejected the category save", stage="jsonrpc_error",
                                        endpoint=self.endpoint, jsonrpc_error=result)
         return result
@@ -2980,7 +2980,12 @@ class IdoitClient:
                 raw.get("error") or str(raw.get("success", True)).lower() in ("false", "0")
             )):
                 raise IdoitConnectionError("Category read returned no valid snapshot", stage="category_read")
-            rows = [dict(row) for row in _category_entries(raw)
+            if isinstance(raw, list) and any(not isinstance(row, dict) for row in raw):
+                raise IdoitConnectionError("Category read contains invalid rows", stage="category_read")
+            decoded = _category_entries(raw)
+            if any(not _category_entry_id(row) for row in decoded):
+                raise IdoitConnectionError("Category read contains rows without entry identifiers", stage="category_read")
+            rows = [dict(row) for row in decoded
                     if str(_plain_category_value(row.get("status")) or "") in ("", "2", "C__RECORD_STATUS__NORMAL")]
         except IdoitConnectionError as exc:
             return [{"status": "failed", "reason": "read_failed", "error": exc.to_detail()} for _ in (desired or [{}])]
@@ -3034,7 +3039,7 @@ class IdoitClient:
                 results.append({"status": "failed", "reason": "save_rejected", "error": exc.to_detail()})
                 continue
             if row is None:
-                new_id = _category_entry_id(result) if isinstance(result, dict) else _object_reference_id(result)
+                new_id = _object_reference_id(result.get("entry")) if isinstance(result, dict) else _object_reference_id(result)
                 if not new_id:
                     results.append({"status": "failed", "reason": "missing_created_entry_id"})
                     continue
@@ -3560,7 +3565,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             if entry.get("application"):
                 categories.setdefault("C__CATG__APPLICATION", []).append(entry)
             elif entry.get("title"):
-                applications.append({"title": entry["title"], "description": "LanLens container discovery"})
+                applications.append({"title": entry["title"], "description": "LanLens container discovery", "container": True})
         details["detected_application_count"] = len(applications)
         application_entries: list[dict[str, Any]] = []
         application_details: list[dict[str, Any]] = []
@@ -3569,9 +3574,10 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             if not isinstance(application, dict) or not application.get("title"):
                 continue
             title = str(application["title"])
-            cache_key = (_normalized_match_text(title), config.create_policy)
+            allow_create = config.create_policy == "create_missing" and not application.get("container")
+            cache_key = (_normalized_match_text(title), allow_create)
             if cache_key not in application_cache:
-                application_cache[cache_key] = await client.resolve_application(title, create_missing=config.create_policy == "create_missing")
+                application_cache[cache_key] = await client.resolve_application(title, create_missing=allow_create)
             resolution = application_cache[cache_key]
             application_details.append(resolution)
             application_id = resolution.get("object_id")
@@ -3726,7 +3732,7 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             await logout()
 
 
-async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual", skip_unchanged: bool = False) -> dict[str, Any]:
+async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual", skip_unchanged: bool = False, on_progress=None) -> dict[str, Any]:
     query = db.query(Device).filter(Device.is_registered == True)  # noqa: E712
     config = get_config(db)
     if config.sync_scope == "manual":
@@ -3740,6 +3746,8 @@ async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual"
         "results": [],
     }
     application_run: dict = {}
+    if on_progress:
+        on_progress(summary)
     for device in devices:
         try:
             result = await sync_device_to_idoit(db, device, mode=mode, skip_unchanged=skip_unchanged, _application_run=application_run)
@@ -3756,6 +3764,8 @@ async def sync_all_registered_devices_to_idoit(db: Session, mode: str = "manual"
         except Exception as exc:
             summary["failure"] += 1
             summary["results"].append({"device_id": device.id, "status": "error", "error": {"message": str(exc), "stage": "sync"}})
+        if on_progress:
+            on_progress(summary)
     return summary
 
 

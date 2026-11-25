@@ -1512,34 +1512,7 @@ export default function Settings() {
     setIdoitSyncingAll(true)
     setIdoitSyncProgress(null)
     try {
-      const deviceResult = await devicesApi.list()
-      const registeredDevices = deviceResult.items.filter((device) => device.is_registered && (idoitConfig?.idoit_sync_scope !== 'manual' || device.idoit_sync_enabled !== false))
-      const total = registeredDevices.length
-      let success = 0
-      let failure = 0
-      let skipped = 0
-
-      if (total === 0) {
-        toast.success(t('idoit_bulk_sync_success', { success: '0', failure: '0', skipped: '0' }))
-        return
-      }
-
-      for (let index = 0; index < registeredDevices.length; index += 1) {
-        const device = registeredDevices[index]
-        const label = device.label || device.hostname || device.ip_address || device.mac_address
-        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
-        try {
-          const result = await idoitApi.syncDevice(device.id)
-          if (result.skipped) {
-            skipped += 1
-          } else {
-            success += 1
-          }
-        } catch {
-          failure += 1
-        }
-        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
-      }
+      const {success, failure, skipped} = await idoitApi.syncAll(progress => setIdoitSyncProgress(progress))
 
       setIdoitTestError(null)
       toast.success(t('idoit_bulk_sync_success', { success: String(success), failure: String(failure), skipped: String(skipped) }))

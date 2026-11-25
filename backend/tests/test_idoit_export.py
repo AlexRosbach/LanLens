@@ -1577,6 +1577,88 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         finally:
             db.close()
 
+    async def test_category_snapshot_is_idempotent_and_keeps_distinct_versions_and_modules(self):
+        from backend.services.idoit import _memory_entries
+
+        class Client(IdoitClient):
+            def __init__(self, config):
+                super().__init__(config)
+                self.rows = {}
+                self.reads = Counter()
+                self.writes = []
+
+            async def call(self, method, params=None):
+                category = params["category"]
+                rows = self.rows.setdefault(category, [])
+                if method == "cmdb.category.read":
+                    self.reads[category] += 1
+                    return [dict(row) for row in rows]
+                self.assert_method = method
+                self.writes.append((category, params.get("entry"), dict(params["data"])))
+                if "entry" in params:
+                    row = next(row for row in rows if row["id"] == str(params["entry"]))
+                    row.update(params["data"])
+                else:
+                    row = {"id": str(len(rows) + 1), "objID": "42", "status": "2", **params["data"]}
+                    rows.append(row)
+                return {"success": True, "entry": int(row["id"])}
+
+        from collections import Counter
+        client = Client(get_config(self.Session()))
+        apps = [{"application": 101, "assigned_version": version, "description": "Example"}
+                for version in ("6.0.36", "8.0.11")]
+        modules = _memory_entries([
+            {"Manufacturer": "Vendor A", "Capacity": "16 GB", "DeviceLocator": "DIMM_A1"},
+            {"Manufacturer": "Vendor A", "Capacity": "16 GB", "DeviceLocator": "DIMM_A2"},
+            {"Manufacturer": "Vendor B", "Capacity": "16 GB", "DeviceLocator": "DIMM_B1"},
+        ])
+        disks = _drive_entries([{"Model": "Example Disk", "Size": "100 GB", "Index": 0}])
+        categories = {"C__CATG__APPLICATION": apps, "C__CATG__MEMORY": modules, "C__CATG__DRIVE": disks}
+        for expected in ("created", "unchanged"):
+            client.category_snapshot = {}
+            client.reads.clear()
+            client.writes.clear()
+            for category, payload in categories.items():
+                results = await client.reconcile_category("42", category, payload)
+                self.assertEqual([result["status"] for result in results], [expected] * len(payload))
+                self.assertEqual(client.reads[category], 1)
+            self.assertEqual(len(client.writes), 6 if expected == "created" else 0)
+            self.assertEqual(len(client.rows["C__CATG__APPLICATION"]), 2)
+            self.assertEqual(len(client.rows["C__CATG__MEMORY"]), 3)
+        client.category_snapshot = {}
+        client.writes.clear()
+        resized = [{**disks[0], "capacity": 200}]
+        results = await client.reconcile_category("42", "C__CATG__DRIVE", resized)
+        self.assertEqual(results[0]["status"], "updated")
+        self.assertEqual(client.writes, [("C__CATG__DRIVE", 1, {"capacity": 200})])
+
+    async def test_category_snapshot_refuses_duplicates_and_failed_reads(self):
+        class Client(IdoitClient):
+            writes = 0
+            rows = []
+            fail_read = False
+            async def read_category(self, object_id, category):
+                if self.fail_read:
+                    raise IdoitConnectionError("unavailable", stage="category_read")
+                return self.rows
+            async def save_category(self, *args, **kwargs):
+                self.writes += 1
+                raise AssertionError("unsafe write")
+        client = Client(get_config(self.Session()))
+        data = {"application": 101, "assigned_version": "8.0"}
+        client.rows = [{"id": str(i), "objID": "42", "status": "2",
+                        "application": {"id": "101", "title": "Example"}, "assigned_version": {"title": "8.0", "id": "9"}}
+                       for i in (1, 2)]
+        result = await client.reconcile_category("42", "C__CATG__APPLICATION", [data])
+        self.assertEqual(result[0]["status"], "ambiguous")
+        client.rows = []
+        result = await client.reconcile_category("42", "C__CATG__APPLICATION", [data, data])
+        self.assertEqual([row["status"] for row in result], ["ambiguous", "ambiguous"])
+        client.fail_read = True
+        result = await client.reconcile_category("42", "C__CATG__APPLICATION", [data])
+        self.assertEqual(result[0]["reason"], "read_failed")
+        self.assertEqual(client.writes, 0)
+
     async def test_drive_sync_creates_distinct_entries_and_updates_only_matching_disk(self):
         class DriveClient(IdoitClient):
             def __init__(self, config):
