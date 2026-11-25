@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, ManualConnectEntry, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, ManualConnectEntry, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User, VsphereConnection, VsphereInventoryObject, WindowsAgent, DeepScanRun
 from ..schemas import (
     BulkPortScanRequest,
     BulkPortScanStatus,
@@ -324,6 +324,7 @@ def _device_to_response(
     idoit_enabled: bool = False,
     snmp_identities: Optional[dict] = None,
     os_inference_enabled: Optional[bool] = None,
+    discovery_sources: Optional[dict] = None,
 ) -> DeviceResponse:
     from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
@@ -364,6 +365,7 @@ def _device_to_response(
 
     return DeviceResponse(
         id=device.id,
+        discovery_sources=sorted((discovery_sources or {}).get(device.id, set())),
         mac_address=device.mac_address,
         ip_address=device.ip_address,
         hostname=device.hostname,
@@ -445,6 +447,36 @@ def _device_to_response(
         snmp_interface_discards_per_minute=(snmp_identity or {}).get("interface_discards_per_minute"),
         snmp_interface_layer1_errors_per_minute=(snmp_identity or {}).get("interface_layer1_errors_per_minute"),
     )
+
+
+def _device_discovery_sources(db, device_ids, snmp_identities):
+    """Expose only sources backed by persisted observations; no guessed provenance."""
+    from collections import defaultdict
+    sources = defaultdict(set)
+    if not device_ids:
+        return sources
+    for (device_id,) in db.query(DevicePingSample.device_id).filter(
+        DevicePingSample.device_id.in_(device_ids), DevicePingSample.source == "scan",
+        DevicePingSample.success.is_(True),
+    ).distinct():
+        sources[device_id].add("scanner")
+    for (device_id,) in db.query(WindowsAgent.device_id).filter(WindowsAgent.device_id.in_(device_ids)).distinct():
+        sources[device_id].add("agent")
+    for (device_id,) in db.query(DeepScanRun.device_id).filter(
+        DeepScanRun.device_id.in_(device_ids), DeepScanRun.status == "done",
+        DeepScanRun.profile.notin_(("windows_agent", "linux_agent")),
+    ).distinct():
+        sources[device_id].add("deep_scan")
+    for device_id, identity in snmp_identities.items():
+        if identity:
+            sources[device_id].add("snmp")
+    if is_advanced_view_enabled(db):
+        for (device_id,) in db.query(VsphereInventoryObject.device_id).join(VsphereConnection).filter(
+            VsphereConnection.enabled.is_(True), VsphereInventoryObject.device_id.in_(device_ids),
+            VsphereInventoryObject.match_status.in_(("created", "existing")),
+        ).distinct():
+            sources[device_id].add("vsphere")
+    return sources
 
 
 @router.get("", response_model=DeviceListResponse)
@@ -589,6 +621,7 @@ def list_devices(
             if rel.child_device_id not in host_labels:
                 host_labels[rel.child_device_id] = host_devices_map.get(rel.host_device_id, f"Host #{rel.host_device_id}")
 
+    discovery_sources = _device_discovery_sources(db, [d.id for d in all_devices], snmp_identities)
     return DeviceListResponse(
         items=[
             _device_to_response(
@@ -602,6 +635,7 @@ def list_devices(
                 idoit_enabled=idoit_config.enabled,
                 snmp_identities=snmp_identities,
                 os_inference_enabled=os_inference_enabled,
+                discovery_sources=discovery_sources,
             )
             for d in all_devices
         ],

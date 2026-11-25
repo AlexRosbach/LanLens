@@ -82,6 +82,7 @@ export interface PassiveDiscoveryObservation {
 }
 
 export interface Device {
+  discovery_sources?: string[]
   id: number
   mac_address: string
   ip_address: string | null

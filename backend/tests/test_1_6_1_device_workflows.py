@@ -14,7 +14,7 @@ from fastapi import HTTPException
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-1-6-1-workflows")
 
 from backend.database import Base
-from backend.models import Credential, DeepScanFinding, DeepScanRun, Device, ManualConnectEntry, PortScan, Setting, User, VsphereConnection
+from backend.models import Credential, DeepScanFinding, DeepScanRun, Device, ManualConnectEntry, PortScan, Setting, User, VsphereConnection, VsphereInventoryObject, DevicePingSample
 from backend.routers import devices as devices_router
 from backend.routers import scan as scan_router
 from backend.routers import settings as settings_router
@@ -220,6 +220,21 @@ class DeviceWorkflowTests(unittest.TestCase):
         stored = db.query(Setting).filter(Setting.key == "show_os_inference").one()
         self.assertEqual(stored.value, "true")
         db.close()
+
+    def test_device_discovery_sources_combine_scanner_and_vmware(self):
+        with self.Session() as db:
+            device = Device(mac_address="02:00:00:00:00:99", hostname="example")
+            db.add(device)
+            db.flush()
+            db.add(Setting(key="advanced_view_enabled", value="true"))
+            db.add(VsphereConnection(id=1, enabled=True))
+            db.add(DevicePingSample(device_id=device.id, source="scan", success=True))
+            db.flush()
+            db.add(VsphereInventoryObject(connection_id=1, device_id=device.id,
+                    kind="vm", external_id="vm-1", name="example", match_status="existing"))
+            db.commit()
+            self.assertEqual(devices_router._device_discovery_sources(db, [device.id], {})[device.id],
+                             {"scanner", "vsphere"})
 
     def test_ui_settings_toggle_vsphere_without_credentials(self):
         with (

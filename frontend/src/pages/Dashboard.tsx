@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [filter, setFilter] = useState<Filter>('all')
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('')
   const [searchParams] = useSearchParams()
   const [segmentFilter, setSegmentFilter] = useState(() => searchParams.get('segment') ?? '')
   const [registerDevice, setRegisterDevice] = useState<Device | null>(null)
@@ -42,6 +43,8 @@ export default function Dashboard() {
   const bulkScanStatusRef = useRef<BulkPortScanStatus | null>(null)
   const [startingBulkScan, setStartingBulkScan] = useState(false)
 
+  const sourceOptions = Array.from(new Set(devices.flatMap(d => d.discovery_sources ?? []))).sort()
+  const sourceLabels: Record<string, string> = {scanner: t('source_scanner'), agent: t('source_agent'), deep_scan: t('source_deep_scan'), snmp: 'SNMP', vsphere: 'VMware'}
   const newDevicesCount = devices.filter((d) => d.is_new).length
   const deviceClassOptions = Array.from(new Set([...DEVICE_CLASSES, ...devices.map((d) => d.device_class).filter(Boolean)])).sort()
 
@@ -106,6 +109,7 @@ export default function Dashboard() {
   }
 
   const filtered = devices.filter((d) => {
+    if (sourceOptions.length > 1 && sourceFilter && (sourceFilter === 'multiple' ? (d.discovery_sources?.length ?? 0) < 2 : !d.discovery_sources?.includes(sourceFilter))) return false
     if (filter === 'archived') return true
     if (filter === 'online' && !d.is_online) return false
     if (filter === 'offline' && d.is_online) return false
@@ -126,7 +130,8 @@ export default function Dashboard() {
         (d.ip_address ?? '').includes(term) ||
         (d.label ?? '').toLowerCase().includes(term) ||
         (d.hostname ?? '').toLowerCase().includes(term) ||
-        (d.vendor ?? '').toLowerCase().includes(term)
+        (d.vendor ?? '').toLowerCase().includes(term) ||
+        (d.discovery_sources ?? []).some(source => source.includes(term) || (sourceLabels[source] ?? '').toLowerCase().includes(term))
       )
     }
     return true
@@ -231,7 +236,7 @@ export default function Dashboard() {
           {(['all', 'online', 'offline', 'new', 'archived'] as Filter[]).map((f) => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
+              onClick={() => {setFilter(f);setSourceFilter('')}}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors
                 ${filter === f ? 'bg-surface2 text-text-base' : 'text-text-subtle hover:text-text-muted'}`}
             >
@@ -268,6 +273,11 @@ export default function Dashboard() {
           {deviceClassOptions.map((c) => <option key={c}>{c}</option>)}
         </select>
 
+        {sourceOptions.length > 1 && <select className="input-field w-auto" aria-label={t('all_sources')} value={sourceFilter} onChange={e=>setSourceFilter(e.target.value)}>
+          <option value="">{t('all_sources')}</option>
+          {sourceOptions.map(source=><option key={source} value={source}>{sourceLabels[source] ?? source}</option>)}
+          {devices.some(d=>(d.discovery_sources?.length ?? 0)>1) && <option value="multiple">{t('multiple_sources')}</option>}
+        </select>}
         {segments.length > 0 && (
           <select
             value={segmentFilter}
