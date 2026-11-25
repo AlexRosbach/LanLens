@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from backend.database import Base
 from backend.models import Device, DeviceHostRelationship, VsphereConnection, VsphereInventoryObject
-from backend.services.vsphere import VsphereClient, VsphereError, reconcile_inventory, validate_endpoint, disk_inventory, idoit_vsphere_values
+from backend.services.vsphere import VsphereClient, VsphereError, reconcile_inventory, validate_endpoint, disk_inventory, idoit_vsphere_values, sysid_annotation, writeback_idoit_sysid
 
 
 class VsphereTests(unittest.IsolatedAsyncioTestCase):
@@ -88,6 +88,68 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(d.label,"Operator label")
         self.assertEqual(self.db.query(DeviceHostRelationship).count(),1)
         self.assertEqual(self.db.query(VsphereInventoryObject).count(),2)
+
+    def test_reconcile_ip_only_device_is_enriched(self):
+        d = Device(mac_address="ip:existing", ip_address="192.0.2.5", hostname="guest.example.test")
+        self.db.add(d)
+        self.db.flush()
+        result = reconcile_inventory(self.db, 1, [{"kind":"vm", "external_id":"vm-1", "name":"Guest",
+                    "macs":["00:50:56:12:34:56"], "ips":["192.0.2.5"]}], datetime.utcnow())
+        self.assertEqual(result["existing"], 1)
+        self.assertEqual(self.db.query(Device).count(), 1)
+        self.assertEqual(d.mac_address, "00:50:56:12:34:56")
+
+    def test_reconcile_hostname_and_conflicts(self):
+        d = Device(mac_address="ip:existing", hostname="guest.example.test", ip_address="192.0.2.5")
+        self.db.add(d)
+        self.db.flush()
+        item = {"kind":"vm", "external_id":"vm-1", "name":"GUEST.EXAMPLE.TEST.",
+                "macs":["00:50:56:12:34:56"], "ips":[]}
+        self.assertEqual(reconcile_inventory(self.db,1,[item],datetime.utcnow())["existing"], 1)
+        item["macs"] = ["00:50:56:12:34:57"]
+        self.assertEqual(reconcile_inventory(self.db,1,[item],datetime.utcnow())["ambiguous"], 1)
+        self.assertEqual(self.db.query(Device).count(), 1)
+
+    def test_conflicting_ip_and_mac_do_not_merge(self):
+        self.db.add_all([Device(mac_address="00:50:56:12:34:56", ip_address="192.0.2.5"),
+                         Device(mac_address="00:50:56:12:34:57", ip_address="192.0.2.6")])
+        self.db.flush()
+        item = {"kind":"vm","external_id":"vm-1","name":"Guest","macs":["00:50:56:12:34:56"],"ips":["192.0.2.6"]}
+        self.assertEqual(reconcile_inventory(self.db,1,[item],datetime.utcnow())["ambiguous"], 1)
+        self.assertEqual(self.db.query(Device).count(), 2)
+
+    def test_annotation_preserves_notes_and_is_idempotent(self):
+        old = "Existing notes\nOwner: IT"
+        new = sysid_annotation(old, "SYSID_123")
+        self.assertEqual(new, old + "\nLanLens i-doit SYS-ID: SYSID_123")
+        self.assertEqual(sysid_annotation(new, "SYSID_123"), new)
+        self.assertEqual(sysid_annotation(new, "SYSID_456"), old + "\nLanLens i-doit SYS-ID: SYSID_456")
+        with self.assertRaises(VsphereError):
+            sysid_annotation(new, "invalid\nannotation")
+
+    async def test_annotation_write_checks_uuid_and_task(self):
+        uid = "11111111-2222-3333-4444-555555555555"
+        client = VsphereClient("https://vc.example.test", "user", "pass")
+        client.vi_login = AsyncMock(return_value=True)
+        client.vi_logout = AsyncMock()
+        client._vi_request = AsyncMock(side_effect=[
+            ({"instanceUuid":uid, "changeVersion":"123", "annotation":"Existing notes"}, None),
+            ({"type":"Task","value":"task-1"}, None),
+            ({"state":"success"}, None),
+        ])
+        self.assertEqual(await client.write_sysid_annotation("vm-1", uid, "SYSID_123"), "updated")
+        self.assertEqual(client._vi_request.call_args_list[1].args[2],
+                         {"spec":{"changeVersion":"123","annotation":"Existing notes\nLanLens i-doit SYS-ID: SYSID_123"}})
+        client._vi_request = AsyncMock(return_value=({"instanceUuid":"99999999-2222-3333-4444-555555555555"}, None))
+        with self.assertRaises(VsphereError):
+            await client.write_sysid_annotation("vm-1", uid, "SYSID_123")
+        self.assertEqual(client._vi_request.await_count, 1)
+
+    async def test_writeback_is_disabled_by_default(self):
+        row = self.db.get(VsphereConnection, 1)
+        row.enabled = True
+        self.assertFalse(row.writeback_sysid)
+        self.assertIsNone(await writeback_idoit_sysid(self.db, 1, "SYSID_123"))
 
     def test_changed_nic_does_not_create_duplicate_on_repeated_scan(self):
         item = {"kind":"vm","external_id":"vm-1","name":"Example",
