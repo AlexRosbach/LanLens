@@ -34,6 +34,11 @@ async def _diagnostic_notification_job():
         await _send_notification_deliveries(db)
 
 
+async def _vsphere_scan_job():
+    from ..routers.vsphere import scheduled_discovery_tick
+    await scheduled_discovery_tick()
+
+
 async def _scan_job():
     from .scanner import run_scan
     await run_scan(scan_type="scheduled")
@@ -194,6 +199,8 @@ def start_scheduler(interval_minutes: int = DEFAULT_INTERVAL_MINUTES):
     _add_retention_job()
     _scheduler.add_job(_diagnostic_notification_job, trigger=IntervalTrigger(seconds=60),
                        id="diagnostic_notification_delivery", replace_existing=True, max_instances=1)
+    _scheduler.add_job(_vsphere_scan_job, trigger=IntervalTrigger(seconds=60),
+                       id="vsphere_scan", replace_existing=True, max_instances=1, coalesce=True)
 
 
 def _add_or_reschedule_job(interval_minutes: int):

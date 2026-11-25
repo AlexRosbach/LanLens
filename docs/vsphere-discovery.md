@@ -34,3 +34,7 @@ Use Load VM attributes to fetch field definitions, select the desired attributes
 ### Mapping to existing LanLens fields and device history
 
 In the VMware tab, each custom attribute can optionally target an existing LanLens documentation field. Empty fields are populated by default; overwriting a nonempty value requires the explicit per-mapping option. The existing SYSID import remains separately protected and is selectable in the same dropdown. Network identities, credentials and CMDB object IDs are not writable through this mapping. Changes require a unique VM UUID and matching MAC. Discovery records new links, changed inventory fields, selected attribute changes (values redacted), and imported documentation fields in the device timeline; repeated unchanged scans do not add events. Historical changes from before this feature cannot be reconstructed.
+
+### Automatic discovery schedule
+
+Enable automatic VMware scans in Deep Scan → VMware. Configure the interval from 5 to 10,080 minutes (default 60, automatic scans disabled by default). The backend checks the persisted schedule each minute; it runs the same discovery workflow as the manual button. The interval is measured from the last scan attempt (including unsuccessful attempts) or the previous successful discovery for older installations. If there is no previous scan, the first automatic scan is due immediately. Manual and scheduled jobs share the discovery lock; overlapping scans are skipped. Disabled features and incomplete connections are not scanned. Settings persist across restarts.

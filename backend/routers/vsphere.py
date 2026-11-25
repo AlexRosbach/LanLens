@@ -1,6 +1,6 @@
 """Authenticated vCenter configuration and manual discovery."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,6 +35,8 @@ class ConfigUpdate(BaseModel):
     writeback_sysid: bool = False
     sysid_field_key: int | None = Field(None, ge=-2147483648, le=2147483647)
     read_sysid: bool = False
+    auto_scan_enabled: bool | None = None
+    scan_interval_minutes: int | None = Field(None, ge=5, le=10080)
     attribute_mappings: dict[str, str] = Field(default_factory=dict, max_length=64)
     device_field_mappings: dict[str, DeviceFieldMapping] | None = Field(None, max_length=64)
     visible_fields: list[str] | None = Field(None, max_length=len(VISIBLE_FIELDS))
@@ -53,13 +55,25 @@ def _config(db):
     return db.get(VsphereConnection, 1)
 
 
+def _next_scan_at(row, now):
+    if not (row and row.enabled and row.auto_scan_enabled and row.endpoint and row.username and row.encrypted_secret):
+        return None
+    last = row.last_scan_attempt_at or row.last_discovery_at
+    return last + timedelta(minutes=row.scan_interval_minutes or 60) if last else now
+
+
 def _response(row):
+    next_scan = _next_scan_at(row, datetime.utcnow())
     return {"enabled": bool(row and row.enabled), "endpoint": row.endpoint if row else "",
             "username": row.username if row else "", "has_password": bool(row and row.encrypted_secret),
             "verify_tls": row.verify_tls if row else True, "writeback_sysid": bool(row and row.writeback_sysid), "visible_fields": visible_fields(row),
             "sysid_field_key": row.sysid_field_key if row else None,
             "read_sysid": bool(row and row.read_sysid), "attribute_mappings": attribute_mappings(row),
             "device_field_mappings": device_field_mappings(row),
+            "auto_scan_enabled": bool(row and row.auto_scan_enabled),
+            "scan_interval_minutes": (row.scan_interval_minutes or 60) if row else 60,
+            "last_scan_attempt_at": row.last_scan_attempt_at.isoformat() + "Z" if row and row.last_scan_attempt_at else None,
+            "next_scan_at": next_scan.isoformat() + "Z" if next_scan else None,
             "last_discovery_at": row.last_discovery_at.isoformat() + "Z" if row and row.last_discovery_at else None}
 
 
@@ -94,6 +108,7 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
             if row.endpoint != endpoint:
                 db.query(VsphereInventoryObject).filter_by(connection_id=1).delete(synchronize_session=False)
                 row.last_discovery_at = None
+                row.last_scan_attempt_at = None
         if data.password:
             row.encrypted_secret = encrypt_secret(data.password)
         if data.visible_fields is not None:
@@ -122,6 +137,10 @@ async def save_config(data: ConfigUpdate, db: Session = Depends(get_db), _: User
             if len({rule["target"] for rule in mappings.values()}) != len(mappings):
                 raise HTTPException(400, "Each LanLens target field may be mapped only once")
             row.device_field_mappings_json = json.dumps(mappings)
+        if data.auto_scan_enabled is not None:
+            row.auto_scan_enabled = data.auto_scan_enabled
+        if data.scan_interval_minutes is not None:
+            row.scan_interval_minutes = data.scan_interval_minutes
         row.endpoint, row.username, row.enabled = endpoint, username, data.enabled
         row.revision = (row.revision or 0) + 1
         db.commit()
@@ -202,6 +221,10 @@ async def test_connection(db: Session = Depends(get_db), _: User = Depends(get_c
 
 @router.post("/discover")
 async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    return await _discover_inventory(db)
+
+
+async def _discover_inventory(db, mode="manual"):
     _require_advanced(db)
     if _discovery_lock.locked():
         raise HTTPException(409, "A vSphere operation is already running")
@@ -209,9 +232,10 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
         row = _config(db)
         client = _client(row)
         revision = row.revision
-        db.rollback()
+        row.last_scan_attempt_at = datetime.utcnow()
+        db.commit()
         try:
-            log_vsphere(db, "discovery", "info", "Inventory discovery started", {"timeout_seconds": 900})
+            log_vsphere(db, "discovery", "info", "Inventory discovery started", {"timeout_seconds": 900, "trigger": mode})
             client.diagnostic = lambda level, message, details: log_vsphere(db, "discovery", level, message, details)
             objects, warnings = await asyncio.wait_for(client.collect(), timeout=900)
         except (VsphereError, TimeoutError) as exc:
@@ -242,15 +266,34 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
         return result
 
 
-async def _run_discovery_job():
+async def _run_discovery_job(mode="manual"):
     try:
         with SessionLocal() as db:
-            result = await discover(db=db, _=None)
+            result = await _discover_inventory(db, mode=mode)
         _discovery_job.update(status="completed", result=result, error=None)
+    except asyncio.CancelledError:
+        _discovery_job.update(status="failed", result=None, error="Discovery interrupted")
+        raise
     except HTTPException as exc:
         _discovery_job.update(status="failed", result=None, error=str(exc.detail))
     except Exception:
         _discovery_job.update(status="failed", result=None, error="vCenter discovery failed; check server logs")
+
+
+async def scheduled_discovery_tick():
+    """Check persisted schedule; share the manual job status and discovery lock."""
+    if _discovery_lock.locked() or _discovery_job["status"] == "running":
+        return False
+    with SessionLocal() as db:
+        if not is_advanced_view_enabled(db):
+            return False
+        now = datetime.utcnow()
+        due = _next_scan_at(_config(db), now)
+        if due is None or due > now:
+            return False
+    _discovery_job.update(status="running", result=None, error=None, trigger="scheduled")
+    await _run_discovery_job(mode="scheduled")
+    return True
 
 
 @router.post("/discover/start")
@@ -262,7 +305,7 @@ async def start_discovery(db: Session = Depends(get_db), _: User = Depends(get_c
     if _discovery_lock.locked():
         raise HTTPException(409, "A vSphere operation is already running")
     _client(_config(db))
-    _discovery_job.update(status="running", result=None, error=None)
+    _discovery_job.update(status="running", result=None, error=None, trigger="manual")
     _discovery_task = asyncio.create_task(_run_discovery_job())
     return dict(_discovery_job)
 

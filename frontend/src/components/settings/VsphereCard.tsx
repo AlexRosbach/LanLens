@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import apiClient from '../../api/client'
 import { useI18n } from '../../i18n'
 
-type Config = { device_field_mappings: Record<string,{target:string;overwrite:boolean}>; read_sysid: boolean; attribute_mappings: Record<string,string>; sysid_field_key: number | null; writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
+type Config = { auto_scan_enabled: boolean; scan_interval_minutes: number; last_scan_attempt_at: string | null; next_scan_at: string | null; device_field_mappings: Record<string,{target:string;overwrite:boolean}>; read_sysid: boolean; attribute_mappings: Record<string,string>; sysid_field_key: number | null; writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
 type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: Record<string, unknown> }
 type Inventory = { total: number; items: Item[] }
 type Result = { networks?: number; clusters?: number; datacenters?: number; hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
@@ -88,7 +88,7 @@ export default function VsphereCard() {
     setBusy(true);setError('');setMessage('')
     try {
       const r = await apiClient.put<Config>('/vsphere/config', {
-        enabled:config.enabled, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, writeback_sysid:config.writeback_sysid, sysid_field_key:config.sysid_field_key, read_sysid:config.read_sysid, attribute_mappings:config.attribute_mappings, device_field_mappings:config.device_field_mappings, visible_fields:config.visible_fields, ...(password ? {password} : {}),
+        enabled:config.enabled, auto_scan_enabled:config.auto_scan_enabled, scan_interval_minutes:config.scan_interval_minutes, endpoint:config.endpoint, username:config.username, verify_tls:config.verify_tls, writeback_sysid:config.writeback_sysid, sysid_field_key:config.sysid_field_key, read_sysid:config.read_sysid, attribute_mappings:config.attribute_mappings, device_field_mappings:config.device_field_mappings, visible_fields:config.visible_fields, ...(password ? {password} : {}),
       })
       setConfig(r.data);setPassword('');setDirty(false);setMessage(t('vsphere_saved'));setPage(0);setRefresh(v=>v+1)
     } catch (e) {failure(e)} finally {setBusy(false)}
@@ -101,11 +101,11 @@ export default function VsphereCard() {
         const {data} = await apiClient.get<{status: string; result: Result | null; error: string | null}>('/vsphere/discover/status')
         if (!active) return
         if (discovering && data.status !== 'running') {
+          const response = await apiClient.get<Config>('/vsphere/config')
+          if (!active) return
+          setConfig(response.data)
           if (data.result) {
             setResult(data.result)
-            const response = await apiClient.get<Config>('/vsphere/config')
-            if (!active) return
-            setConfig(response.data)
             setPage(0); setRefresh(v=>v+1)
           }
           if (data.error) setError(data.error)
@@ -206,8 +206,18 @@ export default function VsphereCard() {
         </label>)}</div>
         <button className={control} disabled={busy} onClick={()=>edit({visible_fields:fields.map(([key])=>key)})}>{t('vsphere_reset_fields')}</button>
       </div>
+      <div className="space-y-2 border-t border-border pt-3">
+        <h3 className="font-medium text-sm">{t('vsphere_scan_schedule')}</h3>
+        <label className="flex gap-2 items-center text-sm"><input type="checkbox" checked={config.auto_scan_enabled} disabled={busy||discovering} onChange={e=>edit({auto_scan_enabled:e.target.checked})}/>{t('vsphere_auto_scan')}</label>
+        <label className="text-sm text-text-muted flex flex-col gap-1 max-w-xs">{t('vsphere_interval_minutes')}
+          <input className={control} type="number" min={5} max={10080} step={1} value={config.scan_interval_minutes} disabled={busy||discovering||!config.auto_scan_enabled} onChange={e=>edit({scan_interval_minutes:Number(e.target.value)})}/>
+        </label>
+        <p className="text-xs text-text-muted">{t('vsphere_schedule_hint')}</p>
+        {!dirty && config.auto_scan_enabled && config.next_scan_at && <p className="text-xs text-text-muted">{t('vsphere_next_scan')}: {new Date(config.next_scan_at).toLocaleString()}</p>}
+        {config.last_scan_attempt_at && <p className="text-xs text-text-muted">{t('vsphere_last_attempt')}: {new Date(config.last_scan_attempt_at).toLocaleString()}</p>}
+      </div>
       <div className="flex flex-wrap gap-2">
-        <button className={control} disabled={busy} onClick={save}>{t('save_changes')}</button>
+        <button className={control} disabled={busy||discovering||!Number.isInteger(config.scan_interval_minutes)||config.scan_interval_minutes<5||config.scan_interval_minutes>10080} onClick={save}>{t('save_changes')}</button>
         <button className={control} disabled={busy||discovering||!enabled} onClick={()=>run('test')}>{t('vsphere_test')}</button>
         <button className={control} disabled={busy||discovering||!enabled} onClick={()=>run('discover')}>{t('vsphere_discover')}</button>
       </div>

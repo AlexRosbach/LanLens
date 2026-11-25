@@ -95,6 +95,15 @@ def migrate():
             if not _column_exists(conn, "vsphere_connections", "device_field_mappings_json"):
                 conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN device_field_mappings_json TEXT"))
                 conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "auto_scan_enabled"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN auto_scan_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "scan_interval_minutes"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN scan_interval_minutes INTEGER NOT NULL DEFAULT 60"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "last_scan_attempt_at"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN last_scan_attempt_at TIMESTAMP"))
+                conn.commit()
             if not _column_exists(conn, "vsphere_connections", "visible_fields_json"):
                 conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN visible_fields_json TEXT"))
                 conn.commit()

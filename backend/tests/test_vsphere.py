@@ -105,6 +105,39 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.db.query(DeviceChangeEvent).filter_by(source="vsphere", field_name="vsphere_cpu_count", new_value="8").first())
         self.assertTrue(self.db.query(DeviceChangeEvent).filter_by(source="vsphere", field_name="location", old_value="Example location", new_value="New location").first())
 
+    def test_vmware_schedule_uses_last_attempt_and_respects_feature_toggle(self):
+        from datetime import timedelta
+        from backend.routers.vsphere import _next_scan_at, ConfigUpdate
+        from pydantic import ValidationError
+        row = self.db.get(VsphereConnection, 1)
+        now = datetime(2026, 1, 1, 12)
+        row.enabled = True
+        row.endpoint = "https://vc.example.test"
+        row.username = "test"
+        row.encrypted_secret = "placeholder"
+        self.assertIsNone(_next_scan_at(row, now))
+        row.auto_scan_enabled = True
+        row.scan_interval_minutes = 30
+        self.assertEqual(_next_scan_at(row, now), now)
+        row.last_discovery_at = now - timedelta(hours=1)
+        row.last_scan_attempt_at = now - timedelta(minutes=10)
+        self.assertEqual(_next_scan_at(row, now), now + timedelta(minutes=20))
+        row.scan_interval_minutes = 15
+        self.assertEqual(_next_scan_at(row, now), now + timedelta(minutes=5))
+        _set_feature_enabled(self.db, False)
+        self.assertIsNone(_next_scan_at(row, now))
+        with self.assertRaises(ValidationError):
+            ConfigUpdate(scan_interval_minutes=4)
+        with self.assertRaises(ValidationError):
+            ConfigUpdate(scan_interval_minutes=10081)
+
+    async def test_scheduled_discovery_skips_running_job(self):
+        from backend.routers import vsphere
+        with patch.object(vsphere, "_discovery_job", {"status": "running"}):
+            with patch.object(vsphere, "SessionLocal") as session:
+                self.assertFalse(await vsphere.scheduled_discovery_tick())
+                session.assert_not_called()
+
     def test_endpoint(self):
         self.assertEqual(validate_endpoint("https://vc.example.test/"), "https://vc.example.test")
         for url in ("http://vc.example.test", "https://u:p@vc.example.test", "https://vc.example.test/path"):

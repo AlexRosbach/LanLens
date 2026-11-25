@@ -832,6 +832,9 @@ class VsphereConnection(Base):
     attribute_mappings_json = Column(Text, nullable=True)
     device_field_mappings_json = Column(Text, nullable=True)
     visible_fields_json = Column(Text, nullable=True)
+    auto_scan_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    scan_interval_minutes = Column(Integer, nullable=False, default=60, server_default="60")
+    last_scan_attempt_at = Column(DateTime, nullable=True)
     last_discovery_at = Column(DateTime, nullable=True)
 
 
