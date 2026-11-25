@@ -143,7 +143,7 @@ export default function VsphereCard() {
       <label className="flex gap-2 items-center text-sm text-text-base"><input type="checkbox" checked={config.writeback_sysid} disabled={busy||config.sysid_field_key===null} onChange={e=>edit({writeback_sysid:e.target.checked})}/>{t('vsphere_writeback_sysid')}</label>
       <p className="text-xs text-text-muted">{t('vsphere_writeback_hint')}</p>
       <label className="text-sm text-text-muted flex flex-col gap-1">{t('vsphere_sysid_field')}
-        <select className={control} value={config.sysid_field_key ?? ''} disabled={busy} onChange={e=>edit({sysid_field_key:e.target.value===''?null:Number(e.target.value), ...(e.target.value===''?{writeback_sysid:false}:{})})}>
+        <select className={control} value={config.sysid_field_key ?? ''} disabled={busy} onChange={e=>edit({sysid_field_key:e.target.value===''?null:Number(e.target.value), ...(e.target.value===''?{writeback_sysid:false,read_sysid:false}:{})})}>
           <option value="">{t('vsphere_select_field')}</option>
           {config.sysid_field_key!==null && !customFields.some(f=>f.key===config.sysid_field_key) && <option value={config.sysid_field_key}>#{config.sysid_field_key}</option>}
           {customFields.map(f=><option key={f.key} value={f.key}>{f.name}</option>)}

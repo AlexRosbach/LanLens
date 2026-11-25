@@ -11,6 +11,7 @@ import re
 from urllib.parse import quote, urlencode, urlsplit
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, VsphereConnection, VsphereInventoryObject, IdoitDeviceSync
@@ -462,6 +463,9 @@ class VsphereClient:
                         selected_attributes = self.attribute_keys & {field["key"] for field in await self._custom_fields()}
                     except VsphereError:
                         warnings.append("VM custom attribute definitions unavailable")
+                    else:
+                        if selected_attributes != self.attribute_keys:
+                            warnings.append("One or more configured VM custom attributes are unavailable")
                 else:
                     warnings.append("VM custom attributes require VI/JSON access")
             if not vi_ready and "disks" in self.fields:
@@ -721,14 +725,19 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
         ):
             metadata = json.loads(row.metadata_json)
             value = str(metadata.get("attributes", {}).get(key, "")).strip()
-            if not ID_PATTERN.fullmatch(value) or not row.instance_uuid or observed[value.casefold()] != 1:
+            if not value:
+                continue
+            device = db.get(Device, row.device_id)
+            if (not ID_PATTERN.fullmatch(value) or not row.instance_uuid or observed[value.casefold()] != 1
+                    or not device or _mac(device.mac_address) not in metadata.get("macs", [])):
+                counts["sysid_conflict"] += 1
                 continue
             state = db.query(IdoitDeviceSync).filter_by(device_id=row.device_id).first()
             if state and (state.idoit_sysid or state.idoit_object_id):
                 if state.idoit_sysid != value:
                     counts["sysid_conflict"] += 1
                 continue
-            if db.query(IdoitDeviceSync).filter(IdoitDeviceSync.idoit_sysid == value).first():
+            if db.query(IdoitDeviceSync).filter(func.lower(IdoitDeviceSync.idoit_sysid) == value.lower()).first():
                 counts["sysid_conflict"] += 1
                 continue
             if state is None:
@@ -748,9 +757,11 @@ def device_vsphere_inventory(db, device_id):
     rows = db.query(VsphereInventoryObject).filter_by(connection_id=1, device_id=device_id).filter(
         VsphereInventoryObject.match_status.in_(("existing", "created", "stale"))
     ).all()
-    if len(rows) != 1:
+    current = [row for row in rows if row.match_status != "stale"]
+    candidates = current or rows
+    if len(candidates) != 1:
         return []
-    row = rows[0]
+    row = candidates[0]
     data = json.loads(row.metadata_json)
     fields = visible_fields(connection)
     metadata = {k: data[k] for k in fields if k in data and data[k] not in (None, "", [], {})}
@@ -765,6 +776,28 @@ def device_vsphere_inventory(db, device_id):
     return [{"name": row.name, "external_id": row.external_id, "kind": row.kind,
              "match_status": row.match_status, "observed_at": row.observed_at.isoformat() + "Z",
              "fields": metadata, "custom_fields": custom}]
+
+
+def vmware_hardware_summaries(db, device_ids):
+    """Batch-load lightweight hardware fallbacks for the dashboard."""
+    connection = db.get(VsphereConnection, 1)
+    if not connection or not connection.enabled or not device_ids:
+        return {}
+    fields = visible_fields(connection)
+    summaries = defaultdict(list)
+    for row in db.query(VsphereInventoryObject).filter_by(connection_id=1, kind="vm").filter(
+        VsphereInventoryObject.device_id.in_(device_ids),
+        VsphereInventoryObject.match_status.in_(("existing", "created")),
+    ):
+        data = json.loads(row.metadata_json)
+        cpu, ram = data.get("cpu_count"), data.get("memory_size_mib")
+        parts = []
+        if "cpu_count" in fields and type(cpu) is int and cpu > 0:
+            parts.append(f"{cpu} vCPU")
+        if "memory_size_mib" in fields and type(ram) is int and ram > 0:
+            parts.append(f"{ram / 1024:g} GiB RAM")
+        summaries[row.device_id].append("VMware: " + " · ".join(parts) if parts else "")
+    return {key: values[0] for key, values in summaries.items() if len(values) == 1 and values[0]}
 
 
 def idoit_vsphere_values(db, device):

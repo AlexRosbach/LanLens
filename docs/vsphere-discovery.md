@@ -22,3 +22,9 @@ In Settings → CMDB, the optional i-doit mapping sources include VM instance/BI
 ## Optional i-doit SYS-ID custom attribute writeback
 
 Enable VMware in Settings → Features → Extensions and save changes. Its configuration appears in Inventory tools only while the feature is enabled. Configure and save the connection, then select a VM-compatible custom attribute by its field key in Inventory tools. Writeback is opt-in; upgrades from annotation writeback disable it until a field is selected. Existing VM notes are never modified by the sync. Different existing custom attribute values are protected. vCenter 8.0 Update 1+ and permission to set the selected custom attribute are required.
+
+## Device observations and inbound custom attributes
+
+Configuration is under Settings → Deep Scan when the VMware feature is enabled. Linked inventory appears in the device's Discovery section and Deep Scan VMware tab; hardware is also shown in the Hardware tab and as a dashboard fallback when guest inventory is missing. No SSH/WinRM credentials are required for these observations. Existing guest observations are kept separately. VMware vCPU counts and provisioned memory are not physical hardware measurements.
+
+Select a VM custom attribute and optionally enable inbound SYSID import. Import requires a unique current VM with a matching MAC and instance UUID, a unique syntactically valid SYSID and an empty local SYSID/object link. Conflicts never overwrite existing values. Selected custom attributes can also be mapped to named, read-only device fields. Only explicitly selected attributes are collected, and attribute values are not emitted to diagnostic logs. Attribute reading uses the vCenter VI/JSON API (8.0 Update 1 or newer); older versions may lack this functionality. Hardware/attribute observations refresh on VMware discovery.

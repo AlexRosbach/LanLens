@@ -153,6 +153,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
   // Only show tabs that have data (or are always shown)
   const visibleTabs = TABS.filter((tab) => {
     if (tab.key === 'vsphere') return vmware.length > 0
+    if (tab.key === 'hardware' && vmware.some(row=>['cpu_count','memory_size_mib','disks'].some(key=>key in row.fields))) return true
     if (!config?.enabled) return false
     if (tab.key === 'host_guest') return true
     if (tab.key === 'hypervisor') return findings.some((f) => f.finding_type === 'hypervisor')
@@ -232,7 +233,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
       )}
 
       {/* Not configured empty state */}
-      {!config?.enabled && !showConfig && (
+      {!config?.enabled && !showConfig && vmware.length === 0 && (
         <p className="text-sm text-text-subtle text-center py-2">
           {t('deep_scan_not_enabled')}
         </p>
@@ -266,7 +267,10 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
                 onSuggestionApplied={load}
               />
             ) : (
-              <FindingsGrid key={effectiveTab} findings={findingsByTab(effectiveTab)} alwaysExpanded={effectiveTab === 'applications'} />
+              <>
+                {effectiveTab === 'hardware' && vmware.length > 0 && <VsphereDeviceInventory observations={vmware.map(row=>({...row, fields:Object.fromEntries(Object.entries(row.fields).filter(([key])=>['cpu_count','memory_size_mib','disks'].includes(key))), custom_fields:[]}))} />}
+                {findingsByTab(effectiveTab).length > 0 && <FindingsGrid key={effectiveTab} findings={findingsByTab(effectiveTab)} alwaysExpanded={effectiveTab === 'applications'} />}
+              </>
             )}
           </div>
         </>

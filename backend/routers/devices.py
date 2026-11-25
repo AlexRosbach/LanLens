@@ -50,7 +50,7 @@ from ..services.passive_discovery import deduplicate_observations, linked_device
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
 from ..services.dns_names import device_display_name
-from ..services.vsphere import device_vsphere_inventory
+from ..services.vsphere import device_vsphere_inventory, vmware_hardware_summaries
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 logger = logging.getLogger(__name__)
@@ -626,6 +626,9 @@ def list_devices(
             if rel.child_device_id not in host_labels:
                 host_labels[rel.child_device_id] = host_devices_map.get(rel.host_device_id, f"Host #{rel.host_device_id}")
 
+    if is_advanced_view_enabled(db):
+        for device_id, summary in vmware_hardware_summaries(db, [d.id for d in all_devices]).items():
+            hardware_summaries.setdefault(device_id, summary)
     discovery_sources = _device_discovery_sources(db, [d.id for d in all_devices], snmp_identities)
     return DeviceListResponse(
         items=[
