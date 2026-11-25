@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import User, VsphereConnection, VsphereInventoryObject
 from ..services.crypto import encrypt_secret, decrypt_secret
 from ..services.settings_helpers import is_advanced_view_enabled
@@ -16,6 +16,8 @@ from ..services.vsphere import VsphereClient, VsphereError, validate_endpoint, r
 
 router = APIRouter(prefix="/api/vsphere", tags=["vsphere"])
 _discovery_lock = asyncio.Lock()
+_discovery_job = {"status": "idle", "result": None, "error": None}
+_discovery_task = None
 
 
 class ConfigUpdate(BaseModel):
@@ -172,7 +174,7 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
         revision = row.revision
         db.rollback()
         try:
-            objects, warnings = await asyncio.wait_for(client.collect(), timeout=90)
+            objects, warnings = await asyncio.wait_for(client.collect(), timeout=900)
         except (VsphereError, TimeoutError) as exc:
             raise HTTPException(502, str(exc) or "vCenter discovery timed out") from None
         db.expire_all()
@@ -187,11 +189,43 @@ async def discover(db: Session = Depends(get_db), _: User = Depends(get_current_
         return {"hosts": sum(x["kind"] == "host" for x in objects),
                 "vms": sum(x["kind"] == "vm" for x in objects),
                 "clusters": sum(x["kind"] == "cluster" for x in objects),
-                "datacenters": sum(x["kind"] == "datacenter" for x in objects), "counts": counts, "warnings": warnings}
+                "datacenters": sum(x["kind"] == "datacenter" for x in objects),
+                "networks": sum(x["kind"] == "network" for x in objects), "counts": counts, "warnings": warnings}
+
+
+async def _run_discovery_job():
+    try:
+        with SessionLocal() as db:
+            result = await discover(db=db, _=None)
+        _discovery_job.update(status="completed", result=result, error=None)
+    except HTTPException as exc:
+        _discovery_job.update(status="failed", result=None, error=str(exc.detail))
+    except Exception:
+        _discovery_job.update(status="failed", result=None, error="vCenter discovery failed; check server logs")
+
+
+@router.post("/discover/start")
+async def start_discovery(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    global _discovery_task
+    _require_advanced(db)
+    if _discovery_job["status"] == "running":
+        return dict(_discovery_job)
+    if _discovery_lock.locked():
+        raise HTTPException(409, "A vSphere operation is already running")
+    _client(_config(db))
+    _discovery_job.update(status="running", result=None, error=None)
+    _discovery_task = asyncio.create_task(_run_discovery_job())
+    return dict(_discovery_job)
+
+
+@router.get("/discover/status")
+def discovery_status(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_advanced(db)
+    return dict(_discovery_job)
 
 
 @router.get("/inventory")
-def inventory(kind: str = Query("vm", pattern="^(host|vm|cluster|datacenter)$"), offset: int = Query(0, ge=0),
+def inventory(kind: str = Query("vm", pattern="^(host|vm|cluster|datacenter|network)$"), offset: int = Query(0, ge=0),
               limit: int = Query(25, ge=1, le=100), db: Session = Depends(get_db),
               _: User = Depends(get_current_user)):
     _require_advanced(db)

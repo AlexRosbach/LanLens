@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n'
 type Config = { sysid_field_key: number | null; writeback_sysid: boolean; verify_tls: boolean; visible_fields: string[]; enabled: boolean; endpoint: string; username: string; has_password: boolean; last_discovery_at: string | null }
 type Item = { id: number; external_id: string; name: string; device_id: number | null; match_status: string; metadata: Record<string, unknown> }
 type Inventory = { total: number; items: Item[] }
-type Result = { clusters?: number; datacenters?: number; hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
+type Result = { networks?: number; clusters?: number; datacenters?: number; hosts?: number; vms?: number; host_count?: number; counts?: Record<string, number>; warnings?: string[] }
 const control = 'rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base disabled:opacity-50'
 const statuses = {
   existing: 'vsphere_existing', created: 'vsphere_created', unmatched: 'vsphere_unmatched',
@@ -31,7 +31,8 @@ export default function VsphereCard() {
   const [error, setError] = useState('')
   const [result, setResult] = useState<Result | null>(null)
   const [message, setMessage] = useState('')
-  const [kind, setKind] = useState<'host'|'vm'|'cluster'|'datacenter'>('vm')
+  const [kind, setKind] = useState<'host'|'vm'|'cluster'|'datacenter'|'network'>('vm')
+  const [discovering, setDiscovering] = useState(false)
   const [page, setPage] = useState(0)
   const [inventory, setInventory] = useState<Inventory | null>(null)
   const [refresh, setRefresh] = useState(0)
@@ -61,14 +62,14 @@ export default function VsphereCard() {
     return () => {active=false}
   }, [enabled, kind, page, refresh])
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || discovering) return
     let active = true
     setCustomFields([]); setCustomFieldsError(false)
     apiClient.get<{key: number; name: string}[]>('/vsphere/custom-fields')
       .then(r => { if (active) setCustomFields(r.data) })
       .catch(() => { if (active) setCustomFieldsError(true) })
     return () => { active = false }
-  }, [enabled, refresh])
+  }, [enabled, refresh, discovering])
   function edit(patch: Partial<Config>) {
     if (config) setConfig({...config,...patch})
     setDirty(true); setResult(null); setMessage('')
@@ -83,14 +84,39 @@ export default function VsphereCard() {
       setConfig(r.data);setPassword('');setDirty(false);setMessage(t('vsphere_saved'));setPage(0);setRefresh(v=>v+1)
     } catch (e) {failure(e)} finally {setBusy(false)}
   }
+  useEffect(() => {
+    if (!enabled) return
+    let active = true
+    const poll = async () => {
+      try {
+        const {data} = await apiClient.get<{status: string; result: Result | null; error: string | null}>('/vsphere/discover/status')
+        if (!active) return
+        if (discovering && data.status !== 'running') {
+          if (data.result) {
+            setResult(data.result)
+            const response = await apiClient.get<Config>('/vsphere/config')
+            if (!active) return
+            setConfig(response.data)
+            setPage(0); setRefresh(v=>v+1)
+          }
+          if (data.error) setError(data.error)
+        }
+        setDiscovering(data.status === 'running')
+      } catch (e) { if (active) failure(e) }
+    }
+    void poll()
+    const timer = window.setInterval(poll, 2000)
+    return () => {active=false; window.clearInterval(timer)}
+  }, [enabled, discovering])
   async function run(action: 'test'|'discover') {
     setBusy(true);setError('');setMessage('');setResult(null)
     try {
-      const r = await apiClient.post<Result>('/vsphere/'+action)
-      setResult(r.data)
-      if(action==='discover') {
-        setConfig((await apiClient.get<Config>('/vsphere/config')).data)
-        setPage(0);setRefresh(v=>v+1)
+      if (action === 'discover') {
+        await apiClient.post('/vsphere/discover/start')
+        setDiscovering(true)
+      } else {
+        const r = await apiClient.post<Result>('/vsphere/test')
+        setResult(r.data)
       }
     } catch(e){failure(e)} finally {setBusy(false)}
   }
@@ -134,20 +160,21 @@ export default function VsphereCard() {
       </div>
       <div className="flex flex-wrap gap-2">
         <button className={control} disabled={busy} onClick={save}>{t('save_changes')}</button>
-        <button className={control} disabled={busy||!enabled} onClick={()=>run('test')}>{t('vsphere_test')}</button>
-        <button className={control} disabled={busy||!enabled} onClick={()=>run('discover')}>{t('vsphere_discover')}</button>
+        <button className={control} disabled={busy||discovering||!enabled} onClick={()=>run('test')}>{t('vsphere_test')}</button>
+        <button className={control} disabled={busy||discovering||!enabled} onClick={()=>run('discover')}>{t('vsphere_discover')}</button>
       </div>
       {message && <p className="text-sm text-success">{message}</p>}
-      {busy && <p className="text-sm text-text-muted">{t('applications_loading')}</p>}
+      {(busy || discovering) && <p className="text-sm text-text-muted">{t('applications_loading')}</p>}
       {result && <div className="text-sm text-text-muted space-y-1">
-        <p>{t('vsphere_hosts')}: {result.hosts ?? result.host_count ?? '—'} · {t('vsphere_vms')}: {result.vms ?? '—'} · {t('vsphere_cluster')}: {result.clusters ?? '—'} · {t('vsphere_datacenter')}: {result.datacenters ?? '—'}</p>
+        <p>{t('vsphere_hosts')}: {result.hosts ?? result.host_count ?? '—'} · {t('vsphere_vms')}: {result.vms ?? '—'} · {t('vsphere_cluster')}: {result.clusters ?? '—'} · {t('vsphere_datacenter')}: {result.datacenters ?? '—'} · {t('vsphere_networks')}: {result.networks ?? '—'}</p>
         {Object.entries(result.counts??{}).map(([k,v])=><p key={k}>{k in statuses?t(statuses[k as keyof typeof statuses]):k}: {v}</p>)}
         {result.warnings?.map((w,i)=><p key={i} className="text-warning">{w}</p>)}
       </div>}
       {enabled && <>
+        {result?.host_count !== undefined && !config.last_discovery_at && <p className="text-sm text-text-muted">{t('vsphere_run_discovery')}</p>}
         {config.last_discovery_at && <p className="text-xs text-text-muted">{t('vsphere_last_scan')}: {new Date(config.last_discovery_at).toLocaleString()}</p>}
-        <div className="flex gap-2">{(['host','vm','cluster','datacenter'] as const).map(k=><button key={k} className={control+(kind===k?' border-primary text-primary':'')} aria-pressed={kind===k} onClick={()=>{setKind(k);setPage(0);setInventory(null)}}>{t(k==='host'?'vsphere_hosts':k==='vm'?'vsphere_vms':k==='cluster'?'vsphere_cluster':'vsphere_datacenter')}</button>)}</div>
-        {inventory?.total===0 && <p className="text-sm text-text-muted">{t('vsphere_no_results')}</p>}
+        <div className="flex gap-2">{(['host','vm','cluster','datacenter','network'] as const).map(k=><button key={k} className={control+(kind===k?' border-primary text-primary':'')} aria-pressed={kind===k} onClick={()=>{setKind(k);setPage(0);setInventory(null)}}>{t(k==='host'?'vsphere_hosts':k==='vm'?'vsphere_vms':k==='cluster'?'vsphere_cluster':k==='network'?'vsphere_networks':'vsphere_datacenter')}</button>)}</div>
+        {inventory?.total===0 && <p className="text-sm text-text-muted">{config.last_discovery_at ? t('vsphere_no_results') : t('vsphere_run_discovery')}</p>}
         {!!inventory?.items.length && <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead className="text-text-muted"><tr>
           <th className="p-2">{t('col_device')}</th>{fields.filter(([key])=>config.visible_fields.includes(key)).map(([key,label])=><th className="p-2" key={key}>{t(label)}</th>)}<th className="p-2">{t('vsphere_match')}</th>
         </tr></thead><tbody className="divide-y divide-border">{inventory.items.map(i=><tr key={i.id}>

@@ -52,6 +52,8 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
                     return [{"host":"host-1","name":"esxi.example.test"}]
                 if path.startswith("/api/vcenter/datacenter"):
                     return [{"datacenter":"datacenter-1","name":"DC"}]
+                if path == "/api/vcenter/network":
+                    return [{"network":"network-1","name":"Example network","type":"STANDARD_PORTGROUP"}]
                 if path.startswith("/api/vcenter/cluster"):
                     return [{"cluster":"domain-c1","name":"Cluster"}]
                 if path.startswith("/api/vcenter/vm?") or path == "/api/vcenter/vm":
@@ -75,6 +77,7 @@ class VsphereTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data[1]["ips"], [])
         self.assertEqual(data[1]["host_id"], "host-1")
         self.assertEqual(warnings, [])
+        self.assertTrue(any(item["kind"] == "network" and item["external_id"] == "network-1" for item in data))
         self.assertEqual(data[1]["power_state"], "POWERED_OFF")
         self.assertEqual(data[1]["cluster_id"], "domain-c1")
         self.assertEqual(data[1]["datacenter_id"], "datacenter-1")

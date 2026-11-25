@@ -19,7 +19,8 @@ from .notification import request_json_via_validated_url
 from .scanner import _matching_ignore_rules
 
 MAX_HOSTS = 100
-MAX_VMS = 500
+MAX_VMS = 5000
+MAX_NETWORKS = 2000
 MAX_DISKS = 128
 VI_PATH = "/sdk/vim25/8.0.1.0"
 IDOIT_VSPHERE_FIELDS = {"vsphere_" + name for name in (
@@ -370,10 +371,15 @@ class VsphereClient:
                               "power_state": _text(h.get("power_state"))}
             # Global list catches unassigned VMs. Query per host to establish
             # placement; VM list summaries do not contain the host identifier.
-            summary = await self._request("GET", "/api/vcenter/vm")
-            if not isinstance(summary, list) or len(summary) > MAX_VMS:
-                raise VsphereError("Invalid or oversized VM inventory (maximum 500 VMs)")
-            semaphore = asyncio.Semaphore(6)
+            warnings = []
+            try:
+                summary = await self._request("GET", "/api/vcenter/vm")
+            except VsphereError:
+                summary = None
+                warnings.append("Global VM listing unavailable; using host-scoped VM lists")
+            if summary is not None and (not isinstance(summary, list) or len(summary) > MAX_VMS):
+                raise VsphereError(f"Invalid or oversized VM inventory (maximum {MAX_VMS} VMs)")
+            semaphore = asyncio.Semaphore(10)
 
             async def get(path, optional=False):
                 async with semaphore:
@@ -383,9 +389,7 @@ class VsphereClient:
                 data = await get("/api/vcenter/vm?" + urlencode({"hosts": hid}))
                 if not isinstance(data, list) or len(data) > MAX_VMS:
                     raise VsphereError("Invalid host VM inventory")
-                return hid, [_resource_id(v.get("vm")) for v in data if isinstance(v, dict)]
-
-            warnings = []
+                return hid, data
             topology = {}
 
             async def topology_list(kind, query=""):
@@ -393,14 +397,16 @@ class VsphereClient:
                 if data is None:
                     warnings.append("Topology unavailable: " + kind)
                     return []
-                if not isinstance(data, list) or len(data) > MAX_HOSTS or any(not isinstance(x, dict) for x in data):
+                if not isinstance(data, list) or len(data) > (MAX_NETWORKS if kind == "network" else MAX_HOSTS) or any(not isinstance(x, dict) for x in data):
                     raise VsphereError("Invalid or oversized topology inventory")
                 return data
 
-            for kind in ("datacenter", "cluster"):
+            for kind in ("datacenter", "cluster", "network"):
                 for item in await topology_list(kind):
                     key = _resource_id(item.get(kind))
                     topology[(kind, key)] = {"kind": kind, "external_id": key, "name": _text(item.get("name")) or key}
+                    if kind == "network":
+                        topology[(kind, key)]["network_type"] = _text(item.get("type"))
 
             async def membership(kind, key):
                 query = "?" + urlencode({kind + "s": key})
@@ -410,7 +416,7 @@ class VsphereClient:
 
             member_index = defaultdict(set)
             cluster_index = defaultdict(set)
-            for kind, key, members, clusters in await gather_all(*(membership(k, v) for k, v in topology)):
+            for kind, key, members, clusters in await gather_all(*(membership(k, v) for k, v in topology if k != "network")):
                 for member in members:
                     member_index[(_resource_id(member.get("host")), kind)].add(key)
                 for cluster in clusters:
@@ -430,9 +436,24 @@ class VsphereClient:
                 warnings.append("Disk backing UUIDs unavailable: VI/JSON requires vCenter 8.0 Update 1 or newer and read permissions")
 
             placements = defaultdict(set)
-            for hid, ids in await gather_all(*(placement(hid) for hid in hosts)):
-                for vid in ids:
+            vm_index = {}
+            for vm in summary or []:
+                if not isinstance(vm, dict):
+                    raise VsphereError("Invalid VM inventory")
+                vid = _resource_id(vm.get("vm"))
+                if vid in vm_index:
+                    raise VsphereError("vCenter returned duplicate VM identifiers")
+                vm_index[vid] = vm
+            for hid, host_vms in await gather_all(*(placement(hid) for hid in hosts)):
+                for vm in host_vms:
+                    if not isinstance(vm, dict):
+                        raise VsphereError("Invalid host VM inventory")
+                    vid = _resource_id(vm.get("vm"))
                     placements[vid].add(hid)
+                    vm_index.setdefault(vid, vm)
+            if len(vm_index) > MAX_VMS:
+                raise VsphereError(f"VM inventory exceeds {MAX_VMS} VMs")
+            summary = list(vm_index.values())
             async def details(vm):
                 if not isinstance(vm, dict):
                     raise VsphereError("Invalid VM inventory")
@@ -537,7 +558,7 @@ def reconcile_inventory(db: Session, connection_id: int, objects: list[dict], no
         counts[status] += 1
 
     for item in objects:
-        if item["kind"] in ("cluster", "datacenter"):
+        if item["kind"] in ("cluster", "datacenter", "network"):
             record(item, None, "unmatched")
 
     for item in objects:
