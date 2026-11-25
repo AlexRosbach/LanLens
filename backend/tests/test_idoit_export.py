@@ -834,6 +834,29 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diagnosis["resolution"]["object_id"], "101")
         self.assertEqual(diagnosis["candidates"][-1]["normalized_match_count"], 1)
 
+    async def test_application_cache_miss_rechecks_exact_product_title(self):
+        class CatalogClient(IdoitClient):
+            async def read_objects(self, params):
+                title = params["filter"].get("title")
+                if title is None:
+                    return [{"id": "100", "title": "Example Editor", "type_const": "C__OBJTYPE__APPLICATION"}]
+                if title == "Example Security Agent":
+                    return [{"id": "101", "title": title, "type_const": "C__OBJTYPE__APPLICATION"}]
+                if title == "7-Zip":
+                    return [{"id": "102", "title": title, "type_const": "C__OBJTYPE__APPLICATION"}]
+                return []
+            async def create_object(self, title, object_type):
+                raise AssertionError("do not create on a match-only lookup")
+
+        client = CatalogClient(get_config(self.Session()))
+        await client.resolve_application("Not In Catalog")
+        result = await client.resolve_application("Example Security Agent 2026-01_47")
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(result["lookup"], "direct_fallback")
+        self.assertEqual((await client.resolve_application("7-Zip 21.07 (x64)"))["object_id"], "102")
+        self.assertEqual((await client.resolve_application("Example Security Agent Containment"))["action"], "match_required")
+        self.assertEqual((await client.resolve_application("Example Security Agent 2026"))["action"], "match_required")
+
     async def test_application_catalog_recovers_from_empty_title_filters(self):
         class CatalogClient(IdoitClient):
             catalog_calls = 0

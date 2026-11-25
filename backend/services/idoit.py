@@ -35,6 +35,7 @@ from .snmp import bulk_identities_for_devices, identity_for_device
 from .dns_names import device_display_name
 from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values, writeback_idoit_sysid
 from .software_inventory import parse_software
+from ..version import BUILD_COMMIT
 
 logger = logging.getLogger(__name__)
 
@@ -2036,7 +2037,8 @@ def _application_title_candidates(value: str) -> list[str]:
     architecture_suffix = re.compile(
         r"(?:\s*\(" + arch + r"\)|\s*\[" + arch + r"\]|\s+" + arch + r")$", re.IGNORECASE,
     )
-    version = r"\d{1,8}(?:\.\d{1,8}){1,5}"
+    # Dotted releases and explicit calendar/build formats; a bare year is a product edition.
+    version = r"(?:\d{1,8}(?:\.\d{1,8}){1,5}(?:[-_]\d{1,8})*|(?:19|20)\d{2}[-.](?:0[1-9]|1[0-2])(?:[-_]\d{1,8})+|\d{1,8}(?:_\d{1,8}){1,5})"
     version_suffix = re.compile(
         r"(?:\s+(?:[-–]\s+)?(?:v(?:ersion)?\s*)?" + version
         + r"|\s+(?:[-–]\s+)?(?:v(?:ersion)?\s*)\d{1,8}"
@@ -2399,7 +2401,8 @@ class IdoitClient:
             return {"object_id": None, "action": "skipped_empty"}
         wanted = candidates[0]
         object_type = "C__OBJTYPE__APPLICATION"
-        for candidate in candidates if self._application_catalog is None else ():
+        catalog_was_loaded = self._application_catalog is not None
+        for candidate in candidates if not catalog_was_loaded else ():
             result = await self._resolve_inventory_object(candidate, object_type, False)
             if result["action"] == "ambiguous_match":
                 return {**result, "title": wanted}
@@ -2442,6 +2445,22 @@ class IdoitClient:
                 object_id, matched_title = next(iter(matches.items()))
                 return {"object_id": object_id, "action": "matched_normalized", "title": wanted,
                         "matched_title": matched_title, "lookup": "normalized_catalog"}
+        # A typed list can omit an object that a typed title query returns.
+        # Recheck a cache miss by product title before declaring it missing.
+        # This is an exact object-type/status scoped lookup, not substring matching.
+        if catalog_was_loaded:
+            candidate = candidates[-1]
+            self.application_lookup_debug["direct_fallback_queries"] = self.application_lookup_debug.get("direct_fallback_queries", 0) + 1
+            direct = await self._resolve_inventory_object(candidate, object_type, False)
+            if direct.get("action") == "ambiguous_match":
+                return {**direct, "title": wanted, "lookup": "direct_fallback"}
+            if direct.get("object_id"):
+                oid = direct["object_id"]
+                self._application_catalog.setdefault(_normalized_match_text(candidate), {})[oid] = candidate
+                self.application_lookup_debug["direct_fallback_matches"] = self.application_lookup_debug.get("direct_fallback_matches", 0) + 1
+                return {**direct, "title": wanted,
+                        "action": "matched" if candidate == wanted else "matched_normalized",
+                        "matched_title": candidate, "lookup": "direct_fallback"}
         if not create_missing:
             return {"object_id": None, "action": "match_required", "title": wanted, "lookup": "typed_catalog"}
         object_id = await self.create_object(wanted, object_type)
@@ -2563,6 +2582,7 @@ class IdoitClient:
                 "normalized_match_count": len(normalized),
             })
         return {"resolution": resolution, "candidates": candidate_matches,
+                "matching_revision": 3, "build_commit": BUILD_COMMIT,
                 "catalog": self.application_lookup_debug, "create_policy": self.config.create_policy,
                 "upstream_write_performed": False}
 
@@ -3376,7 +3396,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             details["application_resolution_counts"] = counts
             details["application_lookup"] = {
                 "create_policy": config.create_policy,
+                "matching_revision": 3,
+                "build_commit": BUILD_COMMIT,
                 **getattr(client, "application_lookup_debug", {}),
+                "unmatched_examples": [{"title": title, "candidates": _application_title_candidates(title)}
+                                       for title in unmatched_application_titles[:5]],
             }
         if unmatched_application_titles:
             preview = ", ".join(repr(title) for title in unmatched_application_titles[:5])
