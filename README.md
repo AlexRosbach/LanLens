@@ -8,7 +8,7 @@
 
 ### Self-hosted network inventory & documentation — from discovery to deep insight
 
-[![Version](https://img.shields.io/badge/version-1.6.2-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.7.0-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -32,7 +32,9 @@ LanLens turns a Docker host into a local network scanner that discovers MAC/IP d
 ### Get the context that matters
 
 - Deep Scan reveals hardware, operating system, running services and installed software with versions.
+- Use the Applications inventory to filter software across devices and drill into versioned installations.
 - Optional Windows and Linux Agents report inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM or SSH required. Use one enrollment token per endpoint. Revoking a token disables its enrolled agent; revoke the old token before re-enrolling. Install only from a trusted LanLens server, since the installer runs with administrator/root privileges.
+- Optionally reconcile vCenter/vSphere inventory with existing devices, inspect guest hardware and map selected virtual infrastructure data without guest credentials.
 - Visualize topology, scan changes and relevant network-security signals when expert modules are enabled.
 
 ### Integrate without exposing inventory
@@ -111,6 +113,10 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 | SNMP counter trends | Feature controls |
 |---|---|
 | ![LanLens SNMP counter trends](docs/screenshots/lanlens-snmp-counter-trends.png) | ![LanLens feature controls](docs/screenshots/lanlens-settings-features.png) |
+
+| Applications inventory | VMware / vSphere inventory |
+|---|---|
+| ![LanLens applications inventory](docs/screenshots/lanlens-applications-inventory.png) | See the [vSphere discovery guide](docs/vsphere-discovery.md) for the guarded inventory workflow. |
 
 ---
 

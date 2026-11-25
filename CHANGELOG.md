@@ -1,14 +1,39 @@
 # Changelog
 
-## 1.6.2 — Build 20261124.0001
+## 1.7.0 — Build 20261125.0002
 
-- Corrected i-doit Operating System matching for Windows Server inventory titles
-  that contain a trailing WMI NT build, such as `10.0.26100`.
-- Added a dedicated Applications tab to device Deep Scan and condensed unmatched
-  i-doit Application messages into one count-based, actionable warning.
-- Extended the outbound Windows agent to report the same structured hardware,
-  service and audit inventory as WinRM Deep Scan, and added an outbound Linux
-  systemd agent with a separate setup tab.
+### Inventory, CMDB and virtualization
+
+- Corrected i-doit Operating System matching for named Windows Server editions
+  when WMI adds a technical NT build suffix, without weakening edition matching.
+- Added a dedicated **Applications** inventory view with grouping, filtering and
+  drill-down to versioned installations; the device Deep Scan keeps its focused
+  Applications tab.
+- Added conservative vCenter/vSphere inventory discovery, device reconciliation,
+  disk identities, optional custom-attribute mapping, scheduled collection and
+  opt-in i-doit SYSID annotation read/write support.
+- Strengthened i-doit reconciliation, HTTPS/TLS controls and diagnostics; missing
+  Application matches are summarized on the device while detailed resolutions
+  remain in the sync log.
+
+### Agents and security
+
+- Extended outbound Windows and Linux agents to report the same structured
+  inventory categories as WinRM/SSH Deep Scan, including installed software and
+  supported local audit data.
+- Added explicit certificate pinning or explicitly approved certificate trust for
+  the Windows installer and report channel, with hardened enrollment, rate and
+  payload limits.
+- Hardened MCP privacy filtering and clarified that user-entered inventory text
+  can remain sensitive even when dedicated credential fields are excluded.
+
+### Operations and quality
+
+- Added diagnostic notifications and bounded, credential-free vSphere logs.
+- Added CI/CD validation for backend, frontend, MCP, agents, source security and
+  scanned multi-architecture Docker publication with provenance artifacts.
+- Added regression coverage for application inventory, vSphere reconciliation,
+  i-doit assignments and legacy database upgrades.
 
 ## 1.6.1 — Build 20261123.0004
 

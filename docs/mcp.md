@@ -23,7 +23,7 @@ allow-listed MCP metadata mutation is explicitly required.
 
 ## Claude Desktop one-click bundle
 
-Download `lanlens-mcp-1.6.2.mcpb` from the GitHub release, then open Claude Desktop
+Download `lanlens-mcp-1.7.0.mcpb` from the GitHub release, then open Claude Desktop
 and select **Settings → Desktop app → Extensions → Advanced settings → Install
 Extension…**. Enter the LanLens URL and persistent API token. Device metadata writes
 remain disabled unless enabled in the extension settings and by the LanLens token.
@@ -40,7 +40,7 @@ docker run --rm \
   -e LANLENS_MCP_HTTP_TOKEN=replace-with-a-different-random-token \
   -e LANLENS_MCP_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal \
   --add-host host.docker.internal:host-gateway \
-  alexrosbach/lanlens:1.6.2-mcp-dev
+  alexrosbach/lanlens:1.7.0-mcp-dev
 ```
 
 Or use the optional Compose profile after setting `LANLENS_API_TOKEN` and

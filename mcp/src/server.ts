@@ -50,7 +50,7 @@ function array(value: unknown): unknown[] {
 
 export function createLanLensMcpServer(config: LanLensMcpConfig): McpServer {
   const client = new LanLensClient(config);
-  const server = new McpServer({name: 'lanlens', version: '1.6.2'});
+  const server = new McpServer({name: 'lanlens', version: '1.7.0'});
 
   server.registerResource(
     'lanlens-health',

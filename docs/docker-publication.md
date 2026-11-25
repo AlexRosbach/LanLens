@@ -196,8 +196,8 @@ All tags belong to `alexrosbach/lanlens` and refer to multi-platform indexes.
 
 | Event | LanLens | MCP |
 |---|---|---|
-| Successful eligible PR build | `1.6.2-dev` | `1.6.2-mcp-dev` |
-| Successful main build | `1.6.2`, `latest` | `1.6.2-mcp`, `mcp-latest` |
+| Successful eligible PR build | `1.7.0-dev` | `1.7.0-mcp-dev` |
+| Successful main build | `1.7.0`, `latest` | `1.7.0-mcp`, `mcp-latest` |
 | Eligible PR commit | `sha-<sha>-dev` | `sha-<sha>-mcp-dev` |
 | Main commit | `sha-<sha>` | `sha-<sha>-mcp` |
 
@@ -206,7 +206,7 @@ The version in the table is illustrative; it is derived from the code. A merge t
 Shared dev tags are mutable and competing PRs with the same version can replace them. Coordinate those PRs or deploy the SHA-tagged revision. Stable tags can also be updated by another main build with the same version unless registry immutability is configured; increment the version for each distinct stable release. Pin by manifest digest for exact reproducibility.
 
 ```bash
-docker pull alexrosbach/lanlens:1.6.2-dev
+docker pull alexrosbach/lanlens:1.7.0-dev
 docker pull alexrosbach/lanlens:latest
 docker buildx imagetools inspect alexrosbach/lanlens:latest
 gh attestation verify oci://docker.io/alexrosbach/lanlens:latest --repo AlexRosbach/LanLens

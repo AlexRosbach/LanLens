@@ -42,7 +42,7 @@ export async function serveHttp(config: LanLensMcpConfig): Promise<void> {
       response.end(JSON.stringify({
         status: 'ok',
         service: 'LanLens MCP',
-        version: process.env.LANLENS_MCP_VERSION ?? '1.6.2',
+        version: process.env.LANLENS_MCP_VERSION ?? '1.7.0',
         build_code: process.env.LANLENS_MCP_BUILD_CODE ?? 'dev',
         build_commit: process.env.LANLENS_MCP_BUILD_COMMIT ?? 'unknown',
         build_branch: process.env.LANLENS_MCP_BUILD_BRANCH ?? 'unknown',
