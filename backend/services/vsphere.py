@@ -1,4 +1,4 @@
-"""Read-only vCenter 7+ discovery using the existing DNS-pinned TLS transport."""
+"""vCenter discovery and optional annotation writeback via DNS-pinned TLS."""
 from __future__ import annotations
 
 import asyncio
@@ -237,6 +237,44 @@ class VsphereClient:
                 await self._vi_request("POST", "/SessionManager/" + quote(self.vi_manager, safe="") + "/Logout", {})
             finally:
                 self.vi_session = None
+
+    async def write_sysid_annotation(self, vm_id, instance_uuid, sysid):
+        """Guard against reused VM references and concurrent annotation edits."""
+        if not _uuid(instance_uuid):
+            raise VsphereError("VM instance UUID unavailable; writeback refused")
+        path = "/VirtualMachine/" + quote(_resource_id(vm_id), safe="")
+        try:
+            if not await self.vi_login():
+                raise VsphereError("SYSID writeback requires vCenter 8.0 Update 1 or newer and appropriate permissions")
+            config, _ = await self._vi_request("GET", path + "/config")
+            if not isinstance(config, dict) or _uuid(config.get("instanceUuid")) != _uuid(instance_uuid):
+                raise VsphereError("VM identity changed or could not be verified")
+            version = config.get("changeVersion")
+            old = config.get("annotation", "")
+            if not isinstance(version, str) or not version or not isinstance(old, str):
+                raise VsphereError("VM annotation or configuration version unavailable")
+            new = sysid_annotation(old, sysid)
+            if new == old:
+                return "unchanged"
+            task, _ = await self._vi_request("POST", path + "/ReconfigVM_Task",
+                                              {"spec": {"changeVersion": version, "annotation": new}})
+            if not isinstance(task, dict) or task.get("type") != "Task":
+                raise VsphereError("VM annotation update rejected; check annotation permission")
+            task_path = "/Task/" + quote(_resource_id(task.get("value")), safe="") + "/info"
+            async def wait_for_task():
+                while True:
+                    info, _ = await self._vi_request("GET", task_path)
+                    if not isinstance(info, dict) or info.get("state") not in ("queued", "running", "success", "error"):
+                        raise VsphereError("VM annotation task result unavailable")
+                    if info["state"] == "error":
+                        raise VsphereError("VM annotation task failed")
+                    if info["state"] == "success":
+                        return
+                    await asyncio.sleep(1)
+            await asyncio.wait_for(wait_for_task(), timeout=25)
+            return "updated"
+        finally:
+            await self.vi_logout()
 
     async def hosts(self):
         data = await self._request("GET", "/api/vcenter/host")
@@ -582,3 +620,40 @@ def idoit_vsphere_values(db, device):
                 f'{d.get("label") or d.get("disk_id")}: {d.get("uuid") or "UUID unavailable"}; {d.get("capacity_bytes") if d.get("capacity_bytes") is not None else "unknown"} B'
                 for d in disks if isinstance(d, dict))
     return values
+
+
+def sysid_annotation(annotation, sysid):
+    """Replace only LanLens' managed line; preserve all other text."""
+    if not isinstance(sysid, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", sysid):
+        raise VsphereError("Invalid i-doit SYSID; writeback refused")
+    line = "LanLens i-doit SYS-ID: " + sysid
+    pattern = re.compile(r"(?m)^LanLens i-doit SYS-ID: [A-Za-z0-9_.:-]+(?=\r?$)")
+    matches = list(pattern.finditer(annotation))
+    if len(matches) > 1:
+        raise VsphereError("Multiple managed SYSID lines; manual review required")
+    if matches:
+        return pattern.sub(lambda _: line, annotation)
+    return annotation + ("" if not annotation or annotation.endswith("\n") else "\n") + line
+
+
+async def writeback_idoit_sysid(db, device_id, sysid):
+    """Write only to a uniquely linked current VM; failures are nonfatal to CMDB sync."""
+    from .crypto import decrypt_secret
+    from ..routers.vsphere import _discovery_lock
+    async with _discovery_lock:
+        connection = db.get(VsphereConnection, 1)
+        if not connection or not connection.enabled or not connection.writeback_sysid:
+            return None
+        rows = db.query(VsphereInventoryObject).filter_by(
+            connection_id=connection.id, kind="vm", device_id=device_id
+        ).filter(VsphereInventoryObject.match_status.in_(("existing", "created"))).all()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise VsphereError("Multiple linked VMware VMs; SYSID writeback refused")
+        row = rows[0]
+        vm_id, uid = row.external_id, row.instance_uuid
+        client = VsphereClient(connection.endpoint, connection.username,
+                               decrypt_secret(connection.encrypted_secret), verify_tls=connection.verify_tls)
+        db.commit()
+        return await asyncio.wait_for(client.write_sysid_annotation(vm_id, uid, sysid), timeout=85)
