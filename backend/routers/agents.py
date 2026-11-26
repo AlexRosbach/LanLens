@@ -285,7 +285,9 @@ def report_agent_inventory(
                 previous[(old.finding_type, old.key)] = json.loads(old.value_json)
             except (ValueError, TypeError):
                 previous[(old.finding_type, old.key)] = old.value_json
+    previous_identity = {field: getattr(device, field) for field in ("hostname", "ip_address", "os_info", "kernel_version")}
     device = _find_or_create_device(payload, db)
+    identity_changes = [f"device/{field}" for field, old in previous_identity.items() if getattr(device, field) != old]
     run = DeepScanRun(
         device_id=device.id, profile=f"{payload.platform}_agent", status="done", triggered_by="agent",
         finished_at=datetime.utcnow(), summary_json=json.dumps({
@@ -316,8 +318,13 @@ def report_agent_inventory(
     changed = [f"{finding.finding_type}/{finding.key}" for finding in findings
                if (finding.finding_type, finding.key) not in previous
                or previous[(finding.finding_type, finding.key)] != json.loads(finding.value_json)]
-    if not previous_run or changed:
-        message = ("First inventory report accepted" if not previous_run else "Agent inventory changed")
+    changed.extend(identity_changes)
+    # Existing installations may already have accepted reports but no timeline
+    # entries from older builds. Record the next report once, even if identical.
+    recorded = (db.query(DeviceChangeEvent.id).filter_by(device_id=device.id,
+                source=source, event_type="agent_inventory_received").first())
+    if not recorded or changed:
+        message = ("First recorded inventory report accepted" if not recorded else "Agent inventory changed")
         message += f"; scan #{run.id}; {len(findings)} findings; {len(payload.software)} applications"
         if changed:
             message += "; changed: " + ", ".join(changed[:20])[:1000]

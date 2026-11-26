@@ -164,9 +164,16 @@ class WindowsAgentTests(unittest.TestCase):
             payload.sequence = 2
             report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
             self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 1)
+            # Simulate a pre-upgrade installation with accepted reports but no timeline.
+            db.query(DeviceChangeEvent).filter_by(device_id=device.id).delete()
             agent.last_seen_at = datetime.utcnow() - timedelta(minutes=1)
             db.commit()
             payload.sequence = 3
+            report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 1)
+            agent.last_seen_at = datetime.utcnow() - timedelta(minutes=1)
+            db.commit()
+            payload.sequence = 4
             payload.software = [{"name":"Example", "version":"2"}]
             report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
             self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 2)

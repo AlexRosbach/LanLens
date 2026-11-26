@@ -329,8 +329,8 @@ def get_agent_status(device_id: int, db: Session = Depends(get_db), _: User = De
            .order_by(DeepScanRun.id.desc()).first())
     return {"device_id": device_id, "platform": agent.platform, "revoked": agent.revoked_at is not None,
             "last_seen_at": agent.last_seen_at, "last_sequence": agent.last_sequence,
-            "last_run_id": run.id if run else None,
-            "summary": _run_to_response(run).summary if run else None}
+            "last_run_id": run.id if run and agent.last_seen_at else None,
+            "summary": _run_to_response(run).summary if run and agent.last_seen_at else None}
 
 
 
