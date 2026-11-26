@@ -4,7 +4,7 @@ import json
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import case, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -30,6 +30,7 @@ from ..schemas import (
     SCAN_PROFILES,
 )
 from ..services.deep_scanner import run_deep_scan
+from ..services.inventory_timeline import finding_source
 
 router = APIRouter(prefix="/api/devices/{device_id}/deep-scan", tags=["deep_scan"])
 
@@ -289,17 +290,7 @@ def get_findings(
 
     # Keep the newest successful observation of each finding per transport.
     # A credential scan must not hide agent data, nor vice versa.
-    source = case(
-        (DeepScanFinding.source == "lanlens_windows_agent", "windows_agent"),
-        (DeepScanFinding.source == "lanlens_linux_agent", "linux_agent"),
-        (DeepScanRun.profile == "windows_agent", "windows_agent"),
-        (DeepScanRun.profile == "linux_agent", "linux_agent"),
-        (DeepScanFinding.source == "winrm/ps", "winrm"),
-        (Credential.credential_type == "windows_winrm", "winrm"),
-        (Credential.credential_type == "linux_ssh", "ssh"),
-        (DeepScanFinding.source.isnot(None), "ssh"),
-        else_="unknown",
-    )
+    source = finding_source()
     q = (db.query(DeepScanFinding.id.label("finding_id"), source.label("collection_source"),
                   func.row_number().over(
                       partition_by=(DeepScanFinding.finding_type, DeepScanFinding.key, source),

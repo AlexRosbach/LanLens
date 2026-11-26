@@ -25,6 +25,7 @@ from ..auth.dependencies import get_current_user
 from ..database import get_db
 from ..models import AgentEnrollmentToken, DeepScanFinding, DeepScanRun, Device, DeviceChangeEvent, User, WindowsAgent
 from ..schemas import AgentEnrollmentTokenCreate, AgentEnrollmentTokenCreated, AgentEnrollmentTokenResponse
+from ..services.inventory_timeline import record_inventory_changes
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 _ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "windows_agent"
@@ -291,19 +292,6 @@ def report_agent_inventory(
     if updated != 1:
         db.rollback()
         raise HTTPException(status_code=409, detail="Agent identity or sequence changed")
-    # Capture the previous accepted report for this agent's source, not the
-    # most recent credential scan. Compare values, never log inventory bodies.
-    previous_run = (db.query(DeepScanRun.id)
-                    .filter(DeepScanRun.device_id == device.id, DeepScanRun.profile == f"{payload.platform}_agent",
-                            DeepScanRun.status == "done")
-                    .order_by(DeepScanRun.id.desc()).first())
-    previous = {}
-    if previous_run:
-        for old in db.query(DeepScanFinding).filter(DeepScanFinding.run_id == previous_run[0]).all():
-            try:
-                previous[(old.finding_type, old.key)] = json.loads(old.value_json)
-            except (ValueError, TypeError):
-                previous[(old.finding_type, old.key)] = old.value_json
     previous_identity = {field: getattr(device, field) for field in ("hostname", "ip_address", "os_info", "kernel_version")}
     device = _find_or_create_device(payload, db)
     identity_changes = [f"device/{field}" for field, old in previous_identity.items() if getattr(device, field) != old]
@@ -334,9 +322,13 @@ def report_agent_inventory(
             key=finding.key, value_json=json.dumps(finding.value), source=source,
         ))
     db.add_all(findings)
-    changed = [f"{finding.finding_type}/{finding.key}" for finding in findings
-               if (finding.finding_type, finding.key) not in previous
-               or previous[(finding.finding_type, finding.key)] != json.loads(finding.value_json)]
+    changed = record_inventory_changes(db, run, f"{payload.platform}_agent", source)
+    for field, before in previous_identity.items():
+        after = getattr(device, field)
+        if before != after:
+            db.add(DeviceChangeEvent(device_id=device.id, event_type="inventory_finding_changed",
+                field_name=field, old_value=before, new_value=after, source=source,
+                message=f"Scan #{run.id}: device field updated"))
     changed.extend(identity_changes)
     # Existing installations may already have accepted reports but no timeline
     # entries from older builds. Record the next report once, even if identical.

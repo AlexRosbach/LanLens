@@ -32,6 +32,7 @@ from ..models import (
     DeepScanRun,
 )
 from .crypto import decrypt_secret
+from .inventory_timeline import record_inventory_changes
 from .ssh_security import create_verified_ssh_client
 
 logger = logging.getLogger(__name__)
@@ -357,6 +358,7 @@ def _run_linux_scan(
         run.status = "done"
         run.finished_at = datetime.utcnow()
         run.summary_json = json.dumps({"findings": finding_count, "guests": len(guest_list)})
+        record_inventory_changes(db, run, "ssh", "ssh")
         db.commit()
 
     except Exception as exc:
@@ -594,6 +596,7 @@ def _run_windows_scan(
         run.status = "done"
         run.finished_at = datetime.utcnow()
         run.summary_json = json.dumps({"findings": finding_count, "guests": len(guest_list)})
+        record_inventory_changes(db, run, "winrm", "winrm")
         db.commit()
 
     except Exception as exc:

@@ -64,6 +64,9 @@ jobs:
           $tokens = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/install.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors; exit 1 }
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/uninstall.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors; exit 1 }
       - name: Verify explicit untrusted certificate option
         shell: powershell
         run: |

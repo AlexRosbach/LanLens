@@ -190,7 +190,16 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
   })
 
   const sourceGroups = [...new Set(findings.map(sourceOf))].sort()
-  const sources = [...sourceGroups, ...(vmware.length ? ['vsphere'] : [])]
+  const activeSources = new Set<string>()
+  const credential = credentials.find(c => c.id === config?.credential_id)
+  if (config?.enabled && credential) {
+    if (credential.credential_type === 'windows_winrm') activeSources.add('winrm')
+    if (credential.credential_type === 'linux_ssh') activeSources.add('ssh')
+  }
+  if (agentStatus && !agentStatus.revoked) activeSources.add(agentStatus.platform === 'linux' ? 'linux_agent' : 'windows_agent')
+  if (vmware.length) activeSources.add('vsphere')
+  const sources = [...new Set([...activeSources, ...sourceGroups, ...(vmware.length ? ['vsphere'] : [])])].sort()
+  const sourceCount = (source: string) => source === 'vsphere' ? vmware.length : findings.filter(f=>sourceOf(f)===source).length
   const german = lang === 'de'
   const filteredSources = sourceGroups.filter(source => sourceFilter === 'all' || sourceFilter === source)
   // Keep activeTab in sync: if the current tab is not visible, switch to the first visible one
@@ -262,10 +271,19 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
       {sources.length > 0 && <div className="rounded-lg border border-border p-3 space-y-2">
         <h3 className="text-xs font-semibold text-text-base">{german ? 'Datenquellen' : 'Data sources'}</h3>
         <div className="flex flex-wrap gap-2">
-          {['all', ...sources].map(source => <button key={source} onClick={()=>setSourceFilter(source)} className={`px-2 py-1 rounded border text-xs ${sourceFilter === source ? 'border-primary text-primary' : 'border-border text-text-muted'}`}>{source === 'all' ? (german ? 'Alle' : 'All') : SOURCE_LABELS[source] || source}{source !== 'all' ? ' (' + (source === 'vsphere' ? vmware.length : findings.filter(f=>sourceOf(f)===source).length) + ')' : ''}</button>)}
+          <button type="button" onClick={()=>setSourceFilter('all')} aria-pressed={sourceFilter === 'all'} className={sourceFilter === 'all' ? 'ring-1 ring-primary rounded-full' : ''}><Badge variant="muted">{german ? 'Alle' : 'All'}</Badge></button>
+          {sources.map(source => {
+            const count = sourceCount(source)
+            const active = activeSources.has(source)
+            const state = count > 0 ? (active ? (german ? 'Daten vorhanden' : 'Data received') : (german ? 'Historische Daten' : 'Historical data')) : (german ? 'Aktiv, noch keine Daten' : 'Active, no data yet')
+            return <button type="button" key={source} aria-pressed={sourceFilter === source} title={state} onClick={()=>setSourceFilter(sourceFilter === source ? 'all' : source)} className={sourceFilter === source ? 'ring-1 ring-primary rounded-full' : ''}>
+              <Badge variant={count > 0 ? 'success' : 'muted'} dot>{SOURCE_LABELS[source] || source} · {count > 0 ? count : '0'}{!active ? (german ? ' · Historie' : ' · History') : ''}</Badge>
+            </button>
+          })}
         </div>
-        {sourceGroups.map(source => {
-          const newest = findings.filter(f=>sourceOf(f)===source).map(f=>f.observed_at).sort().slice(-1)[0]
+        <p className="text-xs text-text-subtle">{german ? 'Grün: Daten vorhanden. Grau: aktiv, noch keine Daten. Der Zeitstempel zeigt die letzte Beobachtung, nicht den Live-Status.' : 'Green: data available. Gray: active, no data yet. The timestamp shows the last observation, not live status.'}</p>
+        {sources.map(source => {
+          const newest = (source === 'vsphere' ? vmware.map(f=>f.observed_at) : findings.filter(f=>sourceOf(f)===source).map(f=>f.observed_at)).sort().slice(-1)[0]
           return <p key={source} className="text-xs text-text-subtle">{SOURCE_LABELS[source] || source}: {newest ? formatRelativeTime(newest, lang) : '—'}</p>
         })}
       </div>}
@@ -291,6 +309,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
       )}
 
       {/* Tabs + findings */}
+      {sourceFilter !== 'all' && sourceCount(sourceFilter) === 0 && <p className="text-xs text-text-muted">{german ? 'Noch keine Daten aus dieser Quelle.' : 'No data from this source yet.'}</p>}
       {(config?.enabled || vmware.length > 0 || findings.length > 0 || relationships.length > 0) && (
         <>
           <div className="flex gap-1 border-b border-border overflow-x-auto">

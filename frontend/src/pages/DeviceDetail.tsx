@@ -213,6 +213,8 @@ export default function DeviceDetail() {
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
+  const [timelineExpanded, setTimelineExpanded] = useState(false)
+  const [timelineSource, setTimelineSource] = useState('all')
   const [idoitSyncing, setIdoitSyncing] = useState(false)
   const [idoitTestingSysid, setIdoitTestingSysid] = useState(false)
   const [idoitSysidLookup, setIdoitSysidLookup] = useState<IdoitSysidLookupResult | null>(null)
@@ -1421,21 +1423,27 @@ export default function DeviceDetail() {
 
       <Card id="device-timeline" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('change_timeline')}</h2>
+        {timeline.length > 0 && <div className="flex flex-wrap gap-2 mb-3"><select className="input-field text-xs" value={timelineSource} onChange={e=>{setTimelineSource(e.target.value);setTimelineExpanded(false)}}>
+          <option value="all">{lang === 'de' ? 'Alle Quellen' : 'All sources'}</option>
+          {[...new Set(timeline.map(event=>event.source))].sort().map(source=><option key={source} value={source}>{({vsphere:'VMware / vSphere', lanlens_windows_agent:'Windows Agent', lanlens_linux_agent:'Linux Agent', ssh:'SSH', winrm:'WinRM'} as Record<string,string>)[source] || source}</option>)}
+        </select></div>}
         {timeline.length === 0 ? (
           <p className="text-sm text-text-subtle">{t('no_changes_recorded')}</p>
         ) : (
           <div className="space-y-2">
-            {timeline.slice(0, 12).map((event) => (
+            {timeline.filter(event=>timelineSource==='all'||event.source===timelineSource).slice(0, timelineExpanded ? 100 : 12).map((event) => (
               <div key={event.id} className="border border-border rounded-lg p-3 bg-surface2/40">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-text-base">{event.event_type.replace(/_/g, ' ')}</p>
-                  <span className="text-xs text-text-subtle">{event.source === "vsphere" ? "VMware / vSphere · " : event.source === "lanlens_windows_agent" ? "Windows Agent · " : event.source === "lanlens_linux_agent" ? "Linux Agent · " : ""}{formatRelativeTime(event.created_at, lang)}</span>
+                  <span className="text-xs text-text-subtle">{event.source === "vsphere" ? "VMware / vSphere · " : event.source === "lanlens_windows_agent" ? "Windows Agent · " : event.source === "lanlens_linux_agent" ? "Linux Agent · " : event.source === "ssh" ? "SSH · " : event.source === "winrm" ? "WinRM · " : event.source + " · "}{formatRelativeTime(event.created_at, lang)}</span>
                 </div>
                 <p className="text-xs text-text-subtle mt-1">
                   {event.field_name ? `${event.field_name}: ${event.old_value ?? '—'} → ${event.new_value ?? '—'}` : event.message ?? event.source}
                 </p>
+                {event.field_name && event.message && <p className="text-xs text-text-muted mt-1 break-words">{event.message}</p>}
               </div>
             ))}
+            {timeline.filter(event=>timelineSource==='all'||event.source===timelineSource).length > 12 && <button className="text-xs text-primary" onClick={()=>setTimelineExpanded(!timelineExpanded)}>{timelineExpanded ? (lang==='de'?'Weniger anzeigen':'Show less') : (lang==='de'?'Weitere Änderungen anzeigen':'Show more changes')}</button>}
           </div>
         )}
       </Card>

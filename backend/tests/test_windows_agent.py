@@ -148,7 +148,7 @@ class WindowsAgentTests(unittest.TestCase):
                                          os_info="Windows Server", software=[{"name":"Example", "version":"1"}])
             result = report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
             self.assertEqual(result["finding_count"], 2)
-            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 1)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent", event_type="agent_inventory_received").count(), 1)
             run = DeepScanRun(device_id=device.id, profile="full", status="done", triggered_by="manual")
             db.add(run)
             db.flush()
@@ -163,20 +163,47 @@ class WindowsAgentTests(unittest.TestCase):
             db.commit()
             payload.sequence = 2
             report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
-            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 1)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent", event_type="agent_inventory_received").count(), 1)
             # Simulate a pre-upgrade installation with accepted reports but no timeline.
             db.query(DeviceChangeEvent).filter_by(device_id=device.id).delete()
             agent.last_seen_at = datetime.utcnow() - timedelta(minutes=1)
             db.commit()
             payload.sequence = 3
             report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
-            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 1)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent", event_type="agent_inventory_received").count(), 1)
             agent.last_seen_at = datetime.utcnow() - timedelta(minutes=1)
             db.commit()
             payload.sequence = 4
             payload.software = [{"name":"Example", "version":"2"}]
             report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
-            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 2)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent", event_type="agent_inventory_received").count(), 2)
+            change = db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent",
+                event_type="inventory_finding_changed", field_name="software/installed_software").one()
+            self.assertIn("Example 2", change.message)
+            self.assertIn("Example 1", change.message)
+        finally:
+            db.close()
+
+    def test_credential_scan_timeline_keeps_independent_source(self):
+        import json
+        from backend.models import DeepScanRun, DeviceChangeEvent
+        from backend.services.inventory_timeline import record_inventory_changes
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:98")
+            db.add(device)
+            db.flush()
+            for value, transport, event_source in [("8 GB", "ssh", "ssh"), ("16 GB", "winrm", "winrm"), ("8 GB", "ssh", "ssh"), ("32 GB", "ssh", "ssh")]:
+                run = DeepScanRun(device_id=device.id, profile="full", status="done")
+                db.add(run)
+                db.flush()
+                db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="hardware", key="memory", value_json=json.dumps(value), source="winrm/ps" if transport == "winrm" else "free"))
+                record_inventory_changes(db, run, transport, event_source)
+                db.commit()
+            events = db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="ssh").order_by(DeviceChangeEvent.id).all()
+            self.assertEqual(len(events), 2)
+            self.assertEqual(events[-1].old_value, "8 GB")
+            self.assertEqual(events[-1].new_value, "32 GB")
         finally:
             db.close()
 
