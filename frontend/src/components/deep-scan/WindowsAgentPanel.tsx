@@ -110,7 +110,7 @@ try {
     </div>}
     {platform === 'windows' && <div className="rounded-xl border border-border p-3 space-y-2">
       <h3 className="font-semibold text-text-base">{german ? 'Installierten Agent aktualisieren' : 'Update installed agent'}</h3>
-      <p className="text-xs text-text-muted">{german ? 'Als Administrator ausführen. Registrierung, Zieladresse, Intervall und Sequenz bleiben erhalten. Zertifikatsoption wie bei der ursprünglichen Installation wählen.' : 'Run elevated. Enrollment, destination, interval and sequence are preserved. Select the certificate option used for the original installation.'}</p>
+      <p className="text-xs text-text-muted">{german ? 'Als Administrator ausführen. Registrierung, Zieladresse, Intervall und Sequenz bleiben erhalten. Danach ist die Deinstallation über Windows-Einstellungen → Apps möglich. Zertifikatsoption wie bei der ursprünglichen Installation wählen.' : 'Run elevated. Enrollment, destination, interval and sequence are preserved. Afterwards uninstall via Windows Settings → Apps. Select the certificate option used for the original installation.'}</p>
       <Button variant="outline" size="sm" disabled={!updateCommand} onClick={async()=>{await navigator.clipboard.writeText(updateCommand); toast.success(german ? 'Update-Befehl kopiert' : 'Update command copied')}}>{german ? 'Update-Befehl kopieren' : 'Copy update command'}</Button>
       <p className="text-xs text-text-muted">Log: C:\ProgramData\LanLensAgent\agent.log</p>
     </div>}

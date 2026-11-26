@@ -180,6 +180,23 @@ class WindowsAgentTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_agent_can_unenroll_without_deleting_device(self):
+        from backend.routers.agents import unenroll_agent
+        db = self.Session()
+        try:
+            raw = "u" * 32
+            db.add(AgentEnrollmentToken(name="test", token_hash=_sha256(raw)))
+            db.commit()
+            enrolled = enroll_agent(AgentEnrollRequest(token=raw, hostname="test", primary_mac="00:11:22:33:44:88"), db)
+            credential = enrolled["agent_id"] + "." + enrolled["agent_secret"]
+            self.assertEqual(unenroll_agent(authorization="Bearer " + credential, db=db)["status"], "revoked")
+            self.assertIsNotNone(db.get(Device, enrolled["device_id"]))
+            with self.assertRaises(HTTPException):
+                _authenticated_agent("Bearer " + credential, db)
+            self.assertIsNotNone(db.query(AgentEnrollmentToken).filter_by(token_hash=_sha256(raw)).one().revoked_at)
+        finally:
+            db.close()
+
     def test_report_rejects_oversized_findings(self):
         with self.assertRaises(ValidationError):
             AgentReportRequest(sequence=1, hostname='host', primary_mac='00:11:22:33:44:55',

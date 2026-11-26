@@ -246,6 +246,25 @@ def _authenticated_agent(authorization: Optional[str], db: Session) -> WindowsAg
     return agent
 
 
+@router.post("/unenroll")
+def unenroll_agent(authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)):
+    agent = _authenticated_agent(authorization, db)
+    now = datetime.utcnow()
+    changed = db.query(WindowsAgent).filter(WindowsAgent.id == agent.id,
+        WindowsAgent.agent_id == agent.agent_id, WindowsAgent.revoked_at.is_(None)).update(
+        {WindowsAgent.revoked_at: now}, synchronize_session=False)
+    if changed != 1:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Agent identity changed")
+    if agent.enrollment_token_id:
+        db.query(AgentEnrollmentToken).filter(AgentEnrollmentToken.id == agent.enrollment_token_id,
+            AgentEnrollmentToken.revoked_at.is_(None)).update({AgentEnrollmentToken.revoked_at: now}, synchronize_session=False)
+    db.add(DeviceChangeEvent(device_id=agent.device_id, event_type="agent_unenrolled",
+        source=f"lanlens_{agent.platform or 'windows'}_agent", message="Agent registration revoked by local uninstall"))
+    db.commit()
+    return {"status": "revoked"}
+
+
 @router.post("/report")
 def report_agent_inventory(
     payload: AgentReportRequest,
@@ -333,6 +352,11 @@ def report_agent_inventory(
     db.commit()
     return {"status": "accepted", "device_id": device.id, "run_id": run.id,
             "finding_count": len(findings), "software_count": len(payload.software), "changed_count": len(changed)}
+
+
+@router.get("/windows/uninstall.ps1", response_class=PlainTextResponse)
+def windows_uninstall_script() -> PlainTextResponse:
+    return FileResponse(_ASSET_DIR / "uninstall.ps1", media_type="text/plain; charset=utf-8")
 
 
 @router.get("/windows/install.ps1", response_class=PlainTextResponse)
