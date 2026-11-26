@@ -111,11 +111,8 @@ public class LanLensAgent : ServiceBase
 
     public static bool ValidateUntrustedCertificate(X509Certificate cert, SslPolicyErrors errors, bool enabled)
     {
-        if (!enabled || cert == null || (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
-        using (var leaf = new X509Certificate2(cert)) {
-            var now = DateTime.UtcNow;
-            return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime();
-        }
+        // Explicit per-agent opt-in only. A presented certificate is still required.
+        return enabled && cert != null;
     }
 
     public static bool ValidatePinnedCertificate(X509Certificate cert, SslPolicyErrors errors, string pin)

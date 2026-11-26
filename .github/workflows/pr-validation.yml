@@ -75,7 +75,7 @@ jobs:
             $chainError = [Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors
             if (-not [LanLensAgent]::ValidateUntrustedCertificate($cert, $chainError, $true)) { throw 'Explicit exception did not accept self-signed certificate' }
             if ([LanLensAgent]::ValidateUntrustedCertificate($cert, $chainError, $false)) { throw 'Disabled exception accepted certificate' }
-            if ([LanLensAgent]::ValidateUntrustedCertificate($cert, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch, $true)) { throw 'Hostname mismatch was accepted' }
+            if (-not [LanLensAgent]::ValidateUntrustedCertificate($cert, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch, $true)) { throw 'Explicit exception should accept hostname mismatch' }
             if ([LanLensAgent]::ValidateUntrustedCertificate($null, [Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable, $true)) { throw 'Missing certificate was accepted' }
             if (-not [LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, $pin)) { throw 'Expected pinned self-signed certificate to be accepted' }
             if ([LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, ('0' * 64))) { throw 'Wrong fingerprint was accepted' }

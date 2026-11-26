@@ -17,7 +17,6 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 $ServerUrl = $ServerUrl.TrimEnd('/')
 if ($ServerUrl -notmatch '^https://') { throw 'ServerUrl must use HTTPS.' }
-$previousCertificateCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
 if ($TrustUntrustedCertificate) {
   if (-not ('LanLensInstallerTls' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -27,19 +26,40 @@ using System.Security.Cryptography.X509Certificates;
 public static class LanLensInstallerTls {
     public static RemoteCertificateValidationCallback ForUntrustedCertificate() {
         return delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
-            if (cert == null || (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
-            using (var leaf = new X509Certificate2(cert)) {
-                var now = DateTime.UtcNow;
-                return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime();
-            }
+            // Explicit opt-in, scoped to the requested HTTPS endpoint.
+            return cert != null;
         };
     }
 }
 '@
   }
-  [Net.ServicePointManager]::ServerCertificateValidationCallback = [LanLensInstallerTls]::ForUntrustedCertificate()
 }
-try {
+function Invoke-LanLensInstallerRequest {
+  param([string]$Uri, [string]$Body)
+  $target = [Uri]$Uri
+  if ($target.Scheme -ne 'https') { throw 'HTTPS required.' }
+  $request = [Net.HttpWebRequest][Net.WebRequest]::Create($target)
+  $request.AllowAutoRedirect = $false
+  $request.Timeout = 30000
+  $request.ReadWriteTimeout = 30000
+  if ($TrustUntrustedCertificate) {
+    $request.ServerCertificateValidationCallback = [LanLensInstallerTls]::ForUntrustedCertificate()
+  }
+  if ($PSBoundParameters.ContainsKey('Body')) {
+    $request.Method = 'POST'
+    $request.ContentType = 'application/json'
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Body)
+    $request.ContentLength = $bytes.Length
+    $stream = $request.GetRequestStream()
+    try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+  }
+  $response = $request.GetResponse()
+  try {
+    if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { throw 'Unexpected HTTP status.' }
+    $reader = New-Object IO.StreamReader($response.GetResponseStream())
+    try { $reader.ReadToEnd() } finally { $reader.Dispose() }
+  } finally { $response.Dispose() }
+}
 $installDir = Join-Path $env:ProgramData 'LanLensAgent'
 $sourceFile = Join-Path $installDir 'LanLensAgent.cs'
 $exeFile = Join-Path $installDir 'LanLensAgent.exe'
@@ -53,7 +73,7 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 & icacls $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not secure the agent directory.' }
 if (Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue) { Stop-Service LanLensAgent -Force -ErrorAction Stop }
-Invoke-WebRequest -UseBasicParsing -MaximumRedirection 0 -Uri "$ServerUrl/api/agents/windows/LanLensAgent.cs" -OutFile $sourceFile
+Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/windows/LanLensAgent.cs" | Set-Content -Encoding UTF8 $sourceFile
 & $compiler /nologo /target:exe /out:$exeFile /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $exeFile)) { throw 'LanLens Agent compilation failed.' }
 
@@ -63,7 +83,7 @@ $adapter = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_
 if (-not $adapter) { throw 'No active network adapter with a MAC address was found.' }
 $os = Get-CimInstance Win32_OperatingSystem
 $enrollment = @{ token = $EnrollmentToken; hostname = $env:COMPUTERNAME; primary_mac = $adapter.MACAddress; os_info = "$($os.Caption) $($os.Version)"; kernel_version = $os.BuildNumber; ip_addresses = @($adapter.IPAddress | Where-Object { $_ -notmatch ':' }); platform = 'windows' } | ConvertTo-Json -Compress
-$response = Invoke-RestMethod -MaximumRedirection 0 -Method Post -ContentType 'application/json' -Uri "$ServerUrl/api/agents/enroll" -Body $enrollment
+$response = Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/enroll" -Body $enrollment | ConvertFrom-Json
 
 @{ server_url = $ServerUrl; agent_id = $response.agent_id; agent_secret = $response.agent_secret; interval_minutes = $IntervalMinutes; sequence = 0; trust_untrusted_certificate = [bool]$TrustUntrustedCertificate } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $configFile
 
@@ -74,6 +94,4 @@ if (Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue) { Stop-Service
 & sc.exe failure LanLensAgent reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
 Start-Service LanLensAgent
 Write-Host 'LanLens Agent was installed, enrolled and started.' -ForegroundColor Green
-} finally {
-  [Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCertificateCallback
-}
+

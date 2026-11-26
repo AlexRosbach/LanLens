@@ -40,17 +40,22 @@ using System.Security.Cryptography.X509Certificates;
 public static class LanLensBootstrapTls {
     public static RemoteCertificateValidationCallback ForUntrustedCertificate() {
         return delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
-            if (cert == null || (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
-            using (var leaf = new X509Certificate2(cert)) {
-                var now = DateTime.UtcNow;
-                return now >= leaf.NotBefore.ToUniversalTime() && now <= leaf.NotAfter.ToUniversalTime();
-            }
+            return cert != null;
         };
     }
 }
 '@
-[Net.ServicePointManager]::ServerCertificateValidationCallback = [LanLensBootstrapTls]::ForUntrustedCertificate()
-${install} -TrustUntrustedCertificate`
+$request = [Net.HttpWebRequest][Net.WebRequest]::Create('${url}/api/agents/windows/install.ps1')
+$request.AllowAutoRedirect = $false
+$request.Timeout = 30000
+$request.ServerCertificateValidationCallback = [LanLensBootstrapTls]::ForUntrustedCertificate()
+$response = $request.GetResponse()
+try {
+    if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { throw 'Unexpected HTTP status.' }
+    $reader = New-Object IO.StreamReader($response.GetResponseStream())
+    try { $script = $reader.ReadToEnd() } finally { $reader.Dispose() }
+} finally { $response.Dispose() }
+& ([ScriptBlock]::Create($script)) -ServerUrl '${url}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval} -TrustUntrustedCertificate`
     // Windows PowerShell expects UTF-16LE for EncodedCommand; avoids shell quoting issues.
     const bytes = Array.from(bootstrap, char => String.fromCharCode(char.charCodeAt(0)&255, char.charCodeAt(0)>>8)).join('')
     return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + btoa(bytes)
@@ -92,7 +97,7 @@ ${install} -TrustUntrustedCertificate`
     </div>
     {platform === 'windows' && <div className="space-y-2">
       <label className="flex items-center gap-2 text-sm text-text-base"><input type="checkbox" checked={trustCertificate} onChange={e=>setTrustCertificate(e.target.checked)} />{german ? 'Nicht vertrauenswürdigem Zertifikat explizit vertrauen' : 'Explicitly trust an untrusted certificate'}</label>
-      {trustCertificate && <p className="text-xs text-warning">{german ? 'Die Zertifikatskette wird nicht mehr als Vertrauensnachweis geprüft. Angreifer könnten den Server imitieren, den Installer manipulieren oder Agent-Zugangsdaten abfangen. Nur in einer vertrauenswürdigen Umgebung verwenden. Hostname und Gültigkeitszeitraum werden weiterhin geprüft.' : 'The certificate chain is no longer required to be trusted. Attackers could impersonate the server, tamper with the installer, or intercept agent credentials. Only use in a trusted environment. Hostname and validity dates are still checked.'}</p>}
+      {trustCertificate && <p className="text-xs text-warning">{german ? 'Die Zertifikatskette wird nicht mehr als Vertrauensnachweis geprüft. Angreifer könnten den Server imitieren, den Installer manipulieren oder Agent-Zugangsdaten abfangen. Nur in einer vertrauenswürdigen Umgebung verwenden. Auch Hostname und Gültigkeitszeitraum werden bei dieser Ausnahme nicht geprüft.' : 'The certificate chain is no longer required to be trusted. Attackers could impersonate the server, tamper with the installer, or intercept agent credentials. Only use in a trusted environment. This exception also disables hostname and validity-date checks.'}</p>}
     </div>}
     <Button onClick={create} loading={loading}>Create installation command</Button>
     {created && <div className="rounded-xl border border-success/40 bg-surface2 p-4 space-y-3">
