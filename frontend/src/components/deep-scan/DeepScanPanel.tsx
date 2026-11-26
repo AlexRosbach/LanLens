@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { credentialsApi, type Credential } from '../../api/credentials'
 import {
   deepScanApi,
+  type AgentStatus,
   type DeepScanConfig,
   type DeepScanFinding,
   type DeepScanRun,
@@ -17,6 +18,9 @@ import FindingsGrid from './FindingsGrid'
 import HostGuestPanel from './HostGuestPanel'
 import VsphereDeviceInventory from './VsphereDeviceInventory'
 import type { VsphereDeviceObservation } from '../../api/devices'
+
+const SOURCE_LABELS: Record<string, string> = { windows_agent: 'Windows Agent', linux_agent: 'Linux Agent', winrm: 'WinRM', ssh: 'SSH', vsphere: 'VMware / vSphere', unknown: 'Unknown' }
+const sourceOf = (f: DeepScanFinding) => f.collection_source || (f.source === 'lanlens_windows_agent' ? 'windows_agent' : f.source === 'lanlens_linux_agent' ? 'linux_agent' : f.source === 'winrm/ps' ? 'winrm' : 'unknown')
 
 type Tab = 'hardware' | 'os' | 'applications' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest' | 'vsphere'
 
@@ -55,6 +59,9 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
   const { t, lang } = useI18n()
 
   const [config, setConfig] = useState<DeepScanConfig | null>(null)
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null)
+  const [sourceFilter, setSourceFilter] = useState('all')
+  const [loadError, setLoadError] = useState(false)
   const [latestRun, setLatestRun] = useState<DeepScanRun | null>(null)
   const [findings, setFindings] = useState<DeepScanFinding[]>([])
   const [relationships, setRelationships] = useState<DeviceHostRelationship[]>([])
@@ -66,27 +73,51 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
 
   const load = async () => {
     try {
-      const [cfgResp, runsResp, findingsResp, relsResp, credsResp] = await Promise.all([
+      const [cfgResp, runsResp, findingsResp, relsResp, credsResp, agentResp] = await Promise.all([
         deepScanApi.getConfig(deviceId),
         deepScanApi.listRuns(deviceId, 1),
         deepScanApi.getFindings(deviceId),
         deepScanApi.getRelationships(deviceId),
         credentialsApi.list(),
+        deepScanApi.getAgentStatus(deviceId),
       ])
+      setLoadError(false)
+      setAgentStatus(agentResp.data)
       setConfig(cfgResp.data)
       setLatestRun(runsResp.data[0] ?? null)
       setFindings(findingsResp.data)
       setRelationships(relsResp.data)
       setCredentials(credsResp.data)
     } catch {
-      // silently fail — device may not have been scanned yet
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
+    setSourceFilter('all')
+    setAgentStatus(null)
+    setFindings([])
     load()
+  }, [deviceId])
+
+  // Outbound reports can arrive without a credential scan running.
+  useEffect(() => {
+    let active = true
+    const refresh = async () => {
+      try {
+        const [runs, data, agent] = await Promise.all([deepScanApi.listRuns(deviceId, 1), deepScanApi.getFindings(deviceId), deepScanApi.getAgentStatus(deviceId)])
+        if (!active) return
+        setLatestRun(runs.data[0] ?? null)
+        setFindings(data.data)
+        setAgentStatus(agent.data)
+        setLoadError(false)
+      } catch { if (active) setLoadError(true) }
+    }
+    const timer = window.setInterval(refresh, 15000)
+    window.addEventListener('focus', refresh)
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [deviceId])
 
   // Poll if a scan is running
@@ -147,19 +178,21 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
     // `software` finding type. Present it as a dedicated Applications tab so
     // it is easy to find next to Operating System in the device Deep Scan.
     const findingType = tab === 'applications' ? 'software' : tab
-    return findings.filter((f) => f.finding_type === findingType)
+    return findings.filter((f) => f.finding_type === findingType && (sourceFilter === 'all' || sourceOf(f) === sourceFilter))
   }
 
   // Only show tabs that have data (or are always shown)
   const visibleTabs = TABS.filter((tab) => {
-    if (tab.key === 'vsphere') return vmware.length > 0
-    if (tab.key === 'hardware' && vmware.some(row=>['cpu_count','memory_size_mib','disks'].some(key=>key in row.fields))) return true
-    if (!config?.enabled) return false
-    if (tab.key === 'host_guest') return true
-    if (tab.key === 'hypervisor') return findings.some((f) => f.finding_type === 'hypervisor')
-    return findings.some((f) => f.finding_type === (tab.key === 'applications' ? 'software' : tab.key))
+    if (tab.key === 'vsphere') return vmware.length > 0 && ['all','vsphere'].includes(sourceFilter)
+    if (tab.key === 'hardware' && ['all','vsphere'].includes(sourceFilter) && vmware.some(row=>['cpu_count','memory_size_mib','disks'].some(key=>key in row.fields))) return true
+    if (tab.key === 'host_guest') return Boolean(config?.enabled || relationships.length)
+    return findingsByTab(tab.key).length > 0
   })
 
+  const sourceGroups = [...new Set(findings.map(sourceOf))].sort()
+  const sources = [...sourceGroups, ...(vmware.length ? ['vsphere'] : [])]
+  const german = lang === 'de'
+  const filteredSources = sourceGroups.filter(source => sourceFilter === 'all' || sourceFilter === source)
   // Keep activeTab in sync: if the current tab is not visible, switch to the first visible one
   const effectiveTab: Tab = visibleTabs.some((t) => t.key === activeTab)
     ? activeTab
@@ -219,6 +252,24 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
         </div>
       </div>
 
+      {loadError && <p className="text-xs text-danger">{german ? 'Inventar konnte nicht vollständig geladen werden.' : 'Inventory could not be loaded completely.'}</p>}
+      {agentStatus && <div className="rounded-lg border border-border p-3 space-y-1 text-xs">
+        <div className="font-semibold text-text-base">{SOURCE_LABELS[agentStatus.platform === 'linux' ? 'linux_agent' : 'windows_agent']} · {agentStatus.revoked ? (german ? 'Widerrufen' : 'Revoked') : (agentStatus.last_seen_at ? (german ? 'Report empfangen' : 'Report received') : (german ? 'Registriert, noch kein Report' : 'Enrolled, no report yet'))}</div>
+        <div className="text-text-muted">Device ID: {agentStatus.device_id} · POST /api/agents/report</div>
+        <div className="text-text-muted">{german ? 'Letzter empfangener Report' : 'Last accepted report'}: {agentStatus.last_seen_at ? formatRelativeTime(agentStatus.last_seen_at, lang) : '—'} · Sequence: {agentStatus.last_sequence}{agentStatus.last_run_id ? ' · Scan #' + agentStatus.last_run_id : ''}</div>
+        {agentStatus.summary && <div className="text-text-muted">{german ? 'Anwendungen' : 'Applications'}: {agentStatus.summary.software_count ?? '—'} · Findings: {agentStatus.summary.finding_count ?? '—'}</div>}
+      </div>}
+      {sources.length > 0 && <div className="rounded-lg border border-border p-3 space-y-2">
+        <h3 className="text-xs font-semibold text-text-base">{german ? 'Datenquellen' : 'Data sources'}</h3>
+        <div className="flex flex-wrap gap-2">
+          {['all', ...sources].map(source => <button key={source} onClick={()=>setSourceFilter(source)} className={`px-2 py-1 rounded border text-xs ${sourceFilter === source ? 'border-primary text-primary' : 'border-border text-text-muted'}`}>{source === 'all' ? (german ? 'Alle' : 'All') : SOURCE_LABELS[source] || source}{source !== 'all' ? ' (' + (source === 'vsphere' ? vmware.length : findings.filter(f=>sourceOf(f)===source).length) + ')' : ''}</button>)}
+        </div>
+        {sourceGroups.map(source => {
+          const newest = findings.filter(f=>sourceOf(f)===source).map(f=>f.observed_at).sort().slice(-1)[0]
+          return <p key={source} className="text-xs text-text-subtle">{SOURCE_LABELS[source] || source}: {newest ? formatRelativeTime(newest, lang) : '—'}</p>
+        })}
+      </div>}
+
       {/* Config form */}
       {showConfig && config && (
         <DeepScanConfigForm
@@ -233,14 +284,14 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
       )}
 
       {/* Not configured empty state */}
-      {!config?.enabled && !showConfig && vmware.length === 0 && (
+      {!config?.enabled && !showConfig && vmware.length === 0 && findings.length === 0 && !agentStatus && (
         <p className="text-sm text-text-subtle text-center py-2">
           {t('deep_scan_not_enabled')}
         </p>
       )}
 
       {/* Tabs + findings */}
-      {(config?.enabled || vmware.length > 0) && (
+      {(config?.enabled || vmware.length > 0 || findings.length > 0 || relationships.length > 0) && (
         <>
           <div className="flex gap-1 border-b border-border overflow-x-auto">
             {visibleTabs.map((tab) => (
@@ -268,8 +319,8 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
               />
             ) : (
               <>
-                {effectiveTab === 'hardware' && vmware.length > 0 && <VsphereDeviceInventory observations={vmware.map(row=>({...row, fields:Object.fromEntries(Object.entries(row.fields).filter(([key])=>['cpu_count','memory_size_mib','disks'].includes(key))), custom_fields:[]}))} />}
-                {findingsByTab(effectiveTab).length > 0 && <FindingsGrid key={effectiveTab} findings={findingsByTab(effectiveTab)} alwaysExpanded={effectiveTab === 'applications'} />}
+                {effectiveTab === 'hardware' && vmware.length > 0 && ['all','vsphere'].includes(sourceFilter) && <VsphereDeviceInventory observations={vmware.map(row=>({...row, fields:Object.fromEntries(Object.entries(row.fields).filter(([key])=>['cpu_count','memory_size_mib','disks'].includes(key))), custom_fields:[]}))} />}
+                {filteredSources.map(source => { const rows = findingsByTab(effectiveTab).filter(f=>sourceOf(f)===source); return rows.length > 0 ? <div key={effectiveTab + source} className="space-y-1 mb-3"><h4 className="text-xs font-semibold text-primary">{SOURCE_LABELS[source] || source} · {rows.length} Findings</h4><FindingsGrid findings={rows} alwaysExpanded={effectiveTab === 'applications'} /></div> : null })}
               </>
             )}
           </div>

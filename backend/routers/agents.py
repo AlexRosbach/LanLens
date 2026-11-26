@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import AgentEnrollmentToken, DeepScanFinding, DeepScanRun, Device, User, WindowsAgent
+from ..models import AgentEnrollmentToken, DeepScanFinding, DeepScanRun, Device, DeviceChangeEvent, User, WindowsAgent
 from ..schemas import AgentEnrollmentTokenCreate, AgentEnrollmentTokenCreated, AgentEnrollmentTokenResponse
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -272,6 +272,19 @@ def report_agent_inventory(
     if updated != 1:
         db.rollback()
         raise HTTPException(status_code=409, detail="Agent identity or sequence changed")
+    # Capture the previous accepted report for this agent's source, not the
+    # most recent credential scan. Compare values, never log inventory bodies.
+    previous_run = (db.query(DeepScanRun.id)
+                    .filter(DeepScanRun.device_id == device.id, DeepScanRun.profile == f"{payload.platform}_agent",
+                            DeepScanRun.status == "done")
+                    .order_by(DeepScanRun.id.desc()).first())
+    previous = {}
+    if previous_run:
+        for old in db.query(DeepScanFinding).filter(DeepScanFinding.run_id == previous_run[0]).all():
+            try:
+                previous[(old.finding_type, old.key)] = json.loads(old.value_json)
+            except (ValueError, TypeError):
+                previous[(old.finding_type, old.key)] = old.value_json
     device = _find_or_create_device(payload, db)
     run = DeepScanRun(
         device_id=device.id, profile=f"{payload.platform}_agent", status="done", triggered_by="agent",
@@ -300,8 +313,19 @@ def report_agent_inventory(
             key=finding.key, value_json=json.dumps(finding.value), source=source,
         ))
     db.add_all(findings)
+    changed = [f"{finding.finding_type}/{finding.key}" for finding in findings
+               if (finding.finding_type, finding.key) not in previous
+               or previous[(finding.finding_type, finding.key)] != json.loads(finding.value_json)]
+    if not previous_run or changed:
+        message = ("First inventory report accepted" if not previous_run else "Agent inventory changed")
+        message += f"; scan #{run.id}; {len(findings)} findings; {len(payload.software)} applications"
+        if changed:
+            message += "; changed: " + ", ".join(changed[:20])[:1000]
+        db.add(DeviceChangeEvent(device_id=device.id, event_type="agent_inventory_received",
+                                 source=source, message=message, created_at=now))
     db.commit()
-    return {"status": "accepted", "device_id": device.id, "run_id": run.id}
+    return {"status": "accepted", "device_id": device.id, "run_id": run.id,
+            "finding_count": len(findings), "software_count": len(payload.software), "changed_count": len(changed)}
 
 
 @router.get("/windows/install.ps1", response_class=PlainTextResponse)

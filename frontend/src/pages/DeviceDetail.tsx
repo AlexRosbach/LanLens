@@ -1429,7 +1429,7 @@ export default function DeviceDetail() {
               <div key={event.id} className="border border-border rounded-lg p-3 bg-surface2/40">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-text-base">{event.event_type.replace(/_/g, ' ')}</p>
-                  <span className="text-xs text-text-subtle">{event.source === "vsphere" ? "VMware / vSphere · " : ""}{formatRelativeTime(event.created_at, lang)}</span>
+                  <span className="text-xs text-text-subtle">{event.source === "vsphere" ? "VMware / vSphere · " : event.source === "lanlens_windows_agent" ? "Windows Agent · " : event.source === "lanlens_linux_agent" ? "Linux Agent · " : ""}{formatRelativeTime(event.created_at, lang)}</span>
                 </div>
                 <p className="text-xs text-text-subtle mt-1">
                   {event.field_name ? `${event.field_name}: ${event.old_value ?? '—'} → ${event.new_value ?? '—'}` : event.message ?? event.source}

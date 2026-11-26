@@ -1147,6 +1147,7 @@ class DeepScanFindingResponse(BaseModel):
     key: str
     value: Optional[Any] = None    # parsed from value_json
     source: Optional[str]
+    collection_source: Optional[str] = None
     observed_at: datetime
 
     class Config:

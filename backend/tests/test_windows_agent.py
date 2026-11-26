@@ -128,6 +128,47 @@ class WindowsAgentTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_agent_reports_visible_without_credential_scan_and_timeline_on_changes(self):
+        from backend.models import DeviceChangeEvent, DeepScanRun
+        from backend.routers.deep_scan import get_findings, get_agent_status
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:77")
+            db.add(device)
+            db.flush()
+            credential = "test-agent.test-secret"
+            agent = WindowsAgent(agent_id="test-agent", device_id=device.id, platform="windows", secret_hash=_sha256(credential))
+            db.add(agent)
+            db.commit()
+            payload = AgentReportRequest(sequence=1, hostname="test", primary_mac=device.mac_address,
+                                         os_info="Windows Server", software=[{"name":"Example", "version":"1"}])
+            result = report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
+            self.assertEqual(result["finding_count"], 2)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 1)
+            run = DeepScanRun(device_id=device.id, profile="full", status="done", triggered_by="manual")
+            db.add(run)
+            db.flush()
+            db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="os", key="operating_system", value_json='"WinRM observation"', source="winrm/ps"))
+            db.commit()
+            findings = get_findings(device.id, finding_type=None, db=db, _=None)
+            self.assertEqual({f.collection_source for f in findings}, {"windows_agent", "winrm"})
+            status = get_agent_status(device.id, db=db, _=None)
+            self.assertEqual(status["last_run_id"], result["run_id"])
+            self.assertNotIn("secret_hash", status)
+            agent.last_seen_at = datetime.utcnow() - timedelta(minutes=1)
+            db.commit()
+            payload.sequence = 2
+            report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 1)
+            agent.last_seen_at = datetime.utcnow() - timedelta(minutes=1)
+            db.commit()
+            payload.sequence = 3
+            payload.software = [{"name":"Example", "version":"2"}]
+            report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
+            self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent").count(), 2)
+        finally:
+            db.close()
+
     def test_report_rejects_oversized_findings(self):
         with self.assertRaises(ValidationError):
             AgentReportRequest(sequence=1, hostname='host', primary_mac='00:11:22:33:44:55',
