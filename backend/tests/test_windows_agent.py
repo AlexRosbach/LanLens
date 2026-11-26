@@ -36,6 +36,10 @@ class WindowsAgentTests(unittest.TestCase):
         self.assertIn('cfg.TryGetValue("trust_untrusted_certificate"', agent)
         self.assertIn("ValidateUntrustedCertificate(cert, errors, trustUntrusted)", agent)
         self.assertIn("AllowAutoRedirect = false", agent)
+        self.assertIn("agent.log", agent)
+        self.assertIn("today.AddDays(-29)", agent)
+        self.assertIn("Report accepted HTTP", agent)
+        self.assertIn("[switch]$UpdateExisting", installer)
 
     def test_mac_normalisation_and_existing_device_reuse(self):
         db = self.Session()

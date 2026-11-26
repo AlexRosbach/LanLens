@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { agentsApi, type CreatedEnrollmentToken, type EnrollmentToken } from '../../api/agents'
 import Button from '../ui/Button'
@@ -26,11 +26,12 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
   const [loading, setLoading] = useState(false)
 
   const validServerUrl = /^https:\/\/[a-zA-Z0-9.\-\[\]:]+(?:\/[a-zA-Z0-9._~\/-]*)?$/.test(serverUrl)
-  const command = useMemo(() => {
-    if (!created || !validServerUrl) return ''
+  const buildCommand = (updateExisting = false) => {
+    if (!validServerUrl || (!created && !updateExisting)) return ''
     const url = serverUrl.replace(/\/$/, '')
-    if (platform === 'linux') return `curl --proto '=https' --proto-redir '=https' -fsS '${url}/api/agents/linux/install.sh' | sudo bash -s -- --server-url '${url}' --enrollment-token '${created.token}' --interval-minutes ${interval}`
-    const install = `& ([ScriptBlock]::Create((iwr -UseBasicParsing -MaximumRedirection 0 '${url}/api/agents/windows/install.ps1').Content)) -ServerUrl '${url}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval}`
+    if (platform === 'linux') return `curl --proto '=https' --proto-redir '=https' -fsS '${url}/api/agents/linux/install.sh' | sudo bash -s -- --server-url '${url}' --enrollment-token '${created?.token ?? ''}' --interval-minutes ${interval}`
+    const args = updateExisting ? '-UpdateExisting' : `-EnrollmentToken '${created?.token ?? ''}' -IntervalMinutes ${interval}`
+    const install = `& ([ScriptBlock]::Create((iwr -UseBasicParsing -MaximumRedirection 0 '${url}/api/agents/windows/install.ps1').Content)) -ServerUrl '${url}' ${args}`
     if (!trustCertificate) return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${install}"`
     const bootstrap = `$ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
@@ -55,11 +56,13 @@ try {
     $reader = New-Object IO.StreamReader($response.GetResponseStream())
     try { $script = $reader.ReadToEnd() } finally { $reader.Dispose() }
 } finally { $response.Dispose() }
-& ([ScriptBlock]::Create($script)) -ServerUrl '${url}' -EnrollmentToken '${created.token}' -IntervalMinutes ${interval} -TrustUntrustedCertificate`
+& ([ScriptBlock]::Create($script)) -ServerUrl '${url}' ${args} -TrustUntrustedCertificate`
     // Windows PowerShell expects UTF-16LE for EncodedCommand; avoids shell quoting issues.
     const bytes = Array.from(bootstrap, char => String.fromCharCode(char.charCodeAt(0)&255, char.charCodeAt(0)>>8)).join('')
     return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + btoa(bytes)
-  }, [created, interval, platform, serverUrl, validServerUrl, trustCertificate])
+  }
+  const command = buildCommand()
+  const updateCommand = platform === 'windows' ? buildCommand(true) : ''
 
   async function refresh() {
     try { setTokens((await agentsApi.listTokens()).data) } catch { toast.error('Could not load installation tokens') }
@@ -104,6 +107,12 @@ try {
       <p className="text-sm text-text-base">Run this once with {platform === 'windows' ? 'elevated PowerShell' : 'root or sudo'}. The token is single-use and shown only now. Revoking it also disables the enrolled agent.</p>
       <textarea readOnly value={command} className="input-field min-h-32 font-mono text-xs" />
       <Button variant="outline" size="sm" onClick={copy} disabled={!command}>Copy installation command</Button>
+    </div>}
+    {platform === 'windows' && <div className="rounded-xl border border-border p-3 space-y-2">
+      <h3 className="font-semibold text-text-base">{german ? 'Installierten Agent aktualisieren' : 'Update installed agent'}</h3>
+      <p className="text-xs text-text-muted">{german ? 'Als Administrator ausführen. Registrierung, Zieladresse, Intervall und Sequenz bleiben erhalten. Zertifikatsoption wie bei der ursprünglichen Installation wählen.' : 'Run elevated. Enrollment, destination, interval and sequence are preserved. Select the certificate option used for the original installation.'}</p>
+      <Button variant="outline" size="sm" disabled={!updateCommand} onClick={async()=>{await navigator.clipboard.writeText(updateCommand); toast.success(german ? 'Update-Befehl kopiert' : 'Update command copied')}}>{german ? 'Update-Befehl kopieren' : 'Copy update command'}</Button>
+      <p className="text-xs text-text-muted">Log: C:\ProgramData\LanLensAgent\agent.log</p>
     </div>}
     <div className="space-y-2"><h3 className="font-semibold text-text-base">Installation tokens</h3>
       {tokens.length === 0 ? <p className="text-sm text-text-subtle">No installation tokens yet.</p> : tokens.map((token) => <div key={token.id} className="rounded-lg border border-border bg-surface2 p-3 flex items-center justify-between gap-3"><div><p className="text-sm font-medium text-text-base">{token.name}</p><p className="text-xs text-text-subtle">{token.revoked_at ? 'Revoked' : token.last_used_at ? 'Used (agent enrolled)' : token.expires_at ? `Expires ${new Date(token.expires_at).toLocaleString()}` : 'Never expires'}</p></div>{!token.revoked_at && <Button size="sm" variant="ghost" onClick={() => revoke(token.id)}><span className="text-danger">Revoke</span></Button>}</div>)}</div>

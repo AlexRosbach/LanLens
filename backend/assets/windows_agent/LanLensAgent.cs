@@ -19,7 +19,9 @@ using Microsoft.Win32;
 
 public class LanLensAgent : ServiceBase
 {
-    private const string ConfigPath = @"C:\ProgramData\LanLensAgent\agent.json";
+    private static readonly string InstallDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "LanLensAgent");
+    private static readonly string ConfigPath = Path.Combine(InstallDir, "agent.json");
+    private static readonly object LogLock = new object();
     private Timer _timer;
     private int _reporting;
     private volatile bool _stopping;
@@ -28,21 +30,80 @@ public class LanLensAgent : ServiceBase
     public static void Main() { ServiceBase.Run(new LanLensAgent()); }
     protected override void OnStart(string[] args) {
         _stopping = false;
+        Log("INFO", "Windows inventory agent service started");
         _timer = new Timer(Report, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _timer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
     }
-    protected override void OnStop() { _stopping = true; if (_timer != null) _timer.Dispose(); }
+    protected override void OnStop() { _stopping = true; if (_timer != null) _timer.Dispose(); Log("INFO", "Service stopped"); }
+
+    private static void Log(string level, string message)
+    {
+        try {
+            lock (LogLock) {
+                var today = DateTime.UtcNow.Date;
+                var file = Path.Combine(InstallDir, "agent.log");
+                if (File.Exists(file)) {
+                    var day = File.GetLastWriteTimeUtc(file).Date;
+                    if (day != today) {
+                        var archive = Path.Combine(InstallDir, "agent-" + day.ToString("yyyy-MM-dd") + ".log");
+                        if (File.Exists(archive)) { File.AppendAllText(archive, File.ReadAllText(file)); File.Delete(file); }
+                        else File.Move(file, archive);
+                    }
+                }
+                foreach (var archive in Directory.GetFiles(InstallDir, "agent-*.log")) {
+                    DateTime date;
+                    if (DateTime.TryParseExact(Path.GetFileNameWithoutExtension(archive).Substring(6), "yyyy-MM-dd",
+                        System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out date)
+                        && date < today.AddDays(-29)) File.Delete(archive);
+                }
+                File.AppendAllText(file, DateTime.UtcNow.ToString("o") + " [" + level + "] " + message.Replace("\r", " ").Replace("\n", " ") + Environment.NewLine);
+            }
+        } catch {
+            try { EventLog.WriteEntry("LanLensAgent", "Could not write local agent log.", EventLogEntryType.Warning); } catch { }
+        }
+    }
+
+    private void LogResponse(HttpWebResponse response)
+    {
+        int status = (int)response.StatusCode;
+        if (status < 200 || status >= 300) {
+            string explanation = status == 401 ? "authentication rejected; check enrollment" :
+                status == 409 ? "identity/sequence conflict; compare enrolled MAC and report sequence" :
+                status == 422 ? "inventory validation failed" : status == 429 ? "report rate limited" :
+                status == 413 ? "report too large" : "server rejected report";
+            Log("ERROR", "HTTP " + status + " " + explanation);
+            return;
+        }
+        using (var stream = response.GetResponseStream())
+        using (var reader = new StreamReader(stream)) {
+            var buffer = new char[4096];
+            int length = reader.ReadBlock(buffer, 0, buffer.Length);
+            try {
+                var ack = _json.Deserialize<Dictionary<string, object>>(new string(buffer, 0, length));
+                if (Convert.ToString(ack["status"]) != "accepted") throw new InvalidDataException("unexpected acknowledgement");
+                Log("INFO", "Report accepted HTTP " + status + " device_id=" + Convert.ToInt64(ack["device_id"]) +
+                    " run_id=" + Convert.ToInt64(ack["run_id"]));
+            } catch { Log("WARN", "HTTP " + status + " but no valid inventory acknowledgement"); }
+        }
+    }
 
     private void Report(object state)
     {
         if (_stopping || Interlocked.Exchange(ref _reporting, 1) != 0) return;
         var interval = 60;
+        var stage = "configuration";
         try
         {
             var cfg = _json.Deserialize<Dictionary<string, object>>(File.ReadAllText(ConfigPath));
             interval = Math.Max(5, Math.Min(1440, Convert.ToInt32(cfg["interval_minutes"])));
-            var adapter = new ManagementObjectSearcher("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = True").Get().Cast<ManagementObject>().FirstOrDefault(x => x["MACAddress"] != null);
-            if (adapter == null) return;
+            stage = "adapter selection";
+            object enrolledMacValue;
+            string enrolledMac = cfg.TryGetValue("primary_mac", out enrolledMacValue) ? Convert.ToString(enrolledMacValue) : "";
+            var adapter = new ManagementObjectSearcher("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = True").Get().Cast<ManagementObject>().FirstOrDefault(x => x["MACAddress"] != null &&
+                (String.IsNullOrEmpty(enrolledMac) || String.Equals(Regex.Replace(Convert.ToString(x["MACAddress"]), "[^a-fA-F0-9]", ""), Regex.Replace(enrolledMac, "[^a-fA-F0-9]", ""), StringComparison.OrdinalIgnoreCase)));
+            if (adapter == null) { Log("ERROR", "Enrolled network adapter unavailable"); return; }
+            stage = "inventory collection";
+            Log("INFO", "Collecting hardware, OS, applications and services");
             var os = new ManagementObjectSearcher("SELECT * FROM Win32_OperatingSystem").Get().Cast<ManagementObject>().FirstOrDefault();
             var ips = ((string[])adapter["IPAddress"] ?? new string[0]).Where(ip => !ip.Contains(":")).ToArray();
             cfg["sequence"] = Convert.ToInt64(cfg["sequence"]) + 1;
@@ -61,46 +122,44 @@ public class LanLensAgent : ServiceBase
             // Preserve explicit pins in existing installations; new installations need no pin.
             object pinValue;
             string pin = cfg.TryGetValue("certificate_sha256", out pinValue) ? Convert.ToString(pinValue) : "";
-            if (trustUntrusted || !String.IsNullOrEmpty(pin))
-            {
+            stage = "report serialization";
+            var endpoint = new Uri(Convert.ToString(cfg["server_url"]).TrimEnd('/') + "/api/agents/report");
+            if (endpoint.Scheme != Uri.UriSchemeHttps || !String.IsNullOrEmpty(endpoint.UserInfo)) throw new InvalidDataException("HTTPS required");
+            var request = (HttpWebRequest)WebRequest.Create(endpoint);
+            request.AllowAutoRedirect = false;
+            request.Timeout = 30000;
+            request.ReadWriteTimeout = 30000;
+            request.Method = "POST";
+            request.ContentType = "application/json";
+            if (trustUntrusted || !String.IsNullOrEmpty(pin)) {
                 if (!String.IsNullOrEmpty(pin) && !Regex.IsMatch(pin, @"\A[0-9a-fA-F]{64}\z")) throw new InvalidDataException("Invalid certificate fingerprint");
-                var endpoint = new Uri(Convert.ToString(cfg["server_url"]).TrimEnd('/') + "/api/agents/report");
-                if (endpoint.Scheme != Uri.UriSchemeHttps) throw new InvalidDataException("HTTPS required");
-                var request = (HttpWebRequest)WebRequest.Create(endpoint);
-                request.AllowAutoRedirect = false;
-                request.Timeout = 30000;
-                request.ReadWriteTimeout = 30000;
-                request.Method = "POST";
-                request.ContentType = "application/json";
                 request.ServerCertificateValidationCallback = delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
                     return !String.IsNullOrEmpty(pin) ? ValidatePinnedCertificate(cert, errors, pin) : ValidateUntrustedCertificate(cert, errors, trustUntrusted);
                 };
-                request.Headers[HttpRequestHeader.Authorization] = "Bearer " + Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]);
-                byte[] body = Encoding.UTF8.GetBytes(_json.Serialize(payload));
-                request.ContentLength = body.Length;
+            }
+            request.Headers[HttpRequestHeader.Authorization] = "Bearer " + Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]);
+            byte[] body = Encoding.UTF8.GetBytes(_json.Serialize(payload));
+            Log("INFO", "Sending report to " + endpoint.Scheme + "://" + endpoint.Authority + endpoint.AbsolutePath +
+                " sequence=" + cfg["sequence"] + " bytes=" + body.Length + " applications=" +
+                ((ICollection)payload["software"]).Count + " findings=" + ((ICollection)payload["findings"]).Count +
+                " TLS exception=" + trustUntrusted);
+            if (body.Length > 900000) { Log("ERROR", "Inventory exceeds server report limit; report not sent"); return; }
+            stage = "HTTPS report";
+            request.ContentLength = body.Length;
+            try {
                 using (var stream = request.GetRequestStream()) stream.Write(body, 0, body.Length);
-                try {
-                    using (var response = (HttpWebResponse)request.GetResponse()) {
-                        if ((int)response.StatusCode < 200 || (int)response.StatusCode >= 300)
-                            EventLog.WriteEntry("LanLensAgent", "Inventory report rejected: " + (int)response.StatusCode, EventLogEntryType.Warning);
-                    }
-                } catch (WebException ex) {
-                    using (var response = ex.Response as HttpWebResponse) {
-                        if (response == null) throw;
-                        EventLog.WriteEntry("LanLensAgent", "Inventory report rejected: " + (int)response.StatusCode, EventLogEntryType.Warning);
-                    }
+                using (var response = (HttpWebResponse)request.GetResponse()) LogResponse(response);
+            } catch (WebException ex) {
+                using (var response = ex.Response as HttpWebResponse) {
+                    if (response == null) throw;
+                    LogResponse(response);
                 }
             }
-            else using (var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }))
-            {
-                client.Timeout = TimeSpan.FromSeconds(30);
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Convert.ToString(cfg["agent_id"]) + "." + Convert.ToString(cfg["agent_secret"]));
-                var response = client.PostAsync(Convert.ToString(cfg["server_url"]).TrimEnd('/') + "/api/agents/report", new StringContent(_json.Serialize(payload), Encoding.UTF8, "application/json")).Result;
-                if (!response.IsSuccessStatusCode) EventLog.WriteEntry("LanLensAgent", "Inventory report rejected: " + (int)response.StatusCode, EventLogEntryType.Warning);
-            }
         }
-        catch (Exception) { EventLog.WriteEntry("LanLensAgent", "Inventory collection or reporting failed.", EventLogEntryType.Warning); }
+        catch (WebException ex) { Log("ERROR", stage + ": " + ex.Status + " (" + ex.GetType().Name + ")"); }
+        catch (Exception ex) { Log("ERROR", stage + ": " + ex.GetType().Name); }
         finally {
+            Log("INFO", "Next report in " + interval + " minutes");
             Interlocked.Exchange(ref _reporting, 0);
             if (!_stopping) {
                 try { _timer.Change(TimeSpan.FromMinutes(interval), Timeout.InfiniteTimeSpan); }
@@ -167,6 +226,7 @@ public class LanLensAgent : ServiceBase
         foreach (var command in commands)
         {
             var value = PowerShellJson(command[2]);
+            if (value == null) Log("INFO", "Collector unavailable or returned no data: " + command[0] + "/" + command[1]);
             if (value != null) result.Add(new Dictionary<string, object> {
                 { "finding_type", command[0] }, { "key", command[1] }, { "value", value }, { "source", "lanlens_windows_agent" }
             });
