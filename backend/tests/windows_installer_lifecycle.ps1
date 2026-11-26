@@ -34,7 +34,7 @@ function Register-LanLensUninstaller {
     }
 }
 '@
-$replacements = @{ Invoke-LanLensInstallerRequest = $requestStub; Register-LanLensUninstaller = $registrationStub }
+$replacements = @{ 'Invoke-LanLensInstallerRequest' = $requestStub; 'Register-LanLensUninstaller' = $registrationStub }
 $functions = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $replacements.ContainsKey($node.Name) }, $true))
 if ($functions.Count -ne $replacements.Count) { throw 'Installer boundary functions were not found.' }
 foreach ($function in ($functions | Sort-Object { $_.Extent.StartOffset } -Descending)) {
