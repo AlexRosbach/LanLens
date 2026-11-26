@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     snmp \
     libpcap-dev \
     libpcap0.8 \
+    libzstd1 \
     net-tools \
     iproute2 \
     curl \
