@@ -63,7 +63,7 @@ if (-not $revoked) {
 }
 # Keep the uninstall script and app registration until all other owned files
 # have gone, so a locked executable does not leave a broken retry command.
-$ownedFiles = @('LanLensAgent.exe','LanLensAgent.cs','LanLensAgent.new.exe','LanLensAgent.exe.bak','uninstall.new.ps1','agent.json','agent.json.tmp','agent.log')
+$ownedFiles = @('LanLensAgent.exe','LanLensAgent.cs','LanLensAgent.new.exe','LanLensAgent.exe.bak','uninstall.new.ps1','LanLensAgent.ico','LanLensAgent.new.ico','agent.json','agent.json.tmp','agent.json.installing','agent.log')
 foreach ($name in $ownedFiles) {
     $path = Join-Path $installDir $name
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop }

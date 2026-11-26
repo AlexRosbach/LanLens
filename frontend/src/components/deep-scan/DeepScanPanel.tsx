@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { credentialsApi, type Credential } from '../../api/credentials'
 import {
@@ -208,6 +209,9 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
   const sources = [...new Set([...activeSources, ...sourceGroups, ...(vmware.length ? ['vsphere'] : [])])].sort()
   const sourceCount = (source: string) => source === 'vsphere' ? vmware.length : findings.filter(f=>sourceOf(f)===source).length
   const german = lang === 'de'
+  const agentRecoveryRunHint = agentStatus?.platform === 'linux'
+    ? (german ? 'Führe den neuen Befehl auf diesem Gerät als root oder mit sudo aus.' : 'Run the new command on this device as root or with sudo.')
+    : (german ? 'Führe den neuen Befehl auf diesem Gerät als Administrator in PowerShell aus.' : 'Run the new command on this device as administrator in PowerShell.')
   const filteredSources = sourceGroups.filter(source => sourceFilter === 'all' || sourceFilter === source)
   // Keep activeTab in sync: if the current tab is not visible, switch to the first visible one
   const effectiveTab: Tab = visibleTabs.some((t) => t.key === activeTab)
@@ -271,6 +275,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
       {loadError && <p className="text-xs text-danger">{german ? 'Inventar konnte nicht vollständig geladen werden.' : 'Inventory could not be loaded completely.'}</p>}
       {agentStatus && <div className="rounded-lg border border-border p-3 space-y-1 text-xs">
         <div className="font-semibold text-text-base">{SOURCE_LABELS[agentStatus.platform === 'linux' ? 'linux_agent' : 'windows_agent']} · {agentStatus.revoked ? (german ? 'Widerrufen' : 'Revoked') : (agentStatus.last_seen_at ? (german ? 'Report empfangen' : 'Report received') : (german ? 'Registriert, noch kein Report' : 'Enrolled, no report yet'))}</div>
+        {agentStatus.revoked && <p role="alert" className="text-danger">{german ? 'Die Registrierung wurde widerrufen. Der Server lehnt weitere Reports ab. Erstelle unter ' : 'The registration was revoked. The server rejects further reports. Create a new installation command in '}<Link className="underline" to="/deep-scan-settings">{german ? 'Deep-Scan-Einstellungen' : 'Deep Scan settings'}</Link>{german ? ' einen neuen Installationsbefehl. ' : '. '}{agentRecoveryRunHint}{german ? ' Das bisherige Inventar bleibt erhalten.' : ' Existing inventory is retained.'}</p>}
         <div className="text-text-muted">Device ID: {agentStatus.device_id} · POST /api/agents/report</div>
         <div className="text-text-muted">{german ? 'Letzter empfangener Report' : 'Last accepted report'}: {agentStatus.last_seen_at ? formatRelativeTime(agentStatus.last_seen_at, lang) : '—'} · Sequence: {agentStatus.last_sequence}{agentStatus.last_run_id ? ' · Scan #' + agentStatus.last_run_id : ''}</div>
         {agentStatus.summary && <div className="text-text-muted">{german ? 'Anwendungen' : 'Applications'}: {agentStatus.summary.software_count ?? '—'} · Findings: {agentStatus.summary.finding_count ?? '—'}</div>}

@@ -67,7 +67,7 @@ public class LanLensAgent : ServiceBase
     {
         int status = (int)response.StatusCode;
         if (status < 200 || status >= 300) {
-            string explanation = status == 401 ? "authentication rejected; check enrollment" :
+            string explanation = status == 401 ? "authentication invalid or revoked; create a new installation command in LanLens and run it on this device" :
                 status == 409 ? "identity/sequence conflict; compare enrolled MAC and report sequence" :
                 status == 422 ? "inventory validation failed" : status == 429 ? "report rate limited" :
                 status == 413 ? "report too large" : "server rejected report";

@@ -104,6 +104,36 @@ jobs:
             -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
             -e DB_PATH=/tmp/lanlens-smoke.db --entrypoint python "$LOCAL_IMAGE" \
             -c 'import importlib.util; from backend.main import app; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None; assert app.title == "LanLens"'
+          cid=$(docker run -d --network none \
+            -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
+            -e DEFAULT_ADMIN_PASSWORD="$(openssl rand -hex 24)" \
+            -e DB_PATH=/tmp/lanlens-http-smoke.db "$LOCAL_IMAGE")
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          ready=false
+          for i in $(seq 1 30); do
+            if docker exec "$cid" curl -fs -o /dev/null http://127.0.0.1:7765/api/health; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            docker logs "$cid"
+            exit 1
+          fi
+          # Exercise nginx as well as FastAPI: static-asset regexes must never
+          # intercept API downloads whose paths happen to end in .ico.
+          docker exec -i "$cid" python - <<'PY'
+          from pathlib import Path
+          from urllib.request import urlopen
+          with urlopen('http://127.0.0.1:7765/api/agents/windows/LanLensAgent.ico', timeout=10) as response:
+              assert response.status == 200
+              assert response.headers.get_content_type() == 'image/x-icon'
+              downloaded = response.read()
+          expected = Path('/app/backend/assets/windows_agent/LanLensAgent.ico').read_bytes()
+          assert downloaded == expected, 'nginx did not return the binary Windows agent icon'
+          assert downloaded[:6] == b'\x00\x00\x01\x00\x07\x00', 'invalid ICO header'
+          PY
       - name: Verify MCP HTTP runtime
         if: matrix.target == 'lanlens-mcp'
         run: |

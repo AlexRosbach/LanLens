@@ -58,8 +58,27 @@ jobs:
         run: |
           $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
           $sourceFile = (Resolve-Path 'backend/assets/windows_agent/LanLensAgent.cs').Path
-          & $compiler /nologo /target:exe /out:"$env:RUNNER_TEMP\LanLensAgent.exe" /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
+          $iconFile = (Resolve-Path 'backend/assets/windows_agent/LanLensAgent.ico').Path
+          & $compiler /nologo /target:exe /out:"$env:RUNNER_TEMP\LanLensAgent.exe" /win32icon:$iconFile /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Type -AssemblyName System.Drawing
+          $embeddedIcon = [Drawing.Icon]::ExtractAssociatedIcon("$env:RUNNER_TEMP\LanLensAgent.exe")
+          if (-not $embeddedIcon) { throw 'Compiled agent has no Windows icon.' }
+          $referenceIcon = New-Object Drawing.Icon($iconFile, $embeddedIcon.Width, $embeddedIcon.Height)
+          $embeddedBitmap = $embeddedIcon.ToBitmap()
+          $referenceBitmap = $referenceIcon.ToBitmap()
+          try {
+            for ($x = 0; $x -lt $embeddedBitmap.Width; $x++) {
+              for ($y = 0; $y -lt $embeddedBitmap.Height; $y++) {
+                if ($embeddedBitmap.GetPixel($x, $y).ToArgb() -ne $referenceBitmap.GetPixel($x, $y).ToArgb()) {
+                  throw 'Compiled agent icon does not match the LanLens logo.'
+                }
+              }
+            }
+          } finally {
+            $embeddedBitmap.Dispose(); $referenceBitmap.Dispose()
+            $embeddedIcon.Dispose(); $referenceIcon.Dispose()
+          }
           $errors = $null
           $tokens = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/install.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null

@@ -19,34 +19,45 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 $ServerUrl = $ServerUrl.TrimEnd('/')
 $serverUri = $null
 if (-not [Uri]::TryCreate($ServerUrl, [UriKind]::Absolute, [ref]$serverUri) -or $serverUri.Scheme -ne 'https' -or $serverUri.UserInfo -or $serverUri.Query -or $serverUri.Fragment) { throw 'ServerUrl must be an HTTPS URL without credentials, query or fragment.' }
-if ($TrustUntrustedCertificate) {
-  if (-not ('LanLensInstallerTls' -as [type])) {
+$installerCertificatePin = ''
+$installerAllowUntrusted = [bool]$TrustUntrustedCertificate
+function Get-LanLensInstallerTlsCallback {
+  if (-not ('LanLensInstallerTlsValidation' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Net.Security;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-public static class LanLensInstallerTls {
-    public static RemoteCertificateValidationCallback ForUntrustedCertificate() {
+public static class LanLensInstallerTlsValidation {
+    public static RemoteCertificateValidationCallback Create(string pin, bool allowUntrusted) {
         return delegate(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
-            // Explicit opt-in, scoped to the requested HTTPS endpoint.
-            return cert != null;
+            if (cert == null) return false;
+            if (String.IsNullOrEmpty(pin)) return allowUntrusted;
+            if ((errors & ~SslPolicyErrors.RemoteCertificateChainErrors) != SslPolicyErrors.None) return false;
+            using (var leaf = new X509Certificate2(cert))
+            using (var sha = SHA256.Create()) {
+                return DateTime.UtcNow >= leaf.NotBefore.ToUniversalTime() && DateTime.UtcNow <= leaf.NotAfter.ToUniversalTime()
+                    && String.Equals(BitConverter.ToString(sha.ComputeHash(leaf.RawData)).Replace("-", ""), pin, StringComparison.OrdinalIgnoreCase);
+            }
         };
     }
 }
 '@
   }
+  return [LanLensInstallerTlsValidation]::Create($installerCertificatePin, $installerAllowUntrusted)
 }
 function Invoke-LanLensInstallerRequest {
-  param([string]$Uri, [string]$Body)
+  param([string]$Uri, [string]$Body, [string]$Authorization, [string]$OutFile)
   $target = [Uri]$Uri
-  if ($target.Scheme -ne 'https') { throw 'HTTPS required.' }
+  if ($target.Scheme -ne 'https' -or $target.UserInfo) { throw 'HTTPS required.' }
   $request = [Net.HttpWebRequest][Net.WebRequest]::Create($target)
   $request.AllowAutoRedirect = $false
   $request.Timeout = 30000
   $request.ReadWriteTimeout = 30000
-  if ($TrustUntrustedCertificate) {
-    $request.ServerCertificateValidationCallback = [LanLensInstallerTls]::ForUntrustedCertificate()
+  if ($installerAllowUntrusted -or $installerCertificatePin) {
+    $request.ServerCertificateValidationCallback = Get-LanLensInstallerTlsCallback
   }
+  if ($Authorization) { $request.Headers['Authorization'] = $Authorization }
   if ($PSBoundParameters.ContainsKey('Body')) {
     $request.Method = 'POST'
     $request.ContentType = 'application/json'
@@ -61,25 +72,74 @@ function Invoke-LanLensInstallerRequest {
     if ($failure -is [Net.WebException] -and $failure.Response) {
       $http = $failure.Response
       try {
-        if ([int]$http.StatusCode -eq 409 -and $target.AbsolutePath.EndsWith('/api/agents/enroll')) {
-          throw 'Enrollment conflict (HTTP 409): an agent already exists for this device. No usable local enrollment was found. Restore the original agent.json, or revoke the old installation token in LanLens before installing again.'
+        $status = [int]$http.StatusCode
+        $message = "LanLens request failed: HTTP $status"
+        if ($status -eq 409 -and $target.AbsolutePath.EndsWith('/api/agents/enroll')) {
+          $message = 'Enrollment conflict (HTTP 409): another active agent exists for this device. Revoke that installation token in LanLens before enrolling again.'
+        } elseif ($status -eq 401 -and $target.AbsolutePath.EndsWith('/api/agents/enroll')) {
+          $message = 'The installation token is invalid, used, expired or revoked. Create a new installation command in LanLens and run it again.'
         }
-        throw ("LanLens request failed: HTTP " + [int]$http.StatusCode)
+        $httpError = New-Object System.InvalidOperationException -ArgumentList $message
+        $httpError.Data['HttpStatusCode'] = $status
+        throw $httpError
       } finally { $http.Dispose() }
     }
     throw
   }
   try {
     if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { throw 'Unexpected HTTP status.' }
-    $reader = New-Object IO.StreamReader($response.GetResponseStream())
-    try { $reader.ReadToEnd() } finally { $reader.Dispose() }
+    if ($OutFile) {
+      $inputStream = $response.GetResponseStream()
+      try {
+        $outputStream = [IO.File]::Create($OutFile)
+        try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose() }
+      } finally { $inputStream.Dispose() }
+    } else {
+      $reader = New-Object IO.StreamReader($response.GetResponseStream())
+      try { $reader.ReadToEnd() } finally { $reader.Dispose() }
+    }
   } finally { $response.Dispose() }
+}
+function Get-LanLensHttpStatus([Exception]$Exception) {
+  while ($Exception) {
+    if ($Exception.Data.Contains('HttpStatusCode')) { return [int]$Exception.Data['HttpStatusCode'] }
+    $Exception = $Exception.InnerException
+  }
+  return 0
+}
+function Save-LanLensAgentConfiguration($Configuration) {
+  # Never let an interrupted write truncate the last complete credentials file.
+  $pending = $configFile + '.installing'
+  $json = $Configuration | ConvertTo-Json -Depth 16 -Compress
+  [IO.File]::WriteAllText($pending, $json, (New-Object Text.UTF8Encoding -ArgumentList $false))
+  if (Test-Path $configFile) { [IO.File]::Replace($pending, $configFile, $null) }
+  else { [IO.File]::Move($pending, $configFile) }
+}
+function Get-LanLensEnrollment {
+  param([string]$PrimaryMac, [switch]$RecoverExisting)
+  if ($RecoverExisting -and -not $PrimaryMac) { throw 'The saved enrollment has no MAC. Restore the enrolled primary_mac in agent.json before registering again.' }
+  $adapters = @(Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.MACAddress })
+  if ($PrimaryMac) {
+    $normalised = ($PrimaryMac -replace '[^0-9a-fA-F]', '').ToUpperInvariant()
+    $adapter = $adapters | Where-Object { ($_.MACAddress -replace '[^0-9a-fA-F]', '').ToUpperInvariant() -eq $normalised } | Select-Object -First 1
+    if (-not $adapter) { throw 'The enrolled network adapter is unavailable. Restore that adapter before registering the agent again.' }
+  } else {
+    $adapter = $adapters | Select-Object -First 1
+  }
+  if (-not $adapter) { throw 'No active network adapter with a MAC address was found.' }
+  $os = Get-CimInstance Win32_OperatingSystem
+  $body = @{ token = $EnrollmentToken; hostname = $env:COMPUTERNAME; primary_mac = $adapter.MACAddress; os_info = "$($os.Caption) $($os.Version)"; kernel_version = $os.BuildNumber; ip_addresses = @($adapter.IPAddress | Where-Object { $_ -notmatch ':' }); platform = 'windows' } | ConvertTo-Json -Compress
+  $response = Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/enroll" -Body $body | ConvertFrom-Json
+  if (-not $response.agent_id -or -not $response.agent_secret) { throw 'LanLens did not return valid enrollment credentials.' }
+  return @{ agent_id = $response.agent_id; agent_secret = $response.agent_secret; primary_mac = $adapter.MACAddress }
 }
 $installDir = Join-Path $env:ProgramData 'LanLensAgent'
 $sourceFile = Join-Path $installDir 'LanLensAgent.cs'
 $exeFile = Join-Path $installDir 'LanLensAgent.exe'
 $configFile = Join-Path $installDir 'agent.json'
 $uninstallFile = Join-Path $installDir 'uninstall.ps1'
+$iconFile = Join-Path $installDir 'LanLensAgent.ico'
+$recoverEnrollment = $false
 $service = Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue
 # The ordinary installation command doubles as an update/repair command. A token
 # supplied for first installation must never be consumed again for an update.
@@ -91,8 +151,29 @@ if (Test-Path $configFile) {
     throw 'Existing agent configuration has no usable enrollment. Restore the original agent.json, or uninstall and revoke its installation token in LanLens before installing again.'
   }
   if ($existing.server_url.TrimEnd('/') -ne $ServerUrl) { throw 'Installation URL must match the existing agent server URL. Uninstall before changing servers.' }
+  $installerCertificatePin = [string]$existing.certificate_sha256
+  if ($installerCertificatePin -and $installerCertificatePin -notmatch '^[0-9a-fA-F]{64}$') { throw 'The saved certificate fingerprint is invalid.' }
+  $installerAllowUntrusted = $installerAllowUntrusted -or ($existing.trust_untrusted_certificate -eq $true)
+  $identity = $null
+  try {
+    $identity = Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/identity" -Authorization "Bearer $($existing.agent_id).$($existing.agent_secret)" | ConvertFrom-Json
+  } catch {
+    $status = Get-LanLensHttpStatus $_.Exception
+    if ($status -eq 401) {
+      if (-not $EnrollmentToken) { throw 'The saved agent registration is revoked or no longer valid. Create a NEW installation command in LanLens and run it here to register again.' }
+      $recoverEnrollment = $true
+      Write-Host 'Saved registration is no longer valid; a new installation token is required to register again.'
+    } elseif ($status -eq 0 -or $status -eq 404 -or $status -eq 429 -or $status -ge 500) {
+      Write-Warning 'Could not verify the saved registration. Updating local files only; existing credentials are retained.'
+    } else { throw }
+  }
+  if ($identity) {
+    if ($identity.status -ne 'active' -or $identity.agent_id -cne $existing.agent_id) { throw 'LanLens returned an unexpected agent identity.' }
+    if ($identity.platform -and $identity.platform -ne 'windows') { throw 'The saved agent registration belongs to another platform.' }
+    if ($existing.primary_mac -and (($existing.primary_mac -replace '[^0-9a-fA-F]', '') -ne ($identity.primary_mac -replace '[^0-9a-fA-F]', ''))) { throw 'The saved MAC does not match the registered device. Restore the correct agent configuration.' }
+  }
   $UpdateExisting = $true
-  Write-Host 'Existing installation detected; updating without re-enrollment.'
+  if (-not $recoverEnrollment) { Write-Host 'Existing installation detected; updating without re-enrollment.' }
 } elseif ($UpdateExisting -or $service) {
   throw 'Existing agent configuration is missing. Restore the original agent.json, or uninstall and revoke its installation token in LanLens before installing again.'
 } elseif (-not $EnrollmentToken) { throw 'EnrollmentToken is required for a new installation.' }
@@ -109,6 +190,7 @@ function Register-LanLensUninstaller {
         DisplayVersion = '1.7.0'
         Publisher = 'LanLens'
         InstallLocation = $installDir
+        DisplayIcon = ('"{0}"' -f $iconFile)
         UninstallString = ('"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $powershell, $uninstallFile)
         NoModify = 1
         NoRepair = 1
@@ -132,63 +214,110 @@ function Register-LanLensService {
   & sc.exe failure LanLensAgent reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Could not configure LanLens Agent service recovery.' }
 }
+function Get-LanLensAgentProcess {
+  $serviceInfo = Get-CimInstance Win32_Service -Filter "Name='LanLensAgent'" -ErrorAction Stop
+  if (-not $serviceInfo -or $serviceInfo.ProcessId -le 0) { return $null }
+  $process = $null
+  try {
+    $process = [Diagnostics.Process]::GetProcessById([int]$serviceInfo.ProcessId)
+    $null = $process.Handle # Capture this process before asking SCM to stop it.
+    return $process
+  } catch [ArgumentException] {
+    if ($process) { $process.Dispose() }
+    return $null # Already exited between the SCM query and opening the handle.
+  } catch [InvalidOperationException] {
+    if ($process) { $process.Dispose() }
+    return $null
+  }
+}
+function Stop-LanLensAgentService {
+  if (-not (Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue)) { return }
+  $process = Get-LanLensAgentProcess
+  try {
+    Stop-Service LanLensAgent -Force -ErrorAction Stop
+    if ($process -and -not $process.WaitForExit(30000)) { throw 'Timed out waiting for the previous agent process to exit. No registration was changed.' }
+  } finally { if ($process) { $process.Dispose() } }
+}
+function Install-LanLensIcon {
+  Move-Item $newIcon $iconFile -Force
+  # Settings can read the logo; no user read access is granted to agent files.
+  & icacls $iconFile /grant:r '*S-1-5-32-545:R' | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not grant read access to the LanLens app icon.' }
+}
 $newExe = Join-Path $installDir 'LanLensAgent.new.exe'
 $newUninstall = Join-Path $installDir 'uninstall.new.ps1'
+$newIcon = Join-Path $installDir 'LanLensAgent.new.ico'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 if (-not (Test-Path $compiler)) { throw '.NET Framework 4.x C# compiler was not found on this Windows installation.' }
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 # Restrict the directory before downloading executable code or writing credentials.
-& icacls $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+& icacls $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(X)' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not secure the agent directory.' }
 Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/windows/LanLensAgent.cs" | Set-Content -Encoding UTF8 $sourceFile
 Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/windows/uninstall.ps1" | Set-Content -Encoding UTF8 $newUninstall
-& $compiler /nologo /target:exe /out:$newExe /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
+Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/windows/LanLensAgent.ico" -OutFile $newIcon
+& $compiler /nologo /target:exe /out:$newExe /win32icon:$newIcon /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $newExe)) { throw 'LanLens Agent compilation failed.' }
 if ($UpdateExisting) {
   $serviceExisted = [bool]$service
   $backedUp = $false
   try {
-    if ($serviceExisted) { Stop-Service LanLensAgent -Force -ErrorAction Stop }
+    if ($serviceExisted) { Stop-LanLensAgentService }
+    if ($recoverEnrollment) {
+      # The agent may have persisted another report while assets were downloaded.
+      $latest = Get-Content -Raw $configFile | ConvertFrom-Json
+      $latestMac = ([string]$latest.primary_mac -replace '[^0-9a-fA-F]', '').ToUpperInvariant()
+      $previousMac = ([string]$existing.primary_mac -replace '[^0-9a-fA-F]', '').ToUpperInvariant()
+      if ($latest.agent_id -cne $existing.agent_id -or $latest.agent_secret -cne $existing.agent_secret -or $latest.server_url -cne $existing.server_url -or $latestMac -cne $previousMac) { throw 'Agent configuration changed during installation. Run the installation command again.' }
+      $existing = $latest
+      $installerCertificatePin = [string]$existing.certificate_sha256
+      if ($installerCertificatePin -and $installerCertificatePin -notmatch '^[0-9a-fA-F]{64}$') { throw 'The saved certificate fingerprint is invalid.' }
+      $installerAllowUntrusted = [bool]$TrustUntrustedCertificate -or ($existing.trust_untrusted_certificate -eq $true)
+      $enrolled = Get-LanLensEnrollment -PrimaryMac ([string]$existing.primary_mac) -RecoverExisting
+      # Keep every saved setting; only the issued identity and its sequence change.
+      foreach ($name in @('agent_id', 'agent_secret', 'primary_mac')) { $existing | Add-Member -NotePropertyName $name -NotePropertyValue $enrolled[$name] -Force }
+      $existing | Add-Member -NotePropertyName sequence -NotePropertyValue 0 -Force
+      try { Save-LanLensAgentConfiguration $existing } catch {
+        throw 'LanLens accepted the new registration, but its configuration could not be saved. Check disk space and permissions. Preserve agent.json.installing if present; otherwise revoke the new token and create another installation command.'
+      }
+    }
     if (Test-Path $exeFile) {
       Copy-Item $exeFile "$exeFile.bak" -Force
       $backedUp = $true
     }
     Move-Item $newExe $exeFile -Force
     Move-Item $newUninstall $uninstallFile -Force
+    Install-LanLensIcon
     Register-LanLensUninstaller
     if (-not $serviceExisted) { Register-LanLensService }
     Start-Service LanLensAgent
-    Write-Host 'LanLens Agent updated; existing enrollment and report settings retained.' -ForegroundColor Green
+    if ($recoverEnrollment) { Write-Host 'LanLens Agent registered again and updated; existing report settings retained.' -ForegroundColor Green }
+    else { Write-Host 'LanLens Agent updated; existing enrollment and report settings retained.' -ForegroundColor Green }
   } catch {
     # A failure after starting the replacement must stop it before restoring the
-    # previous executable, otherwise Windows keeps the executable locked.
+    # previous executable, otherwise Windows keeps the executable locked. Keep any
+    # newly issued credentials: the previous revoked identity cannot be restored.
     $updateFailure = $_
-    Stop-Service LanLensAgent -Force -ErrorAction SilentlyContinue
-    if ($backedUp) {
+    $canRestore = $true
+    try { Stop-LanLensAgentService } catch { $canRestore = $false; Write-Warning 'Could not stop the current agent process for rollback. Run the installation command again after it exits.' }
+    if ($backedUp -and $canRestore) {
       try { Move-Item "$exeFile.bak" $exeFile -Force } catch { Write-Warning 'Could not restore the previous agent executable. Run the installation command again to repair it.' }
     }
-    if ($serviceExisted) { Start-Service LanLensAgent -ErrorAction SilentlyContinue }
+    if ($serviceExisted -and $canRestore) { Start-Service LanLensAgent -ErrorAction SilentlyContinue }
     throw $updateFailure
   }
   Remove-Item "$exeFile.bak" -ErrorAction SilentlyContinue
   return
 }
 
-# Query the active adapter before enrolment so LanLens can bind the agent to the
-# existing discovery record (or create the correct one).
-$adapter = Get-CimInstance Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -and $_.MACAddress } | Select-Object -First 1
-if (-not $adapter) { throw 'No active network adapter with a MAC address was found.' }
-$os = Get-CimInstance Win32_OperatingSystem
-$enrollment = @{ token = $EnrollmentToken; hostname = $env:COMPUTERNAME; primary_mac = $adapter.MACAddress; os_info = "$($os.Caption) $($os.Version)"; kernel_version = $os.BuildNumber; ip_addresses = @($adapter.IPAddress | Where-Object { $_ -notmatch ':' }); platform = 'windows' } | ConvertTo-Json -Compress
-$response = Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/enroll" -Body $enrollment | ConvertFrom-Json
-
-@{ server_url = $ServerUrl; agent_id = $response.agent_id; agent_secret = $response.agent_secret; interval_minutes = $IntervalMinutes; sequence = 0; primary_mac = $adapter.MACAddress; trust_untrusted_certificate = [bool]$TrustUntrustedCertificate } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $configFile
-
-
+$enrolled = Get-LanLensEnrollment
+$config = @{ server_url = $ServerUrl; agent_id = $enrolled.agent_id; agent_secret = $enrolled.agent_secret; interval_minutes = $IntervalMinutes; sequence = 0; primary_mac = $enrolled.primary_mac; trust_untrusted_certificate = [bool]$TrustUntrustedCertificate }
+Save-LanLensAgentConfiguration $config
 Move-Item $newExe $exeFile -Force
 Move-Item $newUninstall $uninstallFile -Force
+Install-LanLensIcon
 Register-LanLensUninstaller
 Register-LanLensService
 Start-Service LanLensAgent

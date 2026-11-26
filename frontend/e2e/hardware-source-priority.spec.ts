@@ -15,7 +15,7 @@ const guestFindings = [
   id: index + 1, device_id: 1, run_id: 1, finding_type: 'hardware', source: 'lanlens_windows_agent', collection_source: 'windows_agent', observed_at: '2026-11-26T09:00:00Z', ...finding,
 }))
 
-async function openDevice(page: Page, observations: unknown[] = [vmware], findings: unknown[] = guestFindings) {
+async function openDevice(page: Page, observations: unknown[] = [vmware], findings: unknown[] = guestFindings, agentRevoked = false, agentPlatform: 'windows' | 'linux' = 'windows') {
   await page.addInitScript(() => localStorage.setItem('lanlens.language', 'en'))
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname
@@ -34,7 +34,7 @@ async function openDevice(page: Page, observations: unknown[] = [vmware], findin
     if (path === '/api/devices/1/deep-scan/config') json = { device_id: 1, enabled: true, credential_id: 4, scan_profile: 'hardware_only', auto_scan_enabled: false, interval_minutes: 60, last_scan_at: null }
     if (path === '/api/credentials') json = [{ id: 4, name: 'Demo WinRM', credential_type: 'windows_winrm' }]
     if (path === '/api/devices/1/deep-scan/findings') json = findings
-    if (path === '/api/devices/1/deep-scan/agent-status') json = { device_id: 1, platform: 'windows', revoked: false, last_seen_at: now, last_sequence: 2, last_run_id: 1, summary: null }
+    if (path === '/api/devices/1/deep-scan/agent-status') json = { device_id: 1, platform: agentPlatform, revoked: agentRevoked, last_seen_at: now, last_sequence: 2, last_run_id: 1, summary: null }
     return route.fulfill({ json })
   })
   await page.goto('/devices/1')
@@ -95,6 +95,26 @@ test('incomplete VMware disks keep guest disk sizes as fallback', async ({ page 
   const panel = await openDevice(page, [{ ...vmware, fields: { cpu_count: 8, disks: [{ disk_id: '2000' }] } }])
   await expect(panel).toContainText('40.0 GB')
   await expect(panel).not.toContainText('2 threads')
+})
+
+test('revoked agent shows recovery action while retaining inventory', async ({ page }) => {
+  const panel = await openDevice(page, [vmware], guestFindings, true)
+  await expect(panel.getByRole('alert')).toContainText('The registration was revoked. The server rejects further reports.')
+  await expect(panel.getByRole('alert')).toContainText('Create a new installation command')
+  await expect(panel.getByRole('alert')).toContainText('as administrator in PowerShell')
+  await expect(panel.getByRole('link', { name: 'Deep Scan settings' })).toHaveAttribute('href', '/deep-scan-settings')
+  await panel.getByRole('button', { name: 'Windows Agent · 4 · History', exact: true }).click()
+  await expect(panel).toContainText('Guest CPU model')
+  await expect(panel).toContainText('4.00 GB')
+})
+
+test('revoked Linux agent directs a fresh command to root or sudo', async ({ page }) => {
+  const findings = [{ ...guestFindings[0], key: 'cpu', value: 'Demo CPU', source: 'lanlens_linux_agent', collection_source: 'linux_agent' }]
+  const panel = await openDevice(page, [], findings, true, 'linux')
+  await expect(panel.getByRole('alert')).toContainText('Create a new installation command')
+  await expect(panel.getByRole('alert')).toContainText('as root or with sudo')
+  await expect(panel.getByRole('alert')).not.toContainText('PowerShell')
+  await expect(panel).toContainText('Demo CPU')
 })
 
 test('Linux text findings retain hardware details without conflicting totals', async ({ page }) => {

@@ -247,6 +247,31 @@ def _authenticated_agent(authorization: Optional[str], db: Session) -> WindowsAg
     return agent
 
 
+@router.get("/identity")
+def get_agent_identity(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict[str, str | int]:
+    """Read-only installer preflight; revoked credentials are rejected.
+
+    A failed preflight does not consume an installation token, advance the report
+    sequence or change device inventory. Recovery still requires a fresh token
+    through the normal enrollment endpoint.
+    """
+    agent = _authenticated_agent(authorization, db)
+    device = db.get(Device, agent.device_id)
+    if device is None:
+        raise HTTPException(status_code=409, detail="Agent device binding is unavailable")
+    return {
+        "status": "active",
+        "agent_id": agent.agent_id,
+        "device_id": device.id,
+        "platform": agent.platform or "windows",
+        "primary_mac": device.mac_address,
+        "last_sequence": agent.last_sequence,
+    }
+
+
 @router.post("/unenroll")
 def unenroll_agent(authorization: Optional[str] = Header(default=None), db: Session = Depends(get_db)):
     agent = _authenticated_agent(authorization, db)
@@ -360,6 +385,11 @@ def windows_install_script() -> PlainTextResponse:
 @router.get("/windows/LanLensAgent.cs", response_class=PlainTextResponse)
 def windows_agent_source() -> PlainTextResponse:
     return FileResponse(_ASSET_DIR / "LanLensAgent.cs", media_type="text/plain; charset=utf-8")
+
+
+@router.get("/windows/LanLensAgent.ico")
+def windows_agent_icon() -> FileResponse:
+    return FileResponse(_ASSET_DIR / "LanLensAgent.ico", media_type="image/x-icon")
 
 
 @router.get("/linux/install.sh", response_class=PlainTextResponse)
