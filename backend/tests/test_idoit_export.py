@@ -1686,7 +1686,31 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result), 1)
         self.assertIn(port["description"], result[0]["description"])
         self.assertIn(service["description"], result[0]["description"])
-        self.assertEqual(len(_merge_network_observations([port, port], [service])), 3)
+        extra_service = {**service, "description": "Another HTTPS endpoint"}
+        merged = _merge_network_observations([port, port], [service, extra_service])
+        self.assertEqual(len(merged), 1)
+        self.assertIn("Another HTTPS endpoint", merged[0]["description"])
+        self.assertIn(service["description"], merged[0]["description"])
+
+    async def test_model_manufacturer_dialog_uses_existing_id_and_cached_read(self):
+        class Client(IdoitClient):
+            async def call(self, method, params=None):
+                self.assert_method = method
+                self.calls = getattr(self, "calls", 0) + 1
+                return [{"id": "14", "title": "Example manufacturer"}]
+        client = Client(get_config(self.Session()))
+        cache = {}
+        self.assertEqual(await client.resolve_model_manufacturer("Example manufacturer", cache), {"status": "matched", "id": 14})
+        self.assertEqual(await client.resolve_model_manufacturer("Unknown manufacturer", cache), {"status": "unmatched"})
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(client.assert_method, "cmdb.dialog.read")
+
+    def test_certificate_export_ignores_failed_checks_without_identity(self):
+        from backend.services.idoit import _tls_certificate_entries
+        from backend.models import Service
+        device = Device(mac_address="00:11:22:33:44:89")
+        device.services = [Service(name="Example HTTPS", port=443, protocol="https", tls_error="Connection failed")]
+        self.assertEqual(_tls_certificate_entries(device), [])
 
     async def test_category_snapshot_refuses_duplicates_and_failed_reads(self):
         class Client(IdoitClient):

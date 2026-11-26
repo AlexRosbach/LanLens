@@ -41,7 +41,7 @@ from .diagnostic_notifications import queue_diagnostic, application_failure_mess
 
 logger = logging.getLogger(__name__)
 idoit_sync_lock = asyncio.Lock()
-CATEGORY_SYNC_REVISION = 2
+CATEGORY_SYNC_REVISION = 3
 
 
 def _safe_csv_cell(value: Any) -> Any:
@@ -1355,31 +1355,32 @@ def _service_entries(device: Device) -> list[dict[str, Any]]:
 
 
 def _merge_network_observations(ports, services):
-    """Combine one port scan observation with one documented service.
-    Multiple entries from the same source still reach reconciliation as duplicates.
-    """
+    """Represent each transport/port range once, retaining endpoint evidence."""
     category = "C__CATG__NET_CONNECTIONS_FOLDER"
-    port_keys = Counter(_category_identity_key(category, row) for row in ports)
-    service_keys = Counter(_category_identity_key(category, row) for row in services)
-    service_by_key = {_category_identity_key(category, row): row for row in services}
-    merged_keys = set()
+    groups = {}
+    unkeyed = []
+    for row in [*ports, *services]:
+        key = _category_identity_key(category, row)
+        if key is None:
+            unkeyed.append(row)
+        else:
+            groups.setdefault(key, []).append(row)
     result = []
-    for port in ports:
-        key = _category_identity_key(category, port)
-        if key is None or port_keys[key] != 1 or service_keys[key] != 1:
-            result.append(port)
-            continue
-        service = service_by_key[key]
-        merged = {**port, **service}
-        # The explicitly documented service has precedence over a guessed L5 name.
-        descriptions = [port.get("description", ""), service.get("description", "")]
-        if port.get("protocol_layer_5") and port.get("protocol_layer_5") != service.get("protocol_layer_5"):
-            descriptions.append("Port scan protocol: " + port["protocol_layer_5"])
-        merged["description"] = "\n".join(part for part in descriptions if part)[:2000]
+    for key, rows in sorted(groups.items()):
+        merged = {k: rows[0][k] for k in ("protocol", "port_from", "port_to")}
+        protocols = sorted({str(row["protocol_layer_5"]).strip().upper() for row in rows if row.get("protocol_layer_5")})
+        service_protocols = sorted({str(row["protocol_layer_5"]).strip().upper() for row in rows if row.get("protocol_layer_5") and "Service:" in row.get("description", "")})
+        descriptions = sorted({str(row["description"]).strip() for row in rows if row.get("description")})
+        if len(service_protocols) == 1:
+            merged["protocol_layer_5"] = service_protocols[0]
+        elif len(protocols) == 1:
+            merged["protocol_layer_5"] = protocols[0]
+        if len(protocols) > 1:
+            descriptions.insert(0, "Application protocols: " + ", ".join(protocols))
+        if descriptions:
+            merged["description"] = "\n\n".join(descriptions)[:8000]
         result.append(merged)
-        merged_keys.add(key)
-    result.extend(service for service in services if _category_identity_key(category, service) not in merged_keys)
-    return result
+    return result + unkeyed
 
 
 def _tls_certificates_summary(device: Device) -> Optional[str]:
@@ -1425,8 +1426,10 @@ def _tls_certificate_entries(device: Device) -> list[dict[str, Any]]:
             if separator and key.strip().upper() == "CN" and value.strip():
                 common_name = value.strip()
                 break
-        if not common_name:
-            common_name = service.name or endpoint or "TLS certificate"
+        # A failed TLS connection does not establish a certificate identity.
+        # Do not fabricate a name from the service label or endpoint.
+        if not common_name.strip() or not service.tls_expires_at:
+            continue
         description_parts = [
             value for value in (
                 f"Subject: {service.tls_subject}" if service.tls_subject else None,
@@ -1447,7 +1450,22 @@ def _tls_certificate_entries(device: Device) -> list[dict[str, Any]]:
             "description": "\n".join(description_parts)[:4000],
         }
         entries.append({k: v for k, v in entry.items() if v not in (None, "")})
-    return entries
+    # The same observed certificate can serve multiple endpoints. Only
+    # consolidate observations with matching subject, issuer and SAN evidence.
+    grouped = {}
+    result = []
+    for entry in entries:
+        key = _category_identity_key("C__CATG__CERTIFICATE", entry)
+        evidence = tuple(line for line in entry["description"].splitlines()
+                         if line.startswith(("Subject:", "Issuer:", "SANs:")))
+        group = (key, evidence)
+        if group not in grouped:
+            grouped[group] = entry
+            result.append(entry)
+        else:
+            previous = grouped[group]
+            previous["description"] = "\n".join(sorted(set(previous["description"].splitlines() + entry["description"].splitlines())))[:4000]
+    return result
 
 
 def _container_entries(container_summary: Optional[str]) -> list[dict[str, Any]]:
@@ -1653,7 +1671,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     findings = _latest_findings(db, device)
     model = _hardware_field_text(hw.get("computer_system"), ("Model", "model")) or hw.get("model") or _first_finding_text(findings, [("hardware", "model")], 500)
     serial = _hardware_field_text(hw.get("bios"), ("SerialNumber", "serial", "Serial")) or hw.get("serial") or _first_finding_text(findings, [("hardware", "serial")], 500)
-    vendor = device.effective_vendor or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255)
+    vendor = device.vendor_override or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255) or device.effective_vendor
     # An OS assignment must use a documented operating-system value. A kernel
     # release is supplementary metadata, not an OS object title, and JSON must
     # remain intact until _os_assigned_version extracts its display fields.
@@ -1733,9 +1751,8 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
             value = _json_safe_device_value(device, lanlens_field)
         _append_field(fields, idoit_field.strip(), value)
     connection_category = "C__CATG__NET_CONNECTIONS_FOLDER"
-    if (_mapping_fields(config).get("open_ports") == connection_category
-            and _mapping_fields(config).get("services") == connection_category):
-        fields[connection_category] = _merge_network_observations(source["open_ports"], source["services"])
+    if isinstance(fields.get(connection_category), list):
+        fields[connection_category] = _merge_network_observations(fields[connection_category], [])
     cpu_details = _cpu_details(cpu_raw)
     if fields.get("C__CATG__CPU.title") and cpu_details:
         for cpu_field in ("manufacturer", "type", "frequency", "frequency_unit", "cores", "description"):
@@ -3073,6 +3090,20 @@ class IdoitClient:
             self.category_snapshot[key] = result
         return result
 
+    async def resolve_model_manufacturer(self, title: str, cache: dict) -> dict[str, Any]:
+        category, prop = "C__CATG__MODEL", "manufacturer"
+        if "model_manufacturers" not in cache:
+            raw = await self.call("cmdb.dialog.read", {"category": category, "property": prop})
+            if not isinstance(raw, list) or any(not isinstance(row, dict) for row in raw):
+                raise IdoitConnectionError("Invalid manufacturer dialog response", stage="dialog_read")
+            cache["model_manufacturers"] = raw
+        matches = {oid for row in cache["model_manufacturers"]
+                   if _normalized_match_text(row.get("title")) == _normalized_match_text(title)
+                   if (oid := _object_reference_id(row.get("id")))}
+        if len(matches) > 1:
+            return {"status": "ambiguous"}
+        return {"status": "matched", "id": _object_id_as_int(next(iter(matches)))} if matches else {"status": "unmatched"}
+
     async def save_category(self, object_id: str, category: str, data: dict[str, Any], entry_id: Optional[str] = None) -> Any:
         object_int = _object_id_as_int(object_id)
         params: dict[str, Any] = {"object": object_int, "objID": object_int, "category": category, "data": data}
@@ -3313,7 +3344,7 @@ def _matching_category_rows(category, rows, data, key):
 
 
 def _category_value_equal(field, current, expected):
-    if field in ("application", "assigned_variant") and _object_reference_id(expected):
+    if field in ("application", "assigned_variant", "manufacturer") and _object_reference_id(expected):
         return _object_reference_id(current) == _object_reference_id(expected)
     if field == "mac":
         return _normalized_match_mac(current) == _normalized_match_mac(expected)
@@ -3623,6 +3654,21 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         if global_category.get("cmdb_status") == "C__CMDB_STATUS__OUT_OF_OPERATION":
             global_category["cmdb_status"] = await client.out_of_operation_status_id()
             details["offline_retirement_applied"] = True
+        model_data = categories.get("C__CATG__MODEL")
+        if isinstance(model_data, dict) and isinstance(model_data.get("manufacturer"), str) and hasattr(client, "resolve_model_manufacturer"):
+            try:
+                manufacturer = await client.resolve_model_manufacturer(model_data["manufacturer"], application_run)
+                details["model_manufacturer_resolution"] = manufacturer
+                if manufacturer["status"] == "matched":
+                    model_data["manufacturer"] = manufacturer["id"]
+                elif manufacturer["status"] == "ambiguous":
+                    model_data.pop("manufacturer")
+                    sync_warnings.append("C__CATG__MODEL: manufacturer dialog match ambiguous; manufacturer not modified")
+                # Dialog+ supports a new title as a string when no value exists.
+            except IdoitConnectionError as exc:
+                details["model_manufacturer_resolution"] = {"status": "read_failed", "error": exc.to_detail()}
+                model_data.pop("manufacturer")
+                sync_warnings.append("C__CATG__MODEL: manufacturer dialog lookup failed; manufacturer not modified")
         for category, data in categories.items():
             entries = data if isinstance(data, list) else [data]
             valid_entries = [entry for entry in entries if isinstance(entry, dict) and entry]
