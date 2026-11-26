@@ -1,7 +1,7 @@
 import type { VsphereDeviceObservation } from '../../api/devices'
 import { useI18n } from '../../i18n'
 
-const labels = {host_id:'vsphere_host',cluster_id:'vsphere_cluster',datacenter_id:'vsphere_datacenter',power_state:'vsphere_state',macs:'vsphere_macs',ips:'vsphere_ips',guest_os:'vsphere_guest_os',instance_uuid:'vsphere_instance_uuid',bios_uuid:'vsphere_bios_uuid',cpu_count:'vsphere_cpu',memory_size_mib:'vsphere_memory',disks:'vsphere_disks'} as const
+const labels = {host_id:'vsphere_host',cluster_id:'vsphere_cluster',datacenter_id:'vsphere_datacenter',power_state:'vsphere_state',macs:'vsphere_macs',ips:'vsphere_ips',guest_os:'vsphere_guest_os',instance_uuid:'vsphere_instance_uuid',bios_uuid:'vsphere_bios_uuid',cpu_count:'vsphere_cpu',memory_size_mib:'finding_memory',disks:'vsphere_disks'} as const
 
 export default function VsphereDeviceInventory({observations}:{observations: VsphereDeviceObservation[]}) {
   const {t} = useI18n()

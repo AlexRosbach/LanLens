@@ -17,7 +17,8 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 $ServerUrl = $ServerUrl.TrimEnd('/')
-if ($ServerUrl -notmatch '^https://') { throw 'ServerUrl must use HTTPS.' }
+$serverUri = $null
+if (-not [Uri]::TryCreate($ServerUrl, [UriKind]::Absolute, [ref]$serverUri) -or $serverUri.Scheme -ne 'https' -or $serverUri.UserInfo -or $serverUri.Query -or $serverUri.Fragment) { throw 'ServerUrl must be an HTTPS URL without credentials, query or fragment.' }
 if ($TrustUntrustedCertificate) {
   if (-not ('LanLensInstallerTls' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -61,7 +62,7 @@ function Invoke-LanLensInstallerRequest {
       $http = $failure.Response
       try {
         if ([int]$http.StatusCode -eq 409 -and $target.AbsolutePath.EndsWith('/api/agents/enroll')) {
-          throw 'Enrollment conflict (HTTP 409): an agent already exists for this device. Use the existing installation update command, or revoke the old installation token in LanLens before enrolling again.'
+          throw 'Enrollment conflict (HTTP 409): an agent already exists for this device. No usable local enrollment was found. Restore the original agent.json, or revoke the old installation token in LanLens before installing again.'
         }
         throw ("LanLens request failed: HTTP " + [int]$http.StatusCode)
       } finally { $http.Dispose() }
@@ -80,37 +81,59 @@ $exeFile = Join-Path $installDir 'LanLensAgent.exe'
 $configFile = Join-Path $installDir 'agent.json'
 $uninstallFile = Join-Path $installDir 'uninstall.ps1'
 $service = Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue
-if (-not $UpdateExisting -and (Test-Path $configFile) -and $service) {
+# The ordinary installation command doubles as an update/repair command. A token
+# supplied for first installation must never be consumed again for an update.
+if (Test-Path $configFile) {
+  try { $existing = Get-Content -Raw $configFile | ConvertFrom-Json } catch {
+    throw 'Existing agent configuration could not be read. Restore the original agent.json, or uninstall and revoke its installation token in LanLens before installing again.'
+  }
+  if ([string]::IsNullOrWhiteSpace([string]$existing.server_url) -or [string]::IsNullOrWhiteSpace([string]$existing.agent_id) -or [string]::IsNullOrWhiteSpace([string]$existing.agent_secret)) {
+    throw 'Existing agent configuration has no usable enrollment. Restore the original agent.json, or uninstall and revoke its installation token in LanLens before installing again.'
+  }
+  if ($existing.server_url.TrimEnd('/') -ne $ServerUrl) { throw 'Installation URL must match the existing agent server URL. Uninstall before changing servers.' }
   $UpdateExisting = $true
   Write-Host 'Existing installation detected; updating without re-enrollment.'
-}
-if ($UpdateExisting) {
-  if (-not (Test-Path $configFile)) { throw 'No existing agent configuration found.' }
-  $existing = Get-Content -Raw $configFile | ConvertFrom-Json
-  if ($existing.server_url.TrimEnd('/') -ne $ServerUrl) { throw 'Update URL must match the existing agent server URL.' }
-  if (-not (Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue)) { throw 'Existing agent service was not found.' }
-} elseif ($service -or (Test-Path $configFile)) {
-  throw 'Incomplete existing installation. Restore the existing service/configuration or remove it and revoke its registration in LanLens before reinstalling.'
+} elseif ($UpdateExisting -or $service) {
+  throw 'Existing agent configuration is missing. Restore the original agent.json, or uninstall and revoke its installation token in LanLens before installing again.'
 } elseif (-not $EnrollmentToken) { throw 'EnrollmentToken is required for a new installation.' }
 function Register-LanLensUninstaller {
-  $registry = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\LanLensAgent'
-  $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  New-Item -Path $registry -Force | Out-Null
-  $properties = @{
-    DisplayName = 'LanLens Inventory Agent'
-    DisplayVersion = '1.7.0'
-    Publisher = 'LanLens'
-    InstallLocation = $installDir
-    UninstallString = ('"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $powershell, $uninstallFile)
-    NoModify = 1
-    NoRepair = 1
-  }
-  foreach ($property in $properties.GetEnumerator()) {
-    $type = if ($property.Value -is [int]) { 'DWord' } else { 'String' }
-    New-ItemProperty -Path $registry -Name $property.Key -Value $property.Value -PropertyType $type -Force | Out-Null
+  # Explicit registry view makes registration consistent even from 32-bit PowerShell.
+  $view = if ([Environment]::Is64BitOperatingSystem) { [Microsoft.Win32.RegistryView]::Registry64 } else { [Microsoft.Win32.RegistryView]::Registry32 }
+  $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+  try {
+    $key = $hive.CreateSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\LanLensAgent')
+    try {
+      $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+      $properties = @{
+        DisplayName = 'LanLens Inventory Agent'
+        DisplayVersion = '1.7.0'
+        Publisher = 'LanLens'
+        InstallLocation = $installDir
+        UninstallString = ('"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f $powershell, $uninstallFile)
+        NoModify = 1
+        NoRepair = 1
+      }
+      foreach ($property in $properties.GetEnumerator()) {
+        $kind = if ($property.Value -is [int]) { [Microsoft.Win32.RegistryValueKind]::DWord } else { [Microsoft.Win32.RegistryValueKind]::String }
+        $key.SetValue($property.Key, $property.Value, $kind)
+      }
+    } finally { if ($key) { $key.Dispose() } }
+  } finally { $hive.Dispose() }
+  if ([Environment]::Is64BitOperatingSystem) {
+    $legacyHive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry32)
+    try { $legacyHive.DeleteSubKeyTree('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\LanLensAgent', $false) } finally { $legacyHive.Dispose() }
   }
 }
+function Register-LanLensService {
+  & sc.exe create LanLensAgent binPath= "`"$exeFile`"" start= auto DisplayName= "LanLens Outbound Inventory Agent" | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not create LanLens Agent service.' }
+  & sc.exe description LanLensAgent "Outbound HTTPS inventory reporting for LanLens" | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not set LanLens Agent service description.' }
+  & sc.exe failure LanLensAgent reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Could not configure LanLens Agent service recovery.' }
+}
 $newExe = Join-Path $installDir 'LanLensAgent.new.exe'
+$newUninstall = Join-Path $installDir 'uninstall.new.ps1'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 if (-not (Test-Path $compiler)) { throw '.NET Framework 4.x C# compiler was not found on this Windows installation.' }
@@ -120,21 +143,34 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 & icacls $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not secure the agent directory.' }
 Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/windows/LanLensAgent.cs" | Set-Content -Encoding UTF8 $sourceFile
-Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/windows/uninstall.ps1" | Set-Content -Encoding UTF8 $uninstallFile
+Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/windows/uninstall.ps1" | Set-Content -Encoding UTF8 $newUninstall
 & $compiler /nologo /target:exe /out:$newExe /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $newExe)) { throw 'LanLens Agent compilation failed.' }
 if ($UpdateExisting) {
-  Stop-Service LanLensAgent -Force -ErrorAction Stop
+  $serviceExisted = [bool]$service
+  $backedUp = $false
   try {
-    Copy-Item $exeFile "$exeFile.bak" -Force
+    if ($serviceExisted) { Stop-Service LanLensAgent -Force -ErrorAction Stop }
+    if (Test-Path $exeFile) {
+      Copy-Item $exeFile "$exeFile.bak" -Force
+      $backedUp = $true
+    }
     Move-Item $newExe $exeFile -Force
-    Start-Service LanLensAgent
+    Move-Item $newUninstall $uninstallFile -Force
     Register-LanLensUninstaller
+    if (-not $serviceExisted) { Register-LanLensService }
+    Start-Service LanLensAgent
     Write-Host 'LanLens Agent updated; existing enrollment and report settings retained.' -ForegroundColor Green
   } catch {
-    if (Test-Path "$exeFile.bak") { Move-Item "$exeFile.bak" $exeFile -Force }
-    Start-Service LanLensAgent -ErrorAction SilentlyContinue
-    throw
+    # A failure after starting the replacement must stop it before restoring the
+    # previous executable, otherwise Windows keeps the executable locked.
+    $updateFailure = $_
+    Stop-Service LanLensAgent -Force -ErrorAction SilentlyContinue
+    if ($backedUp) {
+      try { Move-Item "$exeFile.bak" $exeFile -Force } catch { Write-Warning 'Could not restore the previous agent executable. Run the installation command again to repair it.' }
+    }
+    if ($serviceExisted) { Start-Service LanLensAgent -ErrorAction SilentlyContinue }
+    throw $updateFailure
   }
   Remove-Item "$exeFile.bak" -ErrorAction SilentlyContinue
   return
@@ -151,13 +187,9 @@ $response = Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/enroll" -
 @{ server_url = $ServerUrl; agent_id = $response.agent_id; agent_secret = $response.agent_secret; interval_minutes = $IntervalMinutes; sequence = 0; primary_mac = $adapter.MACAddress; trust_untrusted_certificate = [bool]$TrustUntrustedCertificate } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $configFile
 
 
-if (Get-Service -Name LanLensAgent -ErrorAction SilentlyContinue) { Stop-Service LanLensAgent -Force -ErrorAction SilentlyContinue; & sc.exe delete LanLensAgent | Out-Null; Start-Sleep -Seconds 2 }
 Move-Item $newExe $exeFile -Force
-& sc.exe create LanLensAgent binPath= "`"$exeFile`"" start= auto DisplayName= "LanLens Outbound Inventory Agent" | Out-Null
-& sc.exe description LanLensAgent "Outbound HTTPS inventory reporting for LanLens" | Out-Null
-& sc.exe failure LanLensAgent reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'Could not configure LanLens Agent service.' }
-Start-Service LanLensAgent
+Move-Item $newUninstall $uninstallFile -Force
 Register-LanLensUninstaller
-Write-Host 'LanLens Agent was installed, enrolled and started.' -ForegroundColor Green
-
+Register-LanLensService
+Start-Service LanLensAgent
+Write-Host 'LanLens Agent was installed, enrolled and started. Run the same command again to update it.' -ForegroundColor Green

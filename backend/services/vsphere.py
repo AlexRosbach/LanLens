@@ -18,6 +18,7 @@ from ..models import Device, DeviceHostRelationship, DeviceIgnoreRule, Segment, 
 from .mac_vendor import normalize_mac
 from .notification import request_json_via_validated_url
 from .scanner import _matching_ignore_rules
+from .hardware_inventory import hardware_summary
 
 MAX_HOSTS = 100
 MAX_VMS = 5000
@@ -862,7 +863,12 @@ def device_vsphere_inventory(db, device_id):
     if len(candidates) != 1:
         return []
     row = candidates[0]
-    data = json.loads(row.metadata_json)
+    try:
+        data = json.loads(row.metadata_json)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, dict):
+        return []
     fields = visible_fields(connection)
     metadata = {k: data[k] for k in fields if k in data and data[k] not in (None, "", [], {})}
     for kind in ("host", "cluster", "datacenter"):
@@ -878,12 +884,12 @@ def device_vsphere_inventory(db, device_id):
              "fields": metadata, "custom_fields": custom}]
 
 
-def vmware_dashboard_inventory(db, device_ids):
-    """Read discovery sources and hardware fallbacks in one joined query."""
+def vmware_hardware_inventory(db, device_ids):
+    """Return uniquely matched, enabled VMware hardware, never stale guesses."""
     if not device_ids:
         return set(), {}
     source_ids = set()
-    summaries = defaultdict(list)
+    candidates = defaultdict(list)
     for row, fields_json in db.query(VsphereInventoryObject, VsphereConnection.visible_fields_json).join(
         VsphereConnection, VsphereConnection.id == VsphereInventoryObject.connection_id
     ).filter(
@@ -892,23 +898,55 @@ def vmware_dashboard_inventory(db, device_ids):
         VsphereInventoryObject.match_status.in_(("existing", "created")),
     ):
         source_ids.add(row.device_id)
-        if row.kind != "vm":
+        # Count all current linked objects before selecting a VM: conflicting
+        # links must not win by query ordering.
+        candidates[row.device_id].append((row, fields_json))
+    hardware = {}
+    for device_id, matches in candidates.items():
+        if len(matches) != 1 or matches[0][0].kind != "vm":
             continue
+        row, fields_json = matches[0]
         try:
             fields = json.loads(fields_json) if fields_json else list(VISIBLE_FIELDS)
             if not isinstance(fields, list):
                 fields = list(VISIBLE_FIELDS)
         except (ValueError, TypeError):
             fields = list(VISIBLE_FIELDS)
-        data = json.loads(row.metadata_json)
+        try:
+            data = json.loads(row.metadata_json)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
         cpu, ram = data.get("cpu_count"), data.get("memory_size_mib")
-        parts = []
+        values = {}
         if "cpu_count" in fields and type(cpu) is int and cpu > 0:
-            parts.append(f"{cpu} vCPU")
+            values["cpu_count"] = cpu
         if "memory_size_mib" in fields and type(ram) is int and ram > 0:
-            parts.append(f"{ram / 1024:g} GiB RAM")
-        summaries[row.device_id].append("VMware: " + " · ".join(parts) if parts else "")
-    return source_ids, {key: values[0] for key, values in summaries.items() if len(values) == 1 and values[0]}
+            values["memory_size_mib"] = ram
+        if "disks" in fields and isinstance(data.get("disks"), list):
+            disks = [disk for disk in data["disks"] if isinstance(disk, dict)
+                     and isinstance(disk.get("disk_id"), str)
+                     and ID_PATTERN.fullmatch(disk["disk_id"])
+                     and type(disk.get("capacity_bytes")) is int and disk["capacity_bytes"] > 0]
+            # A duplicate VM-scoped key cannot identify a disk reliably.
+            if (disks and len(disks) == len(data["disks"])
+                    and len({disk["disk_id"] for disk in disks}) == len(disks)):
+                values["disks"] = disks
+        if values:
+            hardware[device_id] = values
+    return source_ids, hardware
+
+
+def vmware_dashboard_inventory(db, device_ids, guest_hardware=None):
+    """Prefer VMware per field; collect source IDs and hardware in one query."""
+    source_ids, vmware = vmware_hardware_inventory(db, device_ids)
+    guests = guest_hardware or {}
+    summaries = {}
+    for device_id in set(guests) | set(vmware):
+        if summary := hardware_summary(guests.get(device_id), vmware.get(device_id)):
+            summaries[device_id] = summary
+    return source_ids, summaries
 
 
 def idoit_vsphere_values(db, device):

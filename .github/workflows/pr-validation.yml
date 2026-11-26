@@ -67,6 +67,9 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/uninstall.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
           if ($errors.Count -gt 0) { $errors; exit 1 }
+      - name: Verify ordinary installer reruns update and repair
+        shell: powershell
+        run: ./backend/tests/windows_installer_lifecycle.ps1
       - name: Verify explicit untrusted certificate option
         shell: powershell
         run: |

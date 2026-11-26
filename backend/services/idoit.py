@@ -34,7 +34,8 @@ from .notification import request_json_via_validated_url
 from .passive_discovery import deduplicate_observations
 from .snmp import bulk_identities_for_devices, identity_for_device
 from .dns_names import device_display_name
-from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values, writeback_idoit_sysid
+from .vsphere import IDOIT_VSPHERE_FIELDS, idoit_vsphere_values, writeback_idoit_sysid, vmware_hardware_inventory
+from .hardware_inventory import hardware_summary
 from .software_inventory import parse_software
 from ..version import BUILD_COMMIT
 from .diagnostic_notifications import queue_diagnostic, application_failure_message
@@ -1669,6 +1670,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     label = device_display_name(device)
     hw = _latest_hardware_findings(db, device)
     findings = _latest_findings(db, device)
+    vmware = vmware_hardware_inventory(db, [device.id])[1].get(device.id, {}) if db is not None and device.id else {}
     model = _hardware_field_text(hw.get("computer_system"), ("Model", "model")) or hw.get("model") or _first_finding_text(findings, [("hardware", "model")], 500)
     serial = _hardware_field_text(hw.get("bios"), ("SerialNumber", "serial", "Serial")) or hw.get("serial") or _first_finding_text(findings, [("hardware", "serial")], 500)
     vendor = device.vendor_override or _hardware_field_text(hw.get("computer_system"), ("Manufacturer", "manufacturer"), 255) or hw.get("vendor") or _first_finding_text(findings, [("hardware", "vendor")], 255) or device.effective_vendor
@@ -1677,14 +1679,33 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     # remain intact until _os_assigned_version extracts its display fields.
     os_info = device.os_info or _first_documented_os_value(findings)
     cpu_raw = hw.get("cpu") or hw.get("processor") or _first_finding_text(findings, [("hardware", "cpu"), ("hardware", "processor")], 1500)
+    cpu_details = _cpu_details(cpu_raw)
+    if vmware.get("cpu_count"):
+        count = vmware["cpu_count"]
+        cpu_details.setdefault("title", f"{count} vCPU")
+        cpu_details["cores"] = count
+        # Guest-reported processor models/clocks remain useful fallback data,
+        # but their socket/core counts must not contradict provisioned vCPUs.
+        description = [line for line in cpu_details.get("description", "").splitlines()
+                       if not line.startswith(("Cores:", "Logical processors:", "Socket:"))]
+        description.append(f"Virtual CPUs: {count} (VMware)")
+        cpu_details["description"] = "\n".join(description)[:1000]
     memory_modules = _memory_entries(hw.get("physical_memory")) if hw.get("physical_memory") else []
     memory = hw.get("memory") or _first_finding_text(findings, [("hardware", "memory")], 1500)
+    if vmware.get("memory_size_mib"):
+        memory_modules = [{"quantity": 1, "title": "System memory",
+                           "capacity": round(vmware["memory_size_mib"] / 1024, 2), "unit": 3}]
     # Preserve the complete raw list; compact display text can truncate JSON.
     disk_findings = findings.get("hardware", {})
     disk_candidates = [disk_findings[key] for key in ("disks", "disk_drives")
                        if isinstance(disk_findings.get(key), dict)]
     latest_disks = max(disk_candidates, key=lambda item: item.get("observed_at") or "", default={})
     disks = latest_disks.get("value") if disk_candidates else (hw.get("disk_drives") or hw.get("disks"))
+    if vmware.get("disks"):
+        # vCenter disk keys are stable within a VM. Do not guess which guest
+        # disk index they correspond to, or reuse a VMDK UUID as a disk serial.
+        disks = [{"Model": disk.get("label") or "Virtual disk", "Size": disk["capacity_bytes"],
+                  "DeviceID": f"VMware disk {disk['disk_id']}"} for disk in vmware["disks"]]
     containers = "\n".join(
         text for text in [
             _finding_text(findings, "container", "docker_containers", 2500),
@@ -1721,7 +1742,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "notes": device.notes,
         "password_location": device.password_location,
         "os_info": _os_assigned_version(os_info),
-        "cpu": _cpu_title(cpu_raw),
+        "cpu": cpu_details.get("title"),
         "memory": memory_modules or _memory_entries(memory),
         "model": model,
         "serial": serial,
@@ -1737,7 +1758,7 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
         "licenses": licenses,
         "relationships": _relationships_summary(db, device),
         "lanlens_inventory": _lanlens_inventory_summary(device, findings, db),
-        "hardware_summary": _hardware_summary(hw),
+        "hardware_summary": hardware_summary(hw, vmware) if vmware else _hardware_summary(hw),
     }
     if IDOIT_VSPHERE_FIELDS.intersection(_mapping_fields(config)):
         source.update(idoit_vsphere_values(db, device))
@@ -1753,7 +1774,6 @@ def device_payload(device: Device, config: IdoitConfig, db: Optional[Session] = 
     connection_category = "C__CATG__NET_CONNECTIONS_FOLDER"
     if isinstance(fields.get(connection_category), list):
         fields[connection_category] = _merge_network_observations(fields[connection_category], [])
-    cpu_details = _cpu_details(cpu_raw)
     if fields.get("C__CATG__CPU.title") and cpu_details:
         for cpu_field in ("manufacturer", "type", "frequency", "frequency_unit", "cores", "description"):
             target = f"C__CATG__CPU.{cpu_field}"

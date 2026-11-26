@@ -26,11 +26,11 @@ export default function WindowsAgentPanel({ platform = 'windows' }: Props) {
   const [loading, setLoading] = useState(false)
 
   const validServerUrl = /^https:\/\/[a-zA-Z0-9.\-\[\]:]+(?:\/[a-zA-Z0-9._~\/-]*)?$/.test(serverUrl)
-  const buildCommand = (updateExisting = false) => {
-    if (!validServerUrl || (!created && !updateExisting)) return ''
+  const buildCommand = () => {
+    if (!validServerUrl || (platform === 'linux' && !created)) return ''
     const url = serverUrl.replace(/\/$/, '')
     if (platform === 'linux') return `curl --proto '=https' --proto-redir '=https' -fsS '${url}/api/agents/linux/install.sh' | sudo bash -s -- --server-url '${url}' --enrollment-token '${created?.token ?? ''}' --interval-minutes ${interval}`
-    const args = updateExisting ? '-UpdateExisting' : `-EnrollmentToken '${created?.token ?? ''}' -IntervalMinutes ${interval}`
+    const args = created ? `-EnrollmentToken '${created.token}' -IntervalMinutes ${interval}` : ''
     const install = `& ([ScriptBlock]::Create((iwr -UseBasicParsing -MaximumRedirection 0 '${url}/api/agents/windows/install.ps1').Content)) -ServerUrl '${url}' ${args}`
     if (!trustCertificate) return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "${install}"`
     const bootstrap = `$ErrorActionPreference = 'Stop'
@@ -62,7 +62,6 @@ try {
     return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + btoa(bytes)
   }
   const command = buildCommand()
-  const updateCommand = platform === 'windows' ? buildCommand(true) : ''
 
   async function refresh() {
     try { setTokens((await agentsApi.listTokens()).data) } catch { toast.error('Could not load installation tokens') }
@@ -104,14 +103,14 @@ try {
     </div>}
     <Button onClick={create} loading={loading}>Create installation command</Button>
     {created && <div className="rounded-xl border border-success/40 bg-surface2 p-4 space-y-3">
-      <p className="text-sm text-text-base">Run this once with {platform === 'windows' ? 'elevated PowerShell' : 'root or sudo'}. The token is single-use and shown only now. Revoking it also disables the enrolled agent.</p>
+      <p className="text-sm text-text-base">{platform === 'windows' ? (german ? 'Als Administrator in PowerShell ausführen. Derselbe Befehl aktualisiert eine vorhandene Installation automatisch. Das Token wird nur bei der Erstinstallation benötigt und nur jetzt angezeigt. Ein Widerruf deaktiviert auch den zugehörigen Agent.' : 'Run in elevated PowerShell. Running the same command again automatically updates an existing installation. The token is only needed for first installation and is only shown now. Revoking it also disables the enrolled agent.') : 'Run this once with root or sudo. The token is single-use and shown only now. Revoking it also disables the enrolled agent.'}</p>
       <textarea readOnly value={command} className="input-field min-h-32 font-mono text-xs" />
       <Button variant="outline" size="sm" onClick={copy} disabled={!command}>Copy installation command</Button>
     </div>}
     {platform === 'windows' && <div className="rounded-xl border border-border p-3 space-y-2">
-      <h3 className="font-semibold text-text-base">{german ? 'Installierten Agent aktualisieren' : 'Update installed agent'}</h3>
-      <p className="text-xs text-text-muted">{german ? 'Als Administrator ausführen. Registrierung, Zieladresse, Intervall und Sequenz bleiben erhalten. Danach ist die Deinstallation über Windows-Einstellungen → Apps möglich. Zertifikatsoption wie bei der ursprünglichen Installation wählen.' : 'Run elevated. Enrollment, destination, interval and sequence are preserved. Afterwards uninstall via Windows Settings → Apps. Select the certificate option used for the original installation.'}</p>
-      <Button variant="outline" size="sm" disabled={!updateCommand} onClick={async()=>{await navigator.clipboard.writeText(updateCommand); toast.success(german ? 'Update-Befehl kopiert' : 'Update command copied')}}>{german ? 'Update-Befehl kopieren' : 'Copy update command'}</Button>
+      <h3 className="font-semibold text-text-base">{german ? 'Ein Befehl für Installation und Updates' : 'One command for installation and updates'}</h3>
+      <p className="text-xs text-text-muted">{german ? 'Den Installationsbefehl einfach erneut als Administrator ausführen. Die vorhandene Installation wird erkannt und aktualisiert; Registrierung, Intervall und Sequenz bleiben erhalten. Ein neues Token oder ein Update-Schalter ist dafür nicht erforderlich. Fehlende Dienste werden repariert. Serveradresse und Zertifikatsoption wie bei der ursprünglichen Installation wählen. Deinstallation: Windows-Einstellungen → Apps → LanLens Inventory Agent.' : 'Run the installation command again as administrator. It detects and updates an existing installation, preserving enrollment, interval and sequence. No new token or update switch is required. Missing services are repaired. Use the original server URL and certificate option. Uninstall: Windows Settings → Apps → LanLens Inventory Agent.'}</p>
+      <Button variant="outline" size="sm" disabled={!command} onClick={async()=>{await navigator.clipboard.writeText(command); toast.success(german ? 'Installationsbefehl kopiert' : 'Installation command copied')}}>{german ? 'Befehl für vorhandene Installation kopieren' : 'Copy command for existing installation'}</Button>
       <p className="text-xs text-text-muted">Log: C:\ProgramData\LanLensAgent\agent.log</p>
     </div>}
     <div className="space-y-2"><h3 className="font-semibold text-text-base">Installation tokens</h3>

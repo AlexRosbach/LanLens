@@ -11,6 +11,7 @@ import {
 } from '../../api/deepScan'
 import { useI18n } from '../../i18n'
 import { formatRelativeTime } from '../../utils/formatters'
+import { hardwareFallbackFindings, preferredVmwareHardware } from '../../utils/hardwareInventory'
 import Button from '../ui/Button'
 import Badge from '../ui/Badge'
 import DeepScanConfigForm from './DeepScanConfigForm'
@@ -172,19 +173,25 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
     }
   }
 
+  const preferredHardware = preferredVmwareHardware(vmware)
+  const hardwareObservations = sourceFilter === 'vsphere'
+    ? vmware.map(row => ({ ...row, fields: Object.fromEntries(Object.entries(row.fields).filter(([key]) => ['cpu_count', 'memory_size_mib', 'disks'].includes(key))), custom_fields: [] })).filter(row => Object.keys(row.fields).length > 0)
+    : preferredHardware
+  const combinedFindings = sourceFilter === 'all' ? hardwareFallbackFindings(findings, preferredHardware) : findings
+
   const findingsByTab = (tab: Tab) => {
     if (tab === 'host_guest') return []
     // Inventory collectors store installed applications under the stable
     // `software` finding type. Present it as a dedicated Applications tab so
     // it is easy to find next to Operating System in the device Deep Scan.
     const findingType = tab === 'applications' ? 'software' : tab
-    return findings.filter((f) => f.finding_type === findingType && (sourceFilter === 'all' || sourceOf(f) === sourceFilter))
+    return combinedFindings.filter((f) => f.finding_type === findingType && (sourceFilter === 'all' || sourceOf(f) === sourceFilter))
   }
 
   // Only show tabs that have data (or are always shown)
   const visibleTabs = TABS.filter((tab) => {
     if (tab.key === 'vsphere') return vmware.length > 0 && ['all','vsphere'].includes(sourceFilter)
-    if (tab.key === 'hardware' && ['all','vsphere'].includes(sourceFilter) && vmware.some(row=>['cpu_count','memory_size_mib','disks'].some(key=>key in row.fields))) return true
+    if (tab.key === 'hardware' && ['all','vsphere'].includes(sourceFilter) && hardwareObservations.length > 0) return true
     if (tab.key === 'host_guest') return Boolean(config?.enabled || relationships.length)
     return findingsByTab(tab.key).length > 0
   })
@@ -208,10 +215,10 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
     : (visibleTabs[0]?.key ?? 'host_guest')
 
   useEffect(() => {
-    if (effectiveTab !== activeTab) {
+    if (!loading && effectiveTab !== activeTab) {
       setActiveTab(effectiveTab)
     }
-  }, [activeTab, effectiveTab])
+  }, [activeTab, effectiveTab, loading])
 
   if (loading) {
     return (
@@ -338,7 +345,8 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
               />
             ) : (
               <>
-                {effectiveTab === 'hardware' && vmware.length > 0 && ['all','vsphere'].includes(sourceFilter) && <VsphereDeviceInventory observations={vmware.map(row=>({...row, fields:Object.fromEntries(Object.entries(row.fields).filter(([key])=>['cpu_count','memory_size_mib','disks'].includes(key))), custom_fields:[]}))} />}
+                {effectiveTab === 'hardware' && sourceFilter === 'all' && preferredHardware.length > 0 && <p className="mb-3 text-xs text-text-muted">{german ? 'Hardwaredaten aus VMware / vSphere haben Vorrang. Andere Quellen ergänzen fehlende Angaben. Über die Quellen-Badges sind die jeweiligen Originaldaten sichtbar.' : 'VMware / vSphere hardware values take precedence. Other sources supplement missing details. Select a source badge to view its original observations.'}</p>}
+                {effectiveTab === 'hardware' && hardwareObservations.length > 0 && ['all','vsphere'].includes(sourceFilter) && <VsphereDeviceInventory observations={hardwareObservations} />}
                 {filteredSources.map(source => { const rows = findingsByTab(effectiveTab).filter(f=>sourceOf(f)===source); return rows.length > 0 ? <div key={effectiveTab + source} className="space-y-1 mb-3"><h4 className="text-xs font-semibold text-primary">{SOURCE_LABELS[source] || source} · {rows.length} Findings</h4><FindingsGrid findings={rows} alwaysExpanded={effectiveTab === 'applications'} /></div> : null })}
               </>
             )}

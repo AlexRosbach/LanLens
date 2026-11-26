@@ -297,10 +297,7 @@ def report_agent_inventory(
     identity_changes = [f"device/{field}" for field, old in previous_identity.items() if getattr(device, field) != old]
     run = DeepScanRun(
         device_id=device.id, profile=f"{payload.platform}_agent", status="done", triggered_by="agent",
-        finished_at=datetime.utcnow(), summary_json=json.dumps({
-            "software_count": len(payload.software), "finding_count": len(payload.findings),
-            "transport": "outbound_agent", "platform": payload.platform,
-        }),
+        finished_at=datetime.utcnow(),
     )
     db.add(run)
     db.flush()
@@ -322,6 +319,10 @@ def report_agent_inventory(
             key=finding.key, value_json=json.dumps(finding.value), source=source,
         ))
     db.add_all(findings)
+    run.summary_json = json.dumps({
+        "software_count": len(payload.software), "finding_count": len(findings),
+        "transport": "outbound_agent", "platform": payload.platform,
+    })
     changed = record_inventory_changes(db, run, f"{payload.platform}_agent", source)
     for field, before in previous_identity.items():
         after = getattr(device, field)

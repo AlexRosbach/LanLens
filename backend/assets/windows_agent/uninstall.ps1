@@ -7,7 +7,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 $installDir = Join-Path $env:ProgramData 'LanLensAgent'
 $configFile = Join-Path $installDir 'agent.json'
-$registry = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\LanLensAgent'
+$registry = 'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\LanLensAgent'
 if (Get-Service LanLensAgent -ErrorAction SilentlyContinue) {
     Stop-Service LanLensAgent -Force
     & sc.exe delete LanLensAgent | Out-Null
@@ -26,6 +26,7 @@ if (Test-Path $configFile) {
         $request.AllowAutoRedirect = $false
         $request.ContentLength = 0
         $request.Timeout = 10000
+        $request.ReadWriteTimeout = 10000
         if ($cfg.certificate_sha256 -or $cfg.trust_untrusted_certificate -eq $true) {
             Add-Type -TypeDefinition @'
 using System;
@@ -60,13 +61,20 @@ if (-not $revoked) {
         [System.Windows.Forms.MessageBox]::Show('The local agent will be removed. Revoke its installation token in LanLens before enrolling again.', 'LanLens Agent') | Out-Null
     } catch { Write-Warning 'Revoke the old installation token in LanLens.' }
 }
-# Do not delete unrelated files. Only the known agent files and owned log archives.
-foreach ($name in @('LanLensAgent.exe','LanLensAgent.cs','LanLensAgent.new.exe','LanLensAgent.exe.bak','agent.json','agent.json.tmp','agent.log','uninstall.ps1')) {
-    Remove-Item -LiteralPath (Join-Path $installDir $name) -Force -ErrorAction SilentlyContinue
+# Keep the uninstall script and app registration until all other owned files
+# have gone, so a locked executable does not leave a broken retry command.
+$ownedFiles = @('LanLensAgent.exe','LanLensAgent.cs','LanLensAgent.new.exe','LanLensAgent.exe.bak','uninstall.new.ps1','agent.json','agent.json.tmp','agent.log')
+foreach ($name in $ownedFiles) {
+    $path = Join-Path $installDir $name
+    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop }
 }
-Get-ChildItem -LiteralPath $installDir -Filter 'agent-*.log' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^agent-\d{4}-\d{2}-\d{2}\.log$' } | Remove-Item -Force
-if (Test-Path $installDir) {
-    if (-not (Get-ChildItem -LiteralPath $installDir -Force)) { Remove-Item -LiteralPath $installDir -Force }
+Get-ChildItem -LiteralPath $installDir -Filter 'agent-*.log' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^agent-\d{4}-\d{2}-\d{2}\.log$' } | Remove-Item -Force -ErrorAction Stop
+# The explicit view also removes app entries written by older 32-bit installers.
+$views = if ([Environment]::Is64BitOperatingSystem) { @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32) } else { @([Microsoft.Win32.RegistryView]::Registry32) }
+foreach ($view in $views) {
+    $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, $view)
+    try { $hive.DeleteSubKeyTree($registry, $false) } finally { $hive.Dispose() }
 }
-if ((Test-Path $configFile) -or (Test-Path (Join-Path $installDir 'LanLensAgent.exe'))) { throw 'Agent files could not be removed. Retry uninstall as administrator.' }
-Remove-Item -Path $registry -Force -ErrorAction SilentlyContinue
+# Only remove this script after successful cleanup. Any unrelated files remain.
+Remove-Item -LiteralPath (Join-Path $installDir 'uninstall.ps1') -Force -ErrorAction SilentlyContinue
+if ((Test-Path $installDir) -and -not (Get-ChildItem -LiteralPath $installDir -Force)) { Remove-Item -LiteralPath $installDir -Force }

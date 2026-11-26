@@ -25,7 +25,15 @@ Enable VMware in Settings → Features → Extensions and save changes. Its conf
 
 ## Device observations and inbound custom attributes
 
-Configuration is under the dedicated Deep Scan settings page (`/deep-scan-settings`), VMware tab, when the VMware feature is enabled. Linked VMware inventory appears under the device's Deep Scan VMware tab; passive Discovery remains independent. Hardware is also shown in the Hardware tab and as a dashboard fallback when guest inventory is missing. No SSH/WinRM credentials are required for these observations. Existing guest observations are kept separately. VMware vCPU counts and provisioned memory are not physical hardware measurements.
+Configuration is under the dedicated Deep Scan settings page (`/deep-scan-settings`), VMware tab, when the VMware feature is enabled. Linked VMware inventory appears under the device's Deep Scan VMware tab; passive Discovery remains independent. No SSH/WinRM credentials are required for these observations. Existing guest observations are kept separately. VMware vCPU counts and provisioned memory describe the resources assigned to the VM.
+
+### Hardware source priority
+
+For a uniquely linked current VM, VMware is the preferred hardware source in the Hardware tab, dashboard/device summary and standard i-doit hardware export. Its available vCPU count and provisioned RAM take precedence over Agent, SSH and WinRM, even when a guest report arrives later. Missing VMware fields use guest inventory as a fallback; guest-only details such as CPU model/clock, system model and serial remain available. Operating-system and software inventory are unaffected.
+
+Disabled integrations, stale or ambiguous VM links, hidden VMware inventory fields and invalid values do not override guest hardware. A complete VMware disk snapshot with unique VM-scoped keys and positive capacities is authoritative for virtual disks; an incomplete snapshot leaves the guest disk inventory available. Disk keys are not equated with guest disk indexes, and VMDK UUIDs are not turned into disk serials. Selecting an individual source badge still exposes that source's observations; the priority rule does not rewrite stored findings or their change history.
+
+Existing i-doit category rows retain their established identities. When switching from guest hardware to VMware, earlier guest memory-module or disk rows may remain alongside the preferred VMware entries; there is no automatic deletion or guessed mapping between sources. Repeated unchanged VMware snapshots reuse their existing entries.
 
 Select a VM custom attribute and optionally enable inbound SYSID import. Import requires a unique current VM with a matching MAC and instance UUID, a unique syntactically valid SYSID and an empty local SYSID/object link. Conflicts never overwrite existing values. Selected custom attributes can also be mapped to named, read-only device fields. Only explicitly selected attributes are collected, and attribute values are not emitted to diagnostic logs. Attribute reading uses the vCenter VI/JSON API (8.0 Update 1 or newer); older versions may lack this functionality. Hardware/attribute observations refresh on VMware discovery.
 

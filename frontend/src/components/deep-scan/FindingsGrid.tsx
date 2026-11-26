@@ -536,8 +536,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
       { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
       { key: 'Model', value: String(obj.Model || '—') },
       { key: 'System Type', value: String(obj.SystemType || '—') },
-      { key: 'Logical Processors', value: String(obj.NumberOfLogicalProcessors || '—') },
-      { key: 'Memory', value: formatBytes(obj.TotalPhysicalMemory) || '—' },
+      ...(obj.NumberOfLogicalProcessors !== undefined ? [{ key: 'Logical Processors', value: String(obj.NumberOfLogicalProcessors || '—') }] : []),
+      ...(obj.TotalPhysicalMemory !== undefined ? [{ key: 'Memory', value: formatBytes(obj.TotalPhysicalMemory) || '—' }] : []),
       { key: 'Hypervisor Present', value: String(obj.HypervisorPresent ?? '—') },
     ]
     return (

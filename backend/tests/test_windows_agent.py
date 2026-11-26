@@ -145,7 +145,8 @@ class WindowsAgentTests(unittest.TestCase):
             db.add(agent)
             db.commit()
             payload = AgentReportRequest(sequence=1, hostname="test", primary_mac=device.mac_address,
-                                         os_info="Windows Server", software=[{"name":"Example", "version":"1"}])
+                                         os_info="Windows Server", software=[{"name":"Example", "version":"1"}],
+                                         findings=[{"finding_type": "os", "key": "operating_system", "value": "duplicate"}])
             result = report_agent_inventory(payload, authorization="Bearer " + credential, db=db)
             self.assertEqual(result["finding_count"], 2)
             self.assertEqual(db.query(DeviceChangeEvent).filter_by(device_id=device.id, source="lanlens_windows_agent", event_type="agent_inventory_received").count(), 1)
@@ -158,6 +159,8 @@ class WindowsAgentTests(unittest.TestCase):
             self.assertEqual({f.collection_source for f in findings}, {"windows_agent", "winrm"})
             status = get_agent_status(device.id, db=db, _=None)
             self.assertEqual(status["last_run_id"], result["run_id"])
+            self.assertEqual(status["summary"]["finding_count"], result["finding_count"])
+            self.assertEqual(status["summary"]["software_count"], result["software_count"])
             self.assertNotIn("secret_hash", status)
             agent.last_seen_at = datetime.utcnow() - timedelta(minutes=1)
             db.commit()
