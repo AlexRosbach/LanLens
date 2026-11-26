@@ -9,3 +9,7 @@ Unmatched applications remain warnings in the sync log, with a retryable synced_
 POST /api/idoit/devices/{id}/sync and POST /api/idoit/sync-all now return HTTP 202 with a job_id; GET /api/idoit/sync-jobs/{job_id} reports queued/running/completed/failed and bulk progress. Jobs and the manual/automatic synchronization lock are process-local (single backend worker). A restart interrupts a job; restart the sync to reconcile from the upstream snapshot. The sync log records per-category created, updated, unchanged, ambiguous, failed counts.
 
 No live i-doit data is included in the regression fixtures.
+
+### Windows operating-system editions
+
+Recognized Windows Server and Windows desktop editions are split from the product name. The base OS object is resolved without edition-specific objects; the detected edition is resolved in `C__CATS__APPLICATION_VARIANT` on that object and linked by ID via `C__CATG__OPERATING_SYSTEM.assigned_variant`. The existing OS-object creation policy remains in effect; missing variant entries on a resolved object are created only after an unambiguous read. Existing uniquely identified edition-specific assignments without a linked license are updated in place when possible; ambiguous matches are not rewritten. Other operating-system names retain the existing behavior. No legacy OS objects are deleted or renamed.

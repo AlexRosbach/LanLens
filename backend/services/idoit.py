@@ -1121,25 +1121,59 @@ def _os_assigned_version(raw: Any) -> Optional[str]:
     return text.splitlines()[0][:255]
 
 
+# Editions are extracted only from positively identified Windows product names.
+# Do not strip words such as "Enterprise" from arbitrary Linux distribution names.
+_WINDOWS_PRODUCT_EDITION = re.compile(
+    r"\b(?P<product>Windows\s+(?:Server\s+(?:20\d{2}|2008|2003)(?:\s+R2)?|(?:10|11|8\.1|8|7)))\s+"
+    r"(?P<edition>Datacenter(?:\s+Azure\s+Edition)?|Standard|Essentials|Enterprise(?:\s+LTSC|\s+LTSB)?|"
+    r"Foundation|Web|Professional|Pro(?:\s+for\s+Workstations|\s+Education)?|Home(?:\s+Single\s+Language)?|Education)"
+    r"(?:\s+(?P<n>N))?(?:\s+Edition)?\b", re.IGNORECASE)
+
+
+def _split_windows_os_edition(title: str) -> tuple[str, str | None]:
+    match = _WINDOWS_PRODUCT_EDITION.search(title)
+    if not match:
+        return title, None
+    # Preserve the marketing release year (including R2); move the build and
+    # edition out of the product name. Only recognize a Windows caption prefix.
+    prefix = title[:match.start()].strip()
+    if prefix.casefold() not in ("", "microsoft", "microsoft®"):
+        return title, None
+    variant = " ".join(part.capitalize() if part.lower() not in ("ltsc", "ltsb", "n") else part.upper()
+                       for part in match.group("edition").split())
+    if match.group("n"):
+        variant += " N"
+    variant = {"Professional": "Pro"}.get(variant, variant)
+    return re.sub(r"\s+", " ", match.group("product")).strip(), variant
+
+
 def _operating_system_assignment(raw: Any, kernel_version: Optional[str] = None) -> Optional[dict[str, str]]:
     """Return normalized i-doit OS-object assignment metadata.
 
     i-doit's global Operating System category requires an object-browser link;
     the detected operating-system name itself is not a description value.
-    Keep the complete detected label as the OS object title and split out a
-    useful version for the installation relationship when possible.
+    Extract Windows editions into the OS assignment's variant field; other
+    operating-system names retain their existing matching behavior.
     """
     title = _os_assigned_version(raw)
     if not title:
         return None
     title = re.sub(r"\s+", " ", title).strip()[:255]
-    version_candidates = re.findall(r"(?<![A-Za-z0-9])\d+(?:\.\d+){0,3}(?:[-_][A-Za-z0-9.]+)?", title)
+    product, variant = _split_windows_os_edition(title)
+    version_candidates = re.findall(r"(?<![A-Za-z0-9])(?:\d{2}H[12]|\d+(?:\.\d+){0,3}(?:[-_][A-Za-z0-9.]+)?)(?![A-Za-z0-9])", title, re.IGNORECASE)
     assigned_version = max(
         version_candidates,
         key=lambda value: (value.count("."), len(value)),
         default="",
     )[:255]
-    result = {"title": title}
+    result = {"title": product}
+    if variant:
+        result["assigned_variant"] = variant
+        result["detected_title"] = title
+        # Prefer an actual NT build or release (24H2), not the product year.
+        releases = re.findall(r"\b\d{2}H[12]\b", title, re.IGNORECASE)
+        builds = [v for v in version_candidates if "." in v and v not in product]
+        assigned_version = max(builds, key=lambda v: (v.count("."), len(v)), default="") or (releases[-1].upper() if releases else "")
     if assigned_version:
         result["assigned_version"] = assigned_version
     if kernel_version and kernel_version.strip():
@@ -2369,7 +2403,7 @@ class IdoitClient:
         return None
 
     async def _resolve_inventory_object(self, title: str, object_type: str, create_missing: bool,
-                                        normalize_os: bool = False) -> dict[str, Any]:
+                                        normalize_os: bool = False, canonical_os: bool = False) -> dict[str, Any]:
         """Resolve inventory links using documented, type-scoped i-doit filters."""
         wanted = re.sub(r"\s+", " ", (title or "").strip())[:255]
         if not wanted:
@@ -2394,6 +2428,10 @@ class IdoitClient:
                 candidate_title = _object_entry_title(entry)
                 if not object_id or not candidate_title:
                     continue
+                if canonical_os:
+                    _, edition = _split_windows_os_edition(candidate_title)
+                    if edition or _windows_server_edition(candidate_title):
+                        continue
                 if _normalized_match_text(candidate_title) == _normalized_match_text(wanted):
                     exact_candidates[object_id] = candidate_title
                 elif normalize_os and wanted_key and _operating_system_match_key(candidate_title) == wanted_key:
@@ -2460,6 +2498,16 @@ class IdoitClient:
     async def resolve_operating_system(self, title: str, create_missing: bool = False) -> dict[str, Any]:
         return await self._resolve_inventory_object(title, "C__OBJTYPE__OPERATING_SYSTEM", create_missing,
                                                     normalize_os=True)
+
+    async def resolve_canonical_operating_system(self, title: str, create_missing: bool = False) -> dict[str, Any]:
+        return await self._resolve_inventory_object(title, "C__OBJTYPE__OPERATING_SYSTEM", create_missing,
+                                                    normalize_os=True, canonical_os=True)
+
+    async def resolve_os_variant(self, object_id: str, variant: str) -> dict[str, Any]:
+        # Variants are specific category entries belonging to the OS object.
+        # Reconciliation reads once, refuses ambiguity and creates only if absent.
+        result = (await self.reconcile_category(object_id, "C__CATS__APPLICATION_VARIANT", [{"title": variant}]))[0]
+        return result
 
     async def resolve_application(self, title: str, create_missing: bool = False) -> dict[str, Any]:
         candidates = _application_title_candidates(title)
@@ -3036,7 +3084,7 @@ class IdoitClient:
                                        endpoint=self.endpoint, jsonrpc_error=result)
         return result
 
-    async def reconcile_category(self, object_id: str, category: str, desired: list[dict[str, Any]], clean_global=False) -> list[dict[str, Any]]:
+    async def reconcile_category(self, object_id: str, category: str, desired: list[dict[str, Any]], clean_global=False, legacy_os_title=None) -> list[dict[str, Any]]:
         """One read, preflight all identities, then write only changed rows."""
         try:
             raw = await self.read_category(object_id, category)
@@ -3073,6 +3121,25 @@ class IdoitClient:
                 continue
             try:
                 matches = _matching_category_rows(category, rows, data, key)
+                if category == "C__CATG__OPERATING_SYSTEM" and legacy_os_title:
+                    # Recognize an old edition-specific assignment for the same
+                    # release. Never replace an unrelated OS or guess among rows.
+                    product, edition = _split_windows_os_edition(legacy_os_title)
+                    legacy = []
+                    for current in rows:
+                        app = current.get("application")
+                        if not isinstance(app, dict):
+                            continue
+                        old_title = app.get("ref_title") or app.get("title") or app.get("name") or ""
+                        old_product, old_edition = _split_windows_os_edition(str(old_title))
+                        if edition and old_edition == edition and _normalized_match_text(product) == _normalized_match_text(old_product):
+                            legacy.append(current)
+                    matches = [row for row in rows if row in matches or row in legacy]
+                    if len(matches) == 1 and matches[0] in legacy and _category_identity_key(category, matches[0]) != key:
+                        # Licenses and other references may be bound to the old
+                        # software object. Do not move such assignments blindly.
+                        if any(_object_reference_id(matches[0].get(k)) for k in ("assigned_license", "assigned_license_key")):
+                            raise IdoitConnectionError("Legacy OS assignment has a license; manual migration required", stage="category_match")
             except IdoitConnectionError:
                 planned.append((data, None, {"status": "ambiguous", "reason": "ambiguous_existing_identity"}))
                 continue
@@ -3246,7 +3313,7 @@ def _matching_category_rows(category, rows, data, key):
 
 
 def _category_value_equal(field, current, expected):
-    if field == "application":
+    if field in ("application", "assigned_variant") and _object_reference_id(expected):
         return _object_reference_id(current) == _object_reference_id(expected)
     if field == "mac":
         return _normalized_match_mac(current) == _normalized_match_mac(expected)
@@ -3444,10 +3511,13 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         log_only_warnings: list[str] = []
         operating_system = payload.get("operatingSystem") if isinstance(payload.get("operatingSystem"), dict) else None
         if operating_system and operating_system.get("title"):
-            os_resolution = await client.resolve_operating_system(
-                str(operating_system["title"]),
-                create_missing=config.create_policy == "create_missing",
-            )
+            variant = operating_system.get("assigned_variant")
+            os_cache = application_run.setdefault("os_resolutions", {})
+            os_key = (str(operating_system["title"]), bool(variant), config.create_policy)
+            if os_key not in os_cache:
+                resolver = client.resolve_canonical_operating_system if variant else client.resolve_operating_system
+                os_cache[os_key] = await resolver(str(operating_system["title"]), create_missing=config.create_policy == "create_missing")
+            os_resolution = os_cache[os_key]
             details["operating_system"] = os_resolution
             os_object_id = os_resolution.get("object_id")
             if os_object_id:
@@ -3455,7 +3525,17 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                 for field in ("assigned_version", "description"):
                     if operating_system.get(field) not in (None, ""):
                         os_entry[field] = operating_system[field]
-                categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
+                if variant:
+                    variant_result = await client.resolve_os_variant(str(os_object_id), str(variant))
+                    details["operating_system_variant"] = variant_result
+                    variant_id = variant_result.get("entry_id") if variant_result.get("status") in ("created", "updated", "unchanged") else None
+                    if variant_id:
+                        os_entry["assigned_variant"] = _object_id_as_int(variant_id)
+                        categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
+                    else:
+                        sync_warnings.append("C__CATG__OPERATING_SYSTEM: variant " + str(variant) + " could not be resolved safely; assignment skipped")
+                else:
+                    categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
             else:
                 sync_warnings.append(
                     "C__CATG__OPERATING_SYSTEM: no unique Operating System object match; "
@@ -3547,8 +3627,9 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
             entries = data if isinstance(data, list) else [data]
             valid_entries = [entry for entry in entries if isinstance(entry, dict) and entry]
             if hasattr(client, "reconcile_category"):
+                category_kwargs = {"legacy_os_title": operating_system.get("detected_title")} if category == "C__CATG__OPERATING_SYSTEM" and operating_system and operating_system.get("assigned_variant") else {}
                 category_results = await client.reconcile_category(object_id, category, valid_entries,
-                    clean_global=category == "C__CATG__GLOBAL" and global_category.get("description") is None)
+                    clean_global=category == "C__CATG__GLOBAL" and global_category.get("description") is None, **category_kwargs)
             else:
                 category_results = [await client.save_category_best_effort(object_id, category, entry) for entry in valid_entries]
             for index, result in enumerate(category_results):

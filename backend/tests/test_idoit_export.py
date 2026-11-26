@@ -391,7 +391,9 @@ class IdoitExportCsvTest(unittest.TestCase):
             db.commit()
 
             assignment = device_payload(device, get_config(db), db)["operatingSystem"]
-            self.assertEqual(assignment["title"], "Windows 11 Pro 24H2")
+            self.assertEqual(assignment["title"], "Windows 11")
+            self.assertEqual(assignment["assigned_variant"], "Pro")
+            self.assertEqual(assignment["assigned_version"], "24H2")
             self.assertEqual(assignment["description"], "Kernel: 6.8.12-4-pve")
         finally:
             db.close()
@@ -1856,6 +1858,51 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                 {"protocol": "TCP", "port_from": 22, "port_to": 22},
             )
         )
+
+    def test_windows_os_edition_is_separate_from_product_and_build(self):
+        from backend.services.idoit import _operating_system_assignment
+        for edition in ("Standard", "Datacenter", "Essentials"):
+            result = _operating_system_assignment("Microsoft Windows Server 2025 " + edition + " 10.0.26100")
+            self.assertEqual(result["title"], "Windows Server 2025")
+            self.assertEqual(result["assigned_variant"], edition)
+            self.assertEqual(result["assigned_version"], "10.0.26100")
+        self.assertEqual(_operating_system_assignment("Red Hat Enterprise Linux 9.4")["title"], "Red Hat Enterprise Linux 9.4")
+
+    async def test_canonical_os_resolver_excludes_edition_objects(self):
+        class Client(IdoitClient):
+            async def read_objects(self, params):
+                return [
+                    {"id": "99", "title": "Windows Server 2025 Standard", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "100", "title": "Microsoft Windows Server 2025", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "101", "title": "Windows Server 2025 Datacenter", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+        client = Client(get_config(self.Session()))
+        result = await client.resolve_canonical_operating_system("Windows Server 2025")
+        self.assertEqual(result["object_id"], "100")
+
+    async def test_os_variant_reuses_id_and_migrates_legacy_assignment_without_duplicate(self):
+        class Client(IdoitClient):
+            def __init__(self, config):
+                super().__init__(config)
+                self.category_snapshot = {}
+                self.saved = []
+            async def read_category(self, object_id, category):
+                if category == "C__CATS__APPLICATION_VARIANT":
+                    return self.category_snapshot.get((object_id, category), [{"id": "7", "title": "Standard", "status": "2"}])
+                return self.category_snapshot.get((object_id, category), [{"id": "11", "application": {"ref_id": "99", "ref_title": "Microsoft Windows Server 2025 Standard"}, "assigned_version": "10.0.26100"}])
+            async def save_category(self, object_id, category, data, entry_id=None):
+                self.saved.append((object_id, category, data, entry_id))
+                return {"success": True, "entry": entry_id or "8"}
+        client = Client(get_config(self.Session()))
+        self.assertEqual((await client.resolve_os_variant("100", "Standard"))["entry_id"], "7")
+        self.assertEqual(client.saved, [])
+        category = "C__CATG__OPERATING_SYSTEM"
+        desired = [{"application": 100, "assigned_variant": 7, "assigned_version": "10.0.26100"}]
+        results = await client.reconcile_category("42", category, desired, legacy_os_title="Windows Server 2025 Standard 10.0.26100")
+        self.assertEqual(results[0]["status"], "updated")
+        self.assertEqual(client.saved[-1], ("42", category, {"application": 100, "assigned_variant": 7}, "11"))
+        self.assertEqual((await client.reconcile_category("42", category, desired, legacy_os_title="Windows Server 2025 Standard 10.0.26100"))[0]["status"], "unchanged")
+        self.assertEqual(len(client.saved), 1)
 
     async def test_operating_system_assignment_reuses_object_reference(self):
         class OperatingSystemClient(IdoitClient):
