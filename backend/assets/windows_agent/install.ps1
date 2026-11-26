@@ -111,9 +111,19 @@ function Save-LanLensAgentConfiguration($Configuration) {
   # Never let an interrupted write truncate the last complete credentials file.
   $pending = $configFile + '.installing'
   $json = $Configuration | ConvertTo-Json -Depth 16 -Compress
-  [IO.File]::WriteAllText($pending, $json, (New-Object Text.UTF8Encoding -ArgumentList $false))
-  if (Test-Path $configFile) { [IO.File]::Replace($pending, $configFile, $null) }
-  else { [IO.File]::Move($pending, $configFile) }
+  try {
+    [IO.File]::WriteAllText($pending, $json, (New-Object Text.UTF8Encoding -ArgumentList $false))
+    # Windows PowerShell coerces plain $null to an empty string for this .NET
+    # string parameter. NullString omits the backup while retaining atomicity.
+    if (Test-Path $configFile) { [IO.File]::Replace($pending, $configFile, [System.Management.Automation.Language.NullString]::Value) }
+    else { [IO.File]::Move($pending, $configFile) }
+  } catch {
+    # Only filesystem diagnostics escape this block, never serialized settings.
+    $failure = $_.Exception.GetBaseException()
+    $detail = $failure.GetType().Name + ': ' + ($failure.Message -replace '[\r\n]+', ' ')
+    $writeError = New-Object IO.IOException -ArgumentList $detail
+    throw $writeError
+  }
 }
 function Get-LanLensEnrollment {
   param([string]$PrimaryMac, [switch]$RecoverExisting)
@@ -280,7 +290,9 @@ if ($UpdateExisting) {
       foreach ($name in @('agent_id', 'agent_secret', 'primary_mac')) { $existing | Add-Member -NotePropertyName $name -NotePropertyValue $enrolled[$name] -Force }
       $existing | Add-Member -NotePropertyName sequence -NotePropertyValue 0 -Force
       try { Save-LanLensAgentConfiguration $existing } catch {
-        throw 'LanLens accepted the new registration, but its configuration could not be saved. Check disk space and permissions. Preserve agent.json.installing if present; otherwise revoke the new token and create another installation command.'
+        $failure = $_.Exception.GetBaseException()
+        $detail = if ($failure -is [IO.IOException]) { $failure.Message } else { $failure.GetType().Name }
+        throw ('LanLens accepted the new registration, but its configuration could not be saved. Check disk space and permissions. Preserve agent.json.installing if present; otherwise revoke the new token and create another installation command. Configuration write error: ' + $detail)
       }
     }
     if (Test-Path $exeFile) {
