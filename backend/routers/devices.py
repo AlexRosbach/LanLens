@@ -503,6 +503,7 @@ def list_devices(
         selectinload(Device.port_scans),
         selectinload(Device.services),
         selectinload(Device.manual_connect_entries),
+        selectinload(Device.snmp_switch),
     )
 
     if archived_only is True:
@@ -620,6 +621,7 @@ def get_new_devices(
             selectinload(Device.port_scans),
             selectinload(Device.services),
             selectinload(Device.manual_connect_entries),
+            selectinload(Device.snmp_switch),
         )
         .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
@@ -1231,6 +1233,7 @@ def get_device(
         selectinload(Device.port_scans),
         selectinload(Device.services),
         selectinload(Device.manual_connect_entries),
+        selectinload(Device.snmp_switch),
     ).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")

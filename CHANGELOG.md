@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.0 — Build 20261127.0003
+## 1.7.0 — Build 20261127.0004
 
 ### Inventory, CMDB and virtualization
 
@@ -9,6 +9,7 @@
 - Restrict SNMP port statistics to devices configured as enabled SNMP switch
   targets, and hide an empty VM host-assignment section when no hypervisor is
   available to link.
+- Keep device-list queries bounded while exposing the enabled SNMP-switch state.
 
 - Populate the i-doit Operating System assignment's Application Variant and
   Version fields for Windows Server editions. Existing edition-specific OS
