@@ -135,6 +135,20 @@ def report(config):
         with urllib.request.urlopen(request, timeout=30) as response:
             if not 200 <= response.status < 300:
                 return
+            acknowledgement = json.load(response)
+            requested = acknowledgement.get("report_interval_minutes")
+            if isinstance(requested, int) and 5 <= requested <= 1440 and requested != config.get("interval_minutes"):
+                config["interval_minutes"] = requested
+                fd, path = tempfile.mkstemp(dir=os.path.dirname(CONFIG))
+                try:
+                    with os.fdopen(fd, "w") as target:
+                        json.dump(config, target)
+                        target.flush()
+                        os.fsync(target.fileno())
+                    os.replace(path, CONFIG)
+                finally:
+                    if os.path.exists(path):
+                        os.unlink(path)
     except OSError:
         return
 

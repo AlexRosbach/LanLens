@@ -115,6 +115,7 @@ class AgentEnrollRequest(BaseModel):
     kernel_version: Optional[str] = Field(default=None, max_length=255)
     ip_addresses: list[str] = Field(default_factory=list, max_length=64)
     platform: Literal["windows", "linux"] = "windows"
+    report_interval_minutes: int = Field(default=60, ge=5, le=1440)
 
     @field_validator("ip_addresses")
     @classmethod
@@ -215,6 +216,7 @@ def enroll_agent(payload: AgentEnrollRequest, db: Session = Depends(get_db)) -> 
         agent = WindowsAgent(
             agent_id=agent_id, device_id=device.id, enrollment_token_id=token.id,
             platform=payload.platform, secret_hash=_sha256(f"{agent_id}.{agent_secret}"),
+            desired_report_interval_minutes=payload.report_interval_minutes,
         )
         db.add(agent)
     else:
@@ -222,6 +224,7 @@ def enroll_agent(payload: AgentEnrollRequest, db: Session = Depends(get_db)) -> 
             WindowsAgent.agent_id: agent_id, WindowsAgent.enrollment_token_id: token.id,
             WindowsAgent.secret_hash: _sha256(f"{agent_id}.{agent_secret}"), WindowsAgent.platform: payload.platform,
             WindowsAgent.last_sequence: 0, WindowsAgent.last_seen_at: None, WindowsAgent.revoked_at: None,
+            WindowsAgent.desired_report_interval_minutes: payload.report_interval_minutes,
         }, synchronize_session=False)
         if replaced != 1:
             db.rollback()
@@ -369,7 +372,8 @@ def report_agent_inventory(
                                  source=source, message=message, created_at=now))
     db.commit()
     return {"status": "accepted", "device_id": device.id, "run_id": run.id,
-            "finding_count": len(findings), "software_count": len(payload.software), "changed_count": len(changed)}
+            "finding_count": len(findings), "software_count": len(payload.software), "changed_count": len(changed),
+            "report_interval_minutes": agent.desired_report_interval_minutes}
 
 
 @router.get("/windows/uninstall.ps1", response_class=PlainTextResponse)

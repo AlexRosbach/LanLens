@@ -138,7 +138,7 @@ function Get-LanLensEnrollment {
   }
   if (-not $adapter) { throw 'No active network adapter with a MAC address was found.' }
   $os = Get-CimInstance Win32_OperatingSystem
-  $body = @{ token = $EnrollmentToken; hostname = $env:COMPUTERNAME; primary_mac = $adapter.MACAddress; os_info = "$($os.Caption) $($os.Version)"; kernel_version = $os.BuildNumber; ip_addresses = @($adapter.IPAddress | Where-Object { $_ -notmatch ':' }); platform = 'windows' } | ConvertTo-Json -Compress
+  $body = @{ token = $EnrollmentToken; hostname = $env:COMPUTERNAME; primary_mac = $adapter.MACAddress; os_info = "$($os.Caption) $($os.Version)"; kernel_version = $os.BuildNumber; ip_addresses = @($adapter.IPAddress | Where-Object { $_ -notmatch ':' }); platform = 'windows'; report_interval_minutes = $IntervalMinutes } | ConvertTo-Json -Compress
   $response = Invoke-LanLensInstallerRequest -Uri "$ServerUrl/api/agents/enroll" -Body $body | ConvertFrom-Json
   if (-not $response.agent_id -or -not $response.agent_secret) { throw 'LanLens did not return valid enrollment credentials.' }
   return @{ agent_id = $response.agent_id; agent_secret = $response.agent_secret; primary_mac = $adapter.MACAddress }

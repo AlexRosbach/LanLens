@@ -772,6 +772,7 @@ class WindowsAgent(Base):
     enrollment_token_id = Column(Integer, ForeignKey("agent_enrollment_tokens.id", ondelete="SET NULL"), nullable=True)
     secret_hash = Column(String(64), nullable=False)
     platform = Column(String(16), nullable=True)  # legacy identities bind on their next valid report
+    desired_report_interval_minutes = Column(Integer, default=60, nullable=False, server_default="60")
     last_sequence = Column(Integer, default=0, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)

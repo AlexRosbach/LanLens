@@ -62,6 +62,8 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
 
   const [config, setConfig] = useState<DeepScanConfig | null>(null)
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null)
+  const [agentInterval, setAgentInterval] = useState<number | null>(null)
+  const [savingAgentInterval, setSavingAgentInterval] = useState(false)
   const [sourceFilter, setSourceFilter] = useState('all')
   const [loadError, setLoadError] = useState(false)
   const [latestRun, setLatestRun] = useState<DeepScanRun | null>(null)
@@ -174,6 +176,21 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
     }
   }
 
+  const saveAgentInterval = async () => {
+    if (agentInterval === null || !Number.isInteger(agentInterval) || agentInterval < 5 || agentInterval > 1440) return
+    setSavingAgentInterval(true)
+    try {
+      const response = await deepScanApi.updateAgentReportInterval(deviceId, agentInterval)
+      setAgentStatus((current) => current ? { ...current, report_interval_minutes: response.data.report_interval_minutes } : current)
+      setAgentInterval(response.data.report_interval_minutes)
+      toast.success(german ? 'Windows-Agent-Intervall gespeichert' : 'Windows agent interval saved')
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || (german ? 'Windows-Agent-Intervall konnte nicht gespeichert werden' : 'Could not save Windows agent interval'))
+    } finally {
+      setSavingAgentInterval(false)
+    }
+  }
+
   const preferredHardware = preferredVmwareHardware(vmware)
   const hardwareObservations = sourceFilter === 'vsphere'
     ? vmware.map(row => ({ ...row, fields: Object.fromEntries(Object.entries(row.fields).filter(([key]) => ['cpu_count', 'memory_size_mib', 'disks'].includes(key))), custom_fields: [] })).filter(row => Object.keys(row.fields).length > 0)
@@ -279,6 +296,13 @@ export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }
         <div className="text-text-muted">Device ID: {agentStatus.device_id} · POST /api/agents/report</div>
         <div className="text-text-muted">{german ? 'Letzter empfangener Report' : 'Last accepted report'}: {agentStatus.last_seen_at ? formatRelativeTime(agentStatus.last_seen_at, lang) : '—'} · Sequence: {agentStatus.last_sequence}{agentStatus.last_run_id ? ' · Scan #' + agentStatus.last_run_id : ''}</div>
         {agentStatus.summary && <div className="text-text-muted">{german ? 'Anwendungen' : 'Applications'}: {agentStatus.summary.software_count ?? '—'} · Findings: {agentStatus.summary.finding_count ?? '—'}</div>}
+        {agentStatus.platform === 'windows' && !agentStatus.revoked && <div className="flex flex-wrap items-end gap-2 pt-2">
+          <label className="flex flex-col gap-1 text-text-muted">{german ? 'Berichtsintervall (Minuten)' : 'Reporting interval (minutes)'}
+            <input className="input-field w-32" type="number" min={5} max={1440} value={agentInterval ?? agentStatus.report_interval_minutes} onChange={(event) => setAgentInterval(Number(event.target.value))} />
+          </label>
+          <Button size="sm" variant="outline" loading={savingAgentInterval} disabled={agentInterval === null || !Number.isInteger(agentInterval) || agentInterval < 5 || agentInterval > 1440} onClick={saveAgentInterval}>{german ? 'Intervall speichern' : 'Save interval'}</Button>
+          <p className="max-w-md text-text-subtle">{german ? 'Die Änderung wird mit dem nächsten erfolgreichen Bericht übernommen.' : 'The change is applied with the next successful report.'}</p>
+        </div>}
       </div>}
       {sources.length > 0 && <div className="rounded-lg border border-border p-3 space-y-2">
         <h3 className="text-xs font-semibold text-text-base">{german ? 'Datenquellen' : 'Data sources'}</h3>

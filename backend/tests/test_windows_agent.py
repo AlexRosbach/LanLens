@@ -135,6 +135,29 @@ class WindowsAgentTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_server_controls_enrolled_agent_reporting_interval(self):
+        from backend.routers.deep_scan import AgentReportIntervalUpdate, get_agent_status, update_agent_report_interval
+        db = self.Session()
+        try:
+            raw = "c" * 32
+            db.add(AgentEnrollmentToken(name="test", token_hash=_sha256(raw)))
+            db.commit()
+            enrolled = enroll_agent(AgentEnrollRequest(
+                token=raw, hostname="host", primary_mac="00:11:22:33:44:66", report_interval_minutes=30,
+            ), db)
+            agent = db.query(WindowsAgent).filter_by(agent_id=enrolled["agent_id"]).one()
+            self.assertEqual(agent.desired_report_interval_minutes, 30)
+            updated = update_agent_report_interval(enrolled["device_id"], AgentReportIntervalUpdate(report_interval_minutes=15), db, None)
+            self.assertEqual(updated["report_interval_minutes"], 15)
+            self.assertEqual(get_agent_status(enrolled["device_id"], db=db, _=None)["report_interval_minutes"], 15)
+            credential = enrolled["agent_id"] + "." + enrolled["agent_secret"]
+            result = report_agent_inventory(AgentReportRequest(
+                sequence=1, hostname="host", primary_mac="00:11:22:33:44:66",
+            ), authorization="Bearer " + credential, db=db)
+            self.assertEqual(result["report_interval_minutes"], 15)
+        finally:
+            db.close()
+
     def test_agent_reports_visible_without_credential_scan_and_timeline_on_changes(self):
         from backend.models import DeviceChangeEvent, DeepScanRun
         from backend.routers.deep_scan import get_findings, get_agent_status

@@ -1040,6 +1040,10 @@ def migrate():
             conn.execute(text("ALTER TABLE windows_agents ADD COLUMN platform VARCHAR(16)"))
             print("Migration: added windows_agents.platform")
 
+        if _table_exists(conn, "windows_agents") and not _column_exists(conn, "windows_agents", "desired_report_interval_minutes"):
+            conn.execute(text("ALTER TABLE windows_agents ADD COLUMN desired_report_interval_minutes INTEGER NOT NULL DEFAULT 60"))
+            print("Migration: added windows_agents.desired_report_interval_minutes")
+
         conn.commit()
 
 

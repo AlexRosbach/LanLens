@@ -70,12 +70,15 @@ export interface AgentStatus {
   revoked: boolean
   last_seen_at: string | null
   last_sequence: number
+  report_interval_minutes: number
   last_run_id: number | null
   summary: { software_count?: number; finding_count?: number } | null
 }
 
 export const deepScanApi = {
   getAgentStatus: (deviceId: number) => apiClient.get<AgentStatus | null>(`/devices/${deviceId}/deep-scan/agent-status`),
+  updateAgentReportInterval: (deviceId: number, report_interval_minutes: number) =>
+    apiClient.put<{ report_interval_minutes: number }>(`/devices/${deviceId}/deep-scan/agent-report-interval`, { report_interval_minutes }),
   getConfig: (deviceId: number) =>
     apiClient.get<DeepScanConfig>(`/devices/${deviceId}/deep-scan/config`),
 

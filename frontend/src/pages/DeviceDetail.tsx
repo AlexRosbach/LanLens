@@ -515,7 +515,7 @@ export default function DeviceDetail() {
   const navSections = [
     { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
     { id: 'device-switch-ports', label: t('device_section_switch_ports'), visible: !!switchPorts?.has_visualization },
-    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery },
+    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery && passiveObservations.length > 0 },
     { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
     { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
     { id: 'device-tls', label: t('device_section_tls'), visible: showTlsChecks },
@@ -535,6 +535,7 @@ export default function DeviceDetail() {
   const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
   const openPortCount = device.latest_scan?.open_ports.length ?? 0
   const visibleSwitchPorts = switchPorts?.has_visualization ? switchPorts.ports : []
+  const hasPassiveDiscoveryObservations = passiveObservations.length > 0
   const selectedPassiveMetadata = selectedPassiveObservation ? passiveMetadataEntries(selectedPassiveObservation) : []
   const hasSnmpPortStats = Boolean(
     device.snmp_monitoring_enabled && (
@@ -1038,22 +1039,15 @@ export default function DeviceDetail() {
         )}
       </Card>
 
-      {showPassiveDiscovery && (
+      {showPassiveDiscovery && hasPassiveDiscoveryObservations && (
       <Card id="device-passive-discovery" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3">
           <h2 className="text-sm font-semibold text-text-muted">{t('device_section_discovery')}</h2>
-          {passiveObservations.length > 0 && (
-            <span className="text-xs text-text-subtle">
-              {t('multicast_discovery_unique_observations', { count: passiveObservations.length })}
-            </span>
-          )}
+          <span className="text-xs text-text-subtle">
+            {t('multicast_discovery_unique_observations', { count: passiveObservations.length })}
+          </span>
         </div>
-        {passiveObservations.length === 0 ? (
-          <p className="text-sm text-text-subtle">
-            {t('multicast_discovery_empty_device')}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
+        <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
@@ -1102,8 +1096,7 @@ export default function DeviceDetail() {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+        </div>
       </Card>
       )}
 

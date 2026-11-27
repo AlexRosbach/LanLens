@@ -52,7 +52,7 @@ if not mac:
     raise SystemExit("No active MAC address found.")
 ips = run(["sh", "-c", "ip -o -4 addr show scope global | awk '{print $4}' | cut -d/ -f1"]).splitlines()
 os_info = run(["sh", "-c", ". /etc/os-release 2>/dev/null; echo \"${PRETTY_NAME:-Linux}\""]) or "Linux"
-payload = {"token": token, "hostname": socket.gethostname(), "primary_mac": mac, "os_info": os_info, "kernel_version": run(["uname", "-r"]), "ip_addresses": ips, "platform": "linux"}
+payload = {"token": token, "hostname": socket.gethostname(), "primary_mac": mac, "os_info": os_info, "kernel_version": run(["uname", "-r"]), "ip_addresses": ips, "platform": "linux", "report_interval_minutes": int(interval)}
 request = urllib.request.Request(server + "/api/agents/enroll", data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
 with urllib.request.urlopen(request, timeout=30) as response:
     enrolled = json.load(response)

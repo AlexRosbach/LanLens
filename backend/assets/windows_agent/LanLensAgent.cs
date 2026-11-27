@@ -68,7 +68,7 @@ public class LanLensAgent : ServiceBase
         }
     }
 
-    private void LogResponse(HttpWebResponse response)
+    private int LogResponse(HttpWebResponse response, Dictionary<string, object> cfg, int currentInterval)
     {
         int status = (int)response.StatusCode;
         if (status < 200 || status >= 300) {
@@ -77,7 +77,7 @@ public class LanLensAgent : ServiceBase
                 status == 422 ? "inventory validation failed" : status == 429 ? "report rate limited" :
                 status == 413 ? "report too large" : "server rejected report";
             Log("ERROR", "HTTP " + status + " " + explanation);
-            return;
+            return currentInterval;
         }
         using (var stream = response.GetResponseStream())
         using (var reader = new StreamReader(stream)) {
@@ -88,8 +88,19 @@ public class LanLensAgent : ServiceBase
                 if (Convert.ToString(ack["status"]) != "accepted") throw new InvalidDataException("unexpected acknowledgement");
                 Log("INFO", "Report accepted HTTP " + status + " device_id=" + Convert.ToInt64(ack["device_id"]) +
                     " run_id=" + Convert.ToInt64(ack["run_id"]));
+                object requestedInterval;
+                if (!ack.TryGetValue("report_interval_minutes", out requestedInterval)) return currentInterval;
+                var nextInterval = Math.Max(5, Math.Min(1440, Convert.ToInt32(requestedInterval)));
+                if (nextInterval == currentInterval) return currentInterval;
+                cfg["interval_minutes"] = nextInterval;
+                var temporary = ConfigPath + ".tmp";
+                File.WriteAllText(temporary, _json.Serialize(cfg));
+                File.Replace(temporary, ConfigPath, null);
+                Log("INFO", "Report interval updated by LanLens to " + nextInterval + " minutes");
+                return nextInterval;
             } catch { Log("WARN", "HTTP " + status + " but no valid inventory acknowledgement"); }
         }
+        return currentInterval;
     }
 
     private void Report(object state)
@@ -153,11 +164,11 @@ public class LanLensAgent : ServiceBase
             request.ContentLength = body.Length;
             try {
                 using (var stream = request.GetRequestStream()) stream.Write(body, 0, body.Length);
-                using (var response = (HttpWebResponse)request.GetResponse()) LogResponse(response);
+                using (var response = (HttpWebResponse)request.GetResponse()) interval = LogResponse(response, cfg, interval);
             } catch (WebException ex) {
                 using (var response = ex.Response as HttpWebResponse) {
                     if (response == null) throw;
-                    LogResponse(response);
+                    interval = LogResponse(response, cfg, interval);
                 }
             }
         }
