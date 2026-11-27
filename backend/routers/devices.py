@@ -430,6 +430,7 @@ def _device_to_response(
         services=[ServiceResponse.model_validate(s) for s in device.services],
         manual_connect_entries=[ManualConnectEntryResponse.model_validate(entry) for entry in device.manual_connect_entries],
         ip_history=ip_history,
+        snmp_monitoring_enabled=bool(device.snmp_switch and device.snmp_switch.enabled),
         snmp_switch=(snmp_identity or {}).get("switch_name"),
         snmp_switch_host=(snmp_identity or {}).get("switch_host"),
         snmp_interface=(snmp_identity or {}).get("interface_name"),

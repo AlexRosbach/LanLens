@@ -1,8 +1,14 @@
 # Changelog
 
-## 1.7.0 — Build 20261127.0002
+## 1.7.0 — Build 20261127.0003
 
 ### Inventory, CMDB and virtualization
+
+- Show compact Windows agent Operating System findings in collapsed Deep Scan
+  cards rather than presenting a false empty state.
+- Restrict SNMP port statistics to devices configured as enabled SNMP switch
+  targets, and hide an empty VM host-assignment section when no hypervisor is
+  available to link.
 
 - Populate the i-doit Operating System assignment's Application Variant and
   Version fields for Windows Server editions. Existing edition-specific OS

@@ -153,6 +153,7 @@ export interface Device {
   services: Service[]
   manual_connect_entries: ManualConnectEntry[]
   ip_history?: DeviceIpHistoryEntry[]
+  snmp_monitoring_enabled?: boolean
   snmp_switch?: string | null
   snmp_switch_host?: string | null
   snmp_interface?: string | null

@@ -537,10 +537,12 @@ export default function DeviceDetail() {
   const visibleSwitchPorts = switchPorts?.has_visualization ? switchPorts.ports : []
   const selectedPassiveMetadata = selectedPassiveObservation ? passiveMetadataEntries(selectedPassiveObservation) : []
   const hasSnmpPortStats = Boolean(
-    device.snmp_interface_speed_bps ||
-    device.snmp_interface_crc_errors !== null && device.snmp_interface_crc_errors !== undefined ||
-    device.snmp_interface_collision_errors !== null && device.snmp_interface_collision_errors !== undefined ||
-    device.snmp_interface_fragment_errors !== null && device.snmp_interface_fragment_errors !== undefined
+    device.snmp_monitoring_enabled && (
+      device.snmp_interface_speed_bps ||
+      device.snmp_interface_crc_errors !== null && device.snmp_interface_crc_errors !== undefined ||
+      device.snmp_interface_collision_errors !== null && device.snmp_interface_collision_errors !== undefined ||
+      device.snmp_interface_fragment_errors !== null && device.snmp_interface_fragment_errors !== undefined
+    )
   )
 
   return (
@@ -1313,10 +1315,7 @@ export default function DeviceDetail() {
 
       {/* Host assignment (only for VM device classes) */}
       {isVmClass(device.device_class) && (
-        <Card>
-          <h2 className="text-sm font-semibold text-text-muted mb-3">{t('vm_host_section_title')}</h2>
-          <VmHostSection deviceId={device.id} />
-        </Card>
+        <VmHostSection deviceId={device.id} title={t('vm_host_section_title')} />
       )}
 
       {/* Deep Scan */}

@@ -593,6 +593,10 @@ class DeviceResponse(BaseModel):
     services: List[ServiceResponse] = []
     manual_connect_entries: List[ManualConnectEntryResponse] = []
     ip_history: List[DeviceIpHistoryResponse] = []
+    # True only when this device itself is an enabled SNMP switch target.
+    # Endpoint identities can contain SNMP-derived port counters too, but they
+    # must not make the switch-only statistics panel appear on the endpoint.
+    snmp_monitoring_enabled: bool = False
     snmp_switch: Optional[str] = None
     snmp_switch_host: Optional[str] = None
     snmp_interface: Optional[str] = None

@@ -286,7 +286,10 @@ function extractCompact(finding: DeepScanFinding, t: ReturnType<typeof useI18n>[
     case 'operating_system': {
       try {
         const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
-        return (obj['Caption'] || obj['Name'] || obj['Version']) as string || null
+        // Agent findings use lower-case keys, while WMI uses Caption/Name.  Keep
+        // the compact view truthful for both sources instead of showing the
+        // empty-state message until the user expands the card.
+        return (obj['Caption'] || obj['Name'] || obj['name'] || obj['Version'] || obj['version'] || obj['kernel']) as string || null
       } catch { }
       break
     }
