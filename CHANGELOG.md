@@ -1,9 +1,13 @@
 # Changelog
 
-## 1.7.0 — Build 20261127.0001
+## 1.7.0 — Build 20261127.0002
 
 ### Inventory, CMDB and virtualization
 
+- Populate the i-doit Operating System assignment's Application Variant and
+  Version fields for Windows Server editions. Existing edition-specific OS
+  objects are reused safely when a catalog has no canonical product object;
+  caption-only observations use the documented Server release year.
 - Corrected i-doit Operating System matching for named Windows Server editions
   when WMI adds a technical NT build suffix, without weakening edition matching.
 - Added a dedicated **Applications** inventory view with grouping, filtering and

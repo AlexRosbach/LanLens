@@ -1175,6 +1175,13 @@ def _operating_system_assignment(raw: Any, kernel_version: Optional[str] = None)
         releases = re.findall(r"\b\d{2}H[12]\b", title, re.IGNORECASE)
         builds = [v for v in version_candidates if "." in v and v not in product]
         assigned_version = max(builds, key=lambda v: (v.count("."), len(v)), default="") or (releases[-1].upper() if releases else "")
+        # Some collectors expose only the Windows Server caption. Retain the
+        # documented release year rather than leaving the assignment version
+        # blank; a later report with the NT build still replaces this fallback.
+        if not assigned_version:
+            server_release = re.search(r"\bWindows\s+Server\s+(20\d{2}|2008|2003)\b", product, re.IGNORECASE)
+            if server_release:
+                assigned_version = server_release.group(1)
     if assigned_version:
         result["assigned_version"] = assigned_version
     if kernel_version and kernel_version.strip():
@@ -3564,11 +3571,27 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
         if operating_system and operating_system.get("title"):
             variant = operating_system.get("assigned_variant")
             os_cache = application_run.setdefault("os_resolutions", {})
-            os_key = (str(operating_system["title"]), bool(variant), config.create_policy)
+            detected_os_title = str(operating_system.get("detected_title") or operating_system["title"])
+            os_key = (str(operating_system["title"]), str(variant or ""), detected_os_title, config.create_policy)
             if os_key not in os_cache:
                 resolver = client.resolve_canonical_operating_system if variant else client.resolve_operating_system
                 os_cache[os_key] = await resolver(str(operating_system["title"]), create_missing=config.create_policy == "create_missing")
             os_resolution = os_cache[os_key]
+            # A number of established i-doit catalogs model each Windows
+            # edition as its own OS object instead of using one canonical
+            # product plus Application Variant rows. A precisely detected
+            # edition is safe to reuse when no canonical product exists; do
+            # not broaden this fallback to a fuzzy edition search.
+            if variant and not os_resolution.get("object_id"):
+                specific_resolution = await client.resolve_operating_system(
+                    detected_os_title, create_missing=config.create_policy == "create_missing",
+                )
+                if specific_resolution.get("object_id"):
+                    os_resolution = {
+                        **specific_resolution,
+                        "action": "matched_edition_specific_fallback",
+                        "canonical_resolution": os_cache[os_key],
+                    }
             details["operating_system"] = os_resolution
             os_object_id = os_resolution.get("object_id")
             if os_object_id:
@@ -3584,7 +3607,11 @@ async def sync_device_to_idoit(db: Session, device: Device, mode: str = "manual"
                         os_entry["assigned_variant"] = _object_id_as_int(variant_id)
                         categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
                     else:
-                        sync_warnings.append("C__CATG__OPERATING_SYSTEM: variant " + str(variant) + " could not be resolved safely; assignment skipped")
+                        # Do not discard an otherwise exact OS link and its
+                        # version merely because an older i-doit installation
+                        # cannot expose Application Variant entries.
+                        categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
+                        sync_warnings.append("C__CATG__OPERATING_SYSTEM: variant " + str(variant) + " could not be resolved safely; OS and version were synchronized without a variant")
                 else:
                     categories["C__CATG__OPERATING_SYSTEM"] = [os_entry]
             else:

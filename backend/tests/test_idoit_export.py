@@ -1892,6 +1892,16 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["assigned_version"], "10.0.26100")
         self.assertEqual(_operating_system_assignment("Red Hat Enterprise Linux 9.4")["title"], "Red Hat Enterprise Linux 9.4")
 
+    def test_windows_server_caption_without_nt_build_uses_release_year_as_assignment_version(self):
+        from backend.services.idoit import _operating_system_assignment
+        result = _operating_system_assignment("Microsoft Windows Server 2022 Standard")
+        self.assertEqual(result, {
+            "title": "Windows Server 2022",
+            "assigned_variant": "Standard",
+            "detected_title": "Microsoft Windows Server 2022 Standard",
+            "assigned_version": "2022",
+        })
+
     async def test_canonical_os_resolver_excludes_edition_objects(self):
         class Client(IdoitClient):
             async def read_objects(self, params):
