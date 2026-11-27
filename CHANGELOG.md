@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.0 — Build 20261125.0002
+## 1.7.0 — Build 20261127.0001
 
 ### Inventory, CMDB and virtualization
 
@@ -18,6 +18,10 @@
 
 ### Agents and security
 
+- Ensured Windows outbound agents explicitly negotiate TLS 1.2 when reporting
+  from the LocalSystem service account; explicit untrusted-certificate mode
+  continues to bypass certificate validation as documented and now logs the
+  underlying TLS failure detail when transport negotiation fails.
 - Extended outbound Windows and Linux agents to report the same structured
   inventory categories as WinRM/SSH Deep Scan, including installed software and
   supported local audit data.

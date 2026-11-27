@@ -30,6 +30,11 @@ public class LanLensAgent : ServiceBase
     public static void Main() { ServiceBase.Run(new LanLensAgent()); }
     protected override void OnStart(string[] args) {
         _stopping = false;
+        // Services run as LocalSystem and do not inherit any PowerShell TLS
+        // configuration used during enrollment. Require TLS 1.2 explicitly so
+        // an internally hosted LanLens endpoint does not fail its first report
+        // merely because the Framework falls back to legacy protocol defaults.
+        ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
         Log("INFO", "Windows inventory agent service started");
         _timer = new Timer(Report, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _timer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan);
@@ -156,7 +161,11 @@ public class LanLensAgent : ServiceBase
                 }
             }
         }
-        catch (WebException ex) { Log("ERROR", stage + ": " + ex.Status + " (" + ex.GetType().Name + ")"); }
+        catch (WebException ex) {
+            var detail = ex.Message;
+            if (ex.InnerException != null && !String.IsNullOrWhiteSpace(ex.InnerException.Message)) detail += "; " + ex.InnerException.Message;
+            Log("ERROR", stage + ": " + ex.Status + " (" + ex.GetType().Name + "): " + detail);
+        }
         catch (Exception ex) { Log("ERROR", stage + ": " + ex.GetType().Name); }
         finally {
             Log("INFO", "Next report in " + interval + " minutes");
