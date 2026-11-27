@@ -771,6 +771,8 @@ class WindowsAgent(Base):
     device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, unique=True)
     enrollment_token_id = Column(Integer, ForeignKey("agent_enrollment_tokens.id", ondelete="SET NULL"), nullable=True)
     secret_hash = Column(String(64), nullable=False)
+    platform = Column(String(16), nullable=True)  # legacy identities bind on their next valid report
+    desired_report_interval_minutes = Column(Integer, default=60, nullable=False, server_default="60")
     last_sequence = Column(Integer, default=0, nullable=False)
     last_seen_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
@@ -812,3 +814,56 @@ class DeviceHostRelationship(Base):
 
     child_device = relationship("Device", foreign_keys=[child_device_id], back_populates="child_relationships")
     host_device = relationship("Device", foreign_keys=[host_device_id], back_populates="host_relationships")
+
+
+class VsphereConnection(Base):
+    """Single optional vCenter integration, separate from exported settings."""
+    __tablename__ = "vsphere_connections"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    endpoint = Column(String(512), nullable=False, default="")
+    username = Column(String(255), nullable=False, default="")
+    encrypted_secret = Column(Text, nullable=False, default="")
+    revision = Column(Integer, nullable=False, default=0)
+    verify_tls = Column(Boolean, nullable=False, default=True, server_default="1")
+    writeback_sysid = Column(Boolean, nullable=False, default=False, server_default="0")
+    sysid_field_key = Column(Integer, nullable=True)
+    read_sysid = Column(Boolean, nullable=False, default=False, server_default="0")
+    attribute_mappings_json = Column(Text, nullable=True)
+    device_field_mappings_json = Column(Text, nullable=True)
+    visible_fields_json = Column(Text, nullable=True)
+    auto_scan_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    scan_interval_minutes = Column(Integer, nullable=False, default=60, server_default="60")
+    last_scan_attempt_at = Column(DateTime, nullable=True)
+    last_discovery_at = Column(DateTime, nullable=True)
+
+
+class VsphereInventoryObject(Base):
+    """Last observed vCenter inventory; never represents a synthetic device."""
+    __tablename__ = "vsphere_inventory_objects"
+    __table_args__ = (UniqueConstraint("connection_id", "kind", "external_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    connection_id = Column(Integer, ForeignKey("vsphere_connections.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String(16), nullable=False)
+    external_id = Column(String(128), nullable=False)
+    instance_uuid = Column(String(64), nullable=True)
+    name = Column(String(255), nullable=False)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    match_status = Column(String(32), nullable=False)
+    observed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class VsphereDebugLog(Base):
+    """Bounded, credential-free VMware operation diagnostics."""
+    __tablename__ = "vsphere_debug_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="SET NULL"), nullable=True)
+    mode = Column(String(32), nullable=False)
+    level = Column(String(16), nullable=False)
+    message = Column(String(512), nullable=False)
+    details_json = Column(Text, nullable=False, default="{}")

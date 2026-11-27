@@ -13,6 +13,7 @@ import DeepScanSettings from './pages/DeepScanSettings'
 import Segments from './pages/Segments'
 import Settings from './pages/Settings'
 import Services from './pages/Services'
+import Applications from './pages/Applications'
 import DhcpMonitor from './pages/DhcpMonitor'
 import { useAuthStore } from './store/authStore'
 import { useNotificationStore } from './store/notificationStore'
@@ -99,6 +100,7 @@ export default function App() {
               <Route path="devices/:id" element={<DeviceDetail />} />
               <Route path="segments" element={<Segments />} />
               <Route path="services" element={<Services />} />
+              <Route path="applications" element={<Applications />} />
               <Route path="dhcp-monitor" element={<DhcpMonitor />} />
               <Route path="settings" element={<Settings />} />
               <Route path="deep-scan-settings" element={<DeepScanSettings />} />

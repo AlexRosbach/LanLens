@@ -29,6 +29,22 @@ class NotificationLinkTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
 
+    async def test_diagnostic_application_alert_preserves_all_titles_and_deduplicates(self):
+        from backend.services.diagnostic_notifications import queue_diagnostic, application_failure_message
+        from backend.services.notification import _notification_title_and_message
+        with self.Session() as db:
+            db.add(Setting(key="notify_on_idoit_incomplete", value="true"))
+            db.commit()
+            failures = [{"title": f"Example Application {i:03d}", "version": "1.2", "reason": "match_required"} for i in range(150)]
+            message = application_failure_message(42, "Example VM", "auto", "101", failures, 150)
+            self.assertTrue(queue_diagnostic(db, "idoit_incomplete", "application_sync", message))
+            self.assertFalse(queue_diagnostic(db, "idoit_incomplete", "application_sync", message))
+            notification = db.query(Notification).one()
+            self.assertIn("Example Application 149", notification.message)
+            self.assertIn("Example Application 000", notification.message)
+            self.assertEqual(_notification_title_and_message(notification)[1], message)
+            self.assertFalse(queue_diagnostic(db, "system_error", "test", "disabled"))
+
     async def test_webhook_payload_includes_clickable_device_link(self):
         db = self.Session()
         try:

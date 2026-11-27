@@ -1,4 +1,6 @@
+import asyncio
 import json
+from uuid import uuid4
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -6,10 +8,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth.dependencies import get_current_user
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Device, IdoitSyncLog, User
 from ..services.idoit import (
     IdoitConfig,
+    idoit_sync_lock,
     IdoitClient,
     IdoitConnectionError,
     build_object_url,
@@ -23,6 +26,7 @@ from ..services.idoit import (
     sync_device_to_idoit,
     update_config,
     validate_mapping,
+    validate_idoit_https_url,
     _normalized_default_object_type,
 )
 from ..services.notification import validate_webhook_url
@@ -49,6 +53,8 @@ def _device_display_name(device: Optional[Device], fallback_id: Optional[int]) -
 class IdoitConfigPayload(BaseModel):
     idoit_enabled: Optional[bool] = None
     idoit_base_url: Optional[str] = None
+    idoit_allow_insecure_http: Optional[bool] = None
+    idoit_skip_tls_verification: Optional[bool] = None
     idoit_jsonrpc_path: Optional[str] = None
     idoit_portal_url: Optional[str] = None
     idoit_api_key: Optional[str] = None
@@ -102,6 +108,8 @@ def _config_response(db: Session) -> dict[str, Any]:
     return {
         "idoit_enabled": cfg.enabled,
         "idoit_base_url": cfg.base_url,
+        "idoit_allow_insecure_http": cfg.allow_insecure_http,
+        "idoit_skip_tls_verification": cfg.skip_tls_verification,
         "idoit_jsonrpc_path": cfg.jsonrpc_path,
         "idoit_portal_url": cfg.portal_url,
         "idoit_api_key_configured": bool(cfg.api_key),
@@ -148,6 +156,8 @@ def _config_with_overrides(cfg: IdoitConfig, data: dict[str, Any]) -> IdoitConfi
         offline_retire_days = cfg.offline_retire_days
     return IdoitConfig(
         enabled=bool(data.get("idoit_enabled", cfg.enabled)),
+        allow_insecure_http=bool(data.get("idoit_allow_insecure_http", cfg.allow_insecure_http)),
+        skip_tls_verification=bool(data.get("idoit_skip_tls_verification", cfg.skip_tls_verification)),
         base_url=(data.get("idoit_base_url", cfg.base_url) or "").strip().rstrip("/"),
         jsonrpc_path=(data.get("idoit_jsonrpc_path", cfg.jsonrpc_path) or "/src/jsonrpc.php").strip() or "/src/jsonrpc.php",
         portal_url=(data.get("idoit_portal_url", cfg.portal_url) or "").strip().rstrip("/"),
@@ -194,7 +204,12 @@ async def save_config(payload: IdoitConfigPayload, db: Session = Depends(get_db)
         data["idoit_sync_scope"] = "manual" if data.get("idoit_sync_scope") == "manual" else "all"
     if "idoit_create_policy" in data:
         data["idoit_create_policy"] = "create_missing" if data.get("idoit_create_policy") == "create_missing" else "match_only"
-    if base_url := data.get("idoit_base_url"):
+    current = get_config(db)
+    if base_url := data.get("idoit_base_url", current.base_url):
+        try:
+            validate_idoit_https_url(base_url, bool(data.get("idoit_allow_insecure_http", current.allow_insecure_http)))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         valid, reason = await validate_webhook_url(base_url, "i-doit base URL")
         if not valid:
             raise HTTPException(status_code=400, detail=reason)
@@ -222,6 +237,10 @@ async def test_connection(payload: Optional[IdoitConfigPayload] = None, db: Sess
         if not cfg.api_key:
             missing.append("API key")
         raise HTTPException(status_code=400, detail={"message": f"Missing required i-doit setting(s): {', '.join(missing)}", "stage": "configuration", "endpoint": ""})
+    try:
+        validate_idoit_https_url(cfg.base_url, cfg.allow_insecure_http)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     valid, reason = await validate_webhook_url(cfg.base_url, "i-doit base URL")
     if not valid:
         raise HTTPException(status_code=400, detail=reason)
@@ -231,6 +250,26 @@ async def test_connection(payload: Optional[IdoitConfigPayload] = None, db: Sess
         raise HTTPException(status_code=502, detail=exc.to_detail())
     except Exception as exc:
         raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "unexpected", "endpoint": ""})
+
+
+@router.get("/test-application")
+async def test_application(
+    title: str = Query(..., min_length=1, max_length=255),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _require_idoit_enabled(db)
+    cfg = get_config(db)
+    if not cfg.base_url or not cfg.api_key:
+        raise HTTPException(status_code=400, detail="Configure and save i-doit URL and API key first")
+    client = IdoitClient(cfg)
+    try:
+        await client.login()
+        return await client.diagnose_application(title)
+    except IdoitConnectionError as exc:
+        raise HTTPException(status_code=502, detail=exc.to_detail())
+    finally:
+        await client.logout_best_effort()
 
 
 @router.post("/test-mapping")
@@ -324,6 +363,10 @@ async def test_device_sysid_lookup(
     requested_sysid = requested_sysid.strip()
     if not requested_sysid:
         raise HTTPException(status_code=400, detail={"message": "No i-doit SYSID is stored for this device", "stage": "configuration", "endpoint": ""})
+    try:
+        validate_idoit_https_url(cfg.base_url, cfg.allow_insecure_http)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     valid, reason = await validate_webhook_url(cfg.base_url, "i-doit base URL")
     if not valid:
         raise HTTPException(status_code=400, detail=reason)
@@ -359,28 +402,81 @@ async def test_device_sysid_lookup(
             await client.logout_best_effort()
 
 
-@router.post("/devices/{device_id}/sync")
+# Manual jobs are process-local and use their own DB session. The global lock
+# serializes manual and scheduled writers so snapshots cannot race each other.
+_sync_jobs: dict[str, dict[str, Any]] = {}
+_sync_tasks: set = set()
+
+
+def _job_progress(job, summary):
+    job["progress"] = {key: summary[key] for key in ("total", "success", "failure", "skipped")}
+    job["progress"]["current"] = len(summary["results"])
+
+
+async def _run_sync_job(job_id, device_id):
+    job = _sync_jobs[job_id]
+    try:
+        async with idoit_sync_lock:
+            job["status"] = "running"
+            with SessionLocal() as db:
+                _require_idoit_enabled(db)
+                if device_id is None:
+                    result = await sync_all_registered_devices_to_idoit(
+                        db, mode="manual", skip_unchanged=False,
+                        on_progress=lambda summary: _job_progress(job, summary),
+                    )
+                else:
+                    device = db.get(Device, device_id)
+                    if not device:
+                        raise HTTPException(404, "Device not found")
+                    result = await sync_device_to_idoit(db, device, mode="manual")
+                job.update(status="completed", result=result)
+    except IdoitConnectionError as exc:
+        job.update(status="failed", error=exc.to_detail())
+    except HTTPException as exc:
+        job.update(status="failed", error={"message": str(exc.detail), "stage": "sync"})
+    except Exception:
+        job.update(status="failed", error={"message": "i-doit sync failed; see sync logs", "stage": "sync"})
+
+
+def _start_sync_job(device_id):
+    for job in _sync_jobs.values():
+        if job["status"] in ("queued", "running"):
+            if job["device_id"] == device_id:
+                return {"job_id": job["job_id"], "status": job["status"]}
+            raise HTTPException(409, "Another manual i-doit sync is already running")
+    while len(_sync_jobs) >= 32:
+        _sync_jobs.pop(next(iter(_sync_jobs)))
+    job_id = uuid4().hex
+    _sync_jobs[job_id] = {"job_id": job_id, "device_id": device_id, "status": "queued",
+                          "progress": None, "result": None, "error": None}
+    task = asyncio.create_task(_run_sync_job(job_id, device_id))
+    _sync_tasks.add(task)
+    task.add_done_callback(_sync_tasks.discard)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.post("/devices/{device_id}/sync", status_code=202)
 async def sync_device(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_idoit_enabled(db)
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-    try:
-        return await sync_device_to_idoit(db, device, mode="manual")
-    except IdoitConnectionError as exc:
-        raise HTTPException(status_code=502, detail=exc.to_detail())
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail={"message": str(exc), "stage": "sync", "endpoint": ""})
+    if not db.get(Device, device_id):
+        raise HTTPException(404, "Device not found")
+    return _start_sync_job(device_id)
 
 
-@router.post("/sync-all")
+@router.post("/sync-all", status_code=202)
 async def sync_all_devices(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     _require_idoit_enabled(db)
-    result = await sync_all_registered_devices_to_idoit(db, mode="manual", skip_unchanged=False)
-    if result["total"] > 0 and result["success"] == 0 and result["failure"] > 0:
-        first_error = next((entry.get("error") for entry in result["results"] if isinstance(entry, dict) and entry.get("error")), None)
-        raise HTTPException(status_code=502, detail=first_error or {"message": "i-doit sync failed", "stage": "sync", "summary": result})
-    return result
+    return _start_sync_job(None)
+
+
+@router.get("/sync-jobs/{job_id}")
+def sync_job_status(job_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _require_idoit_enabled(db)
+    job = _sync_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Sync job not found or backend restarted")
+    return dict(job)
 
 
 @router.post("/devices/enable-sync-all")
@@ -394,6 +490,17 @@ def enable_sync_for_all_registered_devices(db: Session = Depends(get_db), _: Use
     )
     db.commit()
     return {"total": total, "updated": updated}
+
+
+def _read_log_details(raw: Optional[str]) -> dict[str, Any]:
+    try:
+        value = json.loads(raw or "{}")
+        if isinstance(value, dict):
+            return value
+    except (ValueError, TypeError, RecursionError):
+        pass
+    return {"truncated": True, "invalid_legacy_details": True,
+            "message": "Stored log details are invalid or truncated; run a new sync for current diagnostics."}
 
 
 @router.get("/logs")
@@ -415,7 +522,7 @@ def list_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(
             "result": row.result,
             "idoit_object_id": row.idoit_object_id,
             "message": row.message,
-            "details": json.loads(row.details_json or "{}"),
+            "details": _read_log_details(row.details_json),
             "created_at": row.created_at,
         }
         for row, device in rows

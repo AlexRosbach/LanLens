@@ -1,0 +1,329 @@
+name: PR validation
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y libpcap-dev nmap gcc
+      - run: pip install -r backend/requirements.txt pytest pytest-asyncio
+      - name: Test backend
+        env:
+          DB_PATH: /tmp/lanlens-ci.db
+        run: |
+          export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          python -m pytest -q backend/tests
+      - run: bash -n backend/assets/linux_agent/install.sh
+      - run: python -m py_compile backend/assets/linux_agent/lanlens-agent.py
+  frontend-and-mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            mcp/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: frontend
+      - run: npm ci && npm test
+        working-directory: mcp
+  windows-agent:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Compile Windows agent with the installer compiler
+        shell: powershell
+        run: |
+          $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          $sourceFile = (Resolve-Path 'backend/assets/windows_agent/LanLensAgent.cs').Path
+          $iconFile = (Resolve-Path 'backend/assets/windows_agent/LanLensAgent.ico').Path
+          & $compiler /nologo /target:exe /out:"$env:RUNNER_TEMP\LanLensAgent.exe" /win32icon:$iconFile /r:System.ServiceProcess.dll /r:System.Management.dll /r:System.Web.Extensions.dll /r:System.Net.Http.dll $sourceFile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Add-Type -AssemblyName System.Drawing
+          $embeddedIcon = [Drawing.Icon]::ExtractAssociatedIcon("$env:RUNNER_TEMP\LanLensAgent.exe")
+          if (-not $embeddedIcon) { throw 'Compiled agent has no Windows icon.' }
+          $referenceIcon = New-Object Drawing.Icon($iconFile, $embeddedIcon.Width, $embeddedIcon.Height)
+          $embeddedBitmap = $embeddedIcon.ToBitmap()
+          $referenceBitmap = $referenceIcon.ToBitmap()
+          try {
+            for ($x = 0; $x -lt $embeddedBitmap.Width; $x++) {
+              for ($y = 0; $y -lt $embeddedBitmap.Height; $y++) {
+                if ($embeddedBitmap.GetPixel($x, $y).ToArgb() -ne $referenceBitmap.GetPixel($x, $y).ToArgb()) {
+                  throw 'Compiled agent icon does not match the LanLens logo.'
+                }
+              }
+            }
+          } finally {
+            $embeddedBitmap.Dispose(); $referenceBitmap.Dispose()
+            $embeddedIcon.Dispose(); $referenceIcon.Dispose()
+          }
+          $errors = $null
+          $tokens = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/install.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors; exit 1 }
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path backend/assets/windows_agent/uninstall.ps1).Path, [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors; exit 1 }
+      - name: Verify ordinary installer reruns update and repair
+        shell: powershell
+        run: ./backend/tests/windows_installer_lifecycle.ps1
+      - name: Verify explicit untrusted certificate option
+        shell: powershell
+        run: |
+          [Reflection.Assembly]::LoadFrom("$env:RUNNER_TEMP\LanLensAgent.exe") | Out-Null
+          $cert = New-SelfSignedCertificate -DnsName "lanlens.example.test" -CertStoreLocation Cert:\CurrentUser\My
+          $sha = [Security.Cryptography.SHA256]::Create()
+          try {
+            $pin = [BitConverter]::ToString($sha.ComputeHash($cert.RawData)).Replace('-', '')
+            $chainError = [Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors
+            if (-not [LanLensAgent]::ValidateUntrustedCertificate($cert, $chainError, $true)) { throw 'Explicit exception did not accept self-signed certificate' }
+            if ([LanLensAgent]::ValidateUntrustedCertificate($cert, $chainError, $false)) { throw 'Disabled exception accepted certificate' }
+            if (-not [LanLensAgent]::ValidateUntrustedCertificate($cert, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch, $true)) { throw 'Explicit exception should accept hostname mismatch' }
+            if ([LanLensAgent]::ValidateUntrustedCertificate($null, [Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable, $true)) { throw 'Missing certificate was accepted' }
+            if (-not [LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, $pin)) { throw 'Expected pinned self-signed certificate to be accepted' }
+            if ([LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, ('0' * 64))) { throw 'Wrong fingerprint was accepted' }
+            if ([LanLensAgent]::ValidatePinnedCertificate($cert, [Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch, $pin)) { throw 'Hostname mismatch was accepted' }
+            if ([LanLensAgent]::ValidatePinnedCertificate($cert, $chainError, '')) { throw 'Missing pin was accepted' }
+          } finally {
+            $sha.Dispose()
+            Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey
+          }
+
+  security:
+    uses: ./.github/workflows/security.yml
+
+  docker:
+    name: Docker build, smoke test and scan
+    needs: [backend, frontend-and-mcp, windows-agent, security]
+    uses: ./.github/workflows/docker-build.yml
+
+  publication-policy:
+    name: Docker publication policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      enabled: ${{ steps.policy.outputs.enabled }}
+    steps:
+      - name: Explain publishing eligibility
+        id: policy
+        env:
+          REPOSITORY_OK: ${{ github.repository == 'AlexRosbach/LanLens' }}
+          EVENT_OK: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
+          PUBLISH_ENABLED: ${{ vars.DOCKERHUB_PUBLISH_ENABLED }}
+        run: |
+          set -euo pipefail
+          echo 'enabled=false' >> "$GITHUB_OUTPUT"
+          printf 'Repository eligible: %s\nEvent eligible: %s\n' "$REPOSITORY_OK" "$EVENT_OK"
+          if [[ "$REPOSITORY_OK" != true || "$EVENT_OK" != true ]]; then
+            echo 'Publication not allowed for this repository/event.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "$PUBLISH_ENABLED" in
+            true)
+              echo 'enabled=true' >> "$GITHUB_OUTPUT"
+              echo 'Publication enabled for eligible event.' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            false)
+              echo 'Publication explicitly disabled by repository variable.' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo '::error::Set DOCKERHUB_PUBLISH_ENABLED to true or false under repository Settings > Secrets and variables > Actions > Variables (not Environment or Secret).'
+              echo 'Missing or invalid repository publishing variable. No Docker Hub credentials accessed.' >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+              ;;
+          esac
+
+  publish:
+    name: Publish verified Docker images
+    needs: [docker, publication-policy]
+    if: >-
+      needs.publication-policy.outputs.enabled == 'true' &&
+      github.repository == 'AlexRosbach/LanLens' &&
+      vars.DOCKERHUB_PUBLISH_ENABLED == 'true' &&
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+       github.event_name == 'pull_request' &&
+       github.event.pull_request.base.ref == 'main' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+      attestations: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: ${{ github.event_name == 'pull_request' && 'dockerhub-dev' || 'dockerhub-release' }}
+    concurrency:
+      group: dockerhub-${{ github.event_name == 'pull_request' && format('dev-{0}', needs.docker.outputs.version) || 'stable' }}
+      cancel-in-progress: false
+    env:
+      IMAGE: docker.io/alexrosbach/lanlens
+      VERSION: ${{ needs.docker.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      PR_BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      # No checkout or execution of repository code on the publishing runner.
+      - name: Check source is still current
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -e --arg head "$PR_HEAD" --arg base "$PR_BASE" \
+                '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
+          else
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+          fi
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: image-*
+          path: ${{ runner.temp }}/verified-images
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Verify all artifacts before registry login
+        run: |
+          set -euo pipefail
+          for target in lanlens lanlens-mcp; do
+            for arch in amd64 arm64; do
+              (
+                cd "$RUNNER_TEMP/verified-images/image-$target-$arch"
+                sha256sum -c SHA256SUMS
+                jq -e '.bomFormat == "CycloneDX"' sbom.json >/dev/null
+                grep -Eq '^sha256:[a-f0-9]{64}$' config-digest.txt
+              )
+            done
+          done
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            environment_name=dockerhub-dev
+          else
+            environment_name=dockerhub-release
+          fi
+          if [[ -z "$DOCKERHUB_USERNAME" ]]; then
+            echo "::error::Missing DOCKERHUB_USERNAME environment variable in $environment_name."
+            exit 1
+          fi
+          if [[ -z "$DOCKERHUB_TOKEN" ]]; then
+            echo "::error::Missing DOCKERHUB_TOKEN environment secret in $environment_name."
+            exit 1
+          fi
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Push scanned images under unique staging tags and sign
+        id: stage
+        run: |
+          set -euo pipefail
+          for target in lanlens lanlens-mcp; do
+            refs=()
+            for arch in amd64 arm64; do
+              dir="$RUNNER_TEMP/verified-images/image-$target-$arch"
+              local_image="lanlens-ci:$arch"
+              staging="$IMAGE:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$target-$arch"
+              docker load -i "$dir/image.tar"
+              expected=$(cat "$dir/config-digest.txt")
+              test "$(docker image inspect --format '{{.Id}}' "$local_image")" = "$expected"
+              test "$(docker image inspect --format '{{.Architecture}}' "$local_image")" = "$arch"
+              test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$local_image")" = "$GITHUB_SHA"
+              test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$local_image")" = "$VERSION"
+              docker tag "$local_image" "$staging"
+              docker push "$staging" | tee "$RUNNER_TEMP/push.log"
+              digest=$(sed -nE 's/.*digest: (sha256:[a-f0-9]{64}).*/\1/p' "$RUNNER_TEMP/push.log" | tail -n1)
+              [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+              remote="$IMAGE@$digest"
+              test "$(docker buildx imagetools inspect --raw "$remote" | jq -er '.config.digest')" = "$expected"
+              cosign attest --yes --type cyclonedx --predicate "$dir/sbom.json" "$remote"
+              refs+=("$remote")
+              docker image rm "$staging" "$local_image"
+            done
+            index="$IMAGE:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$target"
+            metadata="$RUNNER_TEMP/$target-metadata.json"
+            docker buildx imagetools create --metadata-file "$metadata" -t "$index" "${refs[@]}"
+            digest=$(jq -er '."containerimage.descriptor".digest' "$metadata")
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+            docker buildx imagetools inspect --raw "$IMAGE@$digest" | jq -e \
+              --arg amd "$(printf '%s' "${refs[0]}" | cut -d@ -f2)" \
+              --arg arm "$(printf '%s' "${refs[1]}" | cut -d@ -f2)" \
+              '(.manifests | length) == 2 and
+               any(.manifests[]; .digest == $amd and .platform.os == "linux" and .platform.architecture == "amd64") and
+               any(.manifests[]; .digest == $arm and .platform.os == "linux" and .platform.architecture == "arm64")' >/dev/null
+            cosign sign --yes "$IMAGE@$digest"
+            echo "$target=$digest" >> "$GITHUB_OUTPUT"
+          done
+      - name: Attest LanLens build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: docker.io/alexrosbach/lanlens
+          subject-digest: ${{ steps.stage.outputs.lanlens }}
+          push-to-registry: true
+      - name: Attest MCP build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-name: docker.io/alexrosbach/lanlens
+          subject-digest: ${{ steps.stage.outputs.lanlens-mcp }}
+          push-to-registry: true
+      - name: Promote signed digests without rebuilding
+        env:
+          LANLENS_DIGEST: ${{ steps.stage.outputs.lanlens }}
+          MCP_DIGEST: ${{ steps.stage.outputs.lanlens-mcp }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              | jq -e --arg head "$PR_HEAD" --arg base "$PR_BASE" \
+                '.state == "open" and .head.sha == $head and .base.sha == $base' >/dev/null
+            lanlens_tags=("$VERSION-dev" "sha-$GITHUB_SHA-dev")
+            mcp_tags=("$VERSION-mcp-dev" "sha-$GITHUB_SHA-mcp-dev")
+          else
+            test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$GITHUB_SHA"
+            lanlens_tags=("$VERSION" "latest" "sha-$GITHUB_SHA")
+            mcp_tags=("$VERSION-mcp" "mcp-latest" "sha-$GITHUB_SHA-mcp")
+          fi
+          promote() {
+            local digest=$1; shift
+            local tag result
+            local -a args=()
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+            for tag in "$@"; do args+=(-t "$IMAGE:$tag"); done
+            docker buildx imagetools create --metadata-file "$RUNNER_TEMP/promoted.json" \
+              "${args[@]}" "$IMAGE@$digest"
+            result=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/promoted.json")
+            test "$result" = "$digest"
+            for tag in "$@"; do
+              printf '* %s:%s -> %s\n' "$IMAGE" "$tag" "$digest" >> "$GITHUB_STEP_SUMMARY"
+            done
+          }
+          promote "$LANLENS_DIGEST" "${lanlens_tags[@]}"
+          promote "$MCP_DIGEST" "${mcp_tags[@]}"
+      - name: Log out of Docker Hub
+        if: always()
+        run: docker logout docker.io || true

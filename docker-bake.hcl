@@ -1,5 +1,5 @@
 variable "LANLENS_APP_VERSION" {
-  default = "1.6.1"
+  default = "1.7.0"
 }
 
 variable "LANLENS_BUILD_CODE" {
@@ -26,7 +26,7 @@ target "lanlens-mcp" {
   context = "."
   dockerfile = "mcp/Dockerfile"
   platforms = ["linux/amd64", "linux/arm64"]
-  tags = ["alexrosbach/lanlens:1.6.1-mcp-dev"]
+  tags = ["alexrosbach/lanlens:1.7.0-mcp-dev"]
   args = {
     LANLENS_APP_VERSION = LANLENS_APP_VERSION
     LANLENS_BUILD_CODE = LANLENS_BUILD_CODE
@@ -40,7 +40,7 @@ target "lanlens" {
   context = "."
   dockerfile = "Dockerfile"
   platforms = ["linux/amd64", "linux/arm64"]
-  tags = ["alexrosbach/lanlens:1.6.1-dev"]
+  tags = ["alexrosbach/lanlens:1.7.0-dev"]
   args = {
     LANLENS_APP_VERSION = LANLENS_APP_VERSION
     LANLENS_BUILD_CODE = LANLENS_BUILD_CODE

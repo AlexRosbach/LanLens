@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n'
 interface Props {
   findings: DeepScanFinding[]
   emptyMessage?: string
+  alwaysExpanded?: boolean
 }
 
 // ── Value helpers ──────────────────────────────────────────────────────────────
@@ -117,10 +118,10 @@ function buildSoftwareTable(value: unknown): { headers: string[]; rows: string[]
     return {
       headers: ['Name', 'Version', 'Publisher', 'Architecture'],
       rows: items.map((item) => [
-        String(item.Name || item.name || '—'),
-        String(item.Version || item.version || '—'),
+        String(item.Name || item.name || item.DisplayName || item.display_name || '—'),
+        String(item.Version || item.version || item.DisplayVersion || '—'),
         String(item.Publisher || item.publisher || '—'),
-        String(item.Architecture || item.architecture || '—'),
+        String(item.Architecture || item.architecture || item.arch || '—'),
       ]),
     }
   }
@@ -128,8 +129,8 @@ function buildSoftwareTable(value: unknown): { headers: string[]; rows: string[]
   const rows = normalized.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
     const columns = line.split('\t')
     if (columns.length >= 2) return [columns[0], columns[1], '—', columns[2] || '—']
-    const separator = line.lastIndexOf('-')
-    return separator > 0 ? [line.slice(0, separator), line.slice(separator + 1), '—', '—'] : [line, '—', '—', '—']
+    const apk = line.match(/^(.+?)-(\d[^ ]*-r\d+)$/)
+    return apk ? [apk[1], apk[2], '—', '—'] : [line, '—', '—', '—']
   })
   return rows.length > 0 ? { headers: ['Name', 'Version', 'Publisher', 'Architecture'], rows } : null
 }
@@ -285,7 +286,10 @@ function extractCompact(finding: DeepScanFinding, t: ReturnType<typeof useI18n>[
     case 'operating_system': {
       try {
         const obj = (typeof normalizedValue === 'object' ? normalizedValue : JSON.parse(raw)) as Record<string, unknown>
-        return (obj['Caption'] || obj['Name'] || obj['Version']) as string || null
+        // Agent findings use lower-case keys, while WMI uses Caption/Name.  Keep
+        // the compact view truthful for both sources instead of showing the
+        // empty-state message until the user expands the card.
+        return (obj['Caption'] || obj['Name'] || obj['name'] || obj['Version'] || obj['version'] || obj['kernel']) as string || null
       } catch { }
       break
     }
@@ -535,8 +539,8 @@ function FindingCard({ finding }: { finding: DeepScanFinding }) {
       { key: 'Manufacturer', value: String(obj.Manufacturer || '—') },
       { key: 'Model', value: String(obj.Model || '—') },
       { key: 'System Type', value: String(obj.SystemType || '—') },
-      { key: 'Logical Processors', value: String(obj.NumberOfLogicalProcessors || '—') },
-      { key: 'Memory', value: formatBytes(obj.TotalPhysicalMemory) || '—' },
+      ...(obj.NumberOfLogicalProcessors !== undefined ? [{ key: 'Logical Processors', value: String(obj.NumberOfLogicalProcessors || '—') }] : []),
+      ...(obj.TotalPhysicalMemory !== undefined ? [{ key: 'Memory', value: formatBytes(obj.TotalPhysicalMemory) || '—' }] : []),
       { key: 'Hypervisor Present', value: String(obj.HypervisorPresent ?? '—') },
     ]
     return (
@@ -660,7 +664,7 @@ function CompactRow({ finding }: { finding: DeepScanFinding }) {
   )
 }
 
-export default function FindingsGrid({ findings, emptyMessage }: Props) {
+export default function FindingsGrid({ findings, emptyMessage, alwaysExpanded = false }: Props) {
   const { t } = useI18n()
   const [expanded, setExpanded] = useState(false)
 
@@ -677,7 +681,7 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
 
   return (
     <div>
-      {expanded ? (
+      {expanded || alwaysExpanded ? (
         <div className="divide-y divide-transparent">
           {findings.map((f) => (
             <FindingCard key={f.id} finding={f} />
@@ -699,7 +703,7 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
         </div>
       )}
 
-      <div className="flex justify-end mt-3">
+      {!alwaysExpanded && <div className="flex justify-end mt-3">
         <button
           onClick={() => setExpanded(!expanded)}
           className="text-xs text-text-subtle hover:text-primary transition-colors"
@@ -710,7 +714,7 @@ export default function FindingsGrid({ findings, emptyMessage }: Props) {
               ? `▼ ${t('finding_show_all_lines', { count: findings.length })}`
               : `▼ ${t('expand')}`}
         </button>
-      </div>
+      </div>}
     </div>
   )
 }

@@ -70,7 +70,53 @@ export interface MergePreview {
   write_performed: boolean
 }
 
+export interface ApplicationInstallation {
+  device_id: number
+  device_name: string
+  ip_address: string | null
+  version: string
+  architecture: string
+  observed_at: string | null
+  source: string | null
+}
+export interface ApplicationProduct {
+  id: string
+  name: string
+  publisher: string
+  versions: string[]
+  device_count: number
+  installation_count: number
+}
+export interface ApplicationFilters {
+  search: string
+  device: string
+  application: string
+  publisher: string
+  version: string
+  architecture: string
+  device_class: string
+  source: string
+}
+export interface ApplicationDevice {
+  id: number
+  name: string
+  ip_address: string | null
+  device_class: string | null
+  product_count: number
+  installation_count: number
+}
+export interface ApplicationInventory {
+  devices: ApplicationDevice[]
+  installation_count: number
+  products: ApplicationProduct[]
+  installations: ApplicationInstallation[]
+  total: number
+  device_count: number
+  product_count: number
+}
 export const inventoryApi = {
+  applications: (params: Partial<ApplicationFilters> & { offset?: number; limit?: number; application_id?: string; group_by?: 'application' | 'device'; selected_device_id?: number }) =>
+    apiClient.get<ApplicationInventory>('/inventory/applications', { params }).then((r) => r.data),
   topology: () => apiClient.get<TopologyResponse>('/inventory/topology').then((r) => r.data),
   changes: (params?: {
     event_type?: string

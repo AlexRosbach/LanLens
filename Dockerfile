@@ -8,7 +8,7 @@ COPY frontend/package.json ./
 COPY frontend/package-lock.json ./
 RUN npm ci --silent
 
-ARG LANLENS_APP_VERSION=1.6.1
+ARG LANLENS_APP_VERSION=1.7.0
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown
@@ -29,6 +29,8 @@ FROM python:3.12-slim
 
 # System dependencies + Python build tools (gcc needed for netifaces C extension).
 # Build tools are removed after pip install to keep the image lean.
+# pip vendors an old setuptools subset (CVE-2025-47273); neither pip nor its
+# ensurepip bootstrap is needed at runtime. Keep application dependencies installed.
 COPY backend/requirements.txt /tmp/requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
@@ -37,18 +39,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     snmp \
     libpcap-dev \
     libpcap0.8 \
+    libzstd1 \
     net-tools \
     iproute2 \
     curl \
     gcc \
     python3-dev \
   && rm -f /etc/nginx/sites-enabled/default \
-  && pip install --no-cache-dir --upgrade pip \
+  && pip install --no-cache-dir --upgrade pip 'setuptools>=78.1.1' \
   && pip install --no-cache-dir -r /tmp/requirements.txt \
+  && python -m pip check \
+  && python -m pip uninstall -y pip \
+  && rm -rf /usr/local/lib/python3.12/ensurepip \
   && apt-get purge -y --auto-remove gcc python3-dev \
   && rm -rf /var/lib/apt/lists/* /tmp/requirements.txt
 
-ARG LANLENS_APP_VERSION=1.6.1
+ARG LANLENS_APP_VERSION=1.7.0
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown

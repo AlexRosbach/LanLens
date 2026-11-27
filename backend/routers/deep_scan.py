@@ -4,6 +4,8 @@ import json
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
@@ -15,6 +17,7 @@ from ..models import (
     DeviceHostRelationship,
     DeepScanFinding,
     DeepScanRun,
+    WindowsAgent,
     User,
 )
 from ..schemas import (
@@ -28,6 +31,7 @@ from ..schemas import (
     SCAN_PROFILES,
 )
 from ..services.deep_scanner import run_deep_scan
+from ..services.inventory_timeline import finding_source
 
 router = APIRouter(prefix="/api/devices/{device_id}/deep-scan", tags=["deep_scan"])
 
@@ -96,7 +100,7 @@ def _run_to_response(run: DeepScanRun) -> DeepScanRunResponse:
     )
 
 
-def _finding_to_response(f: DeepScanFinding) -> DeepScanFindingResponse:
+def _finding_to_response(f: DeepScanFinding, collection_source: str | None = None) -> DeepScanFindingResponse:
     value = None
     if f.value_json:
         try:
@@ -111,6 +115,7 @@ def _finding_to_response(f: DeepScanFinding) -> DeepScanFindingResponse:
         key=f.key,
         value=value,
         source=f.source,
+        collection_source=collection_source,
         observed_at=f.observed_at,
     )
 
@@ -284,24 +289,64 @@ def get_findings(
 ) -> List[DeepScanFindingResponse]:
     _get_device_or_404(device_id, db)
 
-    # Return findings from the latest completed run (or all if no filter)
-    latest_run = (
-        db.query(DeepScanRun)
-        .filter(DeepScanRun.device_id == device_id, DeepScanRun.status == "done")
-        .order_by(DeepScanRun.started_at.desc())
-        .first()
-    )
-    if not latest_run:
-        return []
-
-    q = db.query(DeepScanFinding).filter(
-        DeepScanFinding.device_id == device_id,
-        DeepScanFinding.run_id == latest_run.id,
-    )
+    # Keep the newest successful observation of each finding per transport.
+    # A credential scan must not hide agent data, nor vice versa.
+    source = finding_source()
+    q = (db.query(DeepScanFinding.id.label("finding_id"), source.label("collection_source"),
+                  func.row_number().over(
+                      partition_by=(DeepScanFinding.finding_type, DeepScanFinding.key, source),
+                      order_by=(DeepScanFinding.observed_at.desc(), DeepScanFinding.id.desc()),
+                  ).label("rank"))
+         .join(DeepScanRun, DeepScanRun.id == DeepScanFinding.run_id)
+         .outerjoin(Credential, Credential.id == DeepScanRun.credential_id)
+         .filter(DeepScanFinding.device_id == device_id, DeepScanRun.status == "done"))
     if finding_type:
         q = q.filter(DeepScanFinding.finding_type == finding_type)
-    findings = q.order_by(DeepScanFinding.finding_type, DeepScanFinding.key).all()
-    return [_finding_to_response(f) for f in findings]
+    ranked = q.subquery()
+    rows = (db.query(DeepScanFinding, ranked.c.collection_source)
+            .join(ranked, ranked.c.finding_id == DeepScanFinding.id)
+            .filter(ranked.c.rank == 1)
+            .order_by(DeepScanFinding.finding_type, ranked.c.collection_source, DeepScanFinding.key).all())
+    return [_finding_to_response(f, collection_source) for f, collection_source in rows]
+
+
+@router.get("/agent-status")
+def get_agent_status(device_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    _get_device_or_404(device_id, db)
+    agent = db.query(WindowsAgent).filter(WindowsAgent.device_id == device_id).first()
+    if not agent:
+        return None
+    run = (db.query(DeepScanRun)
+           .filter(DeepScanRun.device_id == device_id, DeepScanRun.triggered_by == "agent", DeepScanRun.status == "done")
+           .order_by(DeepScanRun.id.desc()).first())
+    return {"device_id": device_id, "platform": agent.platform, "revoked": agent.revoked_at is not None,
+            "last_seen_at": agent.last_seen_at, "last_sequence": agent.last_sequence,
+            "report_interval_minutes": agent.desired_report_interval_minutes,
+            "last_run_id": run.id if run and agent.last_seen_at else None,
+            "summary": _run_to_response(run).summary if run and agent.last_seen_at else None}
+
+
+class AgentReportIntervalUpdate(BaseModel):
+    report_interval_minutes: int = Field(ge=5, le=1440)
+
+
+@router.put("/agent-report-interval")
+def update_agent_report_interval(
+    device_id: int,
+    data: AgentReportIntervalUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _get_device_or_404(device_id, db)
+    agent = db.query(WindowsAgent).filter(WindowsAgent.device_id == device_id).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="No outbound agent is enrolled for this device")
+    if agent.revoked_at is not None:
+        raise HTTPException(status_code=409, detail="The outbound agent enrollment is revoked")
+    agent.desired_report_interval_minutes = data.report_interval_minutes
+    db.commit()
+    return {"report_interval_minutes": agent.desired_report_interval_minutes}
+
 
 
 # ── Host/Guest relationships ───────────────────────────────────────────────────

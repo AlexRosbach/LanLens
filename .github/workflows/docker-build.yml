@@ -1,0 +1,175 @@
+name: Docker build and scan
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: Validated LanLens version
+        value: ${{ jobs.metadata.outputs.version }}
+permissions:
+  contents: read
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      created: ${{ steps.version.outputs.created }}
+      branch: ${{ steps.version.outputs.branch }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - name: Validate version consistency
+        id: version
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          from datetime import datetime, timezone
+          def match(path, pattern):
+              result = re.search(pattern, Path(path).read_text(), re.M)
+              if not result:
+                  raise SystemExit(f"Version not found in {path}")
+              return result.group(1)
+          version = match("backend/version.py", r'^APP_VERSION = os\.getenv\("LANLENS_APP_VERSION", "([^"]+)"\)')
+          if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
+              raise SystemExit("Expected numeric major.minor.patch")
+          versions = {
+              "frontend/src/version.ts": match("frontend/src/version.ts", r"^export const APP_VERSION = '([^']+)'"),
+              "Dockerfile": match("Dockerfile", r"^ARG LANLENS_APP_VERSION=(\S+)$"),
+              "mcp/Dockerfile": match("mcp/Dockerfile", r"^ARG LANLENS_APP_VERSION=(\S+)$"),
+              "docker-bake.hcl": match("docker-bake.hcl", r'variable "LANLENS_APP_VERSION"\s*\{\s*default = "([^"]+)"'),
+          }
+          for path in ("frontend/package.json", "mcp/package.json"):
+              versions[path] = json.loads(Path(path).read_text())["version"]
+          for path, other in versions.items():
+              if other != version:
+                  raise SystemExit(f"Version mismatch: {path}={other}; expected {version}")
+          pr = os.environ.get("PR_NUMBER", "")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              print(f"version={version}", file=out)
+              print(f"branch=pr-{int(pr)}" if pr else "branch=main", file=out)
+              print(f"created={datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}", file=out)
+          PY
+
+  image:
+    name: Image ${{ matrix.target }} / ${{ matrix.arch }}
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [lanlens, lanlens-mcp]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - target: lanlens
+            dockerfile: Dockerfile
+          - target: lanlens-mcp
+            dockerfile: mcp/Dockerfile
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      ARCH: ${{ matrix.arch }}
+      DOCKERFILE: ${{ matrix.dockerfile }}
+      LANLENS_APP_VERSION: ${{ needs.metadata.outputs.version }}
+      LANLENS_BUILD_CODE: ${{ github.run_id }}.${{ github.run_attempt }}
+      LANLENS_BUILD_COMMIT: ${{ github.sha }}
+      LANLENS_BUILD_BRANCH: ${{ needs.metadata.outputs.branch }}
+      LANLENS_BUILD_CREATED: ${{ needs.metadata.outputs.created }}
+      LOCAL_IMAGE: lanlens-ci:${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Build native platform image
+        run: |
+          docker buildx build --load --platform "linux/$ARCH" \
+            --provenance=false --sbom=false \
+            --build-arg LANLENS_APP_VERSION --build-arg LANLENS_BUILD_CODE \
+            --build-arg LANLENS_BUILD_COMMIT --build-arg LANLENS_BUILD_BRANCH \
+            --build-arg LANLENS_BUILD_CREATED -f "$DOCKERFILE" -t "$LOCAL_IMAGE" .
+          test "$(docker image inspect --format '{{.Architecture}}' "$LOCAL_IMAGE")" = "$ARCH"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$LOCAL_IMAGE")" = "$GITHUB_SHA"
+          test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$LOCAL_IMAGE")" = "$LANLENS_APP_VERSION"
+      - name: Verify LanLens runtime
+        if: matrix.target == 'lanlens'
+        run: |
+          docker run --rm --network none \
+            -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
+            -e DB_PATH=/tmp/lanlens-smoke.db --entrypoint python "$LOCAL_IMAGE" \
+            -c 'import importlib.util; from backend.main import app; assert importlib.util.find_spec("pip") is None; assert importlib.util.find_spec("ensurepip") is None; assert app.title == "LanLens"'
+          cid=$(docker run -d --network none \
+            -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')" \
+            -e DEFAULT_ADMIN_PASSWORD="$(openssl rand -hex 24)" \
+            -e DB_PATH=/tmp/lanlens-http-smoke.db "$LOCAL_IMAGE")
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          ready=false
+          for i in $(seq 1 30); do
+            if docker exec "$cid" curl -fs -o /dev/null http://127.0.0.1:7765/api/health; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            docker logs "$cid"
+            exit 1
+          fi
+          # Exercise nginx as well as FastAPI: static-asset regexes must never
+          # intercept API downloads whose paths happen to end in .ico.
+          docker exec -i "$cid" python - <<'PY'
+          from pathlib import Path
+          from urllib.request import urlopen
+          with urlopen('http://127.0.0.1:7765/api/agents/windows/LanLensAgent.ico', timeout=10) as response:
+              assert response.status == 200
+              assert response.headers.get_content_type() == 'image/x-icon'
+              downloaded = response.read()
+          expected = Path('/app/backend/assets/windows_agent/LanLensAgent.ico').read_bytes()
+          assert downloaded == expected, 'nginx did not return the binary Windows agent icon'
+          assert downloaded[:6] == b'\x00\x00\x01\x00\x07\x00', 'invalid ICO header'
+          PY
+      - name: Verify MCP HTTP runtime
+        if: matrix.target == 'lanlens-mcp'
+        run: |
+          cid=$(docker run -d --network none \
+            -e LANLENS_API_TOKEN="$(openssl rand -hex 32)" \
+            -e LANLENS_MCP_HOST=127.0.0.1 "$LOCAL_IMAGE")
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          for i in $(seq 1 30); do
+            if docker exec "$cid" node -e "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$cid"
+          exit 1
+      - name: Block fixable HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+      - name: Export scanned image and complete SBOM
+        run: |
+          mkdir -p "$RUNNER_TEMP/image"
+          cd "$RUNNER_TEMP/image"
+          trivy image --format cyclonedx --output sbom.json "$LOCAL_IMAGE"
+          docker image inspect --format '{{.Id}}' "$LOCAL_IMAGE" > config-digest.txt
+          docker save "$LOCAL_IMAGE" -o image.tar
+          sha256sum image.tar sbom.json config-digest.txt > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: image-${{ matrix.target }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/image/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+          overwrite: true

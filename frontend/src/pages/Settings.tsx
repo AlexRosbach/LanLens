@@ -12,9 +12,9 @@ import { debugApi, type DebugLogEntry } from '../api/debug'
 import { scanNodesApi, type ScanNode, type ScanNodeProvisioning } from '../api/scanNodes'
 import { snmpApi, type SnmpCustomQuery, type SnmpCustomQueryCreate, type SnmpCustomResult, type SnmpEndpoint, type SnmpProfile, type SnmpProfileCreate, type SnmpSwitch } from '../api/snmp'
 import { passiveDiscoveryApi, type PassiveDiscoveryCaptureReport, type PassiveDiscoveryHaGroup, type PassiveDiscoveryObservation } from '../api/plugins'
-import { devicesApi } from '../api/devices'
 import { adminApi } from '../api/admin'
 import { DeviceMergeCard, DocumentationExportCard, IgnoreRulesCard, SelectiveBackupCard } from './InventoryTools'
+import ToggleSwitch from '../components/ui/ToggleSwitch'
 import DnsNamesSettingsCard from '../components/settings/DnsNamesSettingsCard'
 import { useI18n } from '../i18n'
 import { useUiSettingsStore } from '../store/uiSettingsStore'
@@ -82,6 +82,14 @@ type NotificationRuleKey =
   | 'smtp_notify_device_archive_change'
   | 'smtp_notify_mac_drift'
   | 'smtp_notify_unknown_dhcp_server'
+  | 'notify_on_system_error'
+  | 'telegram_notify_system_error'
+  | 'webhook_notify_system_error'
+  | 'smtp_notify_system_error'
+  | 'notify_on_idoit_incomplete'
+  | 'telegram_notify_idoit_incomplete'
+  | 'webhook_notify_idoit_incomplete'
+  | 'smtp_notify_idoit_incomplete'
 
 const IDOIT_MAPPING_FIELDS = [
   { key: 'hostname', labelKey: 'idoit_field_hostname', placeholder: 'C__CATG__IP.hostname' },
@@ -110,6 +118,15 @@ const IDOIT_MAPPING_FIELDS = [
   { key: 'relationships', labelKey: 'idoit_field_relationships', placeholder: '' },
   { key: 'lanlens_inventory', labelKey: 'idoit_field_lanlens_inventory', placeholder: '' },
   { key: 'hardware_summary', labelKey: 'idoit_field_hardware_summary', placeholder: '' },
+  { key: 'vsphere_instance_uuid', labelKey: 'vsphere_instance_uuid', placeholder: '' },
+  { key: 'vsphere_bios_uuid', labelKey: 'vsphere_bios_uuid', placeholder: '' },
+  { key: 'vsphere_vcenter_uuid', labelKey: 'vsphere_vcenter_uuid', placeholder: '' },
+  { key: 'vsphere_host', labelKey: 'vsphere_host', placeholder: '' },
+  { key: 'vsphere_cluster', labelKey: 'vsphere_cluster', placeholder: '' },
+  { key: 'vsphere_datacenter', labelKey: 'vsphere_datacenter', placeholder: '' },
+  { key: 'vsphere_power_state', labelKey: 'vsphere_state', placeholder: '' },
+  { key: 'vsphere_disk_uuids', labelKey: 'vsphere_disk_uuids', placeholder: '' },
+  { key: 'vsphere_disk_inventory', labelKey: 'vsphere_disks', placeholder: '' },
 ] as const
 
 const IDOIT_EXPORT_EDIT_FIELDS = [
@@ -196,39 +213,6 @@ function extractApiErrorMessage(error: unknown, fallback: string): string {
     if (typeof data.message === 'string' && data.message.trim()) return data.message
   }
   return (error as Error)?.message || fallback
-}
-
-function ToggleSwitch({
-  checked,
-  disabled = false,
-  onChange,
-  label,
-  description,
-}: {
-  checked: boolean
-  disabled?: boolean
-  onChange: (checked: boolean) => void
-  label: string
-  description: string
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`flex w-full items-center justify-between gap-4 rounded-lg border px-4 py-3 text-left transition-colors ${
-        checked ? 'border-primary/40 bg-primary-dim/20' : 'border-border bg-surface2/40'
-      } ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-primary/50'}`}
-    >
-      <span>
-        <span className="block text-sm font-medium text-text-base">{label}</span>
-        <span className="mt-1 block text-xs text-text-subtle">{description}</span>
-      </span>
-      <span className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
-        <span className={`absolute left-0 top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
-      </span>
-    </button>
-  )
 }
 
 function CompactToggle({
@@ -412,6 +396,9 @@ export default function Settings() {
   const [idoitApiKey, setIdoitApiKey] = useState('')
   const [idoitBasicPassword, setIdoitBasicPassword] = useState('')
   const [idoitTesting, setIdoitTesting] = useState(false)
+  const [applicationTestTitle, setApplicationTestTitle] = useState('')
+  const [applicationTestBusy, setApplicationTestBusy] = useState(false)
+  const [applicationTestResult, setApplicationTestResult] = useState<Record<string, unknown> | null>(null)
   const [idoitSyncingAll, setIdoitSyncingAll] = useState(false)
   const [idoitEnablingAll, setIdoitEnablingAll] = useState(false)
   const [idoitSyncProgress, setIdoitSyncProgress] = useState<{ current: number; total: number; success: number; failure: number; skipped: number; label?: string } | null>(null)
@@ -420,7 +407,7 @@ export default function Settings() {
   const [idoitLogsLoading, setIdoitLogsLoading] = useState(false)
   const [debugLogs, setDebugLogs] = useState<DebugLogEntry[]>([])
   const [debugLogsLoading, setDebugLogsLoading] = useState(false)
-  const [debugTopic, setDebugTopic] = useState<'all' | 'cmdb' | 'idoit'>('cmdb')
+  const [debugTopic, setDebugTopic] = useState<'all' | 'cmdb' | 'idoit' | 'vsphere'>('cmdb')
   const [debugQuery, setDebugQuery] = useState('')
   const [idoitMappingExpanded, setIdoitMappingExpanded] = useState(false)
   const [scanNodes, setScanNodes] = useState<ScanNode[]>([])
@@ -467,6 +454,7 @@ export default function Settings() {
   const setAdvancedViewEnabled = useUiSettingsStore((state) => state.setAdvancedViewEnabled)
   const setShowCmdbIntegrations = useUiSettingsStore((state) => state.setShowCmdbIntegrations)
   const setShowServicesNav = useUiSettingsStore((state) => state.setShowServicesNav)
+  const setShowApplicationsNav = useUiSettingsStore((state) => state.setShowApplicationsNav)
   const setShowDhcpMonitorNav = useUiSettingsStore((state) => state.setShowDhcpMonitorNav)
   const setShowNetworkTopologyNav = useUiSettingsStore((state) => state.setShowNetworkTopologyNav)
   const setShowPluginApi = useUiSettingsStore((state) => state.setShowPluginApi)
@@ -490,6 +478,7 @@ export default function Settings() {
       setAdvancedViewEnabled(data.advanced_view_enabled)
       setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
       setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+      setShowApplicationsNav(data.advanced_view_enabled && data.show_applications_nav)
       setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
       setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
       setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
@@ -561,6 +550,8 @@ export default function Settings() {
     },
   ]
   const notificationRuleRows = [
+    { label: t('notify_on_system_error'), keys: ["notify_on_system_error","telegram_notify_system_error","webhook_notify_system_error","smtp_notify_system_error"] as NotificationRuleKey[] },
+    { label: t('notify_on_idoit_incomplete'), keys: ["notify_on_idoit_incomplete","telegram_notify_idoit_incomplete","webhook_notify_idoit_incomplete","smtp_notify_idoit_incomplete"] as NotificationRuleKey[] },
     { label: t('notify_on_new_device'), keys: notificationRuleChannels.map((channel) => channel.newDeviceKey) },
     { label: t('notify_on_network_changes'), keys: notificationRuleChannels.map((channel) => channel.networkChangeKey) },
     {
@@ -1070,6 +1061,14 @@ export default function Settings() {
         smtp_notify_device_archive_change: current.smtp_notify_device_archive_change,
         smtp_notify_mac_drift: current.smtp_notify_mac_drift,
         smtp_notify_unknown_dhcp_server: current.smtp_notify_unknown_dhcp_server,
+        notify_on_system_error: current.notify_on_system_error,
+        telegram_notify_system_error: current.telegram_notify_system_error,
+        webhook_notify_system_error: current.webhook_notify_system_error,
+        smtp_notify_system_error: current.smtp_notify_system_error,
+        notify_on_idoit_incomplete: current.notify_on_idoit_incomplete,
+        telegram_notify_idoit_incomplete: current.telegram_notify_idoit_incomplete,
+        webhook_notify_idoit_incomplete: current.webhook_notify_idoit_incomplete,
+        smtp_notify_idoit_incomplete: current.smtp_notify_idoit_incomplete,
       })
       toast.success(t('notification_rules_saved'))
     } catch {
@@ -1369,6 +1368,7 @@ export default function Settings() {
         setAdvancedViewEnabled(data.advanced_view_enabled)
         setShowCmdbIntegrations(data.advanced_view_enabled && data.show_cmdb_integrations)
         setShowServicesNav(data.advanced_view_enabled && data.show_services_nav)
+        setShowApplicationsNav(data.advanced_view_enabled && data.show_applications_nav)
         setShowDhcpMonitorNav(data.advanced_view_enabled && data.show_dhcp_monitor_nav)
         setShowNetworkTopologyNav(data.advanced_view_enabled && data.show_network_topology_nav)
         setShowPluginApi(data.advanced_view_enabled && data.show_plugin_api)
@@ -1404,6 +1404,8 @@ export default function Settings() {
       const payload = {
         idoit_enabled: idoitConfig.idoit_enabled,
         idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_allow_insecure_http: idoitConfig.idoit_allow_insecure_http,
+        idoit_skip_tls_verification: idoitConfig.idoit_skip_tls_verification,
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
@@ -1443,6 +1445,8 @@ export default function Settings() {
       const result = await idoitApi.testConnection({
         idoit_enabled: idoitConfig.idoit_enabled,
         idoit_base_url: idoitConfig.idoit_base_url,
+        idoit_allow_insecure_http: idoitConfig.idoit_allow_insecure_http,
+        idoit_skip_tls_verification: idoitConfig.idoit_skip_tls_verification,
         idoit_jsonrpc_path: idoitConfig.idoit_jsonrpc_path,
         idoit_portal_url: idoitConfig.idoit_portal_url,
         idoit_timeout_seconds: idoitConfig.idoit_timeout_seconds,
@@ -1524,34 +1528,7 @@ export default function Settings() {
     setIdoitSyncingAll(true)
     setIdoitSyncProgress(null)
     try {
-      const deviceResult = await devicesApi.list()
-      const registeredDevices = deviceResult.items.filter((device) => device.is_registered && (idoitConfig?.idoit_sync_scope !== 'manual' || device.idoit_sync_enabled !== false))
-      const total = registeredDevices.length
-      let success = 0
-      let failure = 0
-      let skipped = 0
-
-      if (total === 0) {
-        toast.success(t('idoit_bulk_sync_success', { success: '0', failure: '0', skipped: '0' }))
-        return
-      }
-
-      for (let index = 0; index < registeredDevices.length; index += 1) {
-        const device = registeredDevices[index]
-        const label = device.label || device.hostname || device.ip_address || device.mac_address
-        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
-        try {
-          const result = await idoitApi.syncDevice(device.id)
-          if (result.skipped) {
-            skipped += 1
-          } else {
-            success += 1
-          }
-        } catch {
-          failure += 1
-        }
-        setIdoitSyncProgress({ current: index + 1, total, success, failure, skipped, label })
-      }
+      const {success, failure, skipped} = await idoitApi.syncAll(progress => setIdoitSyncProgress(progress))
 
       setIdoitTestError(null)
       toast.success(t('idoit_bulk_sync_success', { success: String(success), failure: String(failure), skipped: String(skipped) }))
@@ -1603,10 +1580,13 @@ export default function Settings() {
         current.show_build_info,
         current.show_debug_tools,
         current.debug_log_level,
+        current.show_applications_nav,
+        current.show_vsphere,
       )
       setAdvancedViewEnabled(current.advanced_view_enabled)
       setShowCmdbIntegrations(current.advanced_view_enabled && current.show_cmdb_integrations)
       setShowServicesNav(current.advanced_view_enabled && current.show_services_nav)
+      setShowApplicationsNav(current.advanced_view_enabled && current.show_applications_nav)
       setShowDhcpMonitorNav(current.advanced_view_enabled && current.show_dhcp_monitor_nav)
       setShowNetworkTopologyNav(current.advanced_view_enabled && current.show_network_topology_nav)
       setShowPluginApi(current.advanced_view_enabled && current.show_plugin_api)
@@ -1617,6 +1597,7 @@ export default function Settings() {
       setShowPingHistory(current.advanced_view_enabled && current.show_ping_history)
       setShowBuildInfo(current.show_build_info)
       setShowDebugTools(current.advanced_view_enabled && current.show_debug_tools)
+      useUiSettingsStore.getState().setShowVsphere(current.advanced_view_enabled && current.show_vsphere)
       if (current.advanced_view_enabled) {
         if (current.show_cmdb_integrations) {
           loadIdoitConfig()
@@ -1674,6 +1655,8 @@ export default function Settings() {
             advanced_view_enabled: checked,
             show_cmdb_integrations: checked ? current.show_cmdb_integrations : false,
             show_services_nav: checked ? current.show_services_nav : false,
+            show_applications_nav: checked ? current.show_applications_nav : false,
+            show_vsphere: checked ? current.show_vsphere : false,
             show_dhcp_monitor_nav: checked ? current.show_dhcp_monitor_nav : false,
             show_network_topology_nav: checked ? current.show_network_topology_nav : false,
             show_plugin_api: checked ? current.show_plugin_api : false,
@@ -1754,6 +1737,14 @@ export default function Settings() {
       description: t('feature_category_extensions_hint'),
       items: [
         {
+          key: 'vsphere',
+          checked: current.show_vsphere,
+          disabled: !current.advanced_view_enabled,
+          label: t('vsphere_enable'),
+          description: t('vsphere_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_vsphere: checked }),
+        },
+        {
           key: 'plugin-api',
           checked: current.show_plugin_api,
           disabled: !current.advanced_view_enabled,
@@ -1803,6 +1794,14 @@ export default function Settings() {
       title: t('feature_category_inventory'),
       description: t('feature_category_inventory_hint'),
       items: [
+        {
+          key: 'applications',
+          checked: current.show_applications_nav,
+          disabled: !current.advanced_view_enabled,
+          label: t('show_applications_nav'),
+          description: t('show_applications_nav_hint'),
+          onChange: (checked: boolean) => setSettings({ ...current, show_applications_nav: checked }),
+        },
         {
           key: 'services',
           checked: current.show_services_nav,
@@ -2028,10 +2027,11 @@ export default function Settings() {
                 <select
                   className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
                   value={debugTopic}
-                  onChange={(e) => setDebugTopic(e.target.value as 'all' | 'cmdb' | 'idoit')}
+                  onChange={(e) => setDebugTopic(e.target.value as 'all' | 'cmdb' | 'idoit' | 'vsphere')}
                 >
                   <option value="cmdb">CMDB</option>
                   <option value="idoit">i-doit</option>
+                  <option value="vsphere">VMware / vSphere</option>
                   <option value="all">{t('filter_all')}</option>
                 </select>
               </div>
@@ -3402,6 +3402,19 @@ export default function Settings() {
                       onChange={(e) => setIdoitConfig({ ...idoitConfig, idoit_base_url: e.target.value })}
                       placeholder="https://idoit.example.com"
                     />
+                    <p className="mt-1 text-xs text-text-subtle">{t('idoit_https_required')}</p>
+                    <label className="mt-2 flex items-center gap-2 text-sm text-text-muted">
+                      <input type="checkbox" checked={idoitConfig.idoit_allow_insecure_http}
+                        onChange={e => setIdoitConfig({ ...idoitConfig, idoit_allow_insecure_http: e.target.checked })} />
+                      {t('idoit_allow_http')}
+                    </label>
+                    {idoitConfig.idoit_allow_insecure_http && <p className="mt-1 text-xs text-warning">{t('idoit_http_warning')}</p>}
+                    <label className="mt-2 flex items-center gap-2 text-sm text-text-muted">
+                      <input type="checkbox" checked={idoitConfig.idoit_skip_tls_verification}
+                        onChange={e => setIdoitConfig({ ...idoitConfig, idoit_skip_tls_verification: e.target.checked })} />
+                      {t('idoit_skip_tls')}
+                    </label>
+                    {idoitConfig.idoit_skip_tls_verification && <p className="mt-1 text-xs text-warning">{t('idoit_skip_tls_warning')}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-text-subtle mb-1">{t('idoit_jsonrpc_path')}</label>
@@ -3726,6 +3739,22 @@ export default function Settings() {
                   </div>
                 )}
 
+                <section className="mt-4 rounded-xl border border-border bg-surface2/30 p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-text-base">{t('idoit_application_test')}</h3>
+                  <p className="text-xs text-text-subtle">{t('idoit_application_test_hint')}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <input className="flex-1 min-w-48 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-base"
+                      aria-label={t('idoit_application_test')} maxLength={255} value={applicationTestTitle}
+                      onChange={e => {setApplicationTestTitle(e.target.value); setApplicationTestResult(null)}} />
+                    <Button variant="outline" loading={applicationTestBusy} disabled={!applicationTestTitle.trim()} onClick={async () => {
+                      setApplicationTestBusy(true); setApplicationTestResult(null)
+                      try {setApplicationTestResult(await idoitApi.testApplication(applicationTestTitle.trim()))}
+                      catch (error) {setApplicationTestResult({error: extractIdoitErrorDetails(error).message})}
+                      finally {setApplicationTestBusy(false)}
+                    }}>{t('idoit_application_test')}</Button>
+                  </div>
+                  {applicationTestResult && <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-3 text-xs text-text-muted">{JSON.stringify(applicationTestResult, null, 2)}</pre>}
+                </section>
                 <IdoitExportReviewPanel />
 
                 <div className="mt-4 rounded-xl border border-border bg-surface2/30 p-4">

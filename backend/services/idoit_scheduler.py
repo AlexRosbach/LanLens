@@ -6,7 +6,7 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from ..database import SessionLocal
-from .idoit import get_config, sync_all_registered_devices_to_idoit
+from .idoit import get_config, sync_all_registered_devices_to_idoit, idoit_sync_lock
 from .settings_helpers import is_advanced_feature_enabled
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,11 @@ async def _sync_job() -> None:
         cfg = get_config(db)
         if not is_advanced_feature_enabled(db, "show_cmdb_integrations") or not cfg.enabled or not cfg.auto_sync_enabled:
             return
-        result = await sync_all_registered_devices_to_idoit(db, mode="auto", skip_unchanged=True)
+        if idoit_sync_lock.locked():
+            return
+        db.rollback()
+        async with idoit_sync_lock:
+            result = await sync_all_registered_devices_to_idoit(db, mode="auto", skip_unchanged=True)
         if result.get("failure"):
             logger.warning("Automatic i-doit sync completed with %s failures", result["failure"])
     finally:

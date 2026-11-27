@@ -527,6 +527,8 @@ class PortScanResponse(BaseModel):
 
 
 class DeviceResponse(BaseModel):
+    discovery_sources: List[str] = Field(default_factory=list)
+    vsphere_inventory: List[dict] = Field(default_factory=list)
     id: int
     mac_address: str
     ip_address: Optional[str]
@@ -591,6 +593,10 @@ class DeviceResponse(BaseModel):
     services: List[ServiceResponse] = []
     manual_connect_entries: List[ManualConnectEntryResponse] = []
     ip_history: List[DeviceIpHistoryResponse] = []
+    # True only when this device itself is an enabled SNMP switch target.
+    # Endpoint identities can contain SNMP-derived port counters too, but they
+    # must not make the switch-only statistics panel appear on the endpoint.
+    snmp_monitoring_enabled: bool = False
     snmp_switch: Optional[str] = None
     snmp_switch_host: Optional[str] = None
     snmp_interface: Optional[str] = None
@@ -808,6 +814,14 @@ class NotificationRulesSettings(BaseModel):
     smtp_notify_device_archive_change: bool = True
     smtp_notify_mac_drift: bool = True
     smtp_notify_unknown_dhcp_server: bool = True
+    notify_on_system_error: bool = False
+    telegram_notify_system_error: bool = False
+    webhook_notify_system_error: bool = False
+    smtp_notify_system_error: bool = False
+    notify_on_idoit_incomplete: bool = False
+    telegram_notify_idoit_incomplete: bool = False
+    webhook_notify_idoit_incomplete: bool = False
+    smtp_notify_idoit_incomplete: bool = False
 
 
 class WebhookSettings(BaseModel):
@@ -820,6 +834,8 @@ class ServerUrlSettings(BaseModel):
 
 
 class UiSettings(BaseModel):
+    show_vsphere: Optional[bool] = None
+    show_applications_nav: Optional[bool] = None
     advanced_view_enabled: bool = False
     show_cmdb_integrations: bool = False
     show_services_nav: bool = False
@@ -857,6 +873,8 @@ class PortRangeScanRequest(BaseModel):
 
 
 class AllSettings(BaseModel):
+    show_vsphere: bool = False
+    show_applications_nav: bool = False
     dhcp_start: Optional[str] = "192.168.1.1"
     dhcp_end: Optional[str] = "192.168.1.254"
     dhcp_ranges: List[DhcpRange] = Field(default_factory=list)
@@ -917,6 +935,14 @@ class AllSettings(BaseModel):
     smtp_notify_device_archive_change: bool = True
     smtp_notify_mac_drift: bool = True
     smtp_notify_unknown_dhcp_server: bool = True
+    notify_on_system_error: bool = False
+    telegram_notify_system_error: bool = False
+    webhook_notify_system_error: bool = False
+    smtp_notify_system_error: bool = False
+    notify_on_idoit_incomplete: bool = False
+    telegram_notify_idoit_incomplete: bool = False
+    webhook_notify_idoit_incomplete: bool = False
+    smtp_notify_idoit_incomplete: bool = False
     server_url: Optional[str] = ""
     smtp_host: str = ""
     smtp_port: int = 587
@@ -1125,6 +1151,7 @@ class DeepScanFindingResponse(BaseModel):
     key: str
     value: Optional[Any] = None    # parsed from value_json
     source: Optional[str]
+    collection_source: Optional[str] = None
     observed_at: datetime
 
     class Config:

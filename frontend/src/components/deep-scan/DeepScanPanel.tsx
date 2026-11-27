@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { credentialsApi, type Credential } from '../../api/credentials'
 import {
   deepScanApi,
+  type AgentStatus,
   type DeepScanConfig,
   type DeepScanFinding,
   type DeepScanRun,
@@ -10,23 +12,30 @@ import {
 } from '../../api/deepScan'
 import { useI18n } from '../../i18n'
 import { formatRelativeTime } from '../../utils/formatters'
+import { hardwareFallbackFindings, preferredVmwareHardware } from '../../utils/hardwareInventory'
 import Button from '../ui/Button'
 import Badge from '../ui/Badge'
 import DeepScanConfigForm from './DeepScanConfigForm'
 import FindingsGrid from './FindingsGrid'
 import HostGuestPanel from './HostGuestPanel'
+import VsphereDeviceInventory from './VsphereDeviceInventory'
+import type { VsphereDeviceObservation } from '../../api/devices'
 
-type Tab = 'hardware' | 'os' | 'software' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest'
+const SOURCE_LABELS: Record<string, string> = { windows_agent: 'Windows Agent', linux_agent: 'Linux Agent', winrm: 'WinRM', ssh: 'SSH', vsphere: 'VMware / vSphere', unknown: 'Unknown' }
+const sourceOf = (f: DeepScanFinding) => f.collection_source || (f.source === 'lanlens_windows_agent' ? 'windows_agent' : f.source === 'lanlens_linux_agent' ? 'linux_agent' : f.source === 'winrm/ps' ? 'winrm' : 'unknown')
+
+type Tab = 'hardware' | 'os' | 'applications' | 'service' | 'container' | 'audit' | 'hypervisor' | 'host_guest' | 'vsphere'
 
 const TABS: { key: Tab; labelKey: string }[] = [
   { key: 'hardware',    labelKey: 'tab_hardware' },
   { key: 'os',         labelKey: 'tab_os' },
-  { key: 'software',   labelKey: 'tab_software' },
+  { key: 'applications', labelKey: 'tab_applications' },
   { key: 'service',    labelKey: 'tab_services' },
   { key: 'container',  labelKey: 'tab_containers' },
   { key: 'audit',      labelKey: 'tab_audit' },
   { key: 'hypervisor', labelKey: 'tab_hypervisor' },
   { key: 'host_guest', labelKey: 'tab_host_guest' },
+  { key: 'vsphere', labelKey: 'vsphere_title' },
 ]
 
 function StatusBadge({ run }: { run: DeepScanRun | null }) {
@@ -44,13 +53,19 @@ function StatusBadge({ run }: { run: DeepScanRun | null }) {
 
 interface Props {
   deviceId: number
+  vmware?: VsphereDeviceObservation[]
   onScanCompleted?: () => void | Promise<void>
 }
 
-export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
+export default function DeepScanPanel({ deviceId, onScanCompleted, vmware = [] }: Props) {
   const { t, lang } = useI18n()
 
   const [config, setConfig] = useState<DeepScanConfig | null>(null)
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null)
+  const [agentInterval, setAgentInterval] = useState<number | null>(null)
+  const [savingAgentInterval, setSavingAgentInterval] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState('all')
+  const [loadError, setLoadError] = useState(false)
   const [latestRun, setLatestRun] = useState<DeepScanRun | null>(null)
   const [findings, setFindings] = useState<DeepScanFinding[]>([])
   const [relationships, setRelationships] = useState<DeviceHostRelationship[]>([])
@@ -62,27 +77,51 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
 
   const load = async () => {
     try {
-      const [cfgResp, runsResp, findingsResp, relsResp, credsResp] = await Promise.all([
+      const [cfgResp, runsResp, findingsResp, relsResp, credsResp, agentResp] = await Promise.all([
         deepScanApi.getConfig(deviceId),
         deepScanApi.listRuns(deviceId, 1),
         deepScanApi.getFindings(deviceId),
         deepScanApi.getRelationships(deviceId),
         credentialsApi.list(),
+        deepScanApi.getAgentStatus(deviceId),
       ])
+      setLoadError(false)
+      setAgentStatus(agentResp.data)
       setConfig(cfgResp.data)
       setLatestRun(runsResp.data[0] ?? null)
       setFindings(findingsResp.data)
       setRelationships(relsResp.data)
       setCredentials(credsResp.data)
     } catch {
-      // silently fail — device may not have been scanned yet
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
+    setSourceFilter('all')
+    setAgentStatus(null)
+    setFindings([])
     load()
+  }, [deviceId])
+
+  // Outbound reports can arrive without a credential scan running.
+  useEffect(() => {
+    let active = true
+    const refresh = async () => {
+      try {
+        const [runs, data, agent] = await Promise.all([deepScanApi.listRuns(deviceId, 1), deepScanApi.getFindings(deviceId), deepScanApi.getAgentStatus(deviceId)])
+        if (!active) return
+        setLatestRun(runs.data[0] ?? null)
+        setFindings(data.data)
+        setAgentStatus(agent.data)
+        setLoadError(false)
+      } catch { if (active) setLoadError(true) }
+    }
+    const timer = window.setInterval(refresh, 15000)
+    window.addEventListener('focus', refresh)
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [deviceId])
 
   // Poll if a scan is running
@@ -137,26 +176,70 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
     }
   }
 
-  const findingsByTab = (tab: Tab) =>
-    tab === 'host_guest' ? [] : findings.filter((f) => f.finding_type === tab)
+  const saveAgentInterval = async () => {
+    if (agentInterval === null || !Number.isInteger(agentInterval) || agentInterval < 5 || agentInterval > 1440) return
+    setSavingAgentInterval(true)
+    try {
+      const response = await deepScanApi.updateAgentReportInterval(deviceId, agentInterval)
+      setAgentStatus((current) => current ? { ...current, report_interval_minutes: response.data.report_interval_minutes } : current)
+      setAgentInterval(response.data.report_interval_minutes)
+      toast.success(german ? 'Windows-Agent-Intervall gespeichert' : 'Windows agent interval saved')
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || (german ? 'Windows-Agent-Intervall konnte nicht gespeichert werden' : 'Could not save Windows agent interval'))
+    } finally {
+      setSavingAgentInterval(false)
+    }
+  }
+
+  const preferredHardware = preferredVmwareHardware(vmware)
+  const hardwareObservations = sourceFilter === 'vsphere'
+    ? vmware.map(row => ({ ...row, fields: Object.fromEntries(Object.entries(row.fields).filter(([key]) => ['cpu_count', 'memory_size_mib', 'disks'].includes(key))), custom_fields: [] })).filter(row => Object.keys(row.fields).length > 0)
+    : preferredHardware
+  const combinedFindings = sourceFilter === 'all' ? hardwareFallbackFindings(findings, preferredHardware) : findings
+
+  const findingsByTab = (tab: Tab) => {
+    if (tab === 'host_guest') return []
+    // Inventory collectors store installed applications under the stable
+    // `software` finding type. Present it as a dedicated Applications tab so
+    // it is easy to find next to Operating System in the device Deep Scan.
+    const findingType = tab === 'applications' ? 'software' : tab
+    return combinedFindings.filter((f) => f.finding_type === findingType && (sourceFilter === 'all' || sourceOf(f) === sourceFilter))
+  }
 
   // Only show tabs that have data (or are always shown)
   const visibleTabs = TABS.filter((tab) => {
-    if (tab.key === 'host_guest') return true
-    if (tab.key === 'hypervisor') return findings.some((f) => f.finding_type === 'hypervisor')
-    return findings.some((f) => f.finding_type === tab.key)
+    if (tab.key === 'vsphere') return vmware.length > 0 && ['all','vsphere'].includes(sourceFilter)
+    if (tab.key === 'hardware' && ['all','vsphere'].includes(sourceFilter) && hardwareObservations.length > 0) return true
+    if (tab.key === 'host_guest') return Boolean(config?.enabled || relationships.length)
+    return findingsByTab(tab.key).length > 0
   })
 
+  const sourceGroups = [...new Set(findings.map(sourceOf))].sort()
+  const activeSources = new Set<string>()
+  const credential = credentials.find(c => c.id === config?.credential_id)
+  if (config?.enabled && credential) {
+    if (credential.credential_type === 'windows_winrm') activeSources.add('winrm')
+    if (credential.credential_type === 'linux_ssh') activeSources.add('ssh')
+  }
+  if (agentStatus && !agentStatus.revoked) activeSources.add(agentStatus.platform === 'linux' ? 'linux_agent' : 'windows_agent')
+  if (vmware.length) activeSources.add('vsphere')
+  const sources = [...new Set([...activeSources, ...sourceGroups, ...(vmware.length ? ['vsphere'] : [])])].sort()
+  const sourceCount = (source: string) => source === 'vsphere' ? vmware.length : findings.filter(f=>sourceOf(f)===source).length
+  const german = lang === 'de'
+  const agentRecoveryRunHint = agentStatus?.platform === 'linux'
+    ? (german ? 'Führe den neuen Befehl auf diesem Gerät als root oder mit sudo aus.' : 'Run the new command on this device as root or with sudo.')
+    : (german ? 'Führe den neuen Befehl auf diesem Gerät als Administrator in PowerShell aus.' : 'Run the new command on this device as administrator in PowerShell.')
+  const filteredSources = sourceGroups.filter(source => sourceFilter === 'all' || sourceFilter === source)
   // Keep activeTab in sync: if the current tab is not visible, switch to the first visible one
   const effectiveTab: Tab = visibleTabs.some((t) => t.key === activeTab)
     ? activeTab
     : (visibleTabs[0]?.key ?? 'host_guest')
 
   useEffect(() => {
-    if (effectiveTab !== activeTab) {
+    if (!loading && effectiveTab !== activeTab) {
       setActiveTab(effectiveTab)
     }
-  }, [activeTab, effectiveTab])
+  }, [activeTab, effectiveTab, loading])
 
   if (loading) {
     return (
@@ -206,6 +289,41 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
         </div>
       </div>
 
+      {loadError && <p className="text-xs text-danger">{german ? 'Inventar konnte nicht vollständig geladen werden.' : 'Inventory could not be loaded completely.'}</p>}
+      {agentStatus && <div className="rounded-lg border border-border p-3 space-y-1 text-xs">
+        <div className="font-semibold text-text-base">{SOURCE_LABELS[agentStatus.platform === 'linux' ? 'linux_agent' : 'windows_agent']} · {agentStatus.revoked ? (german ? 'Widerrufen' : 'Revoked') : (agentStatus.last_seen_at ? (german ? 'Report empfangen' : 'Report received') : (german ? 'Registriert, noch kein Report' : 'Enrolled, no report yet'))}</div>
+        {agentStatus.revoked && <p role="alert" className="text-danger">{german ? 'Die Registrierung wurde widerrufen. Der Server lehnt weitere Reports ab. Erstelle unter ' : 'The registration was revoked. The server rejects further reports. Create a new installation command in '}<Link className="underline" to="/deep-scan-settings">{german ? 'Deep-Scan-Einstellungen' : 'Deep Scan settings'}</Link>{german ? ' einen neuen Installationsbefehl. ' : '. '}{agentRecoveryRunHint}{german ? ' Das bisherige Inventar bleibt erhalten.' : ' Existing inventory is retained.'}</p>}
+        <div className="text-text-muted">Device ID: {agentStatus.device_id} · POST /api/agents/report</div>
+        <div className="text-text-muted">{german ? 'Letzter empfangener Report' : 'Last accepted report'}: {agentStatus.last_seen_at ? formatRelativeTime(agentStatus.last_seen_at, lang) : '—'} · Sequence: {agentStatus.last_sequence}{agentStatus.last_run_id ? ' · Scan #' + agentStatus.last_run_id : ''}</div>
+        {agentStatus.summary && <div className="text-text-muted">{german ? 'Anwendungen' : 'Applications'}: {agentStatus.summary.software_count ?? '—'} · Findings: {agentStatus.summary.finding_count ?? '—'}</div>}
+        {agentStatus.platform === 'windows' && !agentStatus.revoked && <div className="flex flex-wrap items-end gap-2 pt-2">
+          <label className="flex flex-col gap-1 text-text-muted">{german ? 'Berichtsintervall (Minuten)' : 'Reporting interval (minutes)'}
+            <input className="input-field w-32" type="number" min={5} max={1440} value={agentInterval ?? agentStatus.report_interval_minutes} onChange={(event) => setAgentInterval(Number(event.target.value))} />
+          </label>
+          <Button size="sm" variant="outline" loading={savingAgentInterval} disabled={agentInterval === null || !Number.isInteger(agentInterval) || agentInterval < 5 || agentInterval > 1440} onClick={saveAgentInterval}>{german ? 'Intervall speichern' : 'Save interval'}</Button>
+          <p className="max-w-md text-text-subtle">{german ? 'Die Änderung wird mit dem nächsten erfolgreichen Bericht übernommen.' : 'The change is applied with the next successful report.'}</p>
+        </div>}
+      </div>}
+      {sources.length > 0 && <div className="rounded-lg border border-border p-3 space-y-2">
+        <h3 className="text-xs font-semibold text-text-base">{german ? 'Datenquellen' : 'Data sources'}</h3>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={()=>setSourceFilter('all')} aria-pressed={sourceFilter === 'all'} className={sourceFilter === 'all' ? 'ring-1 ring-primary rounded-full' : ''}><Badge variant="muted">{german ? 'Alle' : 'All'}</Badge></button>
+          {sources.map(source => {
+            const count = sourceCount(source)
+            const active = activeSources.has(source)
+            const state = count > 0 ? (active ? (german ? 'Daten vorhanden' : 'Data received') : (german ? 'Historische Daten' : 'Historical data')) : (german ? 'Aktiv, noch keine Daten' : 'Active, no data yet')
+            return <button type="button" key={source} aria-pressed={sourceFilter === source} title={state} onClick={()=>setSourceFilter(sourceFilter === source ? 'all' : source)} className={sourceFilter === source ? 'ring-1 ring-primary rounded-full' : ''}>
+              <Badge variant={count > 0 ? 'success' : 'muted'} dot>{SOURCE_LABELS[source] || source} · {count > 0 ? count : '0'}{!active ? (german ? ' · Historie' : ' · History') : ''}</Badge>
+            </button>
+          })}
+        </div>
+        <p className="text-xs text-text-subtle">{german ? 'Grün: Daten vorhanden. Grau: aktiv, noch keine Daten. Der Zeitstempel zeigt die letzte Beobachtung, nicht den Live-Status.' : 'Green: data available. Gray: active, no data yet. The timestamp shows the last observation, not live status.'}</p>
+        {sources.map(source => {
+          const newest = (source === 'vsphere' ? vmware.map(f=>f.observed_at) : findings.filter(f=>sourceOf(f)===source).map(f=>f.observed_at)).sort().slice(-1)[0]
+          return <p key={source} className="text-xs text-text-subtle">{SOURCE_LABELS[source] || source}: {newest ? formatRelativeTime(newest, lang) : '—'}</p>
+        })}
+      </div>}
+
       {/* Config form */}
       {showConfig && config && (
         <DeepScanConfigForm
@@ -220,14 +338,15 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
       )}
 
       {/* Not configured empty state */}
-      {!config?.enabled && !showConfig && (
+      {!config?.enabled && !showConfig && vmware.length === 0 && findings.length === 0 && !agentStatus && (
         <p className="text-sm text-text-subtle text-center py-2">
           {t('deep_scan_not_enabled')}
         </p>
       )}
 
       {/* Tabs + findings */}
-      {config?.enabled && (
+      {sourceFilter !== 'all' && sourceCount(sourceFilter) === 0 && <p className="text-xs text-text-muted">{german ? 'Noch keine Daten aus dieser Quelle.' : 'No data from this source yet.'}</p>}
+      {(config?.enabled || vmware.length > 0 || findings.length > 0 || relationships.length > 0) && (
         <>
           <div className="flex gap-1 border-b border-border overflow-x-auto">
             {visibleTabs.map((tab) => (
@@ -246,7 +365,7 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
           </div>
 
           <div className="min-h-[100px]">
-            {effectiveTab === 'host_guest' ? (
+            {effectiveTab === 'vsphere' ? <VsphereDeviceInventory observations={vmware} /> : effectiveTab === 'host_guest' ? (
               <HostGuestPanel
                 deviceId={deviceId}
                 relationships={relationships}
@@ -254,7 +373,11 @@ export default function DeepScanPanel({ deviceId, onScanCompleted }: Props) {
                 onSuggestionApplied={load}
               />
             ) : (
-              <FindingsGrid findings={findingsByTab(effectiveTab)} />
+              <>
+                {effectiveTab === 'hardware' && sourceFilter === 'all' && preferredHardware.length > 0 && <p className="mb-3 text-xs text-text-muted">{german ? 'Hardwaredaten aus VMware / vSphere haben Vorrang. Andere Quellen ergänzen fehlende Angaben. Über die Quellen-Badges sind die jeweiligen Originaldaten sichtbar.' : 'VMware / vSphere hardware values take precedence. Other sources supplement missing details. Select a source badge to view its original observations.'}</p>}
+                {effectiveTab === 'hardware' && hardwareObservations.length > 0 && ['all','vsphere'].includes(sourceFilter) && <VsphereDeviceInventory observations={hardwareObservations} />}
+                {filteredSources.map(source => { const rows = findingsByTab(effectiveTab).filter(f=>sourceOf(f)===source); return rows.length > 0 ? <div key={effectiveTab + source} className="space-y-1 mb-3"><h4 className="text-xs font-semibold text-primary">{SOURCE_LABELS[source] || source} · {rows.length} Findings</h4><FindingsGrid findings={rows} alwaysExpanded={effectiveTab === 'applications'} /></div> : null })}
+              </>
             )}
           </div>
         </>

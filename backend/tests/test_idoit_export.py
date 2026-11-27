@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.database import Base
-from backend.models import DeepScanFinding, DeepScanRun, Device, IdoitDeviceSync, PassiveDiscoveryObservation, PortScan, Service, Setting, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
+from backend.models import DeepScanFinding, DeepScanRun, Device, IdoitDeviceSync, IdoitSyncLog, PassiveDiscoveryObservation, PortScan, Service, Setting, SnmpInterface, SnmpMacTableEntry, SnmpSwitch
 from backend.services.idoit import DEFAULT_MAPPING, IdoitClient, IdoitConnectionError, _drive_entries, device_payload, get_config, build_export_rows, rows_to_export_csv, sync_device_to_idoit, update_config, _safe_log_details
 
 
@@ -76,6 +76,26 @@ class IdoitExportCsvTest(unittest.TestCase):
         self.assertNotIn("SNMP-VLAN", rows[0])
         self.assertIn("Identity Confidence", rows[0])
 
+    def test_cpu_description_is_readable_and_retains_structured_fields(self):
+        from backend.services.idoit import _cpu_details
+        details = _cpu_details(json.dumps({
+            "Name": "Intel(R) Example CPU", "NumberOfCores": 4,
+            "MaxClockSpeed": 3200, "NumberOfLogicalProcessors": 8,
+        }))
+        self.assertEqual(details["title"], "Intel(R) Example CPU")
+        self.assertEqual(details["cores"], 4)
+        self.assertEqual(details["frequency"], 3.2)
+        self.assertEqual(details["frequency_unit"], 4)
+        self.assertEqual(details["description"],
+                         "Processor: Intel Example CPU\nCores: 4\nClock speed: 3.2 GHz\nLogical processors: 8")
+
+    def test_cpu_linux_description_does_not_dump_lscpu_output(self):
+        from backend.services.idoit import _cpu_details
+        details = _cpu_details("Model name: AMD Example CPU\nCPU(s): 8\nCore(s) per socket: 4\nCPU max MHz: 3200\nFlags: avx")
+        self.assertEqual(details["cores"], 4)
+        self.assertEqual(details["frequency"], 3.2)
+        self.assertEqual(details["description"], "Processor: AMD Example CPU\nCores: 4\nClock speed: 3.2 GHz")
+
     def test_drive_capacity_is_normalized_to_idoit_gigabytes(self):
         entries = _drive_entries([
             {"Model": "NVMe", "Size": "476.94 GB"},
@@ -84,10 +104,26 @@ class IdoitExportCsvTest(unittest.TestCase):
         ])
 
         self.assertEqual(entries, [
-            {"title": "NVMe", "capacity": 476.94, "unit": 3},
-            {"title": "SATA", "capacity": 100.0, "unit": 3},
-            {"title": "Archive", "capacity": 2048.0, "unit": 3},
+            {"title": "NVMe [LanLens disk: Observed 476.94 GB #1]", "capacity": 476.94, "unit": 3},
+            {"title": "SATA [LanLens disk: Observed 100 GB #1]", "capacity": 100.0, "unit": 3},
+            {"title": "Archive [LanLens disk: Observed 2048 GB #1]", "capacity": 2048.0, "unit": 3},
         ])
+
+    def test_identical_disks_have_distinct_locators(self):
+        entries = _drive_entries([
+            {"Model": "Example Virtual Disk", "Size": "100 GB", "Index": 0, "SerialNumber": "0000"},
+            {"Model": "Example Virtual Disk", "Size": "100 GB", "Index": 1, "SerialNumber": "0000"},
+        ])
+        self.assertEqual([row["title"] for row in entries], [
+            "Example Virtual Disk [LanLens disk: Disk 0]",
+            "Example Virtual Disk [LanLens disk: Disk 1]",
+        ])
+        self.assertTrue(all("serial" not in row for row in entries))
+        legacy = _drive_entries([{"Model": "Example", "Size": "100 GB"}] * 2)
+        self.assertNotEqual(legacy[0]["title"], legacy[1]["title"])
+        linux = _drive_entries("NAME SIZE TYPE MODEL\nsda 100G disk Example\nsdb 100G disk Example\nsr0 1G rom CD")
+        self.assertEqual(len(linux), 2)
+        self.assertNotEqual(linux[0]["title"], linux[1]["title"])
 
     def test_build_export_rows_uses_bulk_snmp_identity(self):
         db = self.Session()
@@ -355,7 +391,9 @@ class IdoitExportCsvTest(unittest.TestCase):
             db.commit()
 
             assignment = device_payload(device, get_config(db), db)["operatingSystem"]
-            self.assertEqual(assignment["title"], "Windows 11 Pro 24H2")
+            self.assertEqual(assignment["title"], "Windows 11")
+            self.assertEqual(assignment["assigned_variant"], "Pro")
+            self.assertEqual(assignment["assigned_version"], "24H2")
             self.assertEqual(assignment["description"], "Kernel: 6.8.12-4-pve")
         finally:
             db.close()
@@ -385,6 +423,26 @@ class IdoitExportCsvTest(unittest.TestCase):
             ])
         finally:
             db.close()
+
+    def test_payload_accepts_single_software_object_and_linux_package_rows(self):
+        from backend.services.idoit import _software_assignments
+        def extract(value):
+            return _software_assignments({"software": {"installed_software": {"value": value}}})
+        self.assertEqual(extract({"Name": "Example App", "Version": "1.2"}), [
+            {"title": "Example App", "assigned_version": "1.2"},
+        ])
+        self.assertEqual(extract("example-package\t1.2\tamd64\nother-package\t2.0\tamd64"), [
+            {"title": "example-package", "assigned_version": "1.2"},
+            {"title": "other-package", "assigned_version": "2.0"},
+        ])
+
+    def test_idoit_uses_inventory_parser_for_display_name_and_apk(self):
+        from backend.services.idoit import _software_assignments
+        self.assertEqual(_software_assignments({"software": {"installed_software": {"value": [
+            {"DisplayName": "Example Tool", "DisplayVersion": "1.2", "Publisher": "Example"},
+        ]}}}), [{"title": "Example Tool", "assigned_version": "1.2", "description": "Publisher: Example"}])
+        self.assertEqual(_software_assignments({"software": {"installed_software": {"value": "example-package-1.2-r0"}}}),
+                         [{"title": "example-package", "assigned_version": "1.2-r0"}])
 
     def test_default_idoit_payload_maps_new_inventory_to_standard_categories(self):
         db = self.Session()
@@ -603,7 +661,9 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             async def object_type_title(self, object_id): return "Client"
             async def update_object_title(self, object_id, title): return {"id": object_id}
             async def resolve_application(self, title, create_missing=False):
-                return {"object_id": "101" if title == "Mozilla Firefox" else "102", "action": "matched", "title": title}
+                if title == "Mozilla Firefox":
+                    return {"object_id": "101", "action": "matched", "title": title}
+                return {"object_id": None, "action": "match_required", "title": title}
             async def save_category_best_effort(self, object_id, category, data):
                 saved_categories.append((category, data)); return {"status": "saved", "result": True}
             async def cleanup_lanlens_global_description(self, object_id): return None
@@ -622,12 +682,19 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             db.commit()
             with patch("backend.services.idoit.IdoitClient", FakeClient):
                 result = await sync_device_to_idoit(db, device, mode="manual")
-            self.assertEqual(result["status"], "synced")
+            self.assertEqual(result["status"], "synced_with_warnings")
+            self.assertIsNone(db.query(IdoitDeviceSync).filter_by(device_id=device.id).one().last_error)
             applications = [data for category, data in saved_categories if category == "C__CATG__APPLICATION"]
             self.assertEqual(applications, [
                 {"application": 101, "assigned_version": "132.0", "description": "Publisher: Mozilla"},
-                {"application": 102, "assigned_version": "24.09"},
             ])
+            self.assertEqual(result["warnings"], [])
+            log = db.query(IdoitSyncLog).filter_by(device_id=device.id).order_by(IdoitSyncLog.id.desc()).first()
+            warnings = json.loads(log.details_json)["warnings"]
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("1 installed application(s)", warnings[0])
+            self.assertIn("'7-Zip'", warnings[0])
+            self.assertNotIn("more", warnings[0])
         finally:
             db.close()
 
@@ -673,6 +740,282 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             "title": "Ubuntu 24.04.3 LTS",
             "matched_title": "Ubuntu Linux 24.04 LTS",
         })
+
+    async def test_operating_system_resolution_ignores_windows_wmi_build_suffix(self):
+        class WindowsServerSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                # Simulate the documented exact title filter and numeric type response.
+                if params.get("filter", {}).get("title") != "Microsoft Windows Server 2022 Standard":
+                    return []
+                return [{
+                    "id": "321",
+                    "title": "Microsoft Windows Server 2022 Standard",
+                    "type": "42",
+                    "status": "2",
+                }]
+
+        client = WindowsServerSearchClient(get_config(self.Session()))
+        resolution = await client.resolve_operating_system(
+            "Microsoft Windows Server 2022 Standard 10.0.20348"
+        )
+
+        self.assertEqual(resolution, {
+            "object_id": "321",
+            "action": "matched_normalized",
+            "title": "Microsoft Windows Server 2022 Standard 10.0.20348",
+            "matched_title": "Microsoft Windows Server 2022 Standard",
+        })
+
+    async def test_application_lookup_uses_typed_title_and_rejects_ambiguity(self):
+        class ApplicationSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                self.assert_query = params
+                return [
+                    {"id": "101", "title": "Example Application", "type": "7", "status": "2"},
+                    {"id": "102", "title": "Example Application", "type": "7", "status": "2"},
+                    {"id": "103", "title": "Example Application", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+            async def create_object(self, title, object_type):
+                raise AssertionError("ambiguous titles must not create another object")
+
+        client = ApplicationSearchClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Application", create_missing=True)
+        self.assertEqual(client.assert_query["filter"]["type"], "C__OBJTYPE__APPLICATION")
+        self.assertEqual(client.assert_query["filter"]["title"], "Example Application")
+        self.assertEqual(result["action"], "ambiguous_match")
+
+    async def test_application_resolution_normalizes_display_suffixes(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                self.last_query = params["filter"]
+                catalog = {"Example Archive": "101", "Example Archive 2.0": "102",
+                           "Example Suite 2024": "103", "Example Suite": "104"}
+                return [{"id": oid, "title": name, "type_const": "C__OBJTYPE__APPLICATION"}
+                        for name, oid in catalog.items()]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("existing product must be reused")
+
+        client = SearchClient(get_config(self.Session()))
+        for title in ("Example Archive 21.07 (x64)", "Example Archive (64-bit)", "Example Archive x64 21.07"):
+            with self.subTest(title=title):
+                self.assertEqual(await client.resolve_application(title, create_missing=True), {
+                    "object_id": "101", "action": "matched_normalized", "title": title,
+                    "matched_title": "Example Archive",
+                })
+                self.assertEqual(client.last_query["type"], "C__OBJTYPE__APPLICATION")
+        exact = await client.resolve_application("Example Archive 2.0")
+        self.assertEqual(exact["object_id"], "102")
+        self.assertEqual(exact["action"], "matched")
+        release = await client.resolve_application("Example Suite 2024 (x64)")
+        self.assertEqual(release["object_id"], "103")
+        for title in ("Example Suite 2025", "Example Suite Enterprise 2.0"):
+            self.assertEqual((await client.resolve_application(title))["action"], "match_required")
+
+    async def test_application_catalog_matches_typographic_and_architecture_aliases(self):
+        class CatalogClient(IdoitClient):
+            async def read_objects(self, params):
+                if "title" in params["filter"]:
+                    return []
+                return [
+                    {"id": "101", "title": "9–Archive (64-bit)", "type_const": "C__OBJTYPE__APPLICATION"},
+                    {"id": "102", "title": "Example Editor 5.0", "type_const": "C__OBJTYPE__APPLICATION"},
+                    {"id": "103", "title": "Example-Suite", "type_const": "C__OBJTYPE__APPLICATION"},
+                    {"id": "104", "title": "Example–Suite", "type_const": "C__OBJTYPE__APPLICATION"},
+                ]
+            async def create_object(self, title, object_type):
+                raise AssertionError("must not create duplicate or ambiguous objects")
+
+        client = CatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("9-Archive 21.07 (x64)")
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(result["action"], "matched_normalized")
+        self.assertEqual((await client.resolve_application("Example Editor 4.1"))["action"], "match_required")
+        self.assertEqual((await client.resolve_application("Example Suite 3.0", create_missing=True))["action"], "ambiguous_match")
+        diagnosis = await client.diagnose_application("9-Archive 21.07 (x64)")
+        self.assertEqual(diagnosis["resolution"]["object_id"], "101")
+        self.assertEqual(diagnosis["candidates"][-1]["normalized_match_count"], 1)
+
+    async def test_application_cache_miss_rechecks_exact_product_title(self):
+        class CatalogClient(IdoitClient):
+            async def read_objects(self, params):
+                title = params["filter"].get("title")
+                if title is None:
+                    return [{"id": "100", "title": "Example Editor", "type_const": "C__OBJTYPE__APPLICATION"}]
+                if title == "Example Security Agent":
+                    return [{"id": "101", "title": title, "type_const": "C__OBJTYPE__APPLICATION"}]
+                if title == "7-Zip":
+                    return [{"id": "102", "title": title, "type_const": "C__OBJTYPE__APPLICATION"}]
+                return []
+            async def create_object(self, title, object_type):
+                raise AssertionError("do not create on a match-only lookup")
+
+        client = CatalogClient(get_config(self.Session()))
+        await client.resolve_application("Not In Catalog")
+        result = await client.resolve_application("Example Security Agent 2026-01_47")
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(result["lookup"], "direct_fallback")
+        self.assertEqual((await client.resolve_application("7-Zip 21.07 (x64)"))["object_id"], "102")
+        self.assertEqual((await client.resolve_application("Example Security Agent Containment"))["action"], "match_required")
+        self.assertEqual((await client.resolve_application("Example Security Agent 2026"))["action"], "match_required")
+
+    async def test_application_catalog_recovers_from_empty_title_filters(self):
+        class CatalogClient(IdoitClient):
+            catalog_calls = 0
+
+            async def read_objects(self, params):
+                self.assert_type = params["filter"]["type"]
+                if "title" in params["filter"]:
+                    return []
+                self.catalog_calls += 1
+                return {"data": {
+                    "101": {"id": "101", "title": "Example Archive", "type": "7", "status": "2"},
+                    "102": {"id": "102", "title": "Example Editor", "type": "7", "status": "2"},
+                    "103": {"id": "103", "title": "Example Archive", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                }}
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("catalog match must be reused")
+
+        client = CatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Archive 21.07 (x64)", create_missing=True)
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(result["lookup"], "typed_catalog")
+        self.assertEqual((await client.resolve_application("Example Editor 4.1"))["object_id"], "102")
+        self.assertEqual(client.catalog_calls, 1)
+        self.assertEqual(client.assert_type, "C__OBJTYPE__APPLICATION")
+
+    async def test_application_catalog_retries_verified_numeric_type(self):
+        class NumericTypeClient(IdoitClient):
+            async def call(self, method, params=None):
+                self.assert_method = method
+                return [{"id": "73", "const": "C__OBJTYPE__APPLICATION", "objectcount": "1"}]
+
+            async def read_objects(self, params):
+                if params["filter"]["type"] == 73:
+                    return [
+                        {"id": "101", "title": "Example Archive", "type": "73", "status": "2"},
+                        {"id": "102", "title": "Example Archive", "type": "74", "status": "2"},
+                    ]
+                return []
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("existing application must be reused")
+
+        client = NumericTypeClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Archive 21.07 (x64)", create_missing=True)
+        self.assertEqual(result["object_id"], "101")
+        self.assertEqual(client.assert_method, "cmdb.object_types")
+        self.assertEqual(client.application_lookup_debug["object_type_id"], "73")
+        self.assertEqual(client.application_lookup_debug["catalog_size"], 1)
+
+    async def test_application_catalog_locally_filters_normal_status(self):
+        class StatusFilterClient(IdoitClient):
+            async def call(self, method, params=None):
+                return [{"id": "73", "const": "C__OBJTYPE__APPLICATION", "objectcount": "2"}]
+
+            async def read_objects(self, params):
+                filters = params["filter"]
+                if filters.get("type") == 73 and "status" not in filters:
+                    return [
+                        {"id": "101", "title": "Example Archive", "type": "73", "status": "2"},
+                        {"id": "102", "title": "Example Archive", "type": "73", "status": "3"},
+                    ]
+                return []
+
+        client = StatusFilterClient(get_config(self.Session()))
+        result = await client.diagnose_application("Example Archive 2.0 (x64)")
+        self.assertEqual(result["resolution"]["object_id"], "101")
+        self.assertFalse(result["upstream_write_performed"])
+        self.assertEqual(result["catalog"]["catalog_size"], 1)
+
+    async def test_application_catalog_refuses_creation_when_type_count_disagrees(self):
+        class EmptyCatalogClient(IdoitClient):
+            async def call(self, method, params=None):
+                return [{"id": "73", "const": "C__OBJTYPE__APPLICATION", "objectcount": "10"}]
+
+            async def read_objects(self, params):
+                return []
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("inconsistent catalog cannot create")
+
+        client = EmptyCatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Missing", create_missing=True)
+        self.assertEqual(result["action"], "lookup_incomplete")
+        self.assertFalse(client.application_lookup_debug["complete"])
+
+    async def test_application_catalog_refuses_incomplete_pagination(self):
+        class CatalogClient(IdoitClient):
+            async def read_objects(self, params):
+                if "title" in params["filter"]:
+                    return []
+                return [{"id": str(i), "title": f"Application {i}", "type": "7"} for i in range(1, 501)]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("incomplete lookup cannot create")
+
+        client = CatalogClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Missing", create_missing=True)
+        self.assertEqual(result["action"], "lookup_incomplete")
+
+    async def test_application_resolution_rejects_ambiguous_fallback(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                if params["filter"]["title"] != "Example Editor":
+                    return []
+                return [
+                    {"id": "101", "title": "Example Editor", "type": "7", "status": "2"},
+                    {"id": "102", "title": "Example Editor", "type": "7", "status": "2"},
+                    {"id": "103", "title": "Example Editor", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("ambiguous matches must not create new objects")
+
+        client = SearchClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Editor 4.1 (x86)", create_missing=True)
+        self.assertEqual(result["action"], "ambiguous_match")
+        self.assertIsNone(result["object_id"])
+        self.assertEqual(result["title"], "Example Editor 4.1 (x86)")
+
+    async def test_application_resolution_rejects_wrong_type_and_archived_fallback(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [
+                    {"id": "103", "title": "Example Editor", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "104", "title": "Example Editor", "type_const": "C__OBJTYPE__APPLICATION", "status": "3"},
+                    {"id": "105", "title": "Example Editor 5.0", "type_const": "C__OBJTYPE__APPLICATION"},
+                ]
+
+        client = SearchClient(get_config(self.Session()))
+        result = await client.resolve_application("Example Editor 4.1 (x86)")
+        self.assertEqual(result["action"], "match_required")
+        self.assertIsNone(result["object_id"])
+
+    async def test_application_resolution_does_not_create_after_failed_lookup(self):
+        class SearchClient(IdoitClient):
+            async def read_objects(self, params):
+                if params["filter"]["title"] == "Example Editor":
+                    raise IdoitConnectionError("temporary outage", stage="read_objects")
+                return []
+
+            async def create_object(self, title, object_type):
+                raise AssertionError("failed lookup must not create another object")
+
+        client = SearchClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.resolve_application("Example Editor 4.1 (x86)", create_missing=True)
+
+    async def test_operating_system_resolution_rejects_mismatched_windows_server_edition(self):
+        class EditionSearchClient(IdoitClient):
+            async def read_objects(self, params):
+                return [{"id": "100", "title": "Windows Server 2025 Datacenter", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"}]
+
+        client = EditionSearchClient(get_config(self.Session()))
+        result = await client.resolve_operating_system("Windows Server 2025 Standard 10.0.26100")
+        self.assertEqual(result["action"], "match_required")
+        self.assertIsNone(result["object_id"])
 
     async def test_operating_system_resolution_does_not_guess_between_normalized_titles(self):
         class AmbiguousSearchClient(IdoitClient):
@@ -1128,12 +1471,12 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
         await failing.logout_best_effort()
         self.assertIsNone(failing._session_id)
 
-    async def test_category_fallback_preserves_title_and_returns_warning_on_rejection(self):
+    async def test_category_rejection_does_not_retry_speculative_writes(self):
         attempts = []
 
         class RejectingClient(IdoitClient):
-            async def find_reusable_category_entry(self, object_id, category, data):
-                return "7"
+            async def read_category(self, object_id, category):
+                return [{"id": "7", "status": "2", "title": "Old model"}]
 
             async def save_category(self, object_id, category, data, entry_id=None):
                 attempts.append(dict(data))
@@ -1151,8 +1494,358 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(attempts[0], {"title": "Demo model", "manufacturer": "Demo vendor"})
-        self.assertEqual(attempts[1], {"title": "Demo model"})
-        self.assertEqual(attempts[2], {"manufacturer": "Demo vendor", "title": "Demo model"})
+        self.assertEqual(len(attempts), 1)
+
+    async def test_cpu_reuses_legacy_description_entry(self):
+        class CpuClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return [{"id": "17", "title": "Old title", "description": json.dumps({
+                    "Name": "Example CPU", "NumberOfCores": 4, "MaxClockSpeed": 3200,
+                })}, {"id": "18", "title": "Other CPU"}]
+
+        client = CpuClient(get_config(self.Session()))
+        self.assertEqual(await client.find_reusable_category_entry(
+            "42", "C__CATG__CPU", {"title": "Example CPU", "description": "Processor: Example CPU"}
+        ), "17")
+
+    async def test_cpu_description_rejection_is_not_silenced(self):
+        class CpuClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return [{"id": "17", "status": "2", "title": "Example CPU", "description": "Old"}]
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                if "description" in data:
+                    raise IdoitConnectionError("description rejected", stage="jsonrpc_error")
+                return {"success": True, "entry": 17}
+
+        client = CpuClient(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__CPU",
+            {"title": "Example CPU", "description": "Processor: Example CPU"})
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "save_rejected")
+
+    async def test_idoit_rejects_http_before_sending_credentials(self):
+        from dataclasses import replace
+        from backend.services.idoit import validate_idoit_https_url
+        validate_idoit_https_url("https://example.test/idoit/src/jsonrpc.php")
+        validate_idoit_https_url("http://example.test/idoit/src/jsonrpc.php", allow_insecure_http=True)
+        with self.assertRaises(ValueError):
+            validate_idoit_https_url("http://user:password@example.test", allow_insecure_http=True)
+        for url in ("http://example.test", "https://user:password@example.test", "https://example.test/?key=x"):
+            with self.assertRaises(ValueError):
+                validate_idoit_https_url(url)
+        cfg = replace(get_config(self.Session()), base_url="http://example.test", api_key="test")
+        client = IdoitClient(cfg)
+        with self.assertRaises(IdoitConnectionError) as error:
+            await client.call("idoit.login")
+        self.assertEqual(error.exception.stage, "url_validation")
+        db = self.Session()
+        try:
+            cfg = update_config(db, {"idoit_allow_insecure_http": True, "idoit_base_url": "http://example.test"})
+            self.assertTrue(cfg.allow_insecure_http)
+            self.assertTrue(get_config(db).allow_insecure_http)
+        finally:
+            db.close()
+
+    async def test_idoit_tls_verification_is_explicit_and_scoped(self):
+        import ssl
+        from dataclasses import replace
+        from unittest.mock import AsyncMock
+        from backend.services.notification import PinnedHttpResponse, _pinned_tls_context
+
+        db = self.Session()
+        try:
+            cfg = replace(get_config(db), base_url="https://example.test", api_key="test")
+            self.assertFalse(cfg.skip_tls_verification)
+            with patch("backend.services.idoit.request_json_via_validated_url", new_callable=AsyncMock) as request:
+                request.return_value = PinnedHttpResponse(200, '{"result": {"ok": true}}')
+                await IdoitClient(cfg).call("idoit.login")
+                self.assertTrue(request.call_args.kwargs["verify_tls"])
+                await IdoitClient(replace(cfg, skip_tls_verification=True)).call("idoit.login")
+                self.assertFalse(request.call_args.kwargs["verify_tls"])
+            update_config(db, {"idoit_skip_tls_verification": True})
+            self.assertTrue(get_config(db).skip_tls_verification)
+            update_config(db, {"idoit_skip_tls_verification": False})
+            self.assertFalse(get_config(db).skip_tls_verification)
+            default = _pinned_tls_context("https")
+            insecure = _pinned_tls_context("https", verify_tls=False)
+            self.assertTrue(default.check_hostname)
+            self.assertEqual(default.verify_mode, ssl.CERT_REQUIRED)
+            self.assertFalse(insecure.check_hostname)
+            self.assertEqual(insecure.verify_mode, ssl.CERT_NONE)
+            self.assertEqual(_pinned_tls_context("https").verify_mode, ssl.CERT_REQUIRED)
+            self.assertIsNone(_pinned_tls_context("http"))
+        finally:
+            db.close()
+
+    async def test_category_snapshot_is_idempotent_and_keeps_distinct_versions_and_modules(self):
+        from backend.services.idoit import _memory_entries
+
+        class Client(IdoitClient):
+            def __init__(self, config):
+                super().__init__(config)
+                self.rows = {}
+                self.reads = Counter()
+                self.writes = []
+
+            async def call(self, method, params=None):
+                category = params["category"]
+                rows = self.rows.setdefault(category, [])
+                if method == "cmdb.category.read":
+                    self.reads[category] += 1
+                    return [dict(row) for row in rows]
+                self.assert_method = method
+                self.writes.append((category, params.get("entry"), dict(params["data"])))
+                if "entry" in params:
+                    row = next(row for row in rows if row["id"] == str(params["entry"]))
+                    row.update(params["data"])
+                else:
+                    row = {"id": str(len(rows) + 1), "objID": "42", "status": "2", **params["data"]}
+                    rows.append(row)
+                return {"success": True, "entry": int(row["id"])}
+
+        from collections import Counter
+        client = Client(get_config(self.Session()))
+        apps = [{"application": 101, "assigned_version": version, "description": "Example"}
+                for version in ("6.0.36", "8.0.11")]
+        modules = _memory_entries([
+            {"Manufacturer": "Vendor A", "Capacity": "16 GB", "DeviceLocator": "DIMM_A1"},
+            {"Manufacturer": "Vendor A", "Capacity": "16 GB", "DeviceLocator": "DIMM_A2"},
+            {"Manufacturer": "Vendor B", "Capacity": "16 GB", "DeviceLocator": "DIMM_B1"},
+        ])
+        disks = _drive_entries([{"Model": "Example Disk", "Size": "100 GB", "Index": 0}])
+        categories = {"C__CATG__APPLICATION": apps, "C__CATG__MEMORY": modules, "C__CATG__DRIVE": disks}
+        for expected in ("created", "unchanged"):
+            client.category_snapshot = {}
+            client.reads.clear()
+            client.writes.clear()
+            for category, payload in categories.items():
+                results = await client.reconcile_category("42", category, payload)
+                self.assertEqual([result["status"] for result in results], [expected] * len(payload))
+                self.assertEqual(client.reads[category], 1)
+            self.assertEqual(len(client.writes), 6 if expected == "created" else 0)
+            self.assertEqual(len(client.rows["C__CATG__APPLICATION"]), 2)
+            self.assertEqual(len(client.rows["C__CATG__MEMORY"]), 3)
+        client.category_snapshot = {}
+        client.writes.clear()
+        resized = [{**disks[0], "capacity": 200}]
+        results = await client.reconcile_category("42", "C__CATG__DRIVE", resized)
+        self.assertEqual(results[0]["status"], "updated")
+        self.assertEqual(client.writes, [("C__CATG__DRIVE", 1, {"capacity": 200})])
+
+    async def test_unresolved_applications_are_retried_and_containers_do_not_append_raw_rows(self):
+        db = self.Session()
+        saved = []
+        resolved = set()
+        class FakeClient:
+            def __init__(self, config): pass
+            async def login(self): pass
+            async def find_existing_object(self, payload): return {"object_id": "42"}
+            async def read_object(self, object_id): return {"id": object_id, "type_title": "Client", "sysid": "SYS-42"}
+            async def object_type_title(self, object_id): return "Client"
+            async def update_object_title(self, object_id, title): pass
+            async def resolve_application(self, title, create_missing=False):
+                if title in resolved:
+                    return {"object_id": str(100 + int(title.split()[-1])), "action": "matched"}
+                return {"object_id": None, "action": "match_required"}
+            async def save_category_best_effort(self, object_id, category, data):
+                if category == "C__CATG__APPLICATION": saved.append(data)
+                return {"status": "saved"}
+            async def cleanup_lanlens_global_description(self, object_id): return None
+            async def object_sysid(self, object_id): return "SYS-42"
+        try:
+            update_config(db, {"idoit_enabled": True, "idoit_base_url": "https://idoit.example.test", "idoit_api_key": "secret"})
+            device = Device(mac_address="00:11:22:33:44:99", hostname="retry-host", is_registered=True, idoit_sync_enabled=True)
+            db.add(device); db.commit()
+            run = DeepScanRun(device_id=device.id, profile="windows_agent", status="done")
+            db.add(run); db.commit()
+            titles = [f"Example app {i}" for i in range(150)]
+            db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="software", key="installed_software",
+                                  value_json=json.dumps([{"name": title, "version": "1.0"} for title in titles])))
+            db.add(DeepScanFinding(device_id=device.id, run_id=run.id, finding_type="container", key="docker_containers",
+                                  value_json=json.dumps("Unresolved container")))
+            db.commit()
+            with patch("backend.services.idoit.IdoitClient", FakeClient):
+                for _ in range(3):
+                    first = await sync_device_to_idoit(db, device, mode="auto", skip_unchanged=True)
+                    self.assertEqual(first["status"], "synced_with_warnings")
+                    self.assertFalse(first.get("skipped", False))
+                self.assertEqual(saved, [])
+                resolved.update(titles)
+                result = await sync_device_to_idoit(db, device, mode="auto", skip_unchanged=True)
+                self.assertEqual(len(saved), 150)
+                self.assertEqual(result["status"], "synced_with_warnings") # container still unresolved
+        finally:
+            db.close()
+
+    def test_port_scan_and_service_share_one_connection_identity(self):
+        from backend.services.idoit import _merge_network_observations
+        port = {"port_from": 443, "port_to": 443, "protocol": "TCP", "protocol_layer_5": "HTTPS", "description": "Discovered by LanLens port scan"}
+        service = {**port, "description": "Service: Example"}
+        result = _merge_network_observations([port], [service])
+        self.assertEqual(len(result), 1)
+        self.assertIn(port["description"], result[0]["description"])
+        self.assertIn(service["description"], result[0]["description"])
+        extra_service = {**service, "description": "Another HTTPS endpoint"}
+        merged = _merge_network_observations([port, port], [service, extra_service])
+        self.assertEqual(len(merged), 1)
+        self.assertIn("Another HTTPS endpoint", merged[0]["description"])
+        self.assertIn(service["description"], merged[0]["description"])
+
+    async def test_model_manufacturer_dialog_uses_existing_id_and_cached_read(self):
+        class Client(IdoitClient):
+            async def call(self, method, params=None):
+                self.assert_method = method
+                self.calls = getattr(self, "calls", 0) + 1
+                return [{"id": "14", "title": "Example manufacturer"}]
+        client = Client(get_config(self.Session()))
+        cache = {}
+        self.assertEqual(await client.resolve_model_manufacturer("Example manufacturer", cache), {"status": "matched", "id": 14})
+        self.assertEqual(await client.resolve_model_manufacturer("Unknown manufacturer", cache), {"status": "unmatched"})
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(client.assert_method, "cmdb.dialog.read")
+
+    def test_certificate_export_ignores_failed_checks_without_identity(self):
+        from backend.services.idoit import _tls_certificate_entries
+        from backend.models import Service
+        device = Device(mac_address="00:11:22:33:44:89")
+        device.services = [Service(name="Example HTTPS", port=443, protocol="https", tls_error="Connection failed")]
+        self.assertEqual(_tls_certificate_entries(device), [])
+
+    async def test_category_snapshot_refuses_duplicates_and_failed_reads(self):
+        class Client(IdoitClient):
+            writes = 0
+            rows = []
+            fail_read = False
+            async def read_category(self, object_id, category):
+                if self.fail_read:
+                    raise IdoitConnectionError("unavailable", stage="category_read")
+                return self.rows
+            async def save_category(self, *args, **kwargs):
+                self.writes += 1
+                raise AssertionError("unsafe write")
+        client = Client(get_config(self.Session()))
+        data = {"application": 101, "assigned_version": "8.0"}
+        client.rows = [{"id": str(i), "objID": "42", "status": "2",
+                        "application": {"id": "200", "ref_id": "101", "ref_title": "Example"}, "assigned_version": {"ref_title": "8.0", "ref_id": "9", "id": "99"}}
+                       for i in (1, 2)]
+        result = await client.reconcile_category("42", "C__CATG__APPLICATION", [data])
+        self.assertEqual(result[0]["status"], "ambiguous")
+        client.rows = []
+        result = await client.reconcile_category("42", "C__CATG__APPLICATION", [data, data])
+        self.assertEqual([row["status"] for row in result], ["ambiguous", "ambiguous"])
+        client.fail_read = True
+        result = await client.reconcile_category("42", "C__CATG__APPLICATION", [data])
+        self.assertEqual(result[0]["reason"], "read_failed")
+        self.assertEqual(client.writes, 0)
+
+    async def test_drive_sync_creates_distinct_entries_and_updates_only_matching_disk(self):
+        class DriveClient(IdoitClient):
+            def __init__(self, config):
+                super().__init__(config)
+                self.rows = [{"id": "90", "title": "Example Virtual Disk"}]
+                self.writes = []
+
+            async def read_category(self, object_id, category):
+                return [dict(row) for row in self.rows]
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                self.writes.append(entry_id)
+                if entry_id:
+                    row = next(row for row in self.rows if row["id"] == entry_id)
+                    row.update(data)
+                else:
+                    row = {"id": str(90 + len(self.rows)), **data}
+                    self.rows.append(row)
+                return {"success": True, "entry": row["id"]}
+
+        client = DriveClient(get_config(self.Session()))
+        disks = _drive_entries([
+            {"Model": "Example Virtual Disk", "Size": "100 GB", "Index": 0},
+            {"Model": "Example Virtual Disk", "Size": "200 GB", "Index": 1},
+        ])
+        for expected in ("created", "unchanged"):
+            for disk in disks:
+                result = await client.save_category_best_effort("42", "C__CATG__DRIVE", disk)
+                self.assertEqual(result["status"], expected)
+        self.assertEqual(client.writes, [None, None])
+        self.assertEqual(len(client.rows), 3)
+        self.assertEqual(client.rows[0], {"id": "90", "title": "Example Virtual Disk"})
+        self.assertEqual([row["capacity"] for row in client.rows[1:]], [100.0, 200.0])
+
+    async def test_drive_conflicting_serial_does_not_overwrite_and_ambiguous_match_does_not_write(self):
+        class DriveClient(IdoitClient):
+            async def read_category(self, object_id, category):
+                return self.rows
+
+            async def save_category(self, *args, **kwargs):
+                raise AssertionError("ambiguous or failed identity lookup must not write")
+
+        client = DriveClient(get_config(self.Session()))
+        title = "Example [LanLens disk: Disk 0]"
+        client.rows = [{"id": "10", "title": title, "serial": "OLD"}]
+        self.assertIsNone(await client.find_reusable_category_entry("42", "C__CATG__DRIVE",
+                                                                    {"title": title, "serial": "NEW"}))
+        client.rows = [{"id": "10", "title": title}, {"id": "11", "title": title}]
+        result = await client.save_category_best_effort("42", "C__CATG__DRIVE", {"title": title})
+        self.assertEqual(result["status"], "ambiguous")
+
+    async def test_drive_rejected_write_is_not_retried_as_partial_rows(self):
+        class DriveClient(IdoitClient):
+            calls = 0
+
+            async def read_category(self, object_id, category):
+                return []
+
+            async def save_category(self, object_id, category, data, entry_id=None):
+                self.calls += 1
+                raise IdoitConnectionError("Drive write rejected", stage="jsonrpc_error")
+
+        client = DriveClient(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__DRIVE",
+            {"title": "Example [LanLens disk: Disk 0]", "capacity": 100, "unit": 3})
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(client.calls, 1)
+
+    async def test_application_invalid_version_does_not_create_partial_assignment(self):
+        class Client(IdoitClient):
+            linked = False
+            async def read_category(self, object_id, category):
+                return [{"id": 17, "application": {"id": 101}}] if self.linked else []
+            async def save_category(self, object_id, category, data, entry_id=None):
+                if "assigned_version" in data:
+                    raise IdoitConnectionError("invalid version", stage="jsonrpc_error")
+                self.linked = True
+                return {"success": True, "entry": 17}
+        client = Client(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__APPLICATION", {"application": 101, "assigned_version": "1.2"})
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(client.linked)
+
+    async def test_application_save_uses_acknowledged_entry_without_readback(self):
+        class ReadbackClient(IdoitClient):
+            reads = 0
+            async def save_category(self, object_id, category, data, entry_id=None):
+                return {"success": True, "entry": 17}
+
+            async def read_category(self, object_id, category):
+                self.reads += 1
+                return []
+
+        client = ReadbackClient(get_config(self.Session()))
+        result = await client.save_category_best_effort("42", "C__CATG__APPLICATION", {"application": 101})
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["entry_id"], "17")
+        self.assertEqual(client.reads, 1)
+
+    async def test_category_save_rejects_explicit_unsuccessful_result(self):
+        class RejectingClient(IdoitClient):
+            async def call(self, method, params=None):
+                return {"success": False, "message": "rejected"}
+
+        client = RejectingClient(get_config(self.Session()))
+        with self.assertRaises(IdoitConnectionError):
+            await client.save_category("42", "C__CATG__CPU", {"title": "Example CPU"}, "17")
 
     async def test_listener_reuse_requires_same_transport_and_complete_port_range(self):
         class ListenerClient(IdoitClient):
@@ -1190,6 +1883,61 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    def test_windows_os_edition_is_separate_from_product_and_build(self):
+        from backend.services.idoit import _operating_system_assignment
+        for edition in ("Standard", "Datacenter", "Essentials"):
+            result = _operating_system_assignment("Microsoft Windows Server 2025 " + edition + " 10.0.26100")
+            self.assertEqual(result["title"], "Windows Server 2025")
+            self.assertEqual(result["assigned_variant"], edition)
+            self.assertEqual(result["assigned_version"], "10.0.26100")
+        self.assertEqual(_operating_system_assignment("Red Hat Enterprise Linux 9.4")["title"], "Red Hat Enterprise Linux 9.4")
+
+    def test_windows_server_caption_without_nt_build_uses_release_year_as_assignment_version(self):
+        from backend.services.idoit import _operating_system_assignment
+        result = _operating_system_assignment("Microsoft Windows Server 2022 Standard")
+        self.assertEqual(result, {
+            "title": "Windows Server 2022",
+            "assigned_variant": "Standard",
+            "detected_title": "Microsoft Windows Server 2022 Standard",
+            "assigned_version": "2022",
+        })
+
+    async def test_canonical_os_resolver_excludes_edition_objects(self):
+        class Client(IdoitClient):
+            async def read_objects(self, params):
+                return [
+                    {"id": "99", "title": "Windows Server 2025 Standard", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "100", "title": "Microsoft Windows Server 2025", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                    {"id": "101", "title": "Windows Server 2025 Datacenter", "type_const": "C__OBJTYPE__OPERATING_SYSTEM"},
+                ]
+        client = Client(get_config(self.Session()))
+        result = await client.resolve_canonical_operating_system("Windows Server 2025")
+        self.assertEqual(result["object_id"], "100")
+
+    async def test_os_variant_reuses_id_and_migrates_legacy_assignment_without_duplicate(self):
+        class Client(IdoitClient):
+            def __init__(self, config):
+                super().__init__(config)
+                self.category_snapshot = {}
+                self.saved = []
+            async def read_category(self, object_id, category):
+                if category == "C__CATS__APPLICATION_VARIANT":
+                    return self.category_snapshot.get((object_id, category), [{"id": "7", "title": "Standard", "status": "2"}])
+                return self.category_snapshot.get((object_id, category), [{"id": "11", "application": {"ref_id": "99", "ref_title": "Microsoft Windows Server 2025 Standard"}, "assigned_version": "10.0.26100"}])
+            async def save_category(self, object_id, category, data, entry_id=None):
+                self.saved.append((object_id, category, data, entry_id))
+                return {"success": True, "entry": entry_id or "8"}
+        client = Client(get_config(self.Session()))
+        self.assertEqual((await client.resolve_os_variant("100", "Standard"))["entry_id"], "7")
+        self.assertEqual(client.saved, [])
+        category = "C__CATG__OPERATING_SYSTEM"
+        desired = [{"application": 100, "assigned_variant": 7, "assigned_version": "10.0.26100"}]
+        results = await client.reconcile_category("42", category, desired, legacy_os_title="Windows Server 2025 Standard 10.0.26100")
+        self.assertEqual(results[0]["status"], "updated")
+        self.assertEqual(client.saved[-1], ("42", category, {"application": 100, "assigned_variant": 7}, "11"))
+        self.assertEqual((await client.reconcile_category("42", category, desired, legacy_os_title="Windows Server 2025 Standard 10.0.26100"))[0]["status"], "unchanged")
+        self.assertEqual(len(client.saved), 1)
+
     async def test_operating_system_assignment_reuses_object_reference(self):
         class OperatingSystemClient(IdoitClient):
             async def read_category(self, object_id, category):
@@ -1222,6 +1970,16 @@ class IdoitSyncMatchingTest(unittest.IsolatedAsyncioTestCase):
                 "C__CATG__OPERATING_SYSTEM",
                 {"application": 99},
             )
+
+    def test_oversized_sync_log_is_valid_json(self):
+        raw = _safe_log_details({"warnings": ["x" * 10000], "identity_match": {"debug": "y" * 20000}})
+        self.assertLessEqual(len(raw), 8000)
+        self.assertTrue(json.loads(raw)["truncated"])
+
+    def test_legacy_invalid_sync_log_does_not_break_reader(self):
+        from backend.routers.idoit import _read_log_details
+        self.assertTrue(_read_log_details('{"warnings": ["unfinished')["invalid_legacy_details"])
+        self.assertEqual(_read_log_details('{"warnings": ["test"]}'), {"warnings": ["test"]})
 
     def test_truncated_sync_log_keeps_identity_match_debug(self):
         details = {

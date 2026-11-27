@@ -2,7 +2,7 @@ import apiClient from './client'
 
 export interface DebugLogEntry {
   id: string
-  topic: 'cmdb' | 'idoit'
+  topic: 'cmdb' | 'idoit' | 'vsphere'
   source: string
   level: 'info' | 'warning' | 'error'
   device_id?: number | null
@@ -16,7 +16,7 @@ export interface DebugLogEntry {
 }
 
 export interface DebugLogResponse {
-  topic: 'all' | 'cmdb' | 'idoit'
+  topic: 'all' | 'cmdb' | 'idoit' | 'vsphere'
   level: 'info' | 'warning' | 'error' | 'debug' | 'trace'
   query: string
   entries: DebugLogEntry[]
@@ -24,7 +24,7 @@ export interface DebugLogResponse {
 
 export const debugApi = {
   getLogs: (params: {
-    topic?: 'all' | 'cmdb' | 'idoit'
+    topic?: 'all' | 'cmdb' | 'idoit' | 'vsphere'
     level?: 'info' | 'warning' | 'error' | 'debug' | 'trace'
     q?: string
     limit?: number

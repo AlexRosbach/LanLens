@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.7.0 — Build 20261127.0004
+
+### Inventory, CMDB and virtualization
+
+- Show compact Windows agent Operating System findings in collapsed Deep Scan
+  cards rather than presenting a false empty state.
+- Restrict SNMP port statistics to devices configured as enabled SNMP switch
+  targets, and hide an empty VM host-assignment section when no hypervisor is
+  available to link.
+- Keep device-list queries bounded while exposing the enabled SNMP-switch state.
+
+- Populate the i-doit Operating System assignment's Application Variant and
+  Version fields for Windows Server editions. Existing edition-specific OS
+  objects are reused safely when a catalog has no canonical product object;
+  caption-only observations use the documented Server release year.
+- Corrected i-doit Operating System matching for named Windows Server editions
+  when WMI adds a technical NT build suffix, without weakening edition matching.
+- Added a dedicated **Applications** inventory view with grouping, filtering and
+  drill-down to versioned installations; the device Deep Scan keeps its focused
+  Applications tab.
+- Added conservative vCenter/vSphere inventory discovery, device reconciliation,
+  disk identities, optional custom-attribute mapping, scheduled collection and
+  opt-in i-doit SYSID annotation read/write support.
+- Strengthened i-doit reconciliation, HTTPS/TLS controls and diagnostics; missing
+  Application matches are summarized on the device while detailed resolutions
+  remain in the sync log.
+
+### Agents and security
+
+- Ensured Windows outbound agents explicitly negotiate TLS 1.2 when reporting
+  from the LocalSystem service account; explicit untrusted-certificate mode
+  continues to bypass certificate validation as documented and now logs the
+  underlying TLS failure detail when transport negotiation fails.
+- Extended outbound Windows and Linux agents to report the same structured
+  inventory categories as WinRM/SSH Deep Scan, including installed software and
+  supported local audit data.
+- Added explicit certificate pinning or explicitly approved certificate trust for
+  the Windows installer and report channel, with hardened enrollment, rate and
+  payload limits.
+- Hardened MCP privacy filtering and clarified that user-entered inventory text
+  can remain sensitive even when dedicated credential fields are excluded.
+
+### Operations and quality
+
+- Added diagnostic notifications and bounded, credential-free vSphere logs.
+- Added CI/CD validation for backend, frontend, MCP, agents, source security and
+  scanned multi-architecture Docker publication with provenance artifacts.
+- Added regression coverage for application inventory, vSphere reconciliation,
+  i-doit assignments and legacy database upgrades.
+
 ## 1.6.1 — Build 20261123.0004
 
 - Added outbound Windows inventory-agent enrolment with revocable, expiry-controlled installation tokens and an admin PowerShell installer generated in Deep Scan settings.

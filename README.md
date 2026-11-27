@@ -8,7 +8,7 @@
 
 ### Self-hosted network inventory & documentation — from discovery to deep insight
 
-[![Version](https://img.shields.io/badge/version-1.6.1-6366f1)](https://github.com/AlexRosbach/LanLens)
+[![Version](https://img.shields.io/badge/version-1.7.0-6366f1)](https://github.com/AlexRosbach/LanLens)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![Docker Hub](https://img.shields.io/docker/pulls/alexrosbach/lanlens?color=0ea5e9)](https://hub.docker.com/r/alexrosbach/lanlens)
 [![Follow on X](https://img.shields.io/badge/X-@itneedtoknow-000000)](https://x.com/itneedtoknow)
@@ -32,8 +32,15 @@ LanLens turns a Docker host into a local network scanner that discovers MAC/IP d
 ### Get the context that matters
 
 - Deep Scan reveals hardware, operating system, running services and installed software with versions.
-- The optional Windows Agent reports inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM required.
+- Use the Applications inventory to filter software across devices and drill into versioned installations.
+- Optional Windows and Linux Agents report inventory over outbound HTTPS, including systems outside the LAN — no inbound WinRM or SSH required. Use one enrollment token per endpoint. Revoking a token disables its enrolled agent; revoke the old token before re-enrolling. Install only from a trusted LanLens server, since the installer runs with administrator/root privileges.
+- Optionally reconcile vCenter/vSphere inventory with existing devices, inspect guest hardware and map selected virtual infrastructure data without guest credentials.
 - Visualize topology, scan changes and relevant network-security signals when expert modules are enabled.
+
+### Integrate without exposing inventory
+
+- The included MCP companion gives Claude Desktop, Claude Code, Codex, ChatGPT and compatible clients safe, read-only access to LanLens inventory.
+- Choose local stdio or authenticated Streamable HTTP; write access is disabled by default and limited to explicit metadata updates.
 
 ### Keep inventory useful beyond LanLens
 
@@ -107,6 +114,10 @@ The screenshots below use sanitized demo data with documentation IP ranges and e
 |---|---|
 | ![LanLens SNMP counter trends](docs/screenshots/lanlens-snmp-counter-trends.png) | ![LanLens feature controls](docs/screenshots/lanlens-settings-features.png) |
 
+| Applications inventory | VMware / vSphere inventory |
+|---|---|
+| ![LanLens applications inventory](docs/screenshots/lanlens-applications-inventory.png) | See the [vSphere discovery guide](docs/vsphere-discovery.md) for the guarded inventory workflow. |
+
 ---
 
 ## Quick Start
@@ -161,6 +172,18 @@ Core runtime settings:
 
 For HTTPS, external databases, Scan Nodes, deep scan permissions, CMDB/i-doit, SNMP, backups, and troubleshooting, use the [LanLens Wiki](https://github.com/AlexRosbach/LanLens/wiki).
 
+### MCP Companion
+
+LanLens includes an official MCP companion for querying the safe device inventory, services, ports, topology, segments, notifications and network changes from compatible AI clients. It defaults to read-only access, excludes dedicated credential fields and private notes from responses (inventory may still contain sensitive user-entered data), and requires an explicit configuration gate for its limited metadata-write tool.
+
+Use the companion image alongside LanLens:
+
+```bash
+docker compose --profile mcp up -d
+```
+
+For Claude Desktop, Claude Code, Codex, ChatGPT and authenticated HTTP setup, see the [MCP companion guide](docs/mcp.md).
+
 ### ARM64
 
 The main LanLens image supports 64-bit ARM hosts such as recent Raspberry Pi
@@ -169,7 +192,7 @@ name as on AMD64; Docker selects the matching image platform automatically.
 Direct ARP discovery still requires Linux host networking plus `NET_ADMIN` and
 `NET_RAW`. A 32-bit ARM userspace is not supported.
 
-Maintainers can validate both supported platforms with `docker buildx bake`.
+Maintainers can validate both supported platforms with `docker buildx bake`. See the [automated Docker build and publication guide](docs/docker-publication.md) for CI/CD, security gates, version tags and maintainer setup.
 
 ---
 

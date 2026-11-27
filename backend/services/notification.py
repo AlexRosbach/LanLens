@@ -12,7 +12,7 @@ import json
 import logging
 import ssl
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import quote, urlparse
 
@@ -35,6 +35,8 @@ MAX_PINNED_RESPONSE_BYTES = 8 * 1024 * 1024
 class PinnedHttpResponse:
     status_code: int
     text: str
+    # Only the VI/JSON session header is needed; never include it in repr/logs.
+    vmware_session_id: Optional[str] = field(default=None, repr=False)
 
 
 def _blocked_webhook_address(address: str, label: str) -> tuple[bool, str]:
@@ -140,6 +142,9 @@ def notification_device_url(db: Session, notification: Notification) -> Optional
 
 def _notification_title_and_message(notification: Notification) -> tuple[str, str]:
     device = notification.device
+    if notification.event_type in {"system_error", "idoit_incomplete"}:
+        title = "LanLens — System Error" if notification.event_type == "system_error" else "LanLens — Incomplete i-doit Sync"
+        return title, notification.message
     if notification.event_type == "network_change":
         title = "LanLens — Network Change"
         if device:
@@ -181,6 +186,18 @@ async def send_telegram_for_notification(db: Session, notification: Notification
         return False
 
     device = notification.device
+    if notification.event_type in {"system_error", "idoit_incomplete"}:
+        title, message = _notification_title_and_message(notification)
+        # Telegram accepts at most 4096 characters. Split plain text before escaping.
+        url = notification_device_url(db, notification)
+        if url:
+            message += "\n\nOpen in LanLens: " + url
+        chunks = [message[i:i+3000] for i in range(0, len(message), 3000)] or [""]
+        for index, chunk in enumerate(chunks, 1):
+            text = f"<b>{escape(title)} ({index}/{len(chunks)})</b>\n\n{escape(chunk)}"
+            if not await _send_message(config["bot_token"], config["chat_id"], text):
+                return False
+        return True
     if notification.event_type == "network_change":
         title, message = _notification_title_and_message(notification)
         device_url = notification_device_url(db, notification)
@@ -241,7 +258,7 @@ async def send_webhook_for_notification(db: Session, notification: Notification)
     payload = {
         "title": title,
         "message": message,
-        "priority": 5,
+        "priority": 8 if notification.event_type == "system_error" else 5,
         "event_type": notification.event_type,
         "device_id": notification.device_id,
         "device_path": device_path,
@@ -325,6 +342,18 @@ def _decode_chunked_body(body: bytes) -> bytes:
     return bytes(decoded)
 
 
+def _pinned_tls_context(scheme: str, verify_tls: bool = True) -> Optional[ssl.SSLContext]:
+    if scheme != "https":
+        return None
+    context = ssl.create_default_context()
+    if not verify_tls:
+        # Explicit per-request operator opt-in for configured integration endpoints.
+        # Do not change the process trust store or other integrations.
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
 async def _request_to_pinned_address(
     parsed,
     address: str,
@@ -332,6 +361,8 @@ async def _request_to_pinned_address(
     payload: Optional[dict] = None,
     headers: Optional[dict[str, str]] = None,
     timeout_seconds: float = 10.0,
+    *,
+    verify_tls: bool = True,
 ) -> PinnedHttpResponse:
     """Send an HTTP request to a pre-validated IP while preserving Host/SNI.
 
@@ -342,7 +373,7 @@ async def _request_to_pinned_address(
     hostname = parsed.hostname or ""
     ascii_hostname = _idna_hostname(hostname)
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    ssl_context = ssl.create_default_context() if parsed.scheme == "https" else None
+    ssl_context = _pinned_tls_context(parsed.scheme, verify_tls)
     reader, writer = await asyncio.wait_for(
         asyncio.open_connection(
             host=address,
@@ -382,7 +413,11 @@ async def _request_to_pinned_address(
     status_code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
     if b"transfer-encoding: chunked" in head.lower():
         response_body = _decode_chunked_body(response_body)
-    return PinnedHttpResponse(status_code, response_body.decode("utf-8", errors="replace"))
+    tokens = [line.split(b":", 1)[1].strip().decode("iso-8859-1")
+              for line in head.splitlines()[1:]
+              if line.lower().startswith(b"vmware-api-session-id:")]
+    return PinnedHttpResponse(status_code, response_body.decode("utf-8", errors="replace"),
+                              tokens[0] if len(tokens) == 1 else None)
 
 
 async def request_json_via_validated_url(
@@ -392,6 +427,8 @@ async def request_json_via_validated_url(
     headers: Optional[dict[str, str]] = None,
     timeout_seconds: float = 10.0,
     label: str = "URL",
+    *,
+    verify_tls: bool = True,
 ) -> PinnedHttpResponse:
     """Validate a URL with the SSRF guard, then request via a pinned IP."""
     parsed, addresses, error = await _resolve_webhook_addresses(url, label)
@@ -399,13 +436,16 @@ async def request_json_via_validated_url(
         raise ValueError(error or f"{label} is invalid")
 
     last_error = ""
+    last_exception: Optional[Exception] = None
     for address in sorted(addresses, key=lambda item: (":" in item, item)):
         try:
-            return await _request_to_pinned_address(parsed, address, method, payload, headers, timeout_seconds)
+            return await _request_to_pinned_address(parsed, address, method, payload, headers, timeout_seconds,
+                                                    verify_tls=verify_tls)
         except Exception as exc:
             last_error = str(exc)
+            last_exception = exc
             logger.warning("Pinned request to %s via %s failed: %s", label, address, exc)
-    raise RuntimeError(last_error or f"{label} request failed")
+    raise RuntimeError(last_error or f"{label} request failed") from last_exception
 
 
 async def _send_webhook(webhook_url: str, payload: dict) -> bool:

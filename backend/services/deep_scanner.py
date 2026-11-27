@@ -32,6 +32,7 @@ from ..models import (
     DeepScanRun,
 )
 from .crypto import decrypt_secret
+from .inventory_timeline import record_inventory_changes
 from .ssh_security import create_verified_ssh_client
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ _LINUX_HARDWARE = [
     ("hardware", "serial",      "cat /sys/class/dmi/id/product_serial 2>/dev/null || true"),
     ("hardware", "cpu",         "lscpu 2>/dev/null || true"),
     ("hardware", "memory",      "free -h 2>/dev/null || true"),
+    ("hardware", "physical_memory", "dmidecode -t 17 2>/dev/null || true"),
     ("hardware", "disks",       "lsblk -d -o NAME,SIZE,TYPE,MODEL 2>/dev/null || true"),
 ]
 
@@ -129,9 +131,9 @@ _WIN_HARDWARE = [
     ("hardware", "processor",
      "Get-CimInstance -ClassName Win32_Processor | Select-Object Name,NumberOfCores,MaxClockSpeed | ConvertTo-Json -Compress"),
     ("hardware", "physical_memory",
-     "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object Capacity,Speed | ConvertTo-Json -Compress"),
+     "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object Capacity,Speed,DeviceLocator,BankLabel,SerialNumber,Manufacturer,PartNumber,SMBIOSMemoryType | ConvertTo-Json -Compress"),
     ("hardware", "disk_drives",
-     "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Model,Size,MediaType | ConvertTo-Json -Compress"),
+     "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object Model,Size,MediaType,DeviceID,Index,SerialNumber,FirmwareRevision | ConvertTo-Json -Compress"),
 ]
 
 _WIN_OS = [
@@ -257,7 +259,12 @@ async def run_deep_scan(device_id: int, triggered_by: str = "manual") -> None:
             run.finished_at = datetime.utcnow()
             db.commit()
     finally:
-        db.close()
+        try:
+            if "run" in locals() and run.status == "error":
+                from .diagnostic_notifications import queue_diagnostic
+                queue_diagnostic(db, "system_error", "deep_scan", f"Deep Scan failed\nDevice ID: {device_id}\nProfile: {run.profile}\nSee Deep Scan history for details.", device_id)
+        finally:
+            db.close()
 
 
 # ── Linux SSH scan ────────────────────────────────────────────────────────────
@@ -351,6 +358,7 @@ def _run_linux_scan(
         run.status = "done"
         run.finished_at = datetime.utcnow()
         run.summary_json = json.dumps({"findings": finding_count, "guests": len(guest_list)})
+        record_inventory_changes(db, run, "ssh", "ssh")
         db.commit()
 
     except Exception as exc:
@@ -538,10 +546,25 @@ def _run_windows_scan(
 
         for finding_type, key, ps_cmd in commands:
             try:
-                result = session.run_ps(ps_cmd)
-                output = result.std_out.decode(errors="replace").strip()
-                if not output and result.std_err:
-                    output = result.std_err.decode(errors="replace").strip()
+                # Windows PowerShell can otherwise emit text using a legacy
+                # console code page, losing non-ASCII inventory characters.
+                utf8_prefix = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+                if key == "installed_software":
+                    # Transfer the Unicode JSON as ASCII Base64, avoiding the
+                    # WinRM/PowerShell console code page entirely.
+                    result = session.run_ps(
+                        utf8_prefix + "$inventory = (& { " + ps_cmd
+                        + " } | Out-String); "
+                        + "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($inventory))"
+                    )
+                    if result.status_code != 0 or not result.std_out.strip():
+                        continue
+                    output = _decode_software_transport(result.std_out)
+                else:
+                    result = session.run_ps(utf8_prefix + ps_cmd)
+                    output = result.std_out.decode("utf-8-sig", errors="replace").strip()
+                    if not output and result.std_err:
+                        output = result.std_err.decode("utf-8-sig", errors="replace").strip()
                 output = _sanitize_winrm_output(output)
                 if output and output not in ("IIS_NOT_INSTALLED", "HYPERV_NOT_INSTALLED",
                                              "AD_NOT_INSTALLED", "DHCP_NOT_INSTALLED"):
@@ -573,6 +596,7 @@ def _run_windows_scan(
         run.status = "done"
         run.finished_at = datetime.utcnow()
         run.summary_json = json.dumps({"findings": finding_count, "guests": len(guest_list)})
+        record_inventory_changes(db, run, "winrm", "winrm")
         db.commit()
 
     except Exception as exc:
@@ -605,6 +629,21 @@ def _load_ssh_private_key(key_text: str):
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
+
+def _decode_software_transport(raw: bytes) -> str:
+    import base64
+
+    decoded = base64.b64decode(b"".join(raw.split()), validate=True).decode("utf-8-sig")
+    # Never silently persist a lossy replacement or malformed software JSON.
+    if "\ufffd" in decoded:
+        raise ValueError("Software inventory contains invalid Unicode")
+    if not decoded.strip():
+        return "[]"
+    value = json.loads(decoded)
+    if not isinstance(value, (dict, list)):
+        raise ValueError("Invalid software inventory payload")
+    return decoded.strip()
+
 
 def _sanitize_winrm_output(output: str) -> str:
     if not output:

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.dependencies import get_current_user
 from ..database import get_db
-from ..models import CmdbSyncLog, Device, IdoitSyncLog, User
+from ..models import CmdbSyncLog, Device, IdoitSyncLog, User, VsphereDebugLog
 from ..services.settings_helpers import get_setting_value, is_advanced_feature_enabled
 
 router = APIRouter(prefix="/api/debug", tags=["debug"])
@@ -74,7 +74,7 @@ def _entry_matches(entry: dict[str, Any], query: str) -> bool:
 
 @router.get("/logs")
 def list_debug_logs(
-    topic: str = Query("all", pattern="^(all|cmdb|idoit)$"),
+    topic: str = Query("all", pattern="^(all|cmdb|idoit|vsphere)$"),
     level: Optional[str] = Query(None),
     q: str = Query("", max_length=160),
     limit: int = Query(100, ge=1, le=500),
@@ -135,6 +135,27 @@ def list_debug_logs(
                 "object_id": None,
                 "details": _parse_details(row.details_json),
                 "created_at": row.created_at,
+            })
+
+    if topic in {"all", "vsphere"}:
+        rows = (
+            db.query(VsphereDebugLog, Device)
+            .outerjoin(Device, VsphereDebugLog.device_id == Device.id)
+            .order_by(VsphereDebugLog.created_at.desc(), VsphereDebugLog.id.desc())
+        )
+        if requested_level == "error":
+            rows = rows.filter(VsphereDebugLog.level == "error")
+        elif requested_level == "warning":
+            rows = rows.filter(VsphereDebugLog.level.in_(("warning", "error")))
+        for row, device in rows.limit(limit).all():
+            entries.append({
+                "id": f"vsphere-{row.id}",
+                "topic": "vsphere", "source": "VMware / vSphere",
+                "level": row.level, "device_id": row.device_id,
+                "device_name": _device_display_name(device, row.device_id),
+                "mode": row.mode, "result": {"error": "failure", "warning": "warning"}.get(row.level, "info"),
+                "message": row.message, "object_id": None,
+                "details": _parse_details(row.details_json), "created_at": row.created_at,
             })
 
     filtered = [

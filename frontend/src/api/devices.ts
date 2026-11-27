@@ -81,7 +81,14 @@ export interface PassiveDiscoveryObservation {
   inference_reasons?: string[]
 }
 
+export interface VsphereDeviceObservation {
+  name: string; external_id: string; kind: string; match_status: string; observed_at: string
+  fields: Record<string, unknown>; custom_fields: {key: string; label: string; value: string}[]
+}
+
 export interface Device {
+  vsphere_inventory?: VsphereDeviceObservation[]
+  discovery_sources?: string[]
   id: number
   mac_address: string
   ip_address: string | null
@@ -146,6 +153,7 @@ export interface Device {
   services: Service[]
   manual_connect_entries: ManualConnectEntry[]
   ip_history?: DeviceIpHistoryEntry[]
+  snmp_monitoring_enabled?: boolean
   snmp_switch?: string | null
   snmp_switch_host?: string | null
   snmp_interface?: string | null

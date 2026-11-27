@@ -358,6 +358,9 @@ test('device detail renders Docker JSON lines as a readable container table', as
   await page.route('**/api/devices/1/deep-scan/relationships', async (route) => {
     await route.fulfill({ json: [] })
   })
+  await page.route('**/api/devices/1/deep-scan/agent-status', async (route) => {
+    await route.fulfill({ json: null })
+  })
   await page.route('**/api/credentials', async (route) => {
     await route.fulfill({ json: [{ id: 1, name: 'Docker host SSH', credential_type: 'linux_ssh' }] })
   })
@@ -380,4 +383,29 @@ test('device detail renders Docker JSON lines as a readable container table', as
   await expect(page.locator('pre')).toHaveCount(0)
 
   await page.screenshot({ path: testInfo.outputPath('lanlens-readable-container-table.png'), fullPage: false })
+})
+
+test('device detail keeps an agent OS finding visible while its Deep Scan card is collapsed', async ({ page }) => {
+  await page.route('**/api/auth/me', route => route.fulfill({ json: { username: 'admin', force_password_change: false } }))
+  await page.route('**/api/settings', route => route.fulfill({ json: settings }))
+  await page.route('**/api/notifications/unread-count', route => route.fulfill({ json: { count: 0 } }))
+  await page.route('**/api/settings/update/check', route => route.fulfill({ json: { current_version: '1.7.0', latest_version: '1.7.0', update_available: false } }))
+  await page.route('**/api/client-errors', route => route.fulfill({ json: { ok: true } }))
+  await page.route('**/api/devices', route => route.fulfill({ json: { items: [device], total: 1, online: 1, offline: 0, unregistered: 0, archived: 0 } }))
+  await page.route('**/api/devices/1/mark-viewed', route => route.fulfill({ json: { message: 'ok' } }))
+  await page.route('**/api/devices/1/ip-history', route => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/1/timeline', route => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/1/deep-scan/config', route => route.fulfill({ json: { device_id: 1, enabled: true, credential_id: null, scan_profile: 'windows_audit', auto_scan_enabled: false, interval_minutes: 60, last_scan_at: now } }))
+  await page.route('**/api/devices/1/deep-scan/runs**', route => route.fulfill({ json: [{ id: 9, device_id: 1, credential_id: null, profile: 'windows_agent', status: 'done', started_at: now, finished_at: now, summary: {}, error_message: null, triggered_by: 'agent' }] }))
+  await page.route('**/api/devices/1/deep-scan/findings**', route => route.fulfill({ json: [{ id: 20, device_id: 1, run_id: 9, finding_type: 'os', key: 'operating_system', value: { kernel: 'release-build', name: 'Windows Server Standard' }, source: 'lanlens_windows_agent', observed_at: now }] }))
+  await page.route('**/api/devices/1/deep-scan/relationships', route => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/1/deep-scan/agent-status', route => route.fulfill({ json: { device_id: 1, platform: 'windows', revoked: false, last_seen_at: now, last_sequence: 1, last_run_id: 9, summary: { finding_count: 1 } } }))
+  await page.route('**/api/credentials', route => route.fulfill({ json: [] }))
+  await page.route('**/api/devices/1', route => route.fulfill({ json: device }))
+
+  await page.goto('/devices/1')
+  await page.getByRole('button', { name: 'Operating System' }).click()
+
+  await expect(page.getByText('Windows Server Standard', { exact: true })).toBeVisible()
+  await expect(page.getByText('No findings yet. Run a deep scan to collect data.')).not.toBeVisible()
 })

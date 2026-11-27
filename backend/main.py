@@ -11,6 +11,7 @@ from .database import SessionLocal
 from .models import TokenBlacklist
 from .routers import admin, agents, auth, auto_scan_rules, client_errors, cmdb, connect, credentials, debug, deep_scan, devices, dhcp_monitor, dns_names, idoit, inventory, notifications, plugins, scan, scan_nodes, segments, services, snmp
 from .routers import settings as settings_router
+from .routers import vsphere
 from .services import deep_scan_scheduler, dns_names_scheduler, idoit_scheduler, passive_discovery_scheduler, scheduler
 from .services.initial_discovery import prepare_initial_scan_bootstrap
 from .services.scanner import run_scan
@@ -76,6 +77,8 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    from .services.diagnostic_notifications import system_error_handler
+    logging.getLogger().addHandler(system_error_handler)
     scheduler.start_scheduler(interval)
     deep_scan_scheduler.start_deep_scan_scheduler()
     idoit_scheduler.start_idoit_scheduler(idoit_interval)
@@ -86,7 +89,10 @@ async def lifespan(app: FastAPI):
 
         asyncio.create_task(run_scan(scan_type="initial"))
     logger.info(f"LanLens started — scan interval: {interval} min")
-    yield
+    try:
+        yield
+    finally:
+        logging.getLogger().removeHandler(system_error_handler)
     scheduler.stop_scheduler()
     deep_scan_scheduler.stop_deep_scan_scheduler()
     idoit_scheduler.stop_idoit_scheduler()
@@ -142,6 +148,7 @@ app.include_router(idoit.router)
 app.include_router(cmdb.router)
 app.include_router(dhcp_monitor.router)
 app.include_router(inventory.router)
+app.include_router(vsphere.router)
 app.include_router(inventory.ignore_router)
 app.include_router(inventory.backup_router)
 app.include_router(plugins.router)

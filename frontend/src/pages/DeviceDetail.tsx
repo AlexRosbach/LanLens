@@ -213,6 +213,8 @@ export default function DeviceDetail() {
   const [portScanRunning, setPortScanRunning] = useState(false)
   const [portScanRequestedAt, setPortScanRequestedAt] = useState<number | null>(null)
   const [timeline, setTimeline] = useState<ChangeEvent[]>([])
+  const [timelineExpanded, setTimelineExpanded] = useState(false)
+  const [timelineSource, setTimelineSource] = useState('all')
   const [idoitSyncing, setIdoitSyncing] = useState(false)
   const [idoitTestingSysid, setIdoitTestingSysid] = useState(false)
   const [idoitSysidLookup, setIdoitSysidLookup] = useState<IdoitSysidLookupResult | null>(null)
@@ -250,6 +252,15 @@ export default function DeviceDetail() {
       devicesApi.getTimeline(currentDevice.id).then(setTimeline).catch(() => {})
     }).finally(() => setLoading(false))
   }, [advancedViewEnabled, id, showPassiveDiscovery, showPingHistory])
+
+  useEffect(() => {
+    if (!id) return
+    let active = true
+    const refresh = () => devicesApi.getTimeline(Number(id)).then(rows => {if (active) setTimeline(rows)}).catch(() => {})
+    const timer = window.setInterval(refresh, 15000)
+    window.addEventListener("focus", refresh)
+    return () => {active=false;window.clearInterval(timer);window.removeEventListener("focus", refresh)}
+  }, [id])
 
   useEffect(() => {
     if (!portScanRunning || !device?.id) return
@@ -504,7 +515,7 @@ export default function DeviceDetail() {
   const navSections = [
     { id: 'device-documentation', label: t('device_section_documentation'), visible: true },
     { id: 'device-switch-ports', label: t('device_section_switch_ports'), visible: !!switchPorts?.has_visualization },
-    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery },
+    { id: 'device-passive-discovery', label: t('device_section_discovery'), visible: showPassiveDiscovery && passiveObservations.length > 0 },
     { id: 'device-ip-history', label: t('device_section_ip_history'), visible: true },
     { id: 'device-ping-history', label: t('device_section_ping_history'), visible: showPingHistory },
     { id: 'device-tls', label: t('device_section_tls'), visible: showTlsChecks },
@@ -524,12 +535,15 @@ export default function DeviceDetail() {
   const sectionAnchorClass = showSectionNav ? 'scroll-mt-16' : undefined
   const openPortCount = device.latest_scan?.open_ports.length ?? 0
   const visibleSwitchPorts = switchPorts?.has_visualization ? switchPorts.ports : []
+  const hasPassiveDiscoveryObservations = passiveObservations.length > 0
   const selectedPassiveMetadata = selectedPassiveObservation ? passiveMetadataEntries(selectedPassiveObservation) : []
   const hasSnmpPortStats = Boolean(
-    device.snmp_interface_speed_bps ||
-    device.snmp_interface_crc_errors !== null && device.snmp_interface_crc_errors !== undefined ||
-    device.snmp_interface_collision_errors !== null && device.snmp_interface_collision_errors !== undefined ||
-    device.snmp_interface_fragment_errors !== null && device.snmp_interface_fragment_errors !== undefined
+    device.snmp_monitoring_enabled && (
+      device.snmp_interface_speed_bps ||
+      device.snmp_interface_crc_errors !== null && device.snmp_interface_crc_errors !== undefined ||
+      device.snmp_interface_collision_errors !== null && device.snmp_interface_collision_errors !== undefined ||
+      device.snmp_interface_fragment_errors !== null && device.snmp_interface_fragment_errors !== undefined
+    )
   )
 
   return (
@@ -1025,22 +1039,15 @@ export default function DeviceDetail() {
         )}
       </Card>
 
-      {showPassiveDiscovery && (
+      {showPassiveDiscovery && hasPassiveDiscoveryObservations && (
       <Card id="device-passive-discovery" className={sectionAnchorClass}>
         <div className="flex items-center justify-between gap-3 mb-3">
-          <h2 className="text-sm font-semibold text-text-muted">{t('multicast_discovery_title')}</h2>
-          {passiveObservations.length > 0 && (
-            <span className="text-xs text-text-subtle">
-              {t('multicast_discovery_unique_observations', { count: passiveObservations.length })}
-            </span>
-          )}
+          <h2 className="text-sm font-semibold text-text-muted">{t('device_section_discovery')}</h2>
+          <span className="text-xs text-text-subtle">
+            {t('multicast_discovery_unique_observations', { count: passiveObservations.length })}
+          </span>
         </div>
-        {passiveObservations.length === 0 ? (
-          <p className="text-sm text-text-subtle">
-            {t('multicast_discovery_empty_device')}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
+        <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border text-text-subtle uppercase tracking-wider">
@@ -1089,8 +1096,7 @@ export default function DeviceDetail() {
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
+        </div>
       </Card>
       )}
 
@@ -1302,16 +1308,13 @@ export default function DeviceDetail() {
 
       {/* Host assignment (only for VM device classes) */}
       {isVmClass(device.device_class) && (
-        <Card>
-          <h2 className="text-sm font-semibold text-text-muted mb-3">{t('vm_host_section_title')}</h2>
-          <VmHostSection deviceId={device.id} />
-        </Card>
+        <VmHostSection deviceId={device.id} title={t('vm_host_section_title')} />
       )}
 
       {/* Deep Scan */}
       <Card id="device-deep-scan" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('deep_scan')}</h2>
-        <DeepScanPanel deviceId={device.id} onScanCompleted={handleDeepScanCompleted} />
+        <DeepScanPanel deviceId={device.id} onScanCompleted={handleDeepScanCompleted} vmware={device.vsphere_inventory ?? []} />
       </Card>
 
       {/* Open Ports */}
@@ -1412,21 +1415,27 @@ export default function DeviceDetail() {
 
       <Card id="device-timeline" className={sectionAnchorClass}>
         <h2 className="text-sm font-semibold text-text-muted mb-3">{t('change_timeline')}</h2>
+        {timeline.length > 0 && <div className="flex flex-wrap gap-2 mb-3"><select className="input-field text-xs" value={timelineSource} onChange={e=>{setTimelineSource(e.target.value);setTimelineExpanded(false)}}>
+          <option value="all">{lang === 'de' ? 'Alle Quellen' : 'All sources'}</option>
+          {[...new Set(timeline.map(event=>event.source))].sort().map(source=><option key={source} value={source}>{({vsphere:'VMware / vSphere', lanlens_windows_agent:'Windows Agent', lanlens_linux_agent:'Linux Agent', ssh:'SSH', winrm:'WinRM'} as Record<string,string>)[source] || source}</option>)}
+        </select></div>}
         {timeline.length === 0 ? (
           <p className="text-sm text-text-subtle">{t('no_changes_recorded')}</p>
         ) : (
           <div className="space-y-2">
-            {timeline.slice(0, 12).map((event) => (
+            {timeline.filter(event=>timelineSource==='all'||event.source===timelineSource).slice(0, timelineExpanded ? 100 : 12).map((event) => (
               <div key={event.id} className="border border-border rounded-lg p-3 bg-surface2/40">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-text-base">{event.event_type.replace(/_/g, ' ')}</p>
-                  <span className="text-xs text-text-subtle">{formatRelativeTime(event.created_at, lang)}</span>
+                  <span className="text-xs text-text-subtle">{event.source === "vsphere" ? "VMware / vSphere · " : event.source === "lanlens_windows_agent" ? "Windows Agent · " : event.source === "lanlens_linux_agent" ? "Linux Agent · " : event.source === "ssh" ? "SSH · " : event.source === "winrm" ? "WinRM · " : event.source + " · "}{formatRelativeTime(event.created_at, lang)}</span>
                 </div>
                 <p className="text-xs text-text-subtle mt-1">
                   {event.field_name ? `${event.field_name}: ${event.old_value ?? '—'} → ${event.new_value ?? '—'}` : event.message ?? event.source}
                 </p>
+                {event.field_name && event.message && <p className="text-xs text-text-muted mt-1 break-words">{event.message}</p>}
               </div>
             ))}
+            {timeline.filter(event=>timelineSource==='all'||event.source===timelineSource).length > 12 && <button className="text-xs text-primary" onClick={()=>setTimelineExpanded(!timelineExpanded)}>{timelineExpanded ? (lang==='de'?'Weniger anzeigen':'Show less') : (lang==='de'?'Weitere Änderungen anzeigen':'Show more changes')}</button>}
           </div>
         )}
       </Card>

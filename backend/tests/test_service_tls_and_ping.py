@@ -7,6 +7,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-service-tls-tests-12345")
 
@@ -21,12 +22,18 @@ from backend.services.settings_helpers import is_advanced_feature_enabled, is_ad
 
 class ServiceTlsAndPingTests(unittest.TestCase):
     def setUp(self):
-        self.engine = create_engine("sqlite:///:memory:")
+        # Port scan persistence runs in asyncio.to_thread; share the test database.
+        self.engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
     def tearDown(self):
         Base.metadata.drop_all(self.engine)
+        self.engine.dispose()
 
     def test_tls_resolver_blocks_loopback_targets(self):
         with patch("backend.routers.services.socket.getaddrinfo", return_value=[

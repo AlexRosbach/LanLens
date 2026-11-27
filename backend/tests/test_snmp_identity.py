@@ -209,6 +209,28 @@ class SnmpIdentityTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_device_response_marks_only_enabled_snmp_switches_as_monitored(self):
+        db = self.Session()
+        try:
+            device = Device(mac_address="00:11:22:33:44:89", device_class="Switch")
+            endpoint = Device(mac_address="00:11:22:33:44:90", device_class="Server")
+            db.add_all([device, endpoint])
+            db.commit()
+
+            db.add(SnmpSwitch(name="core-switch", host="192.0.2.10", device_id=device.id, enabled=True))
+            db.commit()
+
+            switch_response = _device_to_response(device)
+            endpoint_response = _device_to_response(
+                endpoint,
+                snmp_identities={endpoint.id: {"interface_crc_errors": 0}},
+            )
+
+            self.assertTrue(switch_response.snmp_monitoring_enabled)
+            self.assertFalse(endpoint_response.snmp_monitoring_enabled)
+        finally:
+            db.close()
+
     def test_snmp_mac_discovery_ignores_multicast_and_zero_addresses(self):
         db = self.Session()
         try:

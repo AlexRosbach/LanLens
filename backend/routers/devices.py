@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from ..auth.dependencies import get_current_user
 from ..database import SessionLocal, get_db
-from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, ManualConnectEntry, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User
+from ..models import DeepScanFinding, Device, DeviceChangeEvent, DeviceDnsName, DeviceIpHistory, DevicePingSample, DeviceView, ManualConnectEntry, Notification, PassiveDiscoveryObservation, PortScan, Segment, Service, Setting, User, WindowsAgent, DeepScanRun
 from ..schemas import (
     BulkPortScanRequest,
     BulkPortScanStatus,
@@ -50,6 +50,8 @@ from ..services.passive_discovery import deduplicate_observations, linked_device
 from ..services.plugin_registry import is_plugin_enabled
 from ..services.snmp import bulk_identities_for_devices, identity_for_device
 from ..services.dns_names import device_display_name
+from ..services.vsphere import device_vsphere_inventory, vmware_dashboard_inventory
+from ..services.hardware_inventory import hardware_summary, latest_hardware_by_device
 from .services import _apply_tls_result, _inspect_tls_certificate
 
 logger = logging.getLogger(__name__)
@@ -324,6 +326,7 @@ def _device_to_response(
     idoit_enabled: bool = False,
     snmp_identities: Optional[dict] = None,
     os_inference_enabled: Optional[bool] = None,
+    discovery_sources: Optional[dict] = None,
 ) -> DeviceResponse:
     from ..schemas import DeviceIpHistoryResponse, ServiceResponse
 
@@ -362,8 +365,17 @@ def _device_to_response(
         open_ports = [port.port for port in latest_scan.open_ports] if latest_scan else []
         os_inference = infer_os_family(device, open_ports)
 
+    vmware = device_vsphere_inventory(db, device.id) if db is not None and is_advanced_view_enabled(db) else []
+    if hardware_summaries is None and db is not None:
+        guests = latest_hardware_by_device(db, [device.id])
+        if is_advanced_view_enabled(db):
+            hardware_summaries = vmware_dashboard_inventory(db, [device.id], guests)[1]
+        else:
+            hardware_summaries = {device.id: hardware_summary(guests.get(device.id))}
     return DeviceResponse(
         id=device.id,
+        vsphere_inventory=vmware,
+        discovery_sources=sorted((discovery_sources or {}).get(device.id, set())),
         mac_address=device.mac_address,
         ip_address=device.ip_address,
         hostname=device.hostname,
@@ -418,6 +430,7 @@ def _device_to_response(
         services=[ServiceResponse.model_validate(s) for s in device.services],
         manual_connect_entries=[ManualConnectEntryResponse.model_validate(entry) for entry in device.manual_connect_entries],
         ip_history=ip_history,
+        snmp_monitoring_enabled=bool(device.snmp_switch and device.snmp_switch.enabled),
         snmp_switch=(snmp_identity or {}).get("switch_name"),
         snmp_switch_host=(snmp_identity or {}).get("switch_host"),
         snmp_interface=(snmp_identity or {}).get("interface_name"),
@@ -447,6 +460,34 @@ def _device_to_response(
     )
 
 
+def _device_discovery_sources(db, device_ids, snmp_identities, vmware_source_ids=None):
+    """Expose only sources backed by persisted observations; no guessed provenance."""
+    from collections import defaultdict
+    sources = defaultdict(set)
+    if not device_ids:
+        return sources
+    for (device_id,) in db.query(DevicePingSample.device_id).filter(
+        DevicePingSample.device_id.in_(device_ids), DevicePingSample.source == "scan",
+        DevicePingSample.success.is_(True),
+    ).distinct():
+        sources[device_id].add("scanner")
+    for (device_id,) in db.query(WindowsAgent.device_id).filter(WindowsAgent.device_id.in_(device_ids)).distinct():
+        sources[device_id].add("agent")
+    for (device_id,) in db.query(DeepScanRun.device_id).filter(
+        DeepScanRun.device_id.in_(device_ids), DeepScanRun.status == "done",
+        DeepScanRun.profile.notin_(("windows_agent", "linux_agent")),
+    ).distinct():
+        sources[device_id].add("deep_scan")
+    for device_id, identity in snmp_identities.items():
+        if identity:
+            sources[device_id].add("snmp")
+    if vmware_source_ids is None:
+        vmware_source_ids = vmware_dashboard_inventory(db, device_ids)[0] if is_advanced_view_enabled(db) else set()
+    for device_id in vmware_source_ids:
+        sources[device_id].add("vsphere")
+    return sources
+
+
 @router.get("", response_model=DeviceListResponse)
 def list_devices(
     online_only: Optional[bool] = None,
@@ -462,6 +503,7 @@ def list_devices(
         selectinload(Device.port_scans),
         selectinload(Device.services),
         selectinload(Device.manual_connect_entries),
+        selectinload(Device.snmp_switch),
     )
 
     if archived_only is True:
@@ -505,68 +547,19 @@ def list_devices(
     dhcp_range = _get_dhcp_ranges(db)
     segment_ranges = _prepare_segment_ranges(db.query(Segment).all())
     idoit_config = get_idoit_config(db)
-    snmp_identities = bulk_identities_for_devices(db, all_devices) if is_advanced_view_enabled(db) else {}
+    advanced_view_enabled = is_advanced_view_enabled(db)
+    snmp_identities = bulk_identities_for_devices(db, all_devices) if advanced_view_enabled else {}
     os_inference_enabled = is_os_inference_enabled(db)
 
-    # Batch-fetch hardware findings for device list display (cpu, memory, model)
-    hardware_summaries: dict = {}
-    if all_devices:
-        device_id_list = [d.id for d in all_devices]
-        hw_rows = (
-            db.query(DeepScanFinding.device_id, DeepScanFinding.key, DeepScanFinding.value_json)
-            .filter(
-                DeepScanFinding.device_id.in_(device_id_list),
-                DeepScanFinding.finding_type == "hardware",
-                DeepScanFinding.key.in_(["cpu", "memory", "model"]),
-            )
-            .order_by(DeepScanFinding.device_id, DeepScanFinding.key, DeepScanFinding.observed_at.desc())
-            .all()
-        )
-        # Group by device_id, keep latest per key
-        hw_by_device: dict = {}
-        for device_id, key, value_json in hw_rows:
-            if device_id not in hw_by_device:
-                hw_by_device[device_id] = {}
-            if key not in hw_by_device[device_id] and value_json:
-                try:
-                    hw_by_device[device_id][key] = json.loads(value_json)
-                except Exception:
-                    hw_by_device[device_id][key] = value_json
-
-        for device_id, hw in hw_by_device.items():
-            parts = []
-            # CPU: extract model name from lscpu output
-            cpu_raw = hw.get("cpu", "")
-            if cpu_raw:
-                for line in str(cpu_raw).splitlines():
-                    if "model name" in line.lower():
-                        cpu_val = line.split(":", 1)[-1].strip()
-                        # Shorten: remove "Intel(R) Core(TM)" prefix and "CPU @ X.XGHz" suffix
-                        cpu_val = cpu_val.replace("(R)", "").replace("(TM)", "").strip()
-                        cpu_val = cpu_val.split(" CPU ")[0].strip()
-                        cpu_val = cpu_val.split(" @ ")[0].strip()
-                        if cpu_val:
-                            parts.append(cpu_val[:40])
-                        break
-            # Memory: extract total from free -h
-            mem_raw = hw.get("memory", "")
-            if mem_raw:
-                for line in str(mem_raw).splitlines():
-                    if line.lower().startswith("mem:"):
-                        tokens = line.split()
-                        if len(tokens) >= 2:
-                            mem_total = tokens[1]
-                            # Convert Gi/Mi to GB/MB for clarity
-                            mem_total = mem_total.replace("Gi", " GB").replace("Mi", " MB").replace("Gib", " GB")
-                            parts.append(f"{mem_total} RAM")
-                        break
-            # Fallback to model
-            if not parts:
-                model_raw = hw.get("model", "")
-                if model_raw:
-                    parts.append(str(model_raw).strip()[:60])
-            if parts:
-                hardware_summaries[device_id] = " · ".join(parts)
+    # Source observations stay intact. VMware wins for each available hardware
+    # field, while guest scans fill the remaining fields.
+    device_ids = [d.id for d in all_devices]
+    guest_hardware = latest_hardware_by_device(db, device_ids)
+    if advanced_view_enabled:
+        vmware_source_ids, hardware_summaries = vmware_dashboard_inventory(db, device_ids, guest_hardware)
+    else:
+        vmware_source_ids = set()
+        hardware_summaries = {device_id: hardware_summary(hw) for device_id, hw in guest_hardware.items()}
 
     # Batch-fetch host relationships for VM-class devices
     from ..models import DeviceHostRelationship
@@ -589,6 +582,7 @@ def list_devices(
             if rel.child_device_id not in host_labels:
                 host_labels[rel.child_device_id] = host_devices_map.get(rel.host_device_id, f"Host #{rel.host_device_id}")
 
+    discovery_sources = _device_discovery_sources(db, device_ids, snmp_identities, vmware_source_ids)
     return DeviceListResponse(
         items=[
             _device_to_response(
@@ -602,6 +596,7 @@ def list_devices(
                 idoit_enabled=idoit_config.enabled,
                 snmp_identities=snmp_identities,
                 os_inference_enabled=os_inference_enabled,
+                discovery_sources=discovery_sources,
             )
             for d in all_devices
         ],
@@ -626,6 +621,7 @@ def get_new_devices(
             selectinload(Device.port_scans),
             selectinload(Device.services),
             selectinload(Device.manual_connect_entries),
+            selectinload(Device.snmp_switch),
         )
         .filter(Device.is_archived == False)
         .filter(Device.is_registered == False)
@@ -1237,57 +1233,17 @@ def get_device(
         selectinload(Device.port_scans),
         selectinload(Device.services),
         selectinload(Device.manual_connect_entries),
+        selectinload(Device.snmp_switch),
     ).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
     dhcp_range = _get_dhcp_ranges(db)
     viewed_device_ids = _get_viewed_device_ids(db, current_user)
-    # Fetch hardware summary for single device (cpu, memory, model)
-    hw_summary: dict = {}
-    hw_rows = (
-        db.query(DeepScanFinding.key, DeepScanFinding.value_json)
-        .filter(
-            DeepScanFinding.device_id == device_id,
-            DeepScanFinding.finding_type == "hardware",
-            DeepScanFinding.key.in_(["cpu", "memory", "model"]),
-        )
-        .order_by(DeepScanFinding.key, DeepScanFinding.observed_at.desc())
-        .all()
-    )
-    hw: dict = {}
-    for key, value_json in hw_rows:
-        if key not in hw and value_json:
-            try:
-                hw[key] = json.loads(value_json)
-            except Exception:
-                hw[key] = value_json
-    if hw:
-        parts = []
-        cpu_raw = hw.get("cpu", "")
-        if cpu_raw:
-            for line in str(cpu_raw).splitlines():
-                if "model name" in line.lower():
-                    cpu_val = line.split(":", 1)[-1].strip()
-                    cpu_val = cpu_val.replace("(R)", "").replace("(TM)", "").strip()
-                    cpu_val = cpu_val.split(" CPU ")[0].strip()
-                    cpu_val = cpu_val.split(" @ ")[0].strip()
-                    if cpu_val:
-                        parts.append(cpu_val[:40])
-                    break
-        mem_raw = hw.get("memory", "")
-        if mem_raw:
-            for line in str(mem_raw).splitlines():
-                if line.lower().startswith("mem:"):
-                    total = line.split()[1]
-                    total = total.replace("Gi", " GB").replace("Mi", " MB").replace("Gib", " GB")
-                    parts.append(f"{total} RAM")
-                    break
-        if not parts:
-            model_raw = hw.get("model", "")
-            if model_raw:
-                parts.append(str(model_raw).strip()[:60])
-        if parts:
-            hw_summary[device_id] = " · ".join(parts)
+    guest_hardware = latest_hardware_by_device(db, [device_id])
+    if is_advanced_view_enabled(db):
+        hw_summary = vmware_dashboard_inventory(db, [device_id], guest_hardware)[1]
+    else:
+        hw_summary = {device_id: hardware_summary(guest_hardware.get(device_id))}
     # Fetch host label for VM-class devices
     from ..models import DeviceHostRelationship
     host_labels: dict = {}

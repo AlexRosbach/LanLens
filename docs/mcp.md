@@ -2,15 +2,11 @@
 
 ## Privacy boundary
 
-The companion removes credentials from service URLs (including URL userinfo,
-queries and fragments) and never returns private device notes through audit
-history. Treat MCP access as inventory access nonetheless: use the authenticated
-HTTP transport and limit its allowed hosts to the intended clients.
+The companion removes URL userinfo, queries and fragments, omits common free-text fields and notification messages, and allow-lists structural change values. Identifiers and URL paths may still contain sensitive user-entered data. Treat MCP access as sensitive inventory access: use authenticated HTTP and limit allowed hosts to intended clients.
 
 LanLens ships an official Model Context Protocol (MCP) companion that lets Claude,
 Codex, ChatGPT, and other MCP clients query the self-hosted LanLens REST API. The
-companion is read-only by default and never returns credentials, secrets, password
-locations, private device notes, raw authentication material, or arbitrary API paths.
+companion is read-only by default, excludes dedicated credential fields and private notes, and does not expose arbitrary API paths. It is not a general-purpose secret detector.
 
 ## Prerequisites
 
@@ -27,7 +23,7 @@ allow-listed MCP metadata mutation is explicitly required.
 
 ## Claude Desktop one-click bundle
 
-Download `lanlens-mcp-1.6.1.mcpb` from the GitHub release, then open Claude Desktop
+Download `lanlens-mcp-1.7.0.mcpb` from the GitHub release, then open Claude Desktop
 and select **Settings → Desktop app → Extensions → Advanced settings → Install
 Extension…**. Enter the LanLens URL and persistent API token. Device metadata writes
 remain disabled unless enabled in the extension settings and by the LanLens token.
@@ -44,7 +40,7 @@ docker run --rm \
   -e LANLENS_MCP_HTTP_TOKEN=replace-with-a-different-random-token \
   -e LANLENS_MCP_ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal \
   --add-host host.docker.internal:host-gateway \
-  alexrosbach/lanlens:1.6.1-mcp-dev
+  alexrosbach/lanlens:1.7.0-mcp-dev
 ```
 
 Or use the optional Compose profile after setting `LANLENS_API_TOKEN` and

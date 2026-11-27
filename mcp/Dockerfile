@@ -9,7 +9,12 @@ RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
 
-ARG LANLENS_APP_VERSION=1.6.1
+# npm is only needed in the builder. Remove its vulnerable bundled dependencies
+# from the runtime image; the companion starts directly with node.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/bin/npm /usr/local/bin/npx
+
+ARG LANLENS_APP_VERSION=1.7.0
 ARG LANLENS_BUILD_CODE=dev
 ARG LANLENS_BUILD_COMMIT=unknown
 ARG LANLENS_BUILD_BRANCH=unknown

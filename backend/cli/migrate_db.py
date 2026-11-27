@@ -22,8 +22,8 @@ def _column_exists(conn, table: str, column: str) -> bool:
     except Exception:
         # Fallback to SQLite PRAGMA
         try:
-            result = conn.execute(text(f"PRAGMA table_info({table})"))
-            return any(row[1] == column for row in result)
+            result = conn.execute(text("SELECT name FROM pragma_table_info(:table)"), {"table": table})
+            return any(row[0] == column for row in result)
         except Exception:
             return False
 
@@ -67,14 +67,46 @@ def _has_unique_device_views_constraint(conn) -> bool:
         if not row[2]:
             continue
         idx_name = row[1]
-        columns = conn.execute(text(f"PRAGMA index_info({idx_name})")).fetchall()
-        if [col[2] for col in columns] == ["user_id", "device_id"]:
+        columns = conn.execute(text("SELECT name FROM pragma_index_info(:index_name) ORDER BY seqno"), {"index_name": idx_name}).fetchall()
+        if [col[0] for col in columns] == ["user_id", "device_id"]:
             return True
     return False
 
 
 def migrate():
     with engine.connect() as conn:
+        if _table_exists(conn, "vsphere_connections"):
+            if not _column_exists(conn, "vsphere_connections", "verify_tls"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN verify_tls BOOLEAN NOT NULL DEFAULT TRUE"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "writeback_sysid"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN writeback_sysid BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "sysid_field_key"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN sysid_field_key INTEGER"))
+                conn.execute(text("UPDATE vsphere_connections SET writeback_sysid = FALSE"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "read_sysid"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN read_sysid BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "attribute_mappings_json"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN attribute_mappings_json TEXT"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "device_field_mappings_json"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN device_field_mappings_json TEXT"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "auto_scan_enabled"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN auto_scan_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "scan_interval_minutes"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN scan_interval_minutes INTEGER NOT NULL DEFAULT 60"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "last_scan_attempt_at"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN last_scan_attempt_at TIMESTAMP"))
+                conn.commit()
+            if not _column_exists(conn, "vsphere_connections", "visible_fields_json"):
+                conn.execute(text("ALTER TABLE vsphere_connections ADD COLUMN visible_fields_json TEXT"))
+                conn.commit()
         # ── v1.1.0 ── Add segment_id to devices ──────────────────────────────
         if not _column_exists(conn, "devices", "segment_id"):
             conn.execute(
@@ -818,7 +850,8 @@ def migrate():
             "tls_error": "ALTER TABLE services ADD COLUMN tls_error TEXT",
         }.items():
             if _table_exists(conn, "services") and not _column_exists(conn, "services", column):
-                conn.execute(text(ddl))
+                # DDL comes only from the fixed migration map above; no user input.
+                conn.exec_driver_sql(ddl)
                 conn.commit()
                 print(f"Migration: added services.{column}")
             elif _table_exists(conn, "services"):
@@ -883,7 +916,8 @@ def migrate():
             "layer1_errors_per_minute",
         ):
             if _table_exists(conn, "snmp_interfaces") and not _column_exists(conn, "snmp_interfaces", column):
-                conn.execute(text(f"ALTER TABLE snmp_interfaces ADD COLUMN {column} FLOAT"))
+                # Column names come exclusively from the fixed tuple above.
+                conn.exec_driver_sql(f"ALTER TABLE snmp_interfaces ADD COLUMN {column} FLOAT")
                 conn.commit()
                 print(f"Migration: added snmp_interfaces.{column}")
             elif _table_exists(conn, "snmp_interfaces"):
@@ -1001,6 +1035,14 @@ def migrate():
             print("Migration: windows_agents — skipped (non-SQLite, handled by create_all)")
         else:
             print("Migration: windows_agents already exists — skipped")
+
+        if _table_exists(conn, "windows_agents") and not _column_exists(conn, "windows_agents", "platform"):
+            conn.execute(text("ALTER TABLE windows_agents ADD COLUMN platform VARCHAR(16)"))
+            print("Migration: added windows_agents.platform")
+
+        if _table_exists(conn, "windows_agents") and not _column_exists(conn, "windows_agents", "desired_report_interval_minutes"):
+            conn.execute(text("ALTER TABLE windows_agents ADD COLUMN desired_report_interval_minutes INTEGER NOT NULL DEFAULT 60"))
+            print("Migration: added windows_agents.desired_report_interval_minutes")
 
         conn.commit()
 

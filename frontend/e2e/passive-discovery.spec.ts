@@ -111,6 +111,7 @@ const device = {
 }
 
 test('device multicast discovery dedupes rows and shows LLDP class hints', async ({ page }) => {
+  let showObservations = true
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({ json: { username: 'admin', force_password_change: false } })
   })
@@ -150,7 +151,7 @@ test('device multicast discovery dedupes rows and shows LLDP class hints', async
   })
   await page.route('**/api/devices/1/passive-discovery?**', async (route) => {
     await route.fulfill({
-      json: [
+      json: showObservations ? [
         {
           id: 1,
           protocol: 'multicast',
@@ -229,7 +230,7 @@ test('device multicast discovery dedupes rows and shows LLDP class hints', async
           linked_device_id: 1,
           linked_device_label: 'Printer 01',
         },
-      ],
+      ] : [],
     })
   })
 
@@ -253,6 +254,10 @@ test('device multicast discovery dedupes rows and shows LLDP class hints', async
   await expect(page.getByText('"destination_port": 9999')).toBeVisible()
   await expect(page.getByText('"source_port": 43000')).toBeVisible()
   await page.screenshot({ path: `${screenshotDir}/passive-discovery-detail.png`, fullPage: true })
+  showObservations = false
+  await page.reload()
+  await expect(page.locator('#device-passive-discovery')).toHaveCount(0)
+  await expect(page.getByText(/No mDNS, SSDP\/UPnP or multicast observations/i)).toHaveCount(0)
 })
 
 test('device detail danger zone can archive a device manually', async ({ page }) => {

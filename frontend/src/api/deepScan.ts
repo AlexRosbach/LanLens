@@ -32,13 +32,13 @@ export interface DeepScanRun {
   id: number
   device_id: number
   credential_id: number | null
-  profile: ScanProfile
+  profile: ScanProfile | 'windows_agent' | 'linux_agent'
   status: DeepScanStatus
   started_at: string
   finished_at: string | null
   summary: Record<string, unknown> | null
   error_message: string | null
-  triggered_by: 'manual' | 'scheduled'
+  triggered_by: 'manual' | 'scheduled' | 'agent'
 }
 
 export interface DeepScanFinding {
@@ -49,6 +49,7 @@ export interface DeepScanFinding {
   key: string
   value: unknown
   source: string | null
+  collection_source?: string | null
   observed_at: string
 }
 
@@ -63,7 +64,21 @@ export interface DeviceHostRelationship {
   last_confirmed_at: string
 }
 
+export interface AgentStatus {
+  device_id: number
+  platform: string | null
+  revoked: boolean
+  last_seen_at: string | null
+  last_sequence: number
+  report_interval_minutes: number
+  last_run_id: number | null
+  summary: { software_count?: number; finding_count?: number } | null
+}
+
 export const deepScanApi = {
+  getAgentStatus: (deviceId: number) => apiClient.get<AgentStatus | null>(`/devices/${deviceId}/deep-scan/agent-status`),
+  updateAgentReportInterval: (deviceId: number, report_interval_minutes: number) =>
+    apiClient.put<{ report_interval_minutes: number }>(`/devices/${deviceId}/deep-scan/agent-report-interval`, { report_interval_minutes }),
   getConfig: (deviceId: number) =>
     apiClient.get<DeepScanConfig>(`/devices/${deviceId}/deep-scan/config`),
 

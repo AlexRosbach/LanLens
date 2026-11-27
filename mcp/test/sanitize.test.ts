@@ -57,3 +57,15 @@ test('network change output redacts private note values using the API field_name
   assert.equal('old_value' in sanitized, false);
   assert.equal('new_value' in sanitized, false);
 });
+
+test('free-text and unknown change fields are omitted by default', () => {
+  const secret = 'example-sensitive-text';
+  const device = sanitizeDevice({...deviceFixture, description: secret, purpose: secret, location: secret, responsible: secret});
+  assert.equal(JSON.stringify(device).includes(secret), false);
+  const service = sanitizeService({description: secret, url: 'data:text/plain,' + secret});
+  assert.equal(JSON.stringify(service).includes(secret), false);
+  for (const field of ['password_location', 'unknown_field', 'description']) {
+    const change = sanitizeNetworkChange({field_name: field, message: secret, old_value: secret, new_value: secret});
+    assert.equal(JSON.stringify(change).includes(secret), false);
+  }
+});

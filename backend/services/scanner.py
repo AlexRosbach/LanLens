@@ -1032,7 +1032,17 @@ async def run_scan(scan_type: str = "scheduled") -> Optional[ScanRun]:
         _scan_running = False
 
 
+_notification_delivery_lock = asyncio.Lock()
+
+
 async def _send_notification_deliveries(db: Session) -> None:
+    if _notification_delivery_lock.locked():
+        return
+    async with _notification_delivery_lock:
+        await _deliver_pending_notifications(db)
+
+
+async def _deliver_pending_notifications(db: Session) -> None:
     """Send configured external deliveries for unsent new-device notifications.
 
     Only query rows for channels that are currently enabled. Otherwise disabled
@@ -1078,14 +1088,20 @@ async def _send_notification_deliveries(db: Session) -> None:
         "telegram": {
             "new_device": channel_rule_enabled("telegram_notify_new_device", "notify_on_new_device", "true"),
             **network_change_channel_rules("telegram"),
+            "system_error": channel_rule_enabled("telegram_notify_system_error", "notify_on_system_error"),
+            "idoit_incomplete": channel_rule_enabled("telegram_notify_idoit_incomplete", "notify_on_idoit_incomplete"),
         },
         "webhook": {
             "new_device": channel_rule_enabled("webhook_notify_new_device", "notify_on_new_device", "true"),
             **network_change_channel_rules("webhook"),
+            "system_error": channel_rule_enabled("webhook_notify_system_error", "notify_on_system_error"),
+            "idoit_incomplete": channel_rule_enabled("webhook_notify_idoit_incomplete", "notify_on_idoit_incomplete"),
         },
         "smtp": {
             "new_device": channel_rule_enabled("smtp_notify_new_device", "notify_on_new_device", "true"),
             **network_change_channel_rules("smtp"),
+            "system_error": channel_rule_enabled("smtp_notify_system_error", "notify_on_system_error"),
+            "idoit_incomplete": channel_rule_enabled("smtp_notify_idoit_incomplete", "notify_on_idoit_incomplete"),
         },
     }
 

@@ -66,6 +66,14 @@ export interface AllSettings {
   smtp_notify_device_archive_change: boolean
   smtp_notify_mac_drift: boolean
   smtp_notify_unknown_dhcp_server: boolean
+  notify_on_system_error: boolean
+  telegram_notify_system_error: boolean
+  webhook_notify_system_error: boolean
+  smtp_notify_system_error: boolean
+  notify_on_idoit_incomplete: boolean
+  telegram_notify_idoit_incomplete: boolean
+  webhook_notify_idoit_incomplete: boolean
+  smtp_notify_idoit_incomplete: boolean
   server_url: string
   smtp_host: string
   smtp_port: number
@@ -83,6 +91,8 @@ export interface AllSettings {
   advanced_view_enabled: boolean
   show_cmdb_integrations: boolean
   show_services_nav: boolean
+  show_applications_nav: boolean
+  show_vsphere: boolean
   show_dhcp_monitor_nav: boolean
   show_network_topology_nav: boolean
   show_plugin_api: boolean
@@ -196,6 +206,14 @@ export const settingsApi = {
     smtp_notify_device_archive_change: boolean
     smtp_notify_mac_drift: boolean
     smtp_notify_unknown_dhcp_server: boolean
+    notify_on_system_error: boolean
+    telegram_notify_system_error: boolean
+    webhook_notify_system_error: boolean
+    smtp_notify_system_error: boolean
+    notify_on_idoit_incomplete: boolean
+    telegram_notify_idoit_incomplete: boolean
+    webhook_notify_idoit_incomplete: boolean
+    smtp_notify_idoit_incomplete: boolean
   }) => apiClient.put('/settings/notification-rules', data).then((r) => r.data),
 
   testTelegram: () => apiClient.post('/settings/telegram/test').then((r) => r.data),
@@ -255,11 +273,15 @@ export const settingsApi = {
     show_build_info: boolean,
     show_debug_tools: boolean,
     debug_log_level: 'info' | 'warning' | 'error' | 'debug' | 'trace',
+    show_applications_nav?: boolean,
+    show_vsphere?: boolean,
   ) =>
     apiClient.put('/settings/ui', {
       advanced_view_enabled,
       show_cmdb_integrations,
       show_services_nav,
+      show_applications_nav,
+      show_vsphere,
       show_dhcp_monitor_nav,
       show_network_topology_nav,
       show_plugin_api,

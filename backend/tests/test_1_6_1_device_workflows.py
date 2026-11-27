@@ -14,7 +14,7 @@ from fastapi import HTTPException
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-1-6-1-workflows")
 
 from backend.database import Base
-from backend.models import Credential, DeepScanFinding, DeepScanRun, Device, ManualConnectEntry, PortScan, Setting, User
+from backend.models import Credential, DeepScanFinding, DeepScanRun, Device, ManualConnectEntry, PortScan, Setting, User, VsphereConnection, VsphereInventoryObject, DevicePingSample
 from backend.routers import devices as devices_router
 from backend.routers import scan as scan_router
 from backend.routers import settings as settings_router
@@ -211,15 +211,54 @@ class DeviceWorkflowTests(unittest.TestCase):
             patch.object(settings_router, "update_port_scan_schedule"),
             patch.object(settings_router, "update_snmp_poll_schedule"),
         ):
-            settings_router.update_ui_settings(
+            asyncio.run(settings_router.update_ui_settings(
                 UiSettings(show_os_inference=True),
                 db=db,
                 _=User(id=1, username="tester", password_hash="unused"),
-            )
+            ))
 
         stored = db.query(Setting).filter(Setting.key == "show_os_inference").one()
         self.assertEqual(stored.value, "true")
         db.close()
+
+    def test_device_discovery_sources_combine_scanner_and_vmware(self):
+        with self.Session() as db:
+            device = Device(mac_address="02:00:00:00:00:99", hostname="example")
+            db.add(device)
+            db.flush()
+            db.add(Setting(key="advanced_view_enabled", value="true"))
+            db.add(VsphereConnection(id=1, enabled=True))
+            db.add(DevicePingSample(device_id=device.id, source="scan", success=True))
+            db.flush()
+            db.add(VsphereInventoryObject(connection_id=1, device_id=device.id,
+                    kind="vm", external_id="vm-1", name="example", match_status="existing"))
+            db.commit()
+            self.assertEqual(devices_router._device_discovery_sources(db, [device.id], {})[device.id],
+                             {"scanner", "vsphere"})
+
+    def test_ui_settings_toggle_vsphere_without_credentials(self):
+        with (
+            self.Session() as db,
+            patch.object(settings_router, "update_passive_discovery_schedule"),
+            patch.object(settings_router, "update_ping_monitor_schedule"),
+            patch.object(settings_router, "update_port_scan_schedule"),
+            patch.object(settings_router, "update_snmp_poll_schedule"),
+        ):
+            user = User(id=1, username="tester", password_hash="unused")
+            asyncio.run(settings_router.update_ui_settings(
+                UiSettings(advanced_view_enabled=True, show_vsphere=True), db=db, _=user,
+            ))
+            row = db.get(VsphereConnection, 1)
+            self.assertTrue(row.enabled)
+            self.assertEqual(row.endpoint, "")
+            row.endpoint = "https://vc.example.test"
+            db.commit()
+            asyncio.run(settings_router.update_ui_settings(
+                UiSettings(advanced_view_enabled=True, show_vsphere=False), db=db, _=user,
+            ))
+            db.refresh(row)
+            self.assertFalse(row.enabled)
+            self.assertEqual(row.endpoint, "https://vc.example.test")
 
     def test_manual_connect_entries_can_be_created_updated_and_deleted(self):
         db = self.Session()

@@ -5,6 +5,7 @@ interface UiSettingsState {
   advancedViewEnabled: boolean
   showCmdbIntegrations: boolean
   showServicesNav: boolean
+  showApplicationsNav: boolean
   showDhcpMonitorNav: boolean
   showNetworkTopologyNav: boolean
   showPluginApi: boolean
@@ -15,6 +16,7 @@ interface UiSettingsState {
   showPingHistory: boolean
   showBuildInfo: boolean
   showDebugTools: boolean
+  showVsphere: boolean
   debugLogLevel: 'info' | 'warning' | 'error' | 'debug' | 'trace'
   appVersion: string
   buildCode: string
@@ -25,6 +27,7 @@ interface UiSettingsState {
   setAdvancedViewEnabled: (advancedViewEnabled: boolean) => void
   setShowCmdbIntegrations: (showCmdbIntegrations: boolean) => void
   setShowServicesNav: (showServicesNav: boolean) => void
+  setShowApplicationsNav: (showApplicationsNav: boolean) => void
   setShowDhcpMonitorNav: (showDhcpMonitorNav: boolean) => void
   setShowNetworkTopologyNav: (showNetworkTopologyNav: boolean) => void
   setShowPluginApi: (showPluginApi: boolean) => void
@@ -35,6 +38,7 @@ interface UiSettingsState {
   setShowPingHistory: (showPingHistory: boolean) => void
   setShowBuildInfo: (showBuildInfo: boolean) => void
   setShowDebugTools: (showDebugTools: boolean) => void
+  setShowVsphere: (showVsphere: boolean) => void
   fetchUiSettings: () => Promise<void>
 }
 
@@ -59,6 +63,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   advancedViewEnabled: false,
   showCmdbIntegrations: false,
   showServicesNav: false,
+  showApplicationsNav: false,
   showDhcpMonitorNav: false,
   showNetworkTopologyNav: false,
   showPluginApi: false,
@@ -69,6 +74,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   showPingHistory: false,
   showBuildInfo: false,
   showDebugTools: false,
+  showVsphere: false,
   debugLogLevel: 'warning',
   appVersion: '',
   buildCode: '',
@@ -81,11 +87,13 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
     advancedViewEnabled,
     showCmdbIntegrations: advancedViewEnabled && state.showCmdbIntegrations,
     showServicesNav: advancedViewEnabled && state.showServicesNav,
+    showApplicationsNav: advancedViewEnabled && state.showApplicationsNav,
     showDhcpMonitorNav: advancedViewEnabled && state.showDhcpMonitorNav,
     showNetworkTopologyNav: advancedViewEnabled && state.showNetworkTopologyNav,
     showTlsChecks: advancedViewEnabled && state.showTlsChecks,
     showPingHistory: advancedViewEnabled && state.showPingHistory,
     showDebugTools: advancedViewEnabled && state.showDebugTools,
+    showVsphere: advancedViewEnabled && state.showVsphere,
     ...normalizeFeatureGates({
       advancedViewEnabled,
       showPluginApi: state.showPluginApi,
@@ -96,6 +104,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   })),
   setShowCmdbIntegrations: (showCmdbIntegrations) => set({ showCmdbIntegrations }),
   setShowServicesNav: (showServicesNav) => set({ showServicesNav }),
+  setShowApplicationsNav: (showApplicationsNav) => set({ showApplicationsNav }),
   setShowDhcpMonitorNav: (showDhcpMonitorNav) => set({ showDhcpMonitorNav }),
   setShowNetworkTopologyNav: (showNetworkTopologyNav) => set({ showNetworkTopologyNav }),
   setShowPluginApi: (showPluginApi) => set((state) => normalizeFeatureGates({
@@ -130,6 +139,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
   setShowPingHistory: (showPingHistory) => set({ showPingHistory }),
   setShowBuildInfo: (showBuildInfo) => set({ showBuildInfo }),
   setShowDebugTools: (showDebugTools) => set({ showDebugTools }),
+  setShowVsphere: (showVsphere) => set(state => ({showVsphere: state.advancedViewEnabled && showVsphere})),
 
   fetchUiSettings: async () => {
     set({ loading: true })
@@ -146,6 +156,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
         advancedViewEnabled: settings.advanced_view_enabled,
         showCmdbIntegrations: settings.advanced_view_enabled && settings.show_cmdb_integrations,
         showServicesNav: settings.advanced_view_enabled && settings.show_services_nav,
+        showApplicationsNav: settings.advanced_view_enabled && settings.show_applications_nav,
         showDhcpMonitorNav: settings.advanced_view_enabled && settings.show_dhcp_monitor_nav,
         showNetworkTopologyNav: settings.advanced_view_enabled && settings.show_network_topology_nav,
         showPluginApi: featureGates.showPluginApi,
@@ -156,6 +167,7 @@ export const useUiSettingsStore = create<UiSettingsState>((set) => ({
         showPingHistory: settings.advanced_view_enabled && settings.show_ping_history,
         showBuildInfo: settings.show_build_info,
         showDebugTools: settings.advanced_view_enabled && settings.show_debug_tools,
+        showVsphere: settings.advanced_view_enabled && settings.show_vsphere,
         debugLogLevel: settings.debug_log_level,
         appVersion: settings.app_version,
         buildCode: settings.build_code,

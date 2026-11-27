@@ -9,12 +9,14 @@ import { deepScanApi, type DeviceHostRelationship } from '../../api/deepScan'
 import { devicesApi, type Device } from '../../api/devices'
 import { isHypervisorClass } from '../devices/DeviceClassIcon'
 import { useI18n } from '../../i18n'
+import Card from '../ui/Card'
 
 interface Props {
   deviceId: number
+  title: string
 }
 
-export default function VmHostSection({ deviceId }: Props) {
+export default function VmHostSection({ deviceId, title }: Props) {
   const { t } = useI18n()
   const navigate = useNavigate()
 
@@ -94,12 +96,18 @@ export default function VmHostSection({ deviceId }: Props) {
   const linkedHostIds = new Set(hostRels.map((r) => r.host_device_id))
   const availableHosts = hostDevices.filter((d) => !linkedHostIds.has(d.id))
 
+  // A VM without an eligible hypervisor or an existing link has nothing useful
+  // to show here.  Do not render an empty "Runs on Host" shell.
+  if (hostRels.length === 0 && availableHosts.length === 0) return null
+
   return (
-    <div className="space-y-3">
-      {/* Currently linked hosts */}
-      {hostRels.length > 0 && (
-        <div className="space-y-2">
-          {hostRels.map((rel) => {
+    <Card>
+      <h2 className="text-sm font-semibold text-text-muted mb-3">{title}</h2>
+      <div className="space-y-3">
+        {/* Currently linked hosts */}
+        {hostRels.length > 0 && (
+          <div className="space-y-2">
+            {hostRels.map((rel) => {
             const host = hostData[rel.host_device_id]
             const label = host
               ? host.label || host.hostname || host.mac_address
@@ -137,13 +145,13 @@ export default function VmHostSection({ deviceId }: Props) {
                 </button>
               </div>
             )
-          })}
-        </div>
-      )}
+            })}
+          </div>
+        )}
 
-      {/* Link a host */}
-      {availableHosts.length > 0 && (
-        <div className="flex gap-2 items-end">
+        {/* Link a host */}
+        {availableHosts.length > 0 && (
+          <div className="flex gap-2 items-end">
           <div className="flex-1 flex flex-col gap-1">
             <label className="text-xs text-text-subtle">{t('vm_host_select')}</label>
             <select
@@ -166,12 +174,10 @@ export default function VmHostSection({ deviceId }: Props) {
           >
             {saving ? '…' : t('vm_host_link')}
           </button>
-        </div>
-      )}
+          </div>
+        )}
 
-      {hostRels.length === 0 && availableHosts.length === 0 && (
-        <p className="text-xs text-text-subtle">{t('vm_host_no_hosts_available')}</p>
-      )}
-    </div>
+      </div>
+    </Card>
   )
 }
